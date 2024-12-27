@@ -89,7 +89,7 @@ for j in range(run_iteration):
                     reward += model_o.check_reward_danger() / 1000
                     if(reward == 0):
                       reward = -0.01 
-                    if(step_num%300 == 0):
+                    if(step_num%400 == 0):
                         if (initialized != 0):
                           model_o.robot.update_weight(reward)
                           reward = 0
