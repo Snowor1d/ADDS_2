@@ -1222,12 +1222,12 @@ class RobotAgent(CrowdAgent):
                     self.w2 += alpha * (discounted_reward + discount_factor * next_state_max_Q - present_state_Q) * f2
                 self.feature_weights_guide[0] = self.w1
                 self.feature_weights_guide[1] = self.w2 
-                with open ('log_guide.txt', 'a') as f:
-                    f.write("GUIDE learning . . .\n")
-                    f.write(f"w1 ( {self.w1} ) += alpha ( {alpha} ) * (reward ( {discounted_reward} ) + discount_factor ( {discount_factor} ) * next_state_max_Q({ next_state_max_Q }) - present_state_Q ( {present_state_Q})) * f1( {f1})\n")
-                    f.write(f"w2 ( { self.w2 } ) += alpha ( { alpha }) * (reward ( { discounted_reward }) + discount_factor ( { discount_factor }) * next_state_max_Q( { next_state_max_Q }) - present_state_Q ({ present_state_Q})) * f2({ f2})\n")
-                    f.write("============================================================================\n")
-                    f.close()
+                # with open ('log_guide.txt', 'a') as f:
+                #     f.write("GUIDE learning . . .\n")
+                #     f.write(f"w1 ( {self.w1} ) += alpha ( {alpha} ) * (reward ( {discounted_reward} ) + discount_factor ( {discount_factor} ) * next_state_max_Q({ next_state_max_Q }) - present_state_Q ( {present_state_Q})) * f1( {f1})\n")
+                #     f.write(f"w2 ( { self.w2 } ) += alpha ( { alpha }) * (reward ( { discounted_reward }) + discount_factor ( { discount_factor }) * next_state_max_Q( { next_state_max_Q }) - present_state_Q ({ present_state_Q})) * f2({ f2})\n")
+                #     f.write("============================================================================\n")
+                #     f.close()
        
 
             elif(robot_action[1] == "NOT_GUIDE"):
@@ -1239,12 +1239,12 @@ class RobotAgent(CrowdAgent):
                     self.w4 +=  alpha * (discounted_reward + discount_factor * next_state_max_Q - present_state_Q) * f4
                 self.feature_weights_not_guide[0] = self.w3
                 self.feature_weights_not_guide[1] = self.w4
-                with open ('log_not_guide.txt', 'a') as f:
-                    f.write("NOT GUIDE learning . . .\n")
-                    f.write(f"w3 ( { self.w3 } ) += alpha ( { alpha }) * (reward ( { discounted_reward }) + discount_factor ( { discount_factor }) * next_state_max_Q( { next_state_max_Q }) - present_state_Q ({ present_state_Q})) * f3({ f3})\n")
-                    f.write(f"w4 ( { self.w4 } ) += alpha ( { alpha }) * (reward ( { discounted_reward }) + discount_factor ( { discount_factor }) * next_state_max_Q( { next_state_max_Q }) - present_state_Q ({ present_state_Q})) * f4({ f4})\n")
-                    f.write("============================================================================\n")
-                    f.close()                    
+                # with open ('log_not_guide.txt', 'a') as f:
+                #     f.write("NOT GUIDE learning . . .\n")
+                #     f.write(f"w3 ( { self.w3 } ) += alpha ( { alpha }) * (reward ( { discounted_reward }) + discount_factor ( { discount_factor }) * next_state_max_Q( { next_state_max_Q }) - present_state_Q ({ present_state_Q})) * f3({ f3})\n")
+                #     f.write(f"w4 ( { self.w4 } ) += alpha ( { alpha }) * (reward ( { discounted_reward }) + discount_factor ( { discount_factor }) * next_state_max_Q( { next_state_max_Q }) - present_state_Q ({ present_state_Q})) * f4({ f4})\n")
+                #     f.write("============================================================================\n")
+                #     f.close()                    
           
         self.buffer = []
         with open('weight.txt','w') as file:
