@@ -28,30 +28,45 @@ faulthandler.enable()
 visualization_mode = 'off' # choose your visualization mode 'on / off
 run_iteration = 1500
 number_of_agents = 30 # agents 수
-max_step_num = 1500
+max_step_num = 2000
 #-------------------------#
 
 previous_best_record = [4000, 4000, 4000, 4000, 4000]
 reference_record = [600, 550, 1400, 1100, 800]
 
-reference_reward = [[30]*20, [30]*20, [30]*20, [30]*20, [30]*20]
+reference_reward = [[0]*21, [0]*21, [0]*21, [0]*21, [0]*21]
 #[[0]]
 #reference_reward dict list 만들기
 
-# for i in range(5):
-#     model_o1 = model.FightingModel(number_of_agents, 70, 70, i+1, 'A')
-#     step = 0
-#     while(True):
-#         step += 1
-#         model_o1.step()
-#         reference_reward[i][int(step/100)] = model_o1.evacuated_agents()-3
-#         if (model_o1.alived_agents() <= 1 or step>=max_step_num):
-#             break
-#     del model_o1
-#     print(f"{i+1}번째 모델의 reference_reward 생성함")
+for i in range(4):
+    for j in range(3):
+        step = 0
+        model_o1 = model.FightingModel(number_of_agents, 70, 70, i+1, 'Q')
+        while(True):
+            try:
+                step += 1
+                model_o1.step()
+                if(step%100 == 0):
+                    reference_reward[i][int(step/100)] += model_o1.evacuated_agents()
+                if (model_o1.alived_agents() <= 3 or step>=max_step_num):
+                    for step_num in range(int(step/100)+1, 21):
+                        reference_reward[i][step_num] += model_o1.evacuated_agents()
+                    break
+            except Exception as e:
+                print(e)
+                print("error 발생, 다시 시작합니다")
+                continue  # 모델 생성에 실패하면 다시 시도
+        del model_o1
+    print(f"{i+1}번째 모델의 reference_reward 생성함")
 
-# print("reference_reward 생성 완료")
-# print(reference_reward)
+for i in range(5):
+    for j in range(20):
+        reference_reward[i][j] = reference_reward[i][j]/3
+
+print("reference_reward 생성 완료")
+print(reference_reward)
+
+
 
 for j in range(run_iteration):
     print(f"{j} 번째 학습 ")
@@ -59,7 +74,7 @@ for j in range(run_iteration):
     the_number_of_model = 0
 
     #for model_num in range(5):
-    for model_num in range(5):
+    for model_num in range(4):
 
         reference_step = 0
         for each_model_learning in range(1):
@@ -91,7 +106,10 @@ for j in range(run_iteration):
                     #   reward = -0.01 
                     if(step_num%20 == 0):
                         if (initialized != 0):
-                          reward = model_o.check_reward_danger() / 1000
+                          reward = model_o.evacuated_agents()-reference_reward[model_num][int(step_num/100)]
+                          if(reward > 1):
+                            reference_reward[model_num][int(step_num/100)] += 0.1
+                          print("reward : ", reward)
                           model_o.robot.update_weight(reward)
                         else:
                           reward = 0

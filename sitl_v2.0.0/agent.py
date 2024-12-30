@@ -8,7 +8,6 @@ import numpy as np
 import random
 import copy
 import sys 
-from collections import deque
 
 
 
@@ -736,7 +735,7 @@ class CrowdAgent(Agent):
 class RobotAgent(CrowdAgent):
     def __init__(self, unique_id, model, pos, type1):
         super().__init__(unique_id, model, pos, type1)
-        self.buffer = ReplayBuffer(capacity=800)
+        self.buffer = []
 
 
     def robot_mode_switch(self):
@@ -1177,25 +1176,28 @@ class RobotAgent(CrowdAgent):
         
 
         return (next_x, next_y)
-
-    def update_weight(self, reward):
-        
-        if not (self.buffer.is_half()):
-            return # Replay buffer가 반 차지 않았으면 update하지 않음
-
+    def update_weight(self,reward):  
         global weight_changing
-        alpha = 0.005
+        global robot_xy
+        #print("self.buffer : ", self.buffer)
+        alpha = 0.01
         discount_factor = 0.01
-        
+        next_robot_xy = [0,0]
+
+        # dicounted_reward = reward * gamma ^ (100 - 해당 스텝 수)
         gamma = 0.99
-        discounted_reward = 0 # 감쇠된 reward
-        next_robot_xy=  [0, 0]
-        learning_sample = self.buffer.sample(32) # 32개의 랜덤 샘플로 학습시킬 것
-        for index, i in enumerate(range(len(learning_sample))):
-            robot_xy = learning_sample[i][0]
+        discounted_reward = 0 # 감쇠된 reward 
+    
+        for index, i in enumerate(range(len(self.buffer))):
+            
+            # discounted_reward = reward * pow( gamma, 10 - (index+ 1) ) # 감쇠된 reward 계산
+            discounted_reward = reward
+            robot_xy = self.buffer[i][0]
             next_robot_xy[0] = robot_xy[0]
             next_robot_xy[1] = robot_xy[1]
-            robot_action = learning_sample[i][1]
+            robot_action = self.buffer[i][1]
+            #print("robot_xy : ", robot_xy)
+            #print("robot_action : ", robot_action)
             if robot_action[0] == 'UP':
                 next_robot_xy[1] += 1
             elif robot_action[0] == 'DOWN':
@@ -1204,11 +1206,13 @@ class RobotAgent(CrowdAgent):
                 next_robot_xy[0] += 1
             elif robot_action[0] == 'LEFT':
                 next_robot_xy[0] -= 1
+            
+            f1 = self.buffer[i][2]
+            f2 = self.buffer[i][3]
+            f3 = self.buffer[i][4]
+            f4 = self.buffer[i][5]
+            
 
-            f1 = learning_sample[i][2]
-            f2 = learning_sample[i][3]
-            f3 = learning_sample[i][4]
-            f4 = learning_sample[i][5]
             if(robot_action[1] == "GUIDE"):
                 next_state_max_Q = self.calculate_Max_Q(next_robot_xy, "GUIDE")
                 present_state_Q = self.calculate_Q(robot_xy, robot_action)
@@ -1218,6 +1222,12 @@ class RobotAgent(CrowdAgent):
                     self.w2 += alpha * (discounted_reward + discount_factor * next_state_max_Q - present_state_Q) * f2
                 self.feature_weights_guide[0] = self.w1
                 self.feature_weights_guide[1] = self.w2 
+                # with open ('log_guide.txt', 'a') as f:
+                #     f.write("GUIDE learning . . .\n")
+                #     f.write(f"w1 ( {self.w1} ) += alpha ( {alpha} ) * (reward ( {discounted_reward} ) + discount_factor ( {discount_factor} ) * next_state_max_Q({ next_state_max_Q }) - present_state_Q ( {present_state_Q})) * f1( {f1})\n")
+                #     f.write(f"w2 ( { self.w2 } ) += alpha ( { alpha }) * (reward ( { discounted_reward }) + discount_factor ( { discount_factor }) * next_state_max_Q( { next_state_max_Q }) - present_state_Q ({ present_state_Q})) * f2({ f2})\n")
+                #     f.write("============================================================================\n")
+                #     f.close()
        
 
             elif(robot_action[1] == "NOT_GUIDE"):
@@ -1229,8 +1239,14 @@ class RobotAgent(CrowdAgent):
                     self.w4 +=  alpha * (discounted_reward + discount_factor * next_state_max_Q - present_state_Q) * f4
                 self.feature_weights_not_guide[0] = self.w3
                 self.feature_weights_not_guide[1] = self.w4
-
-        #self.buffer = []
+                # with open ('log_not_guide.txt', 'a') as f:
+                #     f.write("NOT GUIDE learning . . .\n")
+                #     f.write(f"w3 ( { self.w3 } ) += alpha ( { alpha }) * (reward ( { discounted_reward }) + discount_factor ( { discount_factor }) * next_state_max_Q( { next_state_max_Q }) - present_state_Q ({ present_state_Q})) * f3({ f3})\n")
+                #     f.write(f"w4 ( { self.w4 } ) += alpha ( { alpha }) * (reward ( { discounted_reward }) + discount_factor ( { discount_factor }) * next_state_max_Q( { next_state_max_Q }) - present_state_Q ({ present_state_Q})) * f4({ f4})\n")
+                #     f.write("============================================================================\n")
+                #     f.close()                    
+          
+        self.buffer = []
         with open('weight.txt','w') as file:
             file.write(f"{self.w1}\n")
             file.write(f"{self.w2}\n")
@@ -1238,89 +1254,6 @@ class RobotAgent(CrowdAgent):
             file.write(f"{self.w4}\n")
 
         return
-
-
-
-
-
-    # def update_weight(self,reward):  
-    #     global weight_changing
-    #     global robot_xy
-    #     #print("self.buffer : ", self.buffer)
-    #     alpha = 0.01
-    #     discount_factor = 0.01
-    #     next_robot_xy = [0,0]
-
-    #     # dicounted_reward = reward * gamma ^ (100 - 해당 스텝 수)
-    #     gamma = 0.99
-    #     discounted_reward = 0 # 감쇠된 reward 
-    
-    #     for index, i in enumerate(range(len(self.buffer))):
-            
-    #         # discounted_reward = reward * pow( gamma, 10 - (index+ 1) ) # 감쇠된 reward 계산
-    #         discounted_reward = reward
-    #         robot_xy = self.buffer[i][0]
-    #         next_robot_xy[0] = robot_xy[0]
-    #         next_robot_xy[1] = robot_xy[1]
-    #         robot_action = self.buffer[i][1]
-    #         #print("robot_xy : ", robot_xy)
-    #         #print("robot_action : ", robot_action)
-    #         if robot_action[0] == 'UP':
-    #             next_robot_xy[1] += 1
-    #         elif robot_action[0] == 'DOWN':
-    #             next_robot_xy[1] -= 1
-    #         elif robot_action[0] == 'RIGHT':
-    #             next_robot_xy[0] += 1
-    #         elif robot_action[0] == 'LEFT':
-    #             next_robot_xy[0] -= 1
-            
-    #         f1 = self.buffer[i][2]
-    #         f2 = self.buffer[i][3]
-    #         f3 = self.buffer[i][4]
-    #         f4 = self.buffer[i][5]
-            
-
-    #         if(robot_action[1] == "GUIDE"):
-    #             next_state_max_Q = self.calculate_Max_Q(next_robot_xy, "GUIDE")
-    #             present_state_Q = self.calculate_Q(robot_xy, robot_action)
-    #             if(weight_changing[0]):
-    #                 self.w1 += alpha * (discounted_reward + discount_factor * next_state_max_Q - present_state_Q) * f1
-    #             if(weight_changing[1]):
-    #                 self.w2 += alpha * (discounted_reward + discount_factor * next_state_max_Q - present_state_Q) * f2
-    #             self.feature_weights_guide[0] = self.w1
-    #             self.feature_weights_guide[1] = self.w2 
-    #             # with open ('log_guide.txt', 'a') as f:
-    #             #     f.write("GUIDE learning . . .\n")
-    #             #     f.write(f"w1 ( {self.w1} ) += alpha ( {alpha} ) * (reward ( {discounted_reward} ) + discount_factor ( {discount_factor} ) * next_state_max_Q({ next_state_max_Q }) - present_state_Q ( {present_state_Q})) * f1( {f1})\n")
-    #             #     f.write(f"w2 ( { self.w2 } ) += alpha ( { alpha }) * (reward ( { discounted_reward }) + discount_factor ( { discount_factor }) * next_state_max_Q( { next_state_max_Q }) - present_state_Q ({ present_state_Q})) * f2({ f2})\n")
-    #             #     f.write("============================================================================\n")
-    #             #     f.close()
-       
-
-    #         elif(robot_action[1] == "NOT_GUIDE"):
-    #             next_state_max_Q = self.calculate_Max_Q(next_robot_xy, "NOT_GUIDE")
-    #             present_state_Q = self.calculate_Q(robot_xy, robot_action)
-    #             if(weight_changing[2]):
-    #                 self.w3 +=  alpha * (discounted_reward + discount_factor * next_state_max_Q - present_state_Q) * f3 
-    #             if(weight_changing[3]):
-    #                 self.w4 +=  alpha * (discounted_reward + discount_factor * next_state_max_Q - present_state_Q) * f4
-    #             self.feature_weights_not_guide[0] = self.w3
-    #             self.feature_weights_not_guide[1] = self.w4
-    #             # with open ('log_not_guide.txt', 'a') as f:
-    #             #     f.write("NOT GUIDE learning . . .\n")
-    #             #     f.write(f"w3 ( { self.w3 } ) += alpha ( { alpha }) * (reward ( { discounted_reward }) + discount_factor ( { discount_factor }) * next_state_max_Q( { next_state_max_Q }) - present_state_Q ({ present_state_Q})) * f3({ f3})\n")
-    #             #     f.write(f"w4 ( { self.w4 } ) += alpha ( { alpha }) * (reward ( { discounted_reward }) + discount_factor ( { discount_factor }) * next_state_max_Q( { next_state_max_Q }) - present_state_Q ({ present_state_Q})) * f4({ f4})\n")
-    #             #     f.write("============================================================================\n")
-    #             #     f.close()                    
-          
-    #     #self.buffer = []
-    #     with open('weight.txt','w') as file:
-    #         file.write(f"{self.w1}\n")
-    #         file.write(f"{self.w2}\n")
-    #         file.write(f"{self.w3}\n")
-    #         file.write(f"{self.w4}\n")
-
-    #     return
 
     def make_buffer(self):
         robot_xy = self.model.robot.xy
@@ -1333,9 +1266,7 @@ class RobotAgent(CrowdAgent):
         f3 = f3_f4[0]
         f4 = f3_f4[1]
 
-        self.buffer.add((robot_xy, robot_action, f1, f2, f3, f4, self.model.check_reward_danger()))
-
-        #self.buffer.append([robot_xy, robot_action, f1, f2, f3, f4])
+        self.buffer.append([robot_xy, robot_action, f1, f2, f3, f4])
 
     def F1_distance(self, state, action, mode):
 
@@ -1790,24 +1721,3 @@ class RobotAgent(CrowdAgent):
             Q = f3 * self.feature_weights_not_guide[0] + f4*self.feature_weights_not_guide[1]
 
         return Q
-
-class ReplayBuffer: #replay buffer class 
-    def __init__(self, capacity):
-        self.buffer = deque(maxlen=capacity)
-
-    def add(self, experience):
-        self.buffer.append(experience)
-    
-    def sample(self, batch_size):
-        return random.sample(self.buffer, batch_size)
-
-    def size(self):
-        return len(self.buffer)
-
-    def is_full(self):
-        return len(self.buffer) == self.buffer.maxlen
-        
-    def is_half(self):
-        if len(self.buffer) >= self.buffer.maxlen*2/3:
-            return True
-

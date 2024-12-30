@@ -86,17 +86,20 @@ for j in range(run_iteration):
                     model_o.step()
                     #reward = (model_o.check_reward(reference_reward[model_num])+1.5)/100
                     reward = 0
-                    #reward += model_o.check_reward_danger() / 1000
-                    # if(reward == 0):
-                    #   reward = -0.01 
-                    if(step_num%20 == 0):
+                    reward += model_o.check_reward_danger() / 1000
+                    if(reward == 0):
+                      reward = -0.01 
+                    if(step_num%600 == 0):
                         if (initialized != 0):
-                          reward = model_o.check_reward_danger() / 1000
                           model_o.robot.update_weight(reward)
+                          reward = 0
                         else:
                           reward = 0
                           initialized = 1
- 
+                    #reference_reward 업데이트
+                    # if (model_o.evacuated_agents() > reference_reward[model_num][int(step_num/100)]):
+                    #     reference_reward[model_num][int(step_num/100)] = (model_o.evacuated_agents()+reference_reward[model_num][int(step_num/100)])/2
+
                     if step_num >= max_step_num:
                         break
                     if model_o.alived_agents() <= 1:

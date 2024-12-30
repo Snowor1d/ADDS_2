@@ -26,39 +26,18 @@ faulthandler.enable()
 
 #-------------------------#
 visualization_mode = 'off' # choose your visualization mode 'on / off
-run_iteration = 1500
+run_iteration = 3
 number_of_agents = 30 # agents 수
 max_step_num = 1500
 #-------------------------#
 
-previous_best_record = [4000, 4000, 4000, 4000, 4000]
-reference_record = [600, 550, 1400, 1100, 800]
-
-reference_reward = [[30]*20, [30]*20, [30]*20, [30]*20, [30]*20]
-#[[0]]
-#reference_reward dict list 만들기
-
-# for i in range(5):
-#     model_o1 = model.FightingModel(number_of_agents, 70, 70, i+1, 'A')
-#     step = 0
-#     while(True):
-#         step += 1
-#         model_o1.step()
-#         reference_reward[i][int(step/100)] = model_o1.evacuated_agents()-3
-#         if (model_o1.alived_agents() <= 1 or step>=max_step_num):
-#             break
-#     del model_o1
-#     print(f"{i+1}번째 모델의 reference_reward 생성함")
-
-# print("reference_reward 생성 완료")
-# print(reference_reward)
+adds_benchmark = 0
 
 for j in range(run_iteration):
     print(f"{j} 번째 학습 ")
     result = []
     the_number_of_model = 0
 
-    #for model_num in range(5):
     for model_num in range(5):
 
         reference_step = 0
@@ -81,25 +60,14 @@ for j in range(run_iteration):
                 # 모델이 성공적으로 생성되었으므로 step 진행
             initialized = 0
             while True:
+                model_o.step()
+                step_num += 1
                 try:
-                    step_num += 1
-                    model_o.step()
-                    #reward = (model_o.check_reward(reference_reward[model_num])+1.5)/100
-                    reward = 0
-                    #reward += model_o.check_reward_danger() / 1000
-                    # if(reward == 0):
-                    #   reward = -0.01 
-                    if(step_num%20 == 0):
-                        if (initialized != 0):
-                          reward = model_o.check_reward_danger() / 1000
-                          model_o.robot.update_weight(reward)
-                        else:
-                          reward = 0
-                          initialized = 1
- 
-                    if step_num >= max_step_num:
+                    if model_o.alived_agents() <= 3:
+                        adds_benchmark += step_num
                         break
-                    if model_o.alived_agents() <= 1:
+                    if step_num > 2000:
+                        adds_benchmark += step_num
                         break
                 except Exception as e:
                     print(e)
@@ -109,4 +77,9 @@ for j in range(run_iteration):
             del model_o
 
 
-            print("99% 탈출에 걸리는 step : ", step_num)
+            print("탈출에 걸리는 step : ", step_num)
+
+with open("benchmark_score.txt", "w") as file:
+    file.write(f"adds_benchmark: {adds_benchmark}\n")
+
+print("benchmark_score.txt 파일에 값이 저장되었습니다.")

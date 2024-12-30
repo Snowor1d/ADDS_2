@@ -1179,7 +1179,7 @@ class FightingModel(Model):
             if(agent.type == 0 or agent.type == 1 or agent.type== 2) and (agent.dead == False) and (agent.robot_tracked>0):
                 num +=1 
                 reward += agent.gain
-        #print("tracked 되고 있는 수 : ", num)
+        print("tracked 되고 있는 수 : ", num)
         return reward
 
     def return_agent_id(self, agent_id):
@@ -1220,4 +1220,3 @@ class FightingModel(Model):
             (Integer): Number of Agents.
         """
         return sum([1 for agent in model.schedule_e.agents if agent.health == 0])
-

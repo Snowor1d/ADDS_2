@@ -1165,7 +1165,7 @@ class FightingModel(Model):
         self.schedule.step()
         self.datacollector_currents.collect(self)  # passing the model
         #self.write_log()
-        print("reward: ", self.check_reward_danger())
+        #print("reward: ", self.check_reward_danger())
 
     def check_reward(self, reference_reward):
         if self.step_count <= len(reference_reward*100):
