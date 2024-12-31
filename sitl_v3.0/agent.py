@@ -444,13 +444,11 @@ class CrowdAgent(Agent):
             self.make_buffer()
 
                    
-            # if (self.model.robot_type == "Q"):
-            #     #new_position_robot = self.robot_policy_Q()
-                
-
-            new_position_robot = [0, 0]
+            if (self.model.robot_type == "Q"):
+                new_position_robot = self.robot_policy_Q()
+            
             self.model.grid.move_agent(self, new_position_robot)
-
+            self.pos = new_position_robot
             
             return
         if(self.type == 0 or self.type == 1 or self.type == 2):
@@ -731,7 +729,130 @@ class RobotAgent(CrowdAgent):
     def __init__(self, unique_id, model, pos, type1):
         super().__init__(unique_id, model, pos, type1)
         self.buffer = ReplayBuffer(capacity=800)
+        self.action = ["UP", "GUIDE"]
 
+    def receive_action(self, action):
+        self.action = action
+
+    def robot_policy_Q(self):
+        time_step = 0.2
+        robot_radius = 7
+
+        if(self.robot_initialized == 0 ):
+            self.robot_initialized = 1
+            return (self.model.robot.xy[0], self.model.robot.xy[1]) ## 오호라... 처음에 리스폰 되는 거 피하려고 
+        
+        next_action = self.action
+            
+        goal_x = 0
+        goal_y = 0
+        
+        if(next_action[0] == "UP"):
+            goal_x = 0 
+            goal_y = 2
+        elif(next_action[0] == "LEFT"):
+            goal_x = -2
+            goal_y = 0
+        elif(next_action[0] == "RIGHT"):
+            goal_x = 2
+            goal_y = 0
+        elif(next_action[0] == "DOWN"):
+            goal_x = 0
+            goal_y = -2
+        
+        self.model.robot_mode = next_action[1]
+
+
+        goal_d = math.sqrt(pow(goal_x, 2) + pow(goal_y, 2))
+        intend_force = 2
+        desired_speed = 3
+
+        if(self.model.robot_mode == "NOT_GUIDE"): ## not guide 일 때
+            desired_speed = 6
+        
+            
+        if(goal_d != 0):
+            desired_force = [intend_force*(desired_speed*(goal_x/goal_d)), intend_force*(desired_speed*(goal_y/goal_d))]; #desired_force : 사람이 탈출구쪽으로 향하려는 힘
+        else :
+            desired_force = [0, 0]
+    
+        
+        x=int(round(self.xy[0]))
+        y=int(round(self.xy[1]))
+ 
+        temp_loc = [(x-1, y), (x+1, y), (x, y+1), (x, y-1), (x+1, y+1), (x+1, y-1), (x-1, y+1), (x-1, y-1), (x-2, y), (x+2, y), (x, y+2), (x, y-2)]
+        near_loc = []
+        for i in temp_loc:
+            if(i[0]>=0 and i[1]>=0 and i[0]<self.model.grid.width and i[1] < self.model.grid.height):
+                near_loc.append(i)
+        near_agents_list = []
+        for i in near_loc:
+            near_agents = self.model.grid.get_cell_list_contents([i])
+            if len(near_agents):
+                for near_agent in near_agents:
+                    near_agents_list.append(near_agent) #kinetic 모델과 동일
+        repulsive_force = [0, 0]
+        obstacle_force = [0, 0]
+
+        k=4
+
+        for near_agent in near_agents_list:
+            n_x = near_agent.xy[0]
+            n_y = near_agent.xy[1]
+            d_x = robot_xy[0] - n_x
+            d_y = robot_xy[1] - n_y
+            d = math.sqrt(pow(d_x, 2) + pow(d_y, 2))
+
+
+            if(near_agent.dead == True):
+                continue
+                
+            if(d!=0):
+                if(near_agent.type == 12): ## 가상 벽
+                    repulsive_force[0] += 0
+                    repulsive_force[1] += 0
+    
+                elif(near_agent.type == 1 or near_agent.type ==0 or near_agent.type == 2): ## agents   
+                    repulsive_force[0] += 0/4*np.exp(-(d/2))*(d_x/d) #반발력.. 지수함수 -> 완전 밀착되기 직전에만 힘이 강하게 작용하는게 맞다고 생각해서
+                    repulsive_force[1] += 0/4*np.exp(-(d/2))*(d_y/d) 
+
+                elif(near_agent.type == 11 or near_agent.type == 9):## 검정벽 
+                    repulsive_force[0] += 13 *np.exp(-(d/2))*(d_x/d)
+                    repulsive_force[1] += 13 *np.exp(-(d/2))*(d_y/d)
+
+        F_x = 0
+        F_y = 0
+        # print("self.xy : ", self.xy)
+        # print("desired_force : ", desired_force)
+        # print("repulsive_force : ", repulsive_force)
+        F_x += desired_force[0]
+        F_y += desired_force[1]
+        
+
+        F_x += repulsive_force[0]
+        F_y += repulsive_force[1]
+        vel = [0,0]
+        vel[0] = F_x/self.mass
+        vel[1] = F_y/self.mass
+        self.xy[0] += vel[0] * time_step
+        self.xy[1] += vel[1] * time_step
+
+
+        next_x = int(round(self.xy[0]))
+        next_y = int(round(self.xy[1]))
+
+        if(next_x<1):
+            next_x = 1
+        if(next_y<1):
+            next_y = 1
+        if(next_x>self.model.width-2):
+            next_x = self.model.width-2
+        if(next_y>self.model.height-2):
+            next_y = self.model.height-2
+            
+        robot_goal = [next_x, next_y]
+        #print(robot_goal)
+        return (next_x, next_y)
 
 
     def update_weight(self, reward):

@@ -84,8 +84,8 @@ class TDActorCriticAgent:
         self.model = ActorCritic(input_shape, num_directions)
         self.optimizer = optim.Adam(self.model.parameters(), lr=lr)
         self.gamma = gamma
-        self.directions = ["up", "down", "left", "right"]  # Movement directions
-        self.modes = ["guide", "not guide"]  # Guide modes
+        self.directions = ["UP", "DOWN", "LEFT", "RIGHT"]  # Movement directions
+        self.modes = ["GUIDE", "NOT_GUIDE"]  # Guide modes
 
     def select_action(self, state):
         state = torch.FloatTensor(state).unsqueeze(0).unsqueeze(0)  # Add batch and channel dimensions
@@ -126,17 +126,23 @@ class TDActorCriticAgent:
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
+        
+    def save_model(self, filepath):
+        """Save the model and optimizer states."""
+        torch.save({
+            'model_state_dict': self.model.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict()
+        }, filepath)
 
     def reset(self):
         """Reset agent state if necessary when starting a new simulation."""
         # Placeholder for any additional state reset logic if needed
         pass
 
-input_sahpe = (70, 70)
-num_actions = 8
+input_shape = (70, 70)
+num_directions =4 
 
-agent = TDActorCriticAgent(input_shape, num_actions)
-
+agent = TDActorCriticAgent(input_shape, num_directions)
 
 for j in range(run_iteration):
     print(f"{j} 번째 학습 ")
@@ -150,8 +156,9 @@ for j in range(run_iteration):
         for each_model_learning in range(1):
         # 모델 생성 및 실행에 실패하면 반복해서 다시 시도
             step_num = 0
-            while True:
+            while True:     
                 try:
+
                         # model 객체 생성
                     model_o = model.FightingModel(number_of_agents, 70, 70, model_num+1, 'Q')
                     the_number_of_model += 1
@@ -165,32 +172,40 @@ for j in range(run_iteration):
                 
                 # 모델이 성공적으로 생성되었으므로 step 진행
             initialized = 0
+            state= model_o.return_current_image()
             while True:
                 try:
                     step_num += 1
                     model_o.step()
                     reward = 0
 
-                    if(step_num%20 == 0):
-                        if (initialized != 0):
-                          reward = model_o.check_reward_danger() / 1000
-                          model_o.robot.update_weight(reward)
-                        else:
-                          reward = 0
-                          initialized = 1
- 
-                    if step_num >= max_step_num:
+                    action = agent.select_action(state)
+                    model_o.robot.receive_action(action)
+                    print(f"action : {action}")
+
+                    next_state = model_o.return_current_image()
+
+                    done=False
+                    reward = model_o.check_reward_danger() / 1000
+                    if step_num >= max_step_num or model_o.alived_agents() <= 1:
+                        done= True
+          
+                    agent.update(state, action, reward, next_state, done)
+                    state = next_state
+
+
+                    if (done):
                         break
-                    if model_o.alived_agents() <= 1:
-                        break
+
                 except Exception as e:
                     print(e)
                     print("error 발생, 다시 시작합니다")
                     # step 수행 중 오류가 발생하면, model 생성부터 다시 시작
                     break
             del model_o
-
+    
 
             print("99% 탈출에 걸리는 step : ", step_num)
 
+        agent.save_model("actor_critic_model.pth")
 
