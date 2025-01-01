@@ -534,7 +534,10 @@ class CrowdAgent(Agent):
         self.danger = 99999
         for i in self.model.exit_point:
             self.danger = min(self.danger, self.point_to_point_distance([self.xy[0], self.xy[1]], i))
-        self.gain = self.previous_danger - self.danger
+        
+        self.gain = self.danger*(self.previous_danger - self.danger)
+        if(self.danger<5):
+            self.gain = 0
         for near_agent in near_agents_list:
             n_x = near_agent.xy[0]
             n_y = near_agent.xy[1]
@@ -656,9 +659,7 @@ class CrowdAgent(Agent):
         if (shortest_distance < exit_confirm_radius): ## agent가 탈출구에 도착했을 때
             self.now_goal = self.model.exit_point[exit_point_index]
             #self.danger = 0
-            return
-
-        
+            return  
         
         robot_d = math.sqrt(pow(self.xy[0]-self.model.robot.xy[0],2)+pow(self.xy[1]-self.model.robot.xy[1],2))
         
@@ -836,19 +837,19 @@ class RobotAgent(CrowdAgent):
         vel[1] = F_y/self.mass
         self.xy[0] += vel[0] * time_step
         self.xy[1] += vel[1] * time_step
-
+        if(self.xy[0]<1):
+            self.xy[0] = 1
+        if(self.xy[1]<1):
+            self.xy[1] = 1
+        if(self.xy[0]>self.model.width-2):
+            self.xy[0] = self.model.width-2
+        if(self.xy[1]>self.model.height-2):
+            self.xy[1] = self.model.height-2
+            
 
         next_x = int(round(self.xy[0]))
         next_y = int(round(self.xy[1]))
 
-        if(next_x<1):
-            next_x = 1
-        if(next_y<1):
-            next_y = 1
-        if(next_x>self.model.width-2):
-            next_x = self.model.width-2
-        if(next_y>self.model.height-2):
-            next_y = self.model.height-2
             
         robot_goal = [next_x, next_y]
         #print(robot_goal)

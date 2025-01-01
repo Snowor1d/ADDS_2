@@ -22,8 +22,125 @@ from scipy.spatial import Delaunay, ConvexHull
 from sklearn.cluster import DBSCAN
 from matplotlib.path import Path
 import triangle as tr
-
+import os
 #import cv2
+
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import torch.nn.functional as F
+
+
+
+class ActorCritic(nn.Module):
+    def __init__(self, input_shape, num_directions):
+        super(ActorCritic, self).__init__()
+
+        # Shared convolutional layers
+        self.conv1 = nn.Conv2d(1, 16, kernel_size=5, stride=2)
+        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=2)
+        self.conv3 = nn.Conv2d(32, 64, kernel_size=3, stride=2)
+
+        # Fully connected layers
+        conv_out_size = self._get_conv_out(input_shape)
+        self.fc = nn.Linear(conv_out_size, 256)
+
+        # Actor output layers
+        self.actor_direction = nn.Linear(256, num_directions)  # For movement direction
+        self.actor_mode = nn.Linear(256, 2)  # Guide mode or not guide mode
+
+        # Critic output layer
+        self.critic = nn.Linear(256, 1)  # State value
+
+    def _get_conv_out(self, shape):
+        o = torch.zeros(1, *shape)
+        o = self.conv1(o)
+        o = self.conv2(o)
+        o = self.conv3(o)
+        return int(np.prod(o.size()))
+
+    def forward(self, x):
+        x = F.relu(self.conv1(x))
+        x = F.relu(self.conv2(x))
+        x = F.relu(self.conv3(x))
+        x = x.view(x.size(0), -1)
+        x = F.relu(self.fc(x))
+
+        direction_probs = F.softmax(self.actor_direction(x), dim=-1)
+        mode_probs = F.softmax(self.actor_mode(x), dim=-1)
+        value = self.critic(x)
+
+        return direction_probs, mode_probs, value
+
+class TDActorCriticAgent:
+    def __init__(self, input_shape, num_directions, lr=1e-4, gamma=0.99):
+        self.model = ActorCritic(input_shape, num_directions)
+        self.optimizer = optim.Adam(self.model.parameters(), lr=lr)
+        self.gamma = gamma
+        self.directions = ["UP", "DOWN", "LEFT", "RIGHT"]  # Movement directions
+        self.modes = ["GUIDE", "NOT_GUIDE"]  # Guide modes
+
+    def select_action(self, state):
+        state = torch.FloatTensor(state).unsqueeze(0).unsqueeze(0)  # Add batch and channel dimensions
+        with torch.no_grad():
+            direction_probs, mode_probs, _ = self.model(state)
+        
+        direction_idx = torch.multinomial(direction_probs, 1).item()
+        mode_idx = torch.multinomial(mode_probs, 1).item()
+
+        direction = self.directions[direction_idx]
+        mode = self.modes[mode_idx]
+
+        return direction, mode
+
+    def update(self, state, action, reward, next_state, done):
+        state = torch.FloatTensor(state).unsqueeze(0).unsqueeze(0)
+        next_state = torch.FloatTensor(next_state).unsqueeze(0).unsqueeze(0)
+
+        direction_probs, mode_probs, value = self.model(state)
+        _, _, next_value = self.model(next_state)
+
+        # Compute target and advantage
+        target = reward + (1 - done) * self.gamma * next_value.item()
+        advantage = target - value.item()
+
+        # Convert action to indices
+        direction_idx = self.directions.index(action[0])
+        mode_idx = self.modes.index(action[1])
+
+        # Compute losses
+        direction_loss = -torch.log(direction_probs[0, direction_idx]) * advantage
+        mode_loss = -torch.log(mode_probs[0, mode_idx]) * advantage
+        value_loss = F.mse_loss(value, torch.tensor([target]))
+
+        loss = direction_loss + mode_loss + value_loss
+
+        # Backpropagation
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+        
+    def save_model(self, filepath):
+        """Save the model and optimizer states."""
+        torch.save({
+            'model_state_dict': self.model.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict()
+        }, filepath)
+
+    def load_model(self, filepath):
+        """Load the model and optimizer states."""
+        if os.path.exists(filepath):
+            checkpoint = torch.load(filepath)
+            self.model.load_state_dict(checkpoint['model_state_dict'])
+            self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            print(f"Model loaded from {filepath}")
+        else:
+            print(f"No checkpoint found at {filepath}")
+
+    def reset(self):
+        """Reset agent state if necessary when starting a new simulation."""
+        # Placeholder for any additional state reset logic if needed
+        pass
 
 def are_meshes_adjacent(mesh1, mesh2):
     # 두 mesh의 공통 꼭짓점의 개수를 센다
@@ -236,6 +353,8 @@ class FightingModel(Model):
                 "Non Healthy Agents": FightingModel.current_non_healthy_agents,
             }
         )
+
+        self.using_model = False
         self.total_agents = number_agents
         self.width = width
         self.height = height      
@@ -859,10 +978,18 @@ class FightingModel(Model):
                 if(max_id == agent.unique_id):
                     agent.dead = True 
         self.step_count += 1
+
+        state = self.return_current_image()
+        if(self.using_model):
+            action = self.ac_agent.select_action(state)
+            self.robot.receive_action(action)
+
         self.schedule.step()
         self.datacollector_currents.collect(self)  # passing the model
-        #self.write_log()
-        print("reward: ", self.check_reward_danger())
+
+        
+        
+        
 
     def check_reward(self, reference_reward):
         if self.step_count <= len(reference_reward*100):
@@ -875,7 +1002,8 @@ class FightingModel(Model):
         for agent in self.agents:
             if(agent.type == 0 or agent.type == 1 or agent.type== 2) and (agent.dead == False) and (agent.robot_tracked>0):
                 num +=1 
-                reward += agent.gain
+                reward += agent.gain 
+
         #print("tracked 되고 있는 수 : ", num)
         return reward
 
@@ -884,6 +1012,17 @@ class FightingModel(Model):
             if(agent.unique_id == agent_id):
                 return agent
         return None
+    
+    def use_model(self, file_path):
+        input_shape = (70, 70)
+        num_actions = 4
+
+        self.ac_agent = TDActorCriticAgent(input_shape, num_actions)
+        self.ac_agent.load_model(file_path)
+
+        self.using_model = True
+
+
     
     def return_current_image(self):
 
@@ -894,9 +1033,9 @@ class FightingModel(Model):
             if(agent.type==10):
                 image[agent.pos[0]][agent.pos[1]] = 4 # 출구
             if(agent.type == 0 or agent.type == 1 or agent.type == 2):
-                image[agent.pos[0]][agent.pos[1]] = 1 #agent
+                image[int(round(agent.xy[0]))][int(round(agent.xy[1]))] = 1 #agent
             if(agent.type == 3):
-                image[agent.pos[0]][agent.pos[1]] = 2 #robot
+                image[int(round(agent.xy[0]))][int(round(agent.xy[1]))] = 2 #robot
 
         # for i in range(self.width):
         #     for j in range(self.height):
@@ -907,6 +1046,7 @@ class FightingModel(Model):
     
     def return_robot(self):
         return self.robot
+
 
 
     @staticmethod

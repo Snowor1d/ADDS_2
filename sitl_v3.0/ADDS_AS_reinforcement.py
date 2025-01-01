@@ -34,7 +34,7 @@ import torch.nn.functional as F
 #-------------------------#
 visualization_mode = 'off' # choose your visualization mode 'on / off
 run_iteration = 1500
-number_of_agents = 30 # agents 수
+number_of_agents = 50 # agents 수
 max_step_num = 1500
 #-------------------------#
 
@@ -80,15 +80,33 @@ class ActorCritic(nn.Module):
         return direction_probs, mode_probs, value
 # Environment Interaction and Training
 class TDActorCriticAgent:
-    def __init__(self, input_shape, num_directions, lr=1e-4, gamma=0.99):
+    def __init__(self, input_shape, num_directions, lr=1e-4, gamma=0.99, start_epsilon=1.0):
         self.model = ActorCritic(input_shape, num_directions)
         self.optimizer = optim.Adam(self.model.parameters(), lr=lr)
         self.gamma = gamma
         self.directions = ["UP", "DOWN", "LEFT", "RIGHT"]  # Movement directions
         self.modes = ["GUIDE", "NOT_GUIDE"]  # Guide modes
+        epsilon_start = start_epsilon
+        epsilon_min = 0.01
+        epsilon_decay = 0.95
+        self.epsilon = epsilon_start
+        self.epsilon_min = epsilon_min
+        self.epsilon_decay = epsilon_decay
+
+    def update_epsilon(self, is_down, decay_value):
+        if (is_down):
+            self.epsilon = max(self.epsilon_min, self.epsilon * decay_value)
+        else:
+            self.epsilon = min(1.0, self.epsilon / decay_value)
 
     def select_action(self, state):
         state = torch.FloatTensor(state).unsqueeze(0).unsqueeze(0)  # Add batch and channel dimensions
+
+        if np.random.rand() < self.epsilon:
+            direction = np.random.choice(self.directions)
+            mode = np.random.choice(self.modes)
+            return direction, mode
+
         with torch.no_grad():
             direction_probs, mode_probs, _ = self.model(state)
         
@@ -126,6 +144,17 @@ class TDActorCriticAgent:
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
+    
+
+    def load_model(self, filepath):
+        """Load the model and optimizer states."""
+        if os.path.exists(filepath):
+            checkpoint = torch.load(filepath)
+            self.model.load_state_dict(checkpoint['model_state_dict'])
+            self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            print(f"Model loaded from {filepath}")
+        else:
+            print(f"No checkpoint found at {filepath}")
         
     def save_model(self, filepath):
         """Save the model and optimizer states."""
@@ -142,8 +171,8 @@ class TDActorCriticAgent:
 input_shape = (70, 70)
 num_directions =4 
 
-agent = TDActorCriticAgent(input_shape, num_directions)
-
+agent = TDActorCriticAgent(input_shape, num_directions, start_epsilon = 0.7)
+agent.load_model("actor_critic_model.pth")
 for j in range(run_iteration):
     print(f"{j} 번째 학습 ")
     result = []
@@ -173,6 +202,7 @@ for j in range(run_iteration):
                 # 모델이 성공적으로 생성되었으므로 step 진행
             initialized = 0
             state= model_o.return_current_image()
+            total_reward = 0
             while True:
                 try:
                     step_num += 1
@@ -186,7 +216,9 @@ for j in range(run_iteration):
                     next_state = model_o.return_current_image()
 
                     done=False
-                    reward = model_o.check_reward_danger() / 1000
+                    reward = model_o.check_reward_danger() / 10
+                    total_reward += reward
+                    print(f"reward : {reward}")
                     if step_num >= max_step_num or model_o.alived_agents() <= 1:
                         done= True
           
@@ -203,9 +235,19 @@ for j in range(run_iteration):
                     # step 수행 중 오류가 발생하면, model 생성부터 다시 시작
                     break
             del model_o
-    
+            
+            decay_value = 0.95
+            if(agent.epsilon < 0.1):
+                decay_value = 0.995
+                
+
+            if (total_reward == 0):
+                agent.update_epsilon(False, decay_value)
+            else:
+                agent.update_epsilon(True, decay_value)
 
             print("99% 탈출에 걸리는 step : ", step_num)
-
-        agent.save_model("actor_critic_model.pth")
-
+        print(f"현재 epsilon : {agent.epsilon}")
+        save_path = 'actor_critic_model.pth'
+        agent.save_model(save_path)
+        print(f"model saved in {save_path}")
