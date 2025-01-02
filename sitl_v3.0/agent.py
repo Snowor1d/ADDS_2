@@ -10,6 +10,10 @@ import copy
 import sys 
 from collections import deque
 
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import torch.nn.functional as F
 
 
 
@@ -739,8 +743,41 @@ class RobotAgent(CrowdAgent):
         self.action = ["UP", "GUIDE"]
 
     def receive_action(self, action):
-        self.action = action
+        direction_probs = action[0]
+        
+        if (action[2] == 'exploration'):
+            direction_probs = torch.tensor([[0.25, 0.25, 0.25, 0.25]])
+        
+        self.action[1] = action[1]
 
+        
+        action_list = ["UP", "DOWN", "LEFT", "RIGHT"]
+        for k in action_list:
+            if (k == "UP"):
+                if not ( self.model.valid_space[(int(round(self.xy[0])), int(round(self.xy[1])+1))]):
+                    direction_probs[0, action_list.index(k)] = 0 
+            elif (k == "DOWN"):
+                if (int(round(self.xy[1])-1))<0 : 
+                    direction_probs[0, action_list.index(k)] = 0
+                    continue
+                if not ( self.model.valid_space[(int(round(self.xy[0])), int(round(self.xy[1])-1))]):
+                    direction_probs[0, action_list.index(k)] = 0
+            elif (k == "LEFT"):
+                if (int(round(self.xy[0])-1))<0 : 
+                    direction_probs[0, action_list.index(k)] = 0
+                    continue
+                if not ( self.model.valid_space[(int(round(self.xy[0])-1), int(round(self.xy[1])))]):
+                    direction_probs[0, action_list.index(k)] = 0
+            elif (k == "RIGHT"):
+                if not ( self.model.valid_space[(int(round(self.xy[0])+1), int(round(self.xy[1])))]):
+                    direction_probs[0, action_list.index(k)] = 0
+                    
+        direction_idx = torch.multinomial(direction_probs, 1).item()
+        
+        direction = action_list[direction_idx]
+
+        self.action[0] = direction
+        return self.action
     def robot_policy_Q(self):
         time_step = 0.2
         robot_radius = 7

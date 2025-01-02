@@ -146,27 +146,8 @@ if visualization_mode == 'on':
             }
             return portrayal
 
-            
-            
-
-
         # the default config is a circle
         portrayal = {
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
             
             "Shape": "circle",
             "Filled": "true",

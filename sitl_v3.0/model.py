@@ -85,18 +85,33 @@ class TDActorCriticAgent:
         self.directions = ["UP", "DOWN", "LEFT", "RIGHT"]  # Movement directions
         self.modes = ["GUIDE", "NOT_GUIDE"]  # Guide modes
 
+    # def select_action(self, state):
+    #     state = torch.FloatTensor(state).unsqueeze(0).unsqueeze(0)  # Add batch and channel dimensions
+    #     with torch.no_grad():
+    #         direction_probs, mode_probs, _ = self.model(state)
+        
+    #     direction_idx = torch.multinomial(direction_probs, 1).item()
+    #     mode_idx = torch.multinomial(mode_probs, 1).item()
+
+    #     direction = self.directions[direction_idx]
+    #     mode = self.modes[mode_idx]
+
+    #     return direction, mode
+
     def select_action(self, state):
         state = torch.FloatTensor(state).unsqueeze(0).unsqueeze(0)  # Add batch and channel dimensions
+
         with torch.no_grad():
             direction_probs, mode_probs, _ = self.model(state)
-        
-        direction_idx = torch.multinomial(direction_probs, 1).item()
+        print(direction_probs)
+        #direction_idx = torch.multinomial(direction_probs, 1).item()
         mode_idx = torch.multinomial(mode_probs, 1).item()
 
-        direction = self.directions[direction_idx]
+        #direction = self.directions[direction_idx]
         mode = self.modes[mode_idx]
+        
+        return direction_probs, mode
 
-        return direction, mode
 
     def update(self, state, action, reward, next_state, done):
         state = torch.FloatTensor(state).unsqueeze(0).unsqueeze(0)

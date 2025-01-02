@@ -110,18 +110,18 @@ class TDActorCriticAgent:
         if np.random.rand() < self.epsilon:
             direction = np.random.choice(self.directions)
             mode = np.random.choice(self.modes)
-            return direction, mode
+            return direction, mode, 'exploration'
 
         with torch.no_grad():
             direction_probs, mode_probs, _ = self.model(state)
         
-        direction_idx = torch.multinomial(direction_probs, 1).item()
+        #direction_idx = torch.multinomial(direction_probs, 1).item()
         mode_idx = torch.multinomial(mode_probs, 1).item()
 
-        direction = self.directions[direction_idx]
+        #direction = self.directions[direction_idx]
         mode = self.modes[mode_idx]
-
-        return direction, mode
+        
+        return direction_probs, mode, 'not_exploration'
 
     def update(self, state, action, reward, next_state, done):
         state = torch.FloatTensor(state).unsqueeze(0).unsqueeze(0)
@@ -209,36 +209,36 @@ for j in range(run_iteration):
             state= model_o.return_current_image()
             total_reward = 0
             while True:
-                try:
-                    step_num += 1
-                    reward = 0
+                #try:
+                step_num += 1
+                reward = 0
 
-                    action = agent.select_action(state)
-                    model_o.robot.receive_action(action)
-                    model_o.step()
-                    print(f"action : {action}")
+                action = agent.select_action(state)
+                action = model_o.robot.receive_action(action)
+                model_o.step()
+                print(f"action : {action}")
 
-                    next_state = model_o.return_current_image()
+                next_state = model_o.return_current_image()
 
-                    done=False
-                    reward = model_o.check_reward_danger() / 10
-                    total_reward += reward
-                    print(f"reward : {reward}")
-                    if step_num >= max_step_num or model_o.alived_agents() <= 1:
-                        done= True
-          
-                    agent.update(state, action, reward, next_state, done)
-                    state = next_state
+                done=False
+                reward = model_o.check_reward_danger() / 100
+                total_reward += reward
+                print(f"reward : {reward}")
+                if step_num >= max_step_num or model_o.alived_agents() <= 1:
+                    done= True
+        
+                agent.update(state, action, reward, next_state, done)
+                state = next_state
 
 
-                    if (done):
-                        break
-
-                except Exception as e:
-                    print(e)
-                    print("error 발생, 다시 시작합니다")
-                    # step 수행 중 오류가 발생하면, model 생성부터 다시 시작
+                if (done):
                     break
+
+                # except Exception as e:
+                #     print(e)
+                #     print("error 발생, 다시 시작합니다")
+                #     # step 수행 중 오류가 발생하면, model 생성부터 다시 시작
+                #     break
             del model_o
             
             decay_value = 0.95
