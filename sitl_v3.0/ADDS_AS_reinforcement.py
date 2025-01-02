@@ -172,7 +172,7 @@ input_shape = (70, 70)
 num_directions =4 
 
 agent = TDActorCriticAgent(input_shape, num_directions, start_epsilon = 0.7)
-agent.load_model("actor_critic_model.pth")
+#agent.load_model("actor_critic_model.pth")
 for j in range(run_iteration):
     print(f"{j} 번째 학습 ")
     result = []

@@ -996,16 +996,23 @@ class FightingModel(Model):
             return self.evacuated_agents()-reference_reward[int(self.step_count/100)]
         else :
             return self.evacuated_agents()-self.total_agents
+
     def check_reward_danger(self):
         reward = 0
         num = 0
         for agent in self.agents:
-            if(agent.type == 0 or agent.type == 1 or agent.type== 2) and (agent.dead == False) and (agent.robot_tracked>0):
-                num +=1 
-                reward += agent.gain 
+            if(agent.type == 0 or agent.type == 1 or agent.type == 2 ) and (agent.dead == False):
+                if(agent.robot_tracked>0):
+                    num+=1
+                    reward += agent.gain
+
+                if(agent.is_near_robot == 1):
+                    reward += 0.05
+            
 
         #print("tracked 되고 있는 수 : ", num)
         return reward
+
 
     def return_agent_id(self, agent_id):
         for agent in self.agents:

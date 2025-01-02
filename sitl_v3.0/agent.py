@@ -216,6 +216,7 @@ class CrowdAgent(Agent):
         self.xy = pos
         self.vel = [0, 0]
         self.acc = [0, 0]
+        self.is_near_robot = 0
         # self.mass = 3
         self.mass = (3/70)*np.random.normal(66, 4.16) # agent의 mass, 평균 66kg, 표준 편차 4.16kg
         if self.type == 3: # robot mass는 3으로 고정
@@ -581,6 +582,11 @@ class CrowdAgent(Agent):
         robot_x = self.model.robot.xy[0] - self.xy[0]
         robot_y = self.model.robot.xy[1] - self.xy[1]
         robot_d = math.sqrt(pow(robot_x,2)+pow(robot_y,2))
+
+        if(robot_d<robot_radius):
+            self.is_near_robot = 1
+        else:
+            self.is_near_robot = 0
 
         self.which_goal_agent_want()
         if(self.robot_initialized == 1):
