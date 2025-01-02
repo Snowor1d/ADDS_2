@@ -185,7 +185,7 @@ for j in range(run_iteration):
 
     #for model_num in range(5):
     for model_num in range(5):
-
+        model_num = 1
         reference_step = 0
         for each_model_learning in range(1):
         # 모델 생성 및 실행에 실패하면 반복해서 다시 시도
@@ -211,11 +211,11 @@ for j in range(run_iteration):
             while True:
                 try:
                     step_num += 1
-                    model_o.step()
                     reward = 0
 
                     action = agent.select_action(state)
                     model_o.robot.receive_action(action)
+                    model_o.step()
                     print(f"action : {action}")
 
                     next_state = model_o.return_current_image()

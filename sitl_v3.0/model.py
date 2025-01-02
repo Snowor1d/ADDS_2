@@ -881,13 +881,19 @@ class FightingModel(Model):
 
 
     def robot_placement(self): # 야외 공간에 무작위로 로봇 배치 
-        get_point = self.exit_point[random.randint(0, len(self.exit_point)-1)]
-        get_point = (int(round(get_point[0])), int(round(get_point[1])))
+        # get_point = self.exit_point[random.randint(0, len(self.exit_point)-1)]
+        # get_point = (int(round(get_point[0])), int(round(get_point[1])))
+        # self.agent_id = self.agent_id + 10
+        # self.robot = RobotAgent(self.agent_id, self, [get_point[0],get_point[1]], 3)
+        # self.agent_id = self.agent_id + 10
+        # self.schedule.add(self.robot)
+        # self.grid.place_agent(self.robot, (get_point[0], get_point[1]))
+
         self.agent_id = self.agent_id + 10
-        self.robot = RobotAgent(self.agent_id, self, [get_point[0],get_point[1]], 3)
+        self.robot = RobotAgent(self.agent_id, self, [20, 35], 3)
         self.agent_id = self.agent_id + 10
         self.schedule.add(self.robot)
-        self.grid.place_agent(self.robot, (get_point[0], get_point[1]))
+        self.grid.place_agent(self.robot, (20, 35))
     
 
     
