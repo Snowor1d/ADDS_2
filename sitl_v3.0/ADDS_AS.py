@@ -53,7 +53,7 @@ import cv2
 most_danger = 0
 width = 70
 height = 70
-model_num = 3
+model_num = 2
 if visualization_mode == 'on':
     Width = width
     Height =height
@@ -152,6 +152,22 @@ if visualization_mode == 'on':
 
         # the default config is a circle
         portrayal = {
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+            
             "Shape": "circle",
             "Filled": "true",
             "r": 0.5,
