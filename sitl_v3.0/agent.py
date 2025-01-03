@@ -741,8 +741,13 @@ class RobotAgent(CrowdAgent):
         super().__init__(unique_id, model, pos, type1)
         self.buffer = ReplayBuffer(capacity=800)
         self.action = ["UP", "GUIDE"]
+        self.past_xy = deque(maxlen=20)
+        self.collision_check = 0
+        
 
     def receive_action(self, action):
+                
+        
         direction_probs = action[0]
         
         if (action[2] == 'exploration'):
@@ -750,27 +755,33 @@ class RobotAgent(CrowdAgent):
         
         self.action[1] = action[1]
 
-        
+        self.collision_check = 0
         action_list = ["UP", "DOWN", "LEFT", "RIGHT"]
         for k in action_list:
             if (k == "UP"):
                 if not ( self.model.valid_space[(int(round(self.xy[0])), int(round(self.xy[1])+1))]):
                     direction_probs[0, action_list.index(k)] = 0 
+                    self.collision_check = 1
             elif (k == "DOWN"):
                 if (int(round(self.xy[1])-1))<0 : 
                     direction_probs[0, action_list.index(k)] = 0
+                    self.collision_check = 1
                     continue
                 if not ( self.model.valid_space[(int(round(self.xy[0])), int(round(self.xy[1])-1))]):
                     direction_probs[0, action_list.index(k)] = 0
+                    self.collision_check = 1
             elif (k == "LEFT"):
                 if (int(round(self.xy[0])-1))<0 : 
                     direction_probs[0, action_list.index(k)] = 0
+                    self.collision_check = 1
                     continue
                 if not ( self.model.valid_space[(int(round(self.xy[0])-1), int(round(self.xy[1])))]):
                     direction_probs[0, action_list.index(k)] = 0
+                    self.collision_check = 1
             elif (k == "RIGHT"):
                 if not ( self.model.valid_space[(int(round(self.xy[0])+1), int(round(self.xy[1])))]):
                     direction_probs[0, action_list.index(k)] = 0
+                    self.collision_check = 1
                     
         direction_idx = torch.multinomial(direction_probs, 1).item()
         
@@ -779,13 +790,17 @@ class RobotAgent(CrowdAgent):
         self.action[0] = direction
         return self.action
     def robot_policy_Q(self):
+
+
+    
+
         time_step = 0.2
         robot_radius = 7
 
         if(self.robot_initialized == 0 ):
             self.robot_initialized = 1
             return (self.model.robot.xy[0], self.model.robot.xy[1]) ## 오호라... 처음에 리스폰 되는 거 피하려고 
-        
+        self.past_xy.append(self.xy)
         next_action = self.action
             
         goal_x = 0

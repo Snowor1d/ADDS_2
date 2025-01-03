@@ -98,20 +98,34 @@ class TDActorCriticAgent:
 
     #     return direction, mode
 
+    # def select_action(self, state):
+    #     state = torch.FloatTensor(state).unsqueeze(0).unsqueeze(0)  # Add batch and channel dimensions
+
+    #     with torch.no_grad():
+    #         direction_probs, mode_probs, _ = self.model(state)
+    #     print(direction_probs)
+    #     #direction_idx = torch.multinomial(direction_probs, 1).item()
+    #     mode_idx = torch.multinomial(mode_probs, 1).item()
+
+    #     #direction = self.directions[direction_idx]
+    #     mode = self.modes[mode_idx]
+        
+    #     return direction_probs, mode
+
     def select_action(self, state):
         state = torch.FloatTensor(state).unsqueeze(0).unsqueeze(0)  # Add batch and channel dimensions
 
+
         with torch.no_grad():
             direction_probs, mode_probs, _ = self.model(state)
-        print(direction_probs)
+        
         #direction_idx = torch.multinomial(direction_probs, 1).item()
         mode_idx = torch.multinomial(mode_probs, 1).item()
 
         #direction = self.directions[direction_idx]
         mode = self.modes[mode_idx]
         
-        return direction_probs, mode
-
+        return direction_probs, mode, 'not_exploration'
 
     def update(self, state, action, reward, next_state, done):
         state = torch.FloatTensor(state).unsqueeze(0).unsqueeze(0)
@@ -1026,15 +1040,32 @@ class FightingModel(Model):
     def check_reward_danger(self):
         reward = 0
         num = 0
+
+        #robot이 agent를 끌어당기면 +reward
         for agent in self.agents:
             if(agent.type == 0 or agent.type == 1 or agent.type == 2 ) and (agent.dead == False):
                 if(agent.robot_tracked>0):
                     num+=1
                     reward += agent.gain
 
-                if(agent.is_near_robot == 1):
-                    reward += 0.05
-            
+
+        #로봇이 탈출구쪽으로 가면 -reward 
+        shortest_distance = math.sqrt(pow(self.robot.xy[0]-self.exit_point[0][0],2)+pow(self.robot.xy[1]-self.exit_point[0][1],2)) ## agent와 가장 가까운 탈출구 사이의 거리
+        shortest_goal = self.exit_point[0]
+
+        exit_point_index = 0
+        for index, i in enumerate(self.exit_point): ## agent가 가장 가까운 탈출구로 이동
+            if  (math.sqrt(pow(self.robot.xy[0]-i[0],2)+pow(self.robot.xy[1]-i[1],2)) < shortest_distance):
+                shortest_distance = math.sqrt(pow(self.robot.xy[0]-i[0],2)+pow(self.robot.xy[1]-i[1],2))
+                exit_point_index = index
+        
+        if(shortest_distance < 4):
+            reward -= 0.8
+
+        #로봇이 벽이랑 부딪히면 -reward
+        if(self.robot.collision_check):
+            reward -= 2
+        
 
         #print("tracked 되고 있는 수 : ", num)
         return reward

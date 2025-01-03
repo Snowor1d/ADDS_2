@@ -176,7 +176,7 @@ class TDActorCriticAgent:
 input_shape = (70, 70)
 num_directions = 4 
 
-agent = TDActorCriticAgent(input_shape, num_directions, start_epsilon = 0.7)
+agent = TDActorCriticAgent(input_shape, num_directions, start_epsilon = 1.0)
 #agent.load_model("actor_critic_model.pth")
 for j in range(run_iteration):
     print(f"{j} 번째 학습 ")
@@ -209,41 +209,39 @@ for j in range(run_iteration):
             state= model_o.return_current_image()
             total_reward = 0
             while True:
-                #try:
-                step_num += 1
-                reward = 0
+                try:
+                    step_num += 1
+                    reward = 0
 
-                action = agent.select_action(state)
-                action = model_o.robot.receive_action(action)
-                model_o.step()
-                print(f"action : {action}")
+                    action = agent.select_action(state)
+                    action = model_o.robot.receive_action(action)
+                    model_o.step()
+                    print(f"action : {action}")
 
-                next_state = model_o.return_current_image()
+                    next_state = model_o.return_current_image()
 
-                done=False
-                reward = model_o.check_reward_danger() / 100
-                total_reward += reward
-                print(f"reward : {reward}")
-                if step_num >= max_step_num or model_o.alived_agents() <= 1:
-                    done= True
-        
-                agent.update(state, action, reward, next_state, done)
-                state = next_state
+                    done=False
+                    reward = model_o.check_reward_danger() / 100
+                    total_reward += reward
+                    print(f"reward : {reward}")
+                    if step_num >= max_step_num or model_o.alived_agents() <= 1:
+                        done= True
+            
+                    agent.update(state, action, reward, next_state, done)
+                    state = next_state
 
 
-                if (done):
+                    if (done):
+                        break
+
+                except Exception as e:
+                    print(e)
+                    print("error 발생, 다시 시작합니다")
+                    # step 수행 중 오류가 발생하면, model 생성부터 다시 시작
                     break
-
-                # except Exception as e:
-                #     print(e)
-                #     print("error 발생, 다시 시작합니다")
-                #     # step 수행 중 오류가 발생하면, model 생성부터 다시 시작
-                #     break
             del model_o
             
-            decay_value = 0.95
-            if(agent.epsilon < 0.1):
-                decay_value = 0.995
+            decay_value = 0.995
                 
 
             if (total_reward == 0):
