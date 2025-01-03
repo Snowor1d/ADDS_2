@@ -34,7 +34,7 @@ import torch.nn.functional as F
 #-------------------------#
 visualization_mode = 'off' # choose your visualization mode 'on / off
 run_iteration = 1500
-number_of_agents = 50 # agents 수
+number_of_agents = 30 # agents 수
 max_step_num = 1500
 #-------------------------#
 
@@ -173,11 +173,12 @@ class TDActorCriticAgent:
 
 input_shape = (70, 70)
 num_directions = 4 
+episode = 0
 
-agent = TDActorCriticAgent(input_shape, num_directions, start_epsilon = 1.0)
-#agent.load_model("actor_critic_model.pth")
+agent = TDActorCriticAgent(input_shape, num_directions, start_epsilon = 0.5)
+agent.load_model("actor_critic_model.pth")
 for j in range(run_iteration):
-    print(f"{j} 번째 학습 ")
+    #print(f"{j} 번째 학습 ")
     result = []
     the_number_of_model = 0
 
@@ -187,15 +188,15 @@ for j in range(run_iteration):
         reference_step = 0
         for each_model_learning in range(1):
         # 모델 생성 및 실행에 실패하면 반복해서 다시 시도
+            episode += 1
             step_num = 0
             while True:     
                 try:
-
                         # model 객체 생성
                     model_o = model.FightingModel(number_of_agents, 70, 70, model_num+1, 'Q')
                     the_number_of_model += 1
                     print("------------------------------")
-                    print(f"{the_number_of_model}번째 학습")
+                    print(f"{episode} episode")
                     break  # 객체가 성공적으로 생성되면 루프 탈출
                 except Exception as e:
                     print(e)
@@ -205,41 +206,47 @@ for j in range(run_iteration):
                 # 모델이 성공적으로 생성되었으므로 step 진행
             initialized = 0
             state= model_o.return_current_image()
+            action = agent.select_action(state)
+            action = ["UP", "GUIDE"]
             total_reward = 0
             while True:
-                try:
-                    step_num += 1
-                    reward = 0
-
+                #try:
+                step_num += 1
+                reward = 0
+                if(step_num % 4 == 0):
                     action = agent.select_action(state)
                     action = model_o.robot.receive_action(action)
-                    model_o.step()
-                    print(f"action : {action}")
+                model_o.step()
+                print(f"action : {action}")
 
-                    next_state = model_o.return_current_image()
+                next_state = model_o.return_current_image()
 
-                    done=False
-                    reward = model_o.check_reward_danger() / 100
-                    total_reward += reward
-                    print(f"reward : {reward}")
-                    if step_num >= max_step_num or model_o.alived_agents() <= 1:
-                        done= True
-            
-                    agent.update(state, action, reward, next_state, done)
-                    state = next_state
+                done=False
+                reward = model_o.check_reward_danger() / 300
+                if(reward>0):
+                    reward = 1
+                if(reward<0):
+                    reward = -1
+                total_reward += reward
+                print(f"reward : {reward}")
+                if step_num >= max_step_num or model_o.alived_agents() <= 1:
+                    done= True
+                
+                agent.update(state, action, reward, next_state, done)
+                state = next_state
 
 
-                    if (done):
-                        break
-
-                except Exception as e:
-                    print(e)
-                    print("error 발생, 다시 시작합니다")
-                    # step 수행 중 오류가 발생하면, model 생성부터 다시 시작
+                if (done):
                     break
+
+                # except Exception as e:
+                #     print(e)
+                #     print("error 발생, 다시 시작합니다")
+                #     # step 수행 중 오류가 발생하면, model 생성부터 다시 시작
+                #     break
             del model_o
             
-            decay_value = 0.995
+            decay_value = 0.95
                 
 
             if (total_reward == 0):

@@ -82,32 +82,7 @@ class TDActorCriticAgent:
         self.directions = ["UP", "DOWN", "LEFT", "RIGHT"]  # Movement directions
         self.modes = ["GUIDE", "NOT_GUIDE"]  # Guide modes
 
-    # def select_action(self, state):
-    #     state = torch.FloatTensor(state).unsqueeze(0).unsqueeze(0)  # Add batch and channel dimensions
-    #     with torch.no_grad():
-    #         direction_probs, mode_probs, _ = self.model(state)
-        
-    #     direction_idx = torch.multinomial(direction_probs, 1).item()
-    #     mode_idx = torch.multinomial(mode_probs, 1).item()
-
-    #     direction = self.directions[direction_idx]
-    #     mode = self.modes[mode_idx]
-
-    #     return direction, mode
-
-    # def select_action(self, state):
-    #     state = torch.FloatTensor(state).unsqueeze(0).unsqueeze(0)  # Add batch and channel dimensions
-
-    #     with torch.no_grad():
-    #         direction_probs, mode_probs, _ = self.model(state)
-    #     print(direction_probs)
-    #     #direction_idx = torch.multinomial(direction_probs, 1).item()
-    #     mode_idx = torch.multinomial(mode_probs, 1).item()
-
-    #     #direction = self.directions[direction_idx]
-    #     mode = self.modes[mode_idx]
-        
-    #     return direction_probs, mode
+        step_n = 0
 
     def select_action(self, state):
         state = torch.FloatTensor(state).unsqueeze(0).unsqueeze(0)  # Add batch and channel dimensions
@@ -364,7 +339,9 @@ class FightingModel(Model):
     """A model with some number of agents."""
 
     def __init__(self, number_agents: int, width: int, height: int, model_num = -1, robot = 'Q'):
-
+        
+        self.step_n = 0
+        
         if (model_num == -1):
             model_num = random.randint(1,5)
 
@@ -994,6 +971,7 @@ class FightingModel(Model):
 
 
     def step(self):
+        self.step_n += 1
         """Advance the model by one step."""
         global started
         max_id = 1
@@ -1017,7 +995,7 @@ class FightingModel(Model):
         self.step_count += 1
 
         state = self.return_current_image()
-        if(self.using_model):
+        if(self.using_model and self.step_n%4==0):
             action = self.ac_agent.select_action(state)
             self.robot.receive_action(action)
 
@@ -1047,21 +1025,21 @@ class FightingModel(Model):
 
 
         #로봇이 탈출구쪽으로 가면 -reward 
-        shortest_distance = math.sqrt(pow(self.robot.xy[0]-self.exit_point[0][0],2)+pow(self.robot.xy[1]-self.exit_point[0][1],2)) ## agent와 가장 가까운 탈출구 사이의 거리
-        shortest_goal = self.exit_point[0]
+        # shortest_distance = math.sqrt(pow(self.robot.xy[0]-self.exit_point[0][0],2)+pow(self.robot.xy[1]-self.exit_point[0][1],2)) ## agent와 가장 가까운 탈출구 사이의 거리
+        # shortest_goal = self.exit_point[0]
 
-        exit_point_index = 0
-        for index, i in enumerate(self.exit_point): ## agent가 가장 가까운 탈출구로 이동
-            if  (math.sqrt(pow(self.robot.xy[0]-i[0],2)+pow(self.robot.xy[1]-i[1],2)) < shortest_distance):
-                shortest_distance = math.sqrt(pow(self.robot.xy[0]-i[0],2)+pow(self.robot.xy[1]-i[1],2))
-                exit_point_index = index
+        # exit_point_index = 0
+        # for index, i in enumerate(self.exit_point): ## agent가 가장 가까운 탈출구로 이동
+        #     if  (math.sqrt(pow(self.robot.xy[0]-i[0],2)+pow(self.robot.xy[1]-i[1],2)) < shortest_distance):
+        #         shortest_distance = math.sqrt(pow(self.robot.xy[0]-i[0],2)+pow(self.robot.xy[1]-i[1],2))
+        #         exit_point_index = index
         
-        if(shortest_distance < 4):
-            reward -= 0.8
+        # if(shortest_distance < 4):
+        #     reward -= 0.2
 
-        #로봇이 벽이랑 부딪히면 -reward
-        if(self.robot.collision_check):
-            reward -= 2
+        # #로봇이 벽이랑 부딪히면 -reward
+        # if(self.robot.collision_check):
+        #     reward -= 0.5
         
 
         #print("tracked 되고 있는 수 : ", num)

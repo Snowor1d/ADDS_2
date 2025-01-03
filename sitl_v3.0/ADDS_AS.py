@@ -211,7 +211,7 @@ if visualization_mode == 'on':
             portrayal["Layer"] = 2
             return portrayal
         if agent.type == 10:
-            portrayal["Color"] = "black"
+            portrayal["Color"] = "white"
             portrayal["Layer"] = 2
             return portrayal
         if agent.type == 11:

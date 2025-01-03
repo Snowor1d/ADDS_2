@@ -791,9 +791,6 @@ class RobotAgent(CrowdAgent):
         return self.action
     def robot_policy_Q(self):
 
-
-    
-
         time_step = 0.2
         robot_radius = 7
 
@@ -858,8 +855,8 @@ class RobotAgent(CrowdAgent):
         for near_agent in near_agents_list:
             n_x = near_agent.xy[0]
             n_y = near_agent.xy[1]
-            d_x = robot_xy[0] - n_x
-            d_y = robot_xy[1] - n_y
+            d_x = self.xy[0] - n_x
+            d_y = self.xy[1] - n_y
             d = math.sqrt(pow(d_x, 2) + pow(d_y, 2))
 
 
@@ -876,8 +873,9 @@ class RobotAgent(CrowdAgent):
                     repulsive_force[1] += 0/4*np.exp(-(d/2))*(d_y/d) 
 
                 elif(near_agent.type == 11 or near_agent.type == 9):## 검정벽 
-                    repulsive_force[0] += 13 *np.exp(-(d/2))*(d_x/d)
-                    repulsive_force[1] += 13 *np.exp(-(d/2))*(d_y/d)
+                    repulsive_force[0] += 5*np.exp(-(d/2))*(d_x/d)
+                    repulsive_force[1] += 5*np.exp(-(d/2))*(d_y/d)
+                    print("repulsive_force : ", repulsive_force)
 
         F_x = 0
         F_y = 0
