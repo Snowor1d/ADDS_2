@@ -44,43 +44,41 @@ class ActorCritic(nn.Module):
         super(ActorCritic, self).__init__()
 
         # Shared convolutional layers
-        self.conv1 = nn.Conv2d(1, 4, kernel_size=3, stride=1, padding='same')  # 필터 수 감소, padding='same'
-        self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2)  # 명시적 Max Pooling
-        self.conv2 = nn.Conv2d(4, 8, kernel_size=3, stride=1, padding='same')  # 필터 수 증가
-        self.pool2 = nn.MaxPool2d(kernel_size=2, stride=2)  # 두 번째 Pooling
+        self.conv1 = nn.Conv2d(1, 16, kernel_size=5, stride=2)
+        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=2)
+        self.conv3 = nn.Conv2d(32, 64, kernel_size=3, stride=2)
 
-        # Global average pooling layer
-        self.global_pool = nn.AdaptiveAvgPool2d(1)  # AdaptiveAvgPool2d로 고정 출력
-        
         # Fully connected layers
-        self.fc = nn.Linear(8, 256)  # 8채널 출력 → Dense 연결
+        conv_out_size = self._get_conv_out(input_shape)
+        self.fc1 = nn.Linear(conv_out_size, 256)  # First FC layer
+        self.fc2 = nn.Linear(256, 128)  # New FC layer
 
         # Actor output layers
-        self.actor_direction = nn.Linear(256, num_directions)  # Movement direction
-        self.actor_mode = nn.Linear(256, 2)  # Guide mode or not guide mode
-        
+        self.actor_direction = nn.Linear(128, num_directions)  # For movement direction
+        self.actor_mode = nn.Linear(128, 2)  # Guide mode or not guide mode
+
         # Critic output layer
-        self.critic = nn.Linear(256, 1)  # State value
+        self.critic = nn.Linear(128, 1)  # State value
+
+    def _get_conv_out(self, shape):
+        o = torch.zeros(1, 1, *shape)
+        o = self.conv1(o)
+        o = self.conv2(o)
+        o = self.conv3(o)
+        return int(np.prod(o.size()))
 
     def forward(self, x):
-        # Convolutional layers
         x = F.relu(self.conv1(x))
-        x = self.pool1(x)
         x = F.relu(self.conv2(x))
-        x = self.pool2(x)
-        
-        # Global Average Pooling
-        x = self.global_pool(x)
-        x = x.view(x.size(0), -1)  # Flatten the output
-        
-        # Fully connected layer
-        x = F.relu(self.fc(x))
-        
-        # Outputs
-        direction_probs = F.softmax(self.actor_direction(x), dim=-1)  # Movement direction probabilities
-        mode_probs = F.softmax(self.actor_mode(x), dim=-1)  # Mode probabilities
-        value = self.critic(x)  # State value
-        
+        x = F.relu(self.conv3(x))
+        x = x.view(x.size(0), -1)
+        x = F.relu(self.fc1(x))  # Pass through first FC layer
+        x = F.relu(self.fc2(x))  # Pass through new FC layer
+
+        direction_probs = F.softmax(self.actor_direction(x), dim=-1)
+        mode_probs = F.softmax(self.actor_mode(x), dim=-1)
+        value = self.critic(x)
+
         return direction_probs, mode_probs, value
     
 # Environment Interaction and Training
