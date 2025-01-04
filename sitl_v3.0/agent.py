@@ -250,19 +250,7 @@ class CrowdAgent(Agent):
         self.go_path_num= 0
         self.back_path_num = 0
 
-        
-        file_path = 'weight.txt'
-        file = open(file_path, 'r')
-        lines = file.readlines()
-        file.close()
 
-        self.w1 = float(lines[0])
-        self.w2 = float(lines[1])
-        self.w3 = float(lines[2])
-        self.w4 = float(lines[3])
-
-        self.feature_weights_guide = [self.w1, self.w2]
-        self.feature_weights_not_guide = [self.w3, self.w4]
 
         self.model.robot_mode = "NOT_GUIDE"
 
@@ -910,69 +898,6 @@ class RobotAgent(CrowdAgent):
         robot_goal = [next_x, next_y]
         #print(robot_goal)
         return (next_x, next_y)
-
-
-    def update_weight(self, reward):
-        
-        if not (self.buffer.is_half()):
-            return # Replay buffer가 반 차지 않았으면 update하지 않음
-
-        global weight_changing
-        alpha = 0.005
-        discount_factor = 0.01
-        
-        gamma = 0.99
-        discounted_reward = 0 # 감쇠된 reward
-        next_robot_xy=  [0, 0]
-        learning_sample = self.buffer.sample(32) # 32개의 랜덤 샘플로 학습시킬 것
-        for index, i in enumerate(range(len(learning_sample))):
-            robot_xy = learning_sample[i][0]
-            next_robot_xy[0] = robot_xy[0]
-            next_robot_xy[1] = robot_xy[1]
-            robot_action = learning_sample[i][1]
-            if robot_action[0] == 'UP':
-                next_robot_xy[1] += 1
-            elif robot_action[0] == 'DOWN':
-                next_robot_xy[1] -= 1
-            elif robot_action[0] == 'RIGHT':
-                next_robot_xy[0] += 1
-            elif robot_action[0] == 'LEFT':
-                next_robot_xy[0] -= 1
-
-            f1 = learning_sample[i][2]
-            f2 = learning_sample[i][3]
-            f3 = learning_sample[i][4]
-            f4 = learning_sample[i][5]
-            if(robot_action[1] == "GUIDE"):
-                next_state_max_Q = self.calculate_Max_Q(next_robot_xy, "GUIDE")
-                present_state_Q = self.calculate_Q(robot_xy, robot_action)
-                if(weight_changing[0]):
-                    self.w1 += alpha * (discounted_reward + discount_factor * next_state_max_Q - present_state_Q) * f1
-                if(weight_changing[1]):
-                    self.w2 += alpha * (discounted_reward + discount_factor * next_state_max_Q - present_state_Q) * f2
-                self.feature_weights_guide[0] = self.w1
-                self.feature_weights_guide[1] = self.w2 
-       
-
-            elif(robot_action[1] == "NOT_GUIDE"):
-                next_state_max_Q = self.calculate_Max_Q(next_robot_xy, "NOT_GUIDE")
-                present_state_Q = self.calculate_Q(robot_xy, robot_action)
-                if(weight_changing[2]):
-                    self.w3 +=  alpha * (discounted_reward + discount_factor * next_state_max_Q - present_state_Q) * f3 
-                if(weight_changing[3]):
-                    self.w4 +=  alpha * (discounted_reward + discount_factor * next_state_max_Q - present_state_Q) * f4
-                self.feature_weights_not_guide[0] = self.w3
-                self.feature_weights_not_guide[1] = self.w4
-
-        #self.buffer = []
-        with open('weight.txt','w') as file:
-            file.write(f"{self.w1}\n")
-            file.write(f"{self.w2}\n")
-            file.write(f"{self.w3}\n")
-            file.write(f"{self.w4}\n")
-
-        return
-
 
 
     def make_buffer(self):

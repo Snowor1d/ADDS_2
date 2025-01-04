@@ -173,10 +173,15 @@ class TDActorCriticAgent:
 
 input_shape = (70, 70)
 num_directions = 4 
-episode = 0
 
-agent = TDActorCriticAgent(input_shape, num_directions, start_epsilon = 0.5)
-agent.load_model("actor_critic_model.pth")
+start_episode = 0
+agent = TDActorCriticAgent(input_shape, num_directions, start_epsilon = 1.0)
+# model_name = "actor_critic_model_170.pth"
+# if model_name.split("_")[-1].split(".")[0].isdigit():
+#     start_episode = int(model_name.split("_")[-1].split(".")[0])
+# agent.load_model(model_name)
+
+episode = start_episode
 for j in range(run_iteration):
     #print(f"{j} 번째 학습 ")
     result = []
@@ -210,43 +215,43 @@ for j in range(run_iteration):
             action = ["UP", "GUIDE"]
             total_reward = 0
             while True:
-                #try:
-                step_num += 1
-                reward = 0
-                if(step_num % 4 == 0):
-                    action = agent.select_action(state)
-                    action = model_o.robot.receive_action(action)
-                model_o.step()
-                print(f"action : {action}")
+                try:
+                    step_num += 1
+                    reward = 0
+                    if(step_num % 4 == 0):
+                        action = agent.select_action(state)
+                        action = model_o.robot.receive_action(action)
+                    model_o.step()
+                    print(f"action : {action}")
 
-                next_state = model_o.return_current_image()
+                    next_state = model_o.return_current_image()
 
-                done=False
-                reward = model_o.check_reward_danger() / 300
-                if(reward>0):
-                    reward = 1
-                if(reward<0):
-                    reward = -1
-                total_reward += reward
-                print(f"reward : {reward}")
-                if step_num >= max_step_num or model_o.alived_agents() <= 1:
-                    done= True
-                
-                agent.update(state, action, reward, next_state, done)
-                state = next_state
+                    done=False
+                    reward = model_o.check_reward_danger() / 300
+                    total_reward += reward
 
 
-                if (done):
+                    print(f"reward : {reward}")
+                    if step_num >= max_step_num or model_o.alived_agents() <= 1:
+                        done= True
+                    
+                    agent.update(state, action, reward, next_state, done)
+                    state = next_state
+
+
+                    if (done):
+                        break
+
+                except Exception as e:
+                    print(e)
+                    print("error 발생, 다시 시작합니다")
+                    # step 수행 중 오류가 발생하면, model 생성부터 다시 시작
                     break
-
-                # except Exception as e:
-                #     print(e)
-                #     print("error 발생, 다시 시작합니다")
-                #     # step 수행 중 오류가 발생하면, model 생성부터 다시 시작
-                #     break
             del model_o
             
             decay_value = 0.95
+            if(agent.epsilon < 0.1):
+                decay_value = 1
                 
 
             if (total_reward == 0):
@@ -256,6 +261,11 @@ for j in range(run_iteration):
 
             print("99% 탈출에 걸리는 step : ", step_num)
         print(f"현재 epsilon : {agent.epsilon}")
-        save_path = 'actor_critic_model.pth'
-        agent.save_model(save_path)
-        print(f"model saved in {save_path}")
+        if episode % 10 == 0:
+            save_path = f'learning_log/actor_critic_model_{episode}.pth'
+            agent.save_model(save_path)
+            print(f"Model saved in {save_path}")
+
+        with open("learning_log/total_rewards.txt", "a") as log_file:
+            log_file.write(f"Episode {episode}, Total Reward: {total_reward}\n")
+

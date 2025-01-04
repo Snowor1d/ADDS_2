@@ -1025,21 +1025,21 @@ class FightingModel(Model):
 
 
         #로봇이 탈출구쪽으로 가면 -reward 
-        # shortest_distance = math.sqrt(pow(self.robot.xy[0]-self.exit_point[0][0],2)+pow(self.robot.xy[1]-self.exit_point[0][1],2)) ## agent와 가장 가까운 탈출구 사이의 거리
-        # shortest_goal = self.exit_point[0]
+        shortest_distance = math.sqrt(pow(self.robot.xy[0]-self.exit_point[0][0],2)+pow(self.robot.xy[1]-self.exit_point[0][1],2)) ## agent와 가장 가까운 탈출구 사이의 거리
+        shortest_goal = self.exit_point[0]
 
-        # exit_point_index = 0
-        # for index, i in enumerate(self.exit_point): ## agent가 가장 가까운 탈출구로 이동
-        #     if  (math.sqrt(pow(self.robot.xy[0]-i[0],2)+pow(self.robot.xy[1]-i[1],2)) < shortest_distance):
-        #         shortest_distance = math.sqrt(pow(self.robot.xy[0]-i[0],2)+pow(self.robot.xy[1]-i[1],2))
-        #         exit_point_index = index
+        exit_point_index = 0
+        for index, i in enumerate(self.exit_point): ## agent가 가장 가까운 탈출구로 이동
+            if  (math.sqrt(pow(self.robot.xy[0]-i[0],2)+pow(self.robot.xy[1]-i[1],2)) < shortest_distance):
+                shortest_distance = math.sqrt(pow(self.robot.xy[0]-i[0],2)+pow(self.robot.xy[1]-i[1],2))
+                exit_point_index = index
         
-        # if(shortest_distance < 4):
-        #     reward -= 0.2
+        if(shortest_distance < 4):
+            reward -= 0.2
 
-        # #로봇이 벽이랑 부딪히면 -reward
-        # if(self.robot.collision_check):
-        #     reward -= 0.5
+        #로봇이 벽이랑 부딪히면 -reward
+        if(self.robot.collision_check):
+            reward -= 1
         
 
         #print("tracked 되고 있는 수 : ", num)
@@ -1068,18 +1068,18 @@ class FightingModel(Model):
         image = [[0 for _ in range(self.width)] for _ in range(self.height)]
         for agent in self.agents:
             if(agent.type==9):
-                image[agent.pos[0]][agent.pos[1]] = 3 # 벽
+                image[agent.pos[0]][agent.pos[1]] = 40 # 벽
             if(agent.type==10):
-                image[agent.pos[0]][agent.pos[1]] = 4 # 출구
+                image[agent.pos[0]][agent.pos[1]] = 90 # 출구
             if(agent.type == 0 or agent.type == 1 or agent.type == 2):
-                image[int(round(agent.xy[0]))][int(round(agent.xy[1]))] = 1 #agent
+                image[int(round(agent.xy[0]))][int(round(agent.xy[1]))] = 140 #agent
             if(agent.type == 3):
-                image[int(round(agent.xy[0]))][int(round(agent.xy[1]))] = 2 #robot
+                image[int(round(agent.xy[0]))][int(round(agent.xy[1]))] = 200 #robot
 
         # for i in range(self.width):
         #     for j in range(self.height):
         #         print(f'{i}, {j} : {image[i][j]}')
-        
+
         return image
 
     
