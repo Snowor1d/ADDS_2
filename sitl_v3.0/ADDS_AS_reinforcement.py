@@ -181,10 +181,15 @@ for j in range(run_iteration):
     result = []
     the_number_of_model = 0
 
+
     #for model_num in range(5):
     for model_num in range(5):
         model_num = 1
         reference_step = 0
+        # 각 iteration 시간 초기화
+        total_sim_time = 0
+        total_learn_time = 0
+
         for each_model_learning in range(1):
         # 모델 생성 및 실행에 실패하면 반복해서 다시 시도
             step_num = 0
@@ -213,19 +218,33 @@ for j in range(run_iteration):
 
                     action = agent.select_action(state)
                     action = model_o.robot.receive_action(action)
+
+                    # 시뮬레이션 시간 측정 시작
+                    sim_start_time = time.time()
+                    
                     model_o.step()
-                    print(f"action : {action}")
+                    # print(f"action : {action}")
+
+                    sim_end_time = time.time()
+                    total_sim_time += (sim_end_time - sim_start_time)
 
                     next_state = model_o.return_current_image()
+                    done = False
 
-                    done=False
+                    # 학습 시간 측정 시작
+                    learn_start_time = time.time()
+
                     reward = model_o.check_reward_danger() / 100
                     total_reward += reward
-                    print(f"reward : {reward}")
+                    # print(f"reward : {reward}")
                     if step_num >= max_step_num or model_o.alived_agents() <= 1:
                         done= True
             
                     agent.update(state, action, reward, next_state, done)
+
+                    learn_end_time = time.time()
+                    total_learn_time += (learn_end_time - learn_start_time)
+
                     state = next_state
 
 
@@ -252,3 +271,7 @@ for j in range(run_iteration):
         save_path = 'actor_critic_model.pth'
         agent.save_model(save_path)
         print(f"model saved in {save_path}")
+        
+        # 각 iteration 시간 출력
+        print(f"{the_number_of_model} 번째 학습 - Total Simulation Time: {total_sim_time:.6f} 초")
+        print(f"{the_number_of_model} 번째 학습 - Total Learning Time: {total_learn_time:.6f} 초")
