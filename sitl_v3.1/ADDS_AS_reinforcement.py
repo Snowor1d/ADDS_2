@@ -228,7 +228,7 @@ class HybridSACAgent:
         alpha=0.2,        # temperature (entropy weight)
         tau=0.995,        # soft-update
         lr=1e-4,
-        batch_size=,
+        batch_size=64,
         replay_size=int(1e5),
         start_epsilon=1.0  # if you still want some random exploring
     ):
@@ -426,11 +426,12 @@ if __name__ == "__main__":
     max_steps = 1500
     number_of_agents = 30
     start_episode = 0
-    agent = HybridSACAgent(input_shape=(70,70), alpha=0.2, lr=5e-5, start_epsilon=1.0)
-    model_name = "learning_log/hybrid_sac_checkpoint_ep_250.pth"
-    if model_name.split("_")[-1].split(".")[0].isdigit():
-        start_episode = int(model_name.split("_")[-1].split(".")[0])
-        agent.load_model(model_name)
+    agent = HybridSACAgent(input_shape=(70,70), alpha=0.2, lr=1e-4, start_epsilon=1.0)
+
+    # model_name = "learning_log/hybrid_sac_checkpoint_ep_250.pth"
+    # if model_name.split("_")[-1].split(".")[0].isdigit():
+    #     start_episode = int(model_name.split("_")[-1].split(".")[0])
+    #     agent.load_model(model_name)
 
     for episode in range(max_episodes):
         print(f"Episode {start_episode+episode+1}")
@@ -461,7 +462,7 @@ if __name__ == "__main__":
             env_model.step()
 
             # 3) Reward
-            reward = env_model.check_reward_danger() / 300
+            reward = env_model.check_reward_danger() / 30
             print("reward : ", reward)
             total_reward += reward
 
