@@ -6,6 +6,11 @@ import numpy as np
 import random
 from collections import deque
 import os
+import time
+from timer_utils import Timer
+from config import ENABLE_TIMER
+sim_timer = Timer() 
+learn_timer = Timer()
 
 ##########################################################################
 # 1) Replay Buffer
@@ -228,7 +233,7 @@ class HybridSACAgent:
         alpha=0.2,        # temperature (entropy weight)
         tau=0.995,        # soft-update
         lr=1e-4,
-        batch_size=,
+        batch_size=64,
         replay_size=int(1e5),
         start_epsilon=1.0  # if you still want some random exploring
     ):
@@ -457,9 +462,14 @@ if __name__ == "__main__":
             # Example dummy:
             real_action = env_model.robot.receive_action(([dx, dy], mode))
 
+            # Simulation time check
+            sim_timer.start()
             # 2) Step environment
             env_model.step()
+            sim_timer.stop()
 
+            # Learning time check
+            learn_timer.start()
             # 3) Reward
             reward = env_model.check_reward_danger() / 300
             print("reward : ", reward)
@@ -482,6 +492,7 @@ if __name__ == "__main__":
 
             # 7) Update agent
             agent.update()
+            learn_timer.stop()
 
             state = next_state
             if done:
@@ -507,3 +518,12 @@ if __name__ == "__main__":
             agent.save_model(f"learning_log/hybrid_sac_checkpoint_ep_{start_episode+episode+1}.pth")
         with open("learning_log/total_reward.txt", "a") as f:
             f.write(f"{total_reward}\n")
+
+
+        # each episode time print
+        if ENABLE_TIMER:
+            print(f"episode {start_episode+episode+1} - Total Simulation Time: {sim_timer.get_time():.6f} 초")
+            print(f"episode {start_episode+episode+1} - Total Learning Time: {learn_timer.get_time():.6f} 초")
+            sim_timer.reset()
+            learn_timer.reset()
+
