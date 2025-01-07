@@ -432,10 +432,10 @@ if __name__ == "__main__":
     number_of_agents = 30
     start_episode = 0
     agent = HybridSACAgent(input_shape=(70,70), alpha=0.2, lr=5e-5, start_epsilon=1.0)
-    # model_name = "learning_log/hybrid_sac_checkpoint_ep_10.pth"
-    # if model_name.split("_")[-1].split(".")[0].isdigit():
-    #     start_episode = int(model_name.split("_")[-1].split(".")[0])
-    #     agent.load_model(model_name)
+    model_name = "learning_log/hybrid_sac_checkpoint_ep_250.pth"
+    if model_name.split("_")[-1].split(".")[0].isdigit():
+        start_episode = int(model_name.split("_")[-1].split(".")[0])
+        agent.load_model(model_name)
 
     for episode in range(max_episodes):
         print(f"Episode {start_episode+episode+1}")
