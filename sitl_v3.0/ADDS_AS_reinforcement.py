@@ -19,6 +19,11 @@ import time
 import agent
 import model
 import time
+from timer_utils import Timer
+from config import ENABLE_TIMER
+sim_timer = Timer() 
+learn_timer = Timer()
+
 import sys
 
 import faulthandler
@@ -219,20 +224,20 @@ for j in range(run_iteration):
                     action = agent.select_action(state)
                     action = model_o.robot.receive_action(action)
 
-                    # 시뮬레이션 시간 측정 시작
-                    sim_start_time = time.time()
+                    # 시뮬레이션 시간 측정
+                    sim_timer.start()
                     
                     model_o.step()
                     # print(f"action : {action}")
 
-                    sim_end_time = time.time()
-                    total_sim_time += (sim_end_time - sim_start_time)
+                    sim_timer.stop()
+                    
 
                     next_state = model_o.return_current_image()
                     done = False
 
-                    # 학습 시간 측정 시작
-                    learn_start_time = time.time()
+                    # 학습 시간 측정
+                    learn_timer.start()
 
                     reward = model_o.check_reward_danger() / 100
                     total_reward += reward
@@ -242,8 +247,7 @@ for j in range(run_iteration):
             
                     agent.update(state, action, reward, next_state, done)
 
-                    learn_end_time = time.time()
-                    total_learn_time += (learn_end_time - learn_start_time)
+                    learn_timer.stop()
 
                     state = next_state
 
@@ -273,5 +277,8 @@ for j in range(run_iteration):
         print(f"model saved in {save_path}")
         
         # 각 iteration 시간 출력
-        print(f"{the_number_of_model} 번째 학습 - Total Simulation Time: {total_sim_time:.6f} 초")
-        print(f"{the_number_of_model} 번째 학습 - Total Learning Time: {total_learn_time:.6f} 초")
+        if ENABLE_TIMER:
+            print(f"{the_number_of_model} 번째 학습 - Total Simulation Time: {sim_timer.get_time():.6f} 초")
+            print(f"{the_number_of_model} 번째 학습 - Total Learning Time: {learn_timer.get_time():.6f} 초")
+            sim_timer.reset()
+            learn_timer.reset()
