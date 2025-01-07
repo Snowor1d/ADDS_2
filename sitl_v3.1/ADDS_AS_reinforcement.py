@@ -5,12 +5,13 @@ import torch.nn.functional as F
 import numpy as np
 import random
 from collections import deque
+import os
 
 ##########################################################################
 # 1) Replay Buffer
 ##########################################################################
 class ReplayBuffer:
-    def __init__(self, capacity=int(1e6)):
+    def __init__(self, capacity=int(1e4)):
         self.buffer = deque(maxlen=capacity)
 
     def push(self, state, action, reward, next_state, done):
@@ -73,7 +74,7 @@ def gumbel_softmax_log_prob(sample, logits, eps=1e-8):
 ##########################################################################
 # 3) Critic (Q) Network
 ##########################################################################
-class HybridQNetwork(nn.Module):
+class HybridQNetwork(nn.Module): # 주어진 상태 s와 행동 a에 대해 Q(s,a), 즉 이 행동이 얼마나 좋은지를 나타내는 값 예측 (Critic)
     """
     Q(s, a) where:
       - s: (C, H, W) or (1, H, W)
@@ -123,7 +124,7 @@ class HybridQNetwork(nn.Module):
 ##########################################################################
 # 4) Policy (Actor) Network
 ##########################################################################
-class HybridPolicyNetwork(nn.Module):
+class HybridPolicyNetwork(nn.Module):#행동을 샘플링하고 정책 학습, 주어진 상태 s에 대해 행동 a 결정, 연속적 & 이산적 행동 가능, 혼합 가능 (Actor)
     """
     Outputs distribution parameters for:
       - continuous direction: mean, log_std (2D)
@@ -227,7 +228,7 @@ class HybridSACAgent:
         alpha=0.2,        # temperature (entropy weight)
         tau=0.995,        # soft-update
         lr=1e-4,
-        batch_size=16,
+        batch_size=,
         replay_size=int(1e5),
         start_epsilon=1.0  # if you still want some random exploring
     ):
@@ -246,9 +247,15 @@ class HybridSACAgent:
 
         # Critic networks (two Qs + two targets)
         self.q1 = HybridQNetwork(input_shape, action_dim=4)
-        self.q2 = HybridQNetwork(input_shape, action_dim=4)
+        self.q2 = HybridQNetwork(input_shape, action_dim=4)  # Q값의 과대평가 문제 줄이기 위해 double Q 도입
+        #self.q1, self.q2 -> 현재 상태 s와 행동 a에 대해 Q-값을 근사하는 네트워크
+
+
         self.q1_target = HybridQNetwork(input_shape, action_dim=4)
-        self.q2_target = HybridQNetwork(input_shape, action_dim=4)
+        self.q2_target = HybridQNetwork(input_shape, action_dim=4) 
+        #self.q1_target, self.q2_target -> Q값의 Ground Truth 근사치를 제공?
+        #q-network 업데이트 시 사용하는 Target 값을 제공 
+
         self.q1_target.load_state_dict(self.q1.state_dict())
         self.q2_target.load_state_dict(self.q2.state_dict())
 
@@ -282,6 +289,7 @@ class HybridSACAgent:
     # Store experience
     # ------------------------------------------------- #
     def store_transition(self, s, a, r, s_next, done):
+        # if -20 <= a[0] <= 20 and -20 <= a[1] <= 20:
         self.replay_buffer.push(s, a, r, s_next, done)
 
     # ------------------------------------------------- #
@@ -297,8 +305,8 @@ class HybridSACAgent:
         # Epsilon check
         if np.random.rand() < self.epsilon:
             # random direction in [-1,1], random mode
-            dx = np.random.uniform(-2,2)
-            dy = np.random.uniform(-2,2)
+            dx = np.random.uniform(-20,20)
+            dy = np.random.uniform(-20,20)
             m_idx = np.random.randint(0,2)
             mode = np.array([1,0]) if m_idx==0 else np.array([0,1])
             return np.concatenate([[dx, dy], mode]), True
@@ -315,20 +323,27 @@ class HybridSACAgent:
             pass
         return action, False
 
+
+
     # ------------------------------------------------- #
     # Update (one gradient step)
     # ------------------------------------------------- #
     def update(self):
-        if len(self.replay_buffer) < self.batch_size:
+        if len(self.replay_buffer) < self.batch_size*100:
             return
+        
+        # sample = self.replay_buffer.sample(self.batch_size)
+        #states, actions, rewards, next_states, dones = self.replay_buffer.sample(self.batch_size)
 
+        # 1. Replay Buffer에서 샘플 가져오기
         states, actions, rewards, next_states, dones = self.replay_buffer.sample(self.batch_size)
+
 
         # (B,1,H,W), (B,4), (B,), (B,1,H,W), (B,)
         # Q target:
         with torch.no_grad():
             # next action, next log prob
-            next_action, next_log_prob = self.policy.sample_action(next_states)
+            next_action, next_log_prob = self.policy.sample_action(next_states) #update 할때 최적 정책으로 update -> off policy !!
             # compute target Q
             q1_next = self.q1_target(next_states, next_action)
             q2_next = self.q2_target(next_states, next_action)
@@ -343,12 +358,12 @@ class HybridSACAgent:
         loss_q2 = F.mse_loss(q2_val, q_target)
 
         self.q1_optimizer.zero_grad()
-        loss_q1.backward()
-        self.q1_optimizer.step()
+        loss_q1.backward()       
+        self.q1_optimizer.step() # q1 update
 
         self.q2_optimizer.zero_grad()
         loss_q2.backward()
-        self.q2_optimizer.step()
+        self.q2_optimizer.step() # q2 update
 
         # ----- Update Policy -----
         # re-sample action from current policy
@@ -358,7 +373,7 @@ class HybridSACAgent:
         q_new = torch.min(q1_new, q2_new).squeeze(-1)  # (B,)
 
         # policy loss = alpha * log_prob - Q
-        policy_loss = (self.alpha * log_prob - q_new).mean()
+        policy_loss = (self.alpha * log_prob - q_new).mean() #여기서 self.alpha * log_prob가 entropy term
 
         self.policy_optimizer.zero_grad()
         policy_loss.backward()
@@ -410,11 +425,15 @@ if __name__ == "__main__":
     max_episodes = 1000
     max_steps = 1500
     number_of_agents = 30
-
-    agent = HybridSACAgent(input_shape=(70,70), alpha=0.2, lr=1e-4)
+    start_episode = 0
+    agent = HybridSACAgent(input_shape=(70,70), alpha=0.2, lr=5e-5, start_epsilon=1.0)
+    # model_name = "learning_log/hybrid_sac_checkpoint_ep_10.pth"
+    # if model_name.split("_")[-1].split(".")[0].isdigit():
+    #     start_episode = int(model_name.split("_")[-1].split(".")[0])
+    #     agent.load_model(model_name)
 
     for episode in range(max_episodes):
-        print(f"Episode {episode+1}")
+        print(f"Episode {start_episode+episode+1}")
         # Create environment
         while True:
             try:
@@ -443,6 +462,7 @@ if __name__ == "__main__":
 
             # 3) Reward
             reward = env_model.check_reward_danger() / 300
+            print("reward : ", reward)
             total_reward += reward
 
             # 4) Next state
@@ -468,12 +488,22 @@ if __name__ == "__main__":
                 break
 
         # Possibly update epsilon, or do other logging
-        decay_value = 0.97
+        decay_value = 0.99
         if(agent.epsilon < 0.1):
             deacy_value = 1
-        agent.update_epsilon(True, decay_value=0.95)
+        agent.update_epsilon(True, decay_value)
         print("Total reward:", total_reward)
-
+        print("now_epsilon : ", agent.epsilon)
         # Save model occasionally
+        log_dir = "learning_log"
+        os.makedirs(log_dir, exist_ok=True)  
+
+        reward_file_path = os.path.join(log_dir, "total_reward.txt")
+        if not os.path.exists(reward_file_path):
+            # 파일이 없으면 빈 파일 생성
+            open(reward_file_path, "w").close()
+
         if (episode+1) % 10 == 0:
-            agent.save_model(f"hybrid_sac_checkpoint_ep{episode+1}.pth")
+            agent.save_model(f"learning_log/hybrid_sac_checkpoint_ep_{start_episode+episode+1}.pth")
+        with open("learning_log/total_reward.txt", "a") as f:
+            f.write(f"{total_reward}\n")

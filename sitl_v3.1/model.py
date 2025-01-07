@@ -1240,9 +1240,12 @@ class FightingModel(Model):
                 if(agent.robot_tracked>0):
                     num+=1
                     reward += agent.gain
-        if(self.robot.detect_abnormal_order):
-            reward -= 10
-
+        reward -= self.robot.detect_abnormal_order
+        # if(self.robot.detect_abnormal_order):
+        #     #print("abnormal order detected !!")
+        #     reward -= 4
+        # else:
+        #     reward += 0.1
 
         #로봇이 탈출구쪽으로 가면 -reward 
         # shortest_distance = math.sqrt(pow(self.robot.xy[0]-self.exit_point[0][0],2)+pow(self.robot.xy[1]-self.exit_point[0][1],2)) ## agent와 가장 가까운 탈출구 사이의 거리

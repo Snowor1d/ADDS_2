@@ -744,13 +744,22 @@ class RobotAgent(CrowdAgent):
         self.action[1] = action[0][1]/10
         self.action[2] = action[1]
         self.detect_abnormal_order = 0
-        
+        print("self.action : ", self.action)
         if(self.action[0] < -2 or self.action[0] > 2):
             self.action[0] = 0
-            self.detect_abnormal_order = 1
+            self.detect_abnormal_order += 100
         if(self.action[1] < -2 or self.action[1] > 2):
-            self.action[0] = 0
-            self.detect_abnormal_order = 1
+            self.action[1] = 0
+            self.detect_abnormal_order += 100
+        if(self.action[0] < -4 or self.action[0] > 4):
+            self.detect_abnormal_order += 150
+        if(self.action[1] < -4 or self.action[1] > 4):
+            self.detect_abnormal_order += 150
+        
+        if(self.action[0] < -10 or self.action[0] > 10):
+            self.detect_abnormal_order += 600
+        if(self.action[1] < -10 or self.action[1] > 10):
+            self.detect_abnormal_order += 600
         
         return self.action
     def robot_policy_Q(self):
@@ -768,7 +777,11 @@ class RobotAgent(CrowdAgent):
         
         goal_x += self.action[0]
         goal_y += self.action[1]
-        self.model.robot_mode = self.action[2]
+
+        if(self.action[2] == 1):
+            self.model.robot_mode = "GUIDE"
+        else:
+            self.model.robot_mode = "NOT_GUIDE"
 
 
         goal_d = math.sqrt(pow(goal_x, 2) + pow(goal_y, 2))
