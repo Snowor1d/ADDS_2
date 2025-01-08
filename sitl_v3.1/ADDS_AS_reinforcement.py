@@ -216,7 +216,7 @@ class HybridPolicyNetwork(nn.Module):#행동을 샘플링하고 정책 학습, �
 
         # Combine action
         action = torch.cat([direction, mode_one_hot], dim=1)  # (B,4)
-        print("action : ", action)
+
         # Combine log-probs
         log_prob = log_prob_cont + log_prob_mode  # (B,)
 
@@ -244,9 +244,8 @@ class HybridSACAgent:
 
         # For optional epsilon exploration (if you want it):
         self.epsilon = start_epsilon
-        self.epsilon_min = 0.1
+        self.epsilon_min = 0.01
         self.epsilon_decay = 0.95
-        self.direction = [0, 0]
 
         # Replay buffer
         self.replay_buffer = ReplayBuffer(capacity=replay_size)
@@ -322,7 +321,7 @@ class HybridSACAgent:
         with torch.no_grad():
             action_t, _ = self.policy.sample_action(state_t)
         action = action_t.cpu().numpy()[0]  # shape (4,)
-
+        print(action)
         if deterministic:
             # You could return mean + argmax for the mode 
             # (requires rewriting sample_action). 
@@ -528,4 +527,3 @@ if __name__ == "__main__":
             print(f"episode {start_episode+episode+1} - Total Learning Time: {learn_timer.get_time():.6f} 초")
             sim_timer.reset()
             learn_timer.reset()
-
