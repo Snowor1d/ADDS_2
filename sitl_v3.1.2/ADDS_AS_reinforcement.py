@@ -494,7 +494,7 @@ if __name__ == "__main__":
             learn_timer.start()
             # 3) Reward
             reward = env_model.check_reward_danger()
-            print("reward : ", reward)
+            # print("reward : ", reward)
             total_reward += reward
 
             # 4) Next state

@@ -252,7 +252,7 @@ class CrowdAgent(Agent):
 
 
 
-        self.model.robot_mode = "NOT_GUIDE"
+        self.model.robot_mode = "GUIDE"
 
         # self.xy[0] = self.random.randrange(self.model.grid.width)
         # self.xy[1] = self.random.randrange(self.model.grid.height)
@@ -457,7 +457,7 @@ class CrowdAgent(Agent):
             if (self.mesh_to_mesh_distance(i, pos) < distance):
                 near_goal = i
                 distance = self.mesh_to_mesh_distance(i, pos)
-                if (distnace < shortest_distance):
+                if (distance < shortest_distance):
                     shortest_distance = distance
                     near_goal = i
         return near_goal  
@@ -528,7 +528,7 @@ class CrowdAgent(Agent):
         for i in self.model.exit_point:
             self.danger = min(self.danger, self.point_to_point_distance([self.xy[0], self.xy[1]], i))
         
-        self.gain = self.danger*(self.previous_danger - self.danger)
+        self.gain = self.danger*(self.previous_danger - self.danger) ## ??? 왜
         if(self.danger<5):
             self.gain = 0
         for near_agent in near_agents_list:
@@ -631,7 +631,7 @@ class CrowdAgent(Agent):
         global robot_prev_xy
         robot_radius = 7
         agent_radius = 7
-        exit_confirm_radius = 12
+        exit_confirm_radius = 7
         
         to_follow_agents = [] ## 같은 mesh에 따라갈 agent가 있는지 확인하려는 list
         for agent in self.model.agents: ## 같은 mesh에 있는 agent들 중에서 int(round(agent.xy[0]))
@@ -695,7 +695,7 @@ class CrowdAgent(Agent):
             self.previous_mesh = now_mesh
             self.past_mesh = self.previous_mesh
 
-            is_ongoing_direction = random.choices([0, 1], weights=[0.2, 0.8], k=1)[0] #80프로 확률로 가던 방향 선택하게 할것
+            is_ongoing_direction = random.choices([0, 1], weights=[0.5, 0.5], k=1)[0] #80프로 확률로 가던 방향 선택하게 할 것 ## 50%로 바꿈
             
             if (is_ongoing_direction and self.agent_pos_initialized == 1):
                 neighbors_coords = []
@@ -768,11 +768,7 @@ class RobotAgent(CrowdAgent):
         goal_x += self.action[0]
         goal_y += self.action[1]
 
-        if(self.action[2] == 1):
-            self.model.robot_mode = "GUIDE"
-        else:
-            self.model.robot_mode = "NOT_GUIDE"
-
+        self.model.robot_mode = "GUIDE"
 
         goal_d = math.sqrt(pow(goal_x, 2) + pow(goal_y, 2))
         intend_force = 2
@@ -924,22 +920,6 @@ class RobotAgent(CrowdAgent):
         return reward
     
     
-
-        
-
-
-
-
-
-                    
-                
-    
-        
-
-
-
-    
-
 class ReplayBuffer: #replay buffer class 
     def __init__(self, capacity):
         self.buffer = deque(maxlen=capacity)
@@ -959,4 +939,3 @@ class ReplayBuffer: #replay buffer class
     def is_half(self):
         if len(self.buffer) >= self.buffer.maxlen*2/3:
             return True
-
