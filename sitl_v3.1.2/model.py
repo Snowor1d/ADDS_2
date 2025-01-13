@@ -715,7 +715,7 @@ class FightingModel(Model):
         self.make_robot()
         #self.visualize_danger()
         self.robot_xy = [0, 0]
-        self.robot_mode = "NOT_GUIDE"
+        self.robot_mode = "GUIDE"
         self.step_count = 0
 
         # for i in range(50):
@@ -1331,15 +1331,17 @@ class FightingModel(Model):
         reward = 0
         num = 0
 
-        #robot이 agent를 끌어당기면 +reward
-        for agent in self.agents:
-            if(agent.type == 0 or agent.type == 1 or agent.type == 2 ) and (agent.dead == False):
-                if(agent.robot_tracked>0):
-                    num+=1
-                    reward += agent.gain*10
-        reward -= self.robot.detect_abnormal_order
+        reward = -self.alived_agents()/self.total_agents ## 남아있는 agent 수를 reward로 설정, [-1, 0]으로 정규화
 
-        reward = reward/30
+        # #robot이 agent를 끌어당기면 +reward
+        # for agent in self.agents:
+        #     if(agent.type == 0 or agent.type == 1 or agent.type == 2 ) and (agent.dead == False):
+        #         if(agent.robot_tracked>0):
+        #             num+=1
+        #             reward += agent.gain*10
+        # reward -= self.robot.detect_abnormal_order
+
+        # reward = reward/30
 
         if(reward<-100):
             reward = -100
