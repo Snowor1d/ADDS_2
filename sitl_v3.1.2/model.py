@@ -1327,47 +1327,26 @@ class FightingModel(Model):
         else :
             return self.evacuated_agents()-self.total_agents
 
-    def check_reward_danger(self):
+    def reward_based_alived(self):
         reward = 0
         num = 0
+        
+        reward = -self.alived_agents()/self.total_agents 
 
-        reward = -self.alived_agents()/self.total_agents ## 남아있는 agent 수를 reward로 설정, [-1, 0]으로 정규화
+    def reward_based_gain(self):
+        
+        reward=0
+        #robot이 agent를 끌어당기면 +reward
+        for agent in self.agents:
+            if(agent.type == 0 or agent.type == 1 or agent.type == 2 ) and (agent.dead == False):
+                if(agent.robot_tracked>0):
+                    reward += agent.gain*10
+        reward -= self.robot.detect_abnormal_order
 
-        # #robot이 agent를 끌어당기면 +reward
-        # for agent in self.agents:
-        #     if(agent.type == 0 or agent.type == 1 or agent.type == 2 ) and (agent.dead == False):
-        #         if(agent.robot_tracked>0):
-        #             num+=1
-        #             reward += agent.gain*10
-        # reward -= self.robot.detect_abnormal_order
-
-        # reward = reward/30
+        reward = reward/30
 
         if(reward<-100):
             reward = -100
-
-        # if(self.robot.detect_abnormal_order):
-        #     #print("abnormal order detected !!")
-        #     reward -= 4
-        # else:
-        #     reward += 0.1
-
-        #로봇이 탈출구쪽으로 가면 -reward 
-        # shortest_distance = math.sqrt(pow(self.robot.xy[0]-self.exit_point[0][0],2)+pow(self.robot.xy[1]-self.exit_point[0][1],2)) ## agent와 가장 가까운 탈출구 사이의 거리
-        # shortest_goal = self.exit_point[0]
-
-        # exit_point_index = 0
-        # for index, i in enumerate(self.exit_point): ## agent가 가장 가까운 탈출구로 이동
-        #     if  (math.sqrt(pow(self.robot.xy[0]-i[0],2)+pow(self.robot.xy[1]-i[1],2)) < shortest_distance):
-        #         shortest_distance = math.sqrt(pow(self.robot.xy[0]-i[0],2)+pow(self.robot.xy[1]-i[1],2))
-        #         exit_point_index = index
-        
-        # if(shortest_distance < 4):
-        #     reward -= 0.2
-
-        # #로봇이 벽이랑 부딪히면 -reward
-        # if(self.robot.collision_check):
-        #     reward -= 0.5
         
 
         #print("tracked 되고 있는 수 : ", num)

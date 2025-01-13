@@ -740,9 +740,8 @@ class RobotAgent(CrowdAgent):
         direction_probs = action[0]
         
 
-        self.action[0] = action[0][0]/10
-        self.action[1] = action[0][1]/10
-        self.action[2] = action[1]
+        self.action[0] = action[0]/10
+        self.action[1] = action[1]/10
         self.detect_abnormal_order = 0
         #print("self.action : ", self.action)
 
@@ -774,9 +773,6 @@ class RobotAgent(CrowdAgent):
         intend_force = 2
         desired_speed = 3
 
-        if(self.model.robot_mode == "NOT_GUIDE"): ## not guide 일 때
-            desired_speed = 6
-        
             
         if(goal_d != 0):
             desired_force = [intend_force*(desired_speed*(goal_x/goal_d)), intend_force*(desired_speed*(goal_y/goal_d))]; #desired_force : 사람이 탈출구쪽으로 향하려는 힘
@@ -869,7 +865,7 @@ class RobotAgent(CrowdAgent):
         
         image = self.model.return_current_image()
 
-        self.buffer.add((robot_xy, robot_action, image, self.model.check_reward_danger()))
+        self.buffer.add((robot_xy, robot_action, image, self.model.reward_based_gain()))
 
 
 
