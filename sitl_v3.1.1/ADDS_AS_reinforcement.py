@@ -53,20 +53,23 @@ class ReplayBuffer:
 # 2) Gumbel-Softmax Utility
 ##########################################################################
 def gumbel_softmax_sample(logits, eps=1e-8, temperature=1.0):
+    # 이산적 행동을 연속적으로 표현하고, 미분 가능하도록 만들어 역전파를 가능하게 함
     """
     Sample from Gumbel-Softmax distribution (reparameterization trick).
     logits: (B,2) for 2 discrete modes
     returns a (B,2) one-hot-like sample with gradients
     """
     # Gumbel noise
-    U = torch.rand_like(logits)
-    g = -torch.log(-torch.log(U + eps) + eps)
+    U = torch.rand_like(logits) # logit 값에 랜덤 노이즈 추가
+    g = -torch.log(-torch.log(U + eps) + eps) # gumbel noise 계산
     # Add gumbel noise
     y = logits + g
     # Softmax
     return F.softmax(y / temperature, dim=-1)
 
 def gumbel_softmax_log_prob(sample, logits, eps=1e-8):
+    # 로그 확률 계산
+    # Gumbel-Softmax로 생성된 샘플에 대해 로그 확률 계산
     """
     Computes log pi(mode|s) for the discrete part using the Gumbel-Softmax sample.
     sample: (B,2) ~ one-hot
@@ -257,9 +260,15 @@ class HybridSACAgent:
 
         # Critic networks
         self.q1 = HybridQNetwork(input_shape, action_dim=4).to(self.device)
-        self.q2 = HybridQNetwork(input_shape, action_dim=4).to(self.device)
+        self.q2 = HybridQNetwork(input_shape, action_dim=4).to(self.device) #Q값의 과대평가 문제 줄이기 위해 double Q 도입
+        # self.q1, self.q2 -> 현재 상태 s와 행동 a에 대해 Q-value를 근사하는 네트워크
+        # predicted Q와 target Q의 차이를 줄이자
+
         self.q1_target = HybridQNetwork(input_shape, action_dim=4).to(self.device)
         self.q2_target = HybridQNetwork(input_shape, action_dim=4).to(self.device)
+        # self.q1_target, self.q2_target -> Q의 Ground Truth 근사치 제공
+        # q-network 업데이트 시 사용하는 Target 값을 제공
+
         self.q1_target.load_state_dict(self.q1.state_dict())
         self.q2_target.load_state_dict(self.q2.state_dict())
 
@@ -267,10 +276,10 @@ class HybridSACAgent:
         self.policy = HybridPolicyNetwork(input_shape).to(self.device)
 
         # Optimizers
-        self.q1_optimizer = optim.Adam(self.q1.parameters(), lr=lr)
+        self.q1_optimizer = optim.Adam(self.q1.parameters(), lr=lr) #parameter optimizaing
         self.q2_optimizer = optim.Adam(self.q2.parameters(), lr=lr)
         self.policy_optimizer = optim.Adam(self.policy.parameters(), lr=lr)
-
+        # optimizer는 loss function을 최소화 하도록 네트워크 파라미터 업데이트
 
 
 # ------------------------------------------------- #
@@ -319,6 +328,8 @@ class HybridSACAgent:
 
         # Otherwise use the policy
         state_t = torch.FloatTensor(state_np).unsqueeze(0).unsqueeze(0).to(self.device)  # (1,1,H,W)
+        # state_np는 2D 배열인데, 차원을 추가하여 모델 입력에 적합한 차원으로 만들려는 것
+
         with torch.no_grad():
             action_t, _ = self.policy.sample_action(state_t)
         action = action_t.cpu().numpy()[0]  # shape (4,)
@@ -358,15 +369,18 @@ class HybridSACAgent:
             q_target = rewards + self.gamma * (1 - dones) * (q_next - self.alpha * next_log_prob)
 
         # ----- Update Q1, Q2 -----
-        q1_val = self.q1(states, actions).squeeze(-1)  # (B,)
+        q1_val = self.q1(states, actions).squeeze(-1)  # (B,) #q value를 scalar 값으로
         q2_val = self.q2(states, actions).squeeze(-1)
-        loss_q1 = F.mse_loss(q1_val, q_target)
+        loss_q1 = F.mse_loss(q1_val, q_target) # q의 실제와 예측 차이 계산
         loss_q2 = F.mse_loss(q2_val, q_target)
         max_grad_norm = 1.0
-        self.q1_optimizer.zero_grad()
+
+        self.q1_optimizer.zero_grad() #이전 단계의 기울기 초기화, optimizer.step()이 호출 될때 기울기가 누적되지 않도록 함 
         loss_q1.backward()
+        # 손실값으로부터 모든 파라미터에 대한 기울기 계산
         torch.nn.utils.clip_grad_norm_(self.q1.parameters(), max_grad_norm)      
         self.q1_optimizer.step() # q1 update
+        # optimizer가 저장된 기울기(.grad)를 사용하여 네트워크의 파라미터 업데이트
 
         self.q2_optimizer.zero_grad()
         loss_q2.backward()
@@ -382,11 +396,14 @@ class HybridSACAgent:
 
         # policy loss = alpha * log_prob - Q
         policy_loss = (self.alpha * log_prob - q_new).mean() #여기서 self.alpha * log_prob가 entropy term
+        # policy_loss는 PyTorch의 스칼라 텐서로, 자동 미분 지원 
+        # 계산된 기울기는 각 파라미터의 .grad 속성에 저장
 
         self.policy_optimizer.zero_grad()
         policy_loss.backward()
         torch.nn.utils.clip_grad_norm_(self.policy.parameters(), max_grad_norm)
         self.policy_optimizer.step()
+        # optimizer가 저장된 기울기(.grad)를 사용하여 네트워크의 파라미터 업데이트
 
         # soft update
         self.soft_update(self.q1, self.q1_target)
