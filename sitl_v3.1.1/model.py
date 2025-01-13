@@ -64,6 +64,35 @@ def gumbel_softmax_log_prob(sample, logits, eps=1e-8):
     # sum(sample * log_probs, dim=-1).
     return (sample * log_probs).sum(dim=-1)
 
+class ReplayBuffer:
+    def __init__(self, capacity=int(1e4)):
+        self.buffer = deque(maxlen=capacity)
+
+    def push(self, state, action, reward, next_state, done):
+        """
+        state: (H, W) or (C, H, W) as np array
+        action: np.array of shape (4,) 
+                e.g. [dx, dy, mode_onehot0, mode_onehot1]
+        reward: float
+        next_state: np.array
+        done: float(0 or 1)
+        """
+        self.buffer.append((state, action, reward, next_state, done))
+
+    def sample(self, batch_size):
+        batch = random.sample(self.buffer, batch_size)
+        states, actions, rewards, next_states, dones = zip(*batch)
+
+        states      = torch.FloatTensor(states).unsqueeze(1)  # (B,1,H,W) if grayscale
+        actions     = torch.FloatTensor(actions)               # (B,4)
+        rewards     = torch.FloatTensor(rewards)              # (B,)
+        next_states = torch.FloatTensor(next_states).unsqueeze(1)
+        dones       = torch.FloatTensor(dones)                # (B,)
+        return states, actions, rewards, next_states, dones
+
+    def __len__(self):
+        return len(self.buffer)
+
 ##########################################################################
 # 3) Critic (Q) Network
 ##########################################################################
