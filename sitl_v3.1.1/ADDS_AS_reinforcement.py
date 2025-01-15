@@ -490,7 +490,7 @@ if __name__ == "__main__":
 
     agent = HybridSACAgent(input_shape=(70,70), alpha=0.2, lr=float(args.lr), start_epsilon=float(start_epsilon), batch_size=float(args.batch_size), replay_size=float(args.buffer_size))
     print(f"Agent initialized, lr={args.lr}, alpha={agent.alpha}, batch_size={args.batch_size}, replay_size={args.buffer_size}")
-   
+    replay_buffer_path = os.path.join(log_dir, "replay_buffer.pkl")
     if model_load == 1:
         pass
     elif model_load == 2:
@@ -609,6 +609,8 @@ if __name__ == "__main__":
         with open(reward_file_path, "a") as f:
             f.write(f"{total_reward}\n")
 
+        with open(epsilon_path, "w") as f:
+            f.write(str(agent.epsilon))
 
         # each episode time print
         if ENABLE_TIMER:
