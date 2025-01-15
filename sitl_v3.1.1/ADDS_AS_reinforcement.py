@@ -10,26 +10,35 @@ import time
 from timer_utils import Timer
 from config import ENABLE_TIMER
 import pickle
-
+import argparse
 # Timer instances
 sim_timer = Timer() 
 learn_timer = Timer()
 home_dir = os.path.expanduser("~")
 log_dir = os.path.join(home_dir, "learning_log")
 os.makedirs(log_dir, exist_ok=True)
+model_load = 3
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--lr", type=float, default=1e-4)
+parser.add_argument("--decay_value", type=float, default=0.99)
+parser.add_argument("--buffer_size", type=int, default=1e5)
+parser.add_argument("--batch_size", type=float, default=64)
+args = parser.parse_args()
+
 
 ##########################################################################
 # 1) Replay Buffer
 ##########################################################################
 class ReplayBuffer:
     def __init__(self, capacity=int(1e4), device=None):
-        self.buffer = deque(maxlen=capacity)
+        self.buffer = deque(maxlen=int(capacity))
         self.device = device
     def push(self, state, action, reward, next_state, done):
         self.buffer.append((state, action, reward, next_state, done))
 
     def sample(self, batch_size, device):
-        batch = random.sample(self.buffer, batch_size)
+        batch = random.sample(self.buffer, int(batch_size))
         states, actions, rewards, next_states, dones = zip(*batch)
 
         states      = torch.FloatTensor(states).unsqueeze(1).to(device)  # (B,1,H,W) if grayscale
@@ -463,18 +472,51 @@ if __name__ == "__main__":
     max_steps = 1500
     number_of_agents = 30
     start_episode = 0
-    agent = HybridSACAgent(input_shape=(70,70), alpha=0.2, lr=1e-4, start_epsilon=0.1)
 
+    epsilon_path = os.path.join(log_dir, "start_epsilon.txt")
     
-    model_name = "hybrid_sac_checkpoint_ep_20.pth"
-    model_path = os.path.join(log_dir, model_name)
-    replay_buffer_path = os.path.join(log_dir, "replay_buffer.pkl")
+    if os.path.exists(epsilon_path):
+        with open(epsilon_path, "r") as f:
+            try:
+                start_epsilon = float(f.read().strip())
+                print(f"Loaded start_epsilon: {start_epsilon}")
+            except ValueError:
+                print("Invalid value in start_epsilon.txt. Resetting to 1.0")
+                start_epsilon = 1.0
+    else:
+        start_epsilon = 1.0
+        print("No start_epsilon.txt found. Initializing start_epsilon to 1.0")
 
-    if(os.path.exists(model_path)):
-        start_episode = int(model_name.split("_")[-1].split(".")[0])
-        agent.load_model(model_name)
-        if os.path.exists(replay_buffer_path):
-            agent.load_replay_buffer("replay_buffer.pkl")
+
+    agent = HybridSACAgent(input_shape=(70,70), alpha=0.2, lr=float(args.lr), start_epsilon=float(start_epsilon), batch_size=float(args.batch_size), replay_size=float(args.buffer_size))
+    print(f"Agent initialized, lr={args.lr}, alpha={agent.alpha}, batch_size={args.batch_size}, replay_size={args.buffer_size}")
+   
+    if model_load == 1:
+        pass
+    elif model_load == 2:
+        print("load specified model")
+        model_name = "sac_checkpoint_ep_200.pth"
+        model_path = os.path.join(log_dir, model_name)
+
+        if(os.path.exists(model_path)):
+            start_episode = int(model_name.split("_")[-1].split(".")[0])
+            agent.load_model(model_name)
+            if os.path.exists(replay_buffer_path):
+                agent.load_replay_buffer("replay_buffer.pkl")
+    elif model_load == 3:
+        print("Mode 3: Loading the latest model from log_dir.")
+        model_files = [f for f in os.listdir(log_dir) if f.startswith("sac_checkpoint") and f.endswith(".pth")]
+        if model_files:
+            latest_model = max(model_files, key=lambda f: int(f.split("_")[-1].split(".")[0]))
+            latest_model_path = os.path.join(log_dir, latest_model)
+            start_episode = int(latest_model.split("_")[-1].split(".")[0])
+            print(f"Loading latest model: {latest_model}")
+            agent.load_model(latest_model_path)
+            if os.path.exists(replay_buffer_path):
+                print(f"Loading replay buffer from {replay_buffer_path}")
+                agent.load_replay_buffer(replay_buffer_path)
+        else:
+            pass
 
 
     for episode in range(max_episodes):
@@ -489,59 +531,59 @@ if __name__ == "__main__":
         
         state = env_model.return_current_image()
         total_reward = 0
-        try:
-            for step in range(max_steps):
-                # 1) Select action
-                action_np, _ = agent.select_action(state)
-                # action_np = [dx, dy, mode0, mode1]
-                dx, dy = action_np[0], action_np[1]
-                mode = np.argmax(action_np[2:])  # 0->GUIDE, 1->NOT_GUIDE
+        #try:
+        for step in range(max_steps):
+            # 1) Select action
+            action_np, _ = agent.select_action(state)
+            # action_np = [dx, dy, mode0, mode1]
+            dx, dy = action_np[0], action_np[1]
+            mode = np.argmax(action_np[2:])  # 0->GUIDE, 1->NOT_GUIDE
 
-                # If you need to convert (dx, dy, mode) into actual env steps:
-                # e.g. angle/distance or applying in robot.receive_action(...) 
-                # This depends on how your environment expects "continuous direction."
-                # Example dummy:
-                real_action = env_model.robot.receive_action(([dx, dy], mode))
+            # If you need to convert (dx, dy, mode) into actual env steps:
+            # e.g. angle/distance or applying in robot.receive_action(...) 
+            # This depends on how your environment expects "continuous direction."
+            # Example dummy:
+            real_action = env_model.robot.receive_action(([dx, dy], mode))
 
-                # Simulation time check
-                sim_timer.start()
-                # 2) Step environment
-                env_model.step()
-                sim_timer.stop()
+            # Simulation time check
+            sim_timer.start()
+            # 2) Step environment
+            env_model.step()
+            sim_timer.stop()
 
-                # Learning time check
-                learn_timer.start()
-                # 3) Reward
-                reward = env_model.check_reward_danger()
-                print("reward : ", reward)
-                total_reward += reward
+            # Learning time check
+            learn_timer.start()
+            # 3) Reward
+            reward = env_model.check_reward_danger()
+            print("reward : ", reward)
+            total_reward += reward
 
-                # 4) Next state
-                next_state = env_model.return_current_image()
+            # 4) Next state
+            next_state = env_model.return_current_image()
 
-                # 5) Done?
-                done = (step >= max_steps-1) or (env_model.alived_agents() <= 1)
+            # 5) Done?
+            done = (step >= max_steps-1) or (env_model.alived_agents() <= 1)
 
-                # 6) Store transition
-                agent.store_transition(
-                    state, 
-                    action_np, 
-                    reward, 
-                    next_state, 
-                    float(done)
-                )
+            # 6) Store transition
+            agent.store_transition(
+                state, 
+                action_np, 
+                reward, 
+                next_state, 
+                float(done)
+            )
 
-                # 7) Update agent
-                agent.update()
-                learn_timer.stop()
+            # 7) Update agent
+            agent.update()
+            learn_timer.stop()
 
-                state = next_state
-                if done:
-                    break
-        except Exception as e:
-            print(e)
-            print("error occured. retry.")
-            env_model = model.FightingModel(number_of_agents, 70, 70, 2, 'Q')
+            state = next_state
+            if done:
+                break
+        # except Exception as e:
+        #     print(e)
+        #     print("error occured. retry.")
+        #     env_model = model.FightingModel(number_of_agents, 70, 70, 2, 'Q')
 
         # Possibly update epsilon, or do other logging
         decay_value = 0.99

@@ -50,7 +50,7 @@ class ReplayBuffer:
         self.buffer.append((state, action, reward, next_state, done))
 
     def sample(self, batch_size):
-        batch = random.sample(self.buffer, batch_size)
+        batch = random.sample(self.buffer, int(batch_size))
         states, actions, rewards, next_states, dones = zip(*batch)
 
         states      = torch.FloatTensor(states).unsqueeze(1)  # (B,1,H,W) if grayscale

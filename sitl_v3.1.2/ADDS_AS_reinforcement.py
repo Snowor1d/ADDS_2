@@ -10,13 +10,26 @@ import time
 from timer_utils import Timer
 from config import ENABLE_TIMER
 import pickle
+import argparse
 
 # Timer instances
 sim_timer = Timer() 
 learn_timer = Timer()
 home_dir = os.path.expanduser("~")
-log_dir = os.path.join(home_dir, "learning_log")
+log_dir = os.path.join(home_dir, "learning_log_3.1.2")
 os.makedirs(log_dir, exist_ok=True)
+
+model_load = 3
+# start_fresh : 1
+# load specified model : 2
+# load latest model : 3
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--lr", type=float, default=1e-4)
+parser.add_argument("--decay_value", type=float, default=0.99)
+parser.add_argument("--buffer_size", type=int, default=1e5)
+parser.add_argument("--batch_size", type=float, default=64)
+args = parser.parse_args()
 
 ##########################################################################
 # 1) Replay Buffer
@@ -189,7 +202,7 @@ class SACAgent:
         self.epsilon_min = 0.1
 
         # Replay buffer
-        self.replay_buffer = ReplayBuffer(capacity=replay_size)
+        self.replay_buffer = ReplayBuffer(capacity=int(replay_size))
         
 
         # Critic networks
@@ -390,6 +403,8 @@ class SACAgent:
 # Example usage in your training loop
 ##########################################################################
 if __name__ == "__main__":
+        
+
     import time
     import model  # Your environment code (model.FightingModel)
 
@@ -398,18 +413,54 @@ if __name__ == "__main__":
     max_steps = 1500
     number_of_agents = 30
     start_episode = 0
-    agent = SACAgent(input_shape=(70,70), alpha=0.2, lr=1e-4, start_epsilon=0.1)
+    
+    epsilon_path = os.path.join(log_dir, "start_epsilon.txt")
+    
+    if os.path.exists(epsilon_path):
+        with open(epsilon_path, "r") as f:
+            try:
+                start_epsilon = float(f.read().strip())
+                print(f"Loaded start_epsilon: {start_epsilon}")
+            except ValueError:
+                print("Invalid value in start_epsilon.txt. Resetting to 1.0")
+                start_epsilon = 1.0
+    else:
+        start_epsilon = 1.0
+        print("No start_epsilon.txt found. Initializing start_epsilon to 1.0")
+    
+    agent = SACAgent(input_shape=(70,70), alpha=0.2, lr=float(args.lr), start_epsilon=float(start_epsilon), batch_size=float(args.batch_size), replay_size=float(args.buffer_size))
+    print(f"Agent initialized, lr={args.lr}, alpha={agent.alpha}, batch_size={args.batch_size}, replay_size={args.buffer_size}")
+    replay_buffer_path = os.path.join(log_dir, "replay_buffer.pkl")
 
     
-    # model_name = "sac_checkpoint_ep_20.pth"
-    # model_path = os.path.join(log_dir, model_name)
-    # replay_buffer_path = os.path.join(log_dir, "replay_buffer.pkl")
+    
+    if model_load == 1:
+        pass
+    elif model_load == 2:
+        print("load specified model")
+        model_name = "sac_checkpoint_ep_200.pth"
+        model_path = os.path.join(log_dir, model_name)
 
-    # if(os.path.exists(model_path)):
-    #     start_episode = int(model_name.split("_")[-1].split(".")[0])
-    #     agent.load_model(model_name)
-    #     if os.path.exists(replay_buffer_path):
-    #         agent.load_replay_buffer("replay_buffer.pkl")
+        if(os.path.exists(model_path)):
+            start_episode = int(model_name.split("_")[-1].split(".")[0])
+            agent.load_model(model_name)
+            if os.path.exists(replay_buffer_path):
+                agent.load_replay_buffer("replay_buffer.pkl")
+    elif model_load == 3:
+        print("Mode 3: Loading the latest model from log_dir.")
+        model_files = [f for f in os.listdir(log_dir) if f.startswith("sac_checkpoint") and f.endswith(".pth")]
+        if model_files:
+            latest_model = max(model_files, key=lambda f: int(f.split("_")[-1].split(".")[0]))
+            latest_model_path = os.path.join(log_dir, latest_model)
+            start_episode = int(latest_model.split("_")[-1].split(".")[0])
+            print(f"Loading latest model: {latest_model}")
+            agent.load_model(latest_model_path)
+            if os.path.exists(replay_buffer_path):
+                print(f"Loading replay buffer from {replay_buffer_path}")
+                agent.load_replay_buffer(replay_buffer_path)
+        else:
+            pass
+
 
 
     for episode in range(max_episodes):
@@ -478,7 +529,7 @@ if __name__ == "__main__":
             #env_model = model.FightingModel(number_of_agents, 70, 70, 2, 'Q')
 
         # Possibly update epsilon, or do other logging
-        decay_value = 0.99
+        decay_value = args.decay_value
         if(agent.epsilon < 0.1):
             deacy_value = 1
         agent.update_epsilon(True, decay_value)
@@ -492,7 +543,7 @@ if __name__ == "__main__":
             open(reward_file_path, "w").close()
 
         if (episode+1) % 10 == 0:
-            model_filename = f"sac_checkpoint_ep_{start_episode + episode + 1}.pth"
+            model_filename = os.path.join(log_dir, f"sac_checkpoint_ep_{start_episode + episode + 1}.pth")
             agent.save_model(model_filename)
             replay_buffer_filename = "replay_buffer.pkl"
             agent.save_replay_buffer(replay_buffer_filename)
@@ -500,6 +551,9 @@ if __name__ == "__main__":
         reward_file_path = os.path.join(log_dir, "total_reward.txt")
         with open(reward_file_path, "a") as f:
             f.write(f"{total_reward}\n")
+
+        with open(epsilon_path, "w") as f:
+            f.write(str(agent.epsilon))
 
 
         # each episode time print
