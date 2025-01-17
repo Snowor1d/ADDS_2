@@ -773,10 +773,8 @@ class RobotAgent(CrowdAgent):
         desired_speed = 3
         
             
-        if(goal_d != 0):
-            desired_force = [intend_force*(desired_speed*(goal_x)), intend_force*(desired_speed*(goal_y))]; #desired_force : 사람이 탈출구쪽으로 향하려는 힘
-        else :
-            desired_force = [0, 0]
+
+        desired_force = [intend_force*(desired_speed*(goal_x)), intend_force*(desired_speed*(goal_y))]; #desired_force : 사람이 탈출구쪽으로 향하려는 힘
     
         
         x=int(round(self.xy[0]))

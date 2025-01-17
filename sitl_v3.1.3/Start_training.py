@@ -4,8 +4,8 @@ import time
 import subprocess
 
 lr = 2e-4
-decay_value = 0.95
-buffer_size = 10000
+decay_value = 0.995
+buffer_size = 50000
 batch_size = 32
 
 

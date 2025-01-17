@@ -15,7 +15,7 @@ import argparse
 sim_timer = Timer() 
 learn_timer = Timer()
 home_dir = os.path.expanduser("~")
-log_dir = os.path.join(home_dir, "learning_log")
+log_dir = os.path.join(home_dir, "learning_log_3.1.3")
 os.makedirs(log_dir, exist_ok=True)
 model_load = 3
 
@@ -506,7 +506,7 @@ if __name__ == "__main__":
                 agent.load_replay_buffer("replay_buffer.pkl")
     elif model_load == 3:
         print("Mode 3: Loading the latest model from log_dir.")
-        model_files = [f for f in os.listdir(log_dir) if f.startswith("sac_checkpoint") and f.endswith(".pth")]
+        model_files = [f for f in os.listdir(log_dir) if f.startswith("hybrid_sac_checkpoint") and f.endswith(".pth")]
         if model_files:
             latest_model = max(model_files, key=lambda f: int(f.split("_")[-1].split(".")[0]))
             latest_model_path = os.path.join(log_dir, latest_model)
@@ -532,19 +532,20 @@ if __name__ == "__main__":
         
         state = env_model.return_current_image()
         total_reward = 0
+        reward=0
+        buffered_state = state
+        buffered_action = None
         try:
             for step in range(max_steps):
                 # 1) Select action
-                action_np, _ = agent.select_action(state)
-                # action_np = [dx, dy, mode0, mode1]
-                dx, dy = action_np[0], action_np[1]
-                mode = np.argmax(action_np[2:])  # 0->GUIDE, 1->NOT_GUIDE
-
-                # If you need to convert (dx, dy, mode) into actual env steps:
-                # e.g. angle/distance or applying in robot.receive_action(...) 
-                # This depends on how your environment expects "continuous direction."
-                # Example dummy:
-                real_action = env_model.robot.receive_action(([dx, dy], mode))
+                if(step%3==0):
+                    action_np, _ = agent.select_action(state)
+                    # action_np = [dx, dy, mode0, mode1]
+                    dx, dy = action_np[0], action_np[1]
+                    mode = np.argmax(action_np[2:])  # 0->GUIDE, 1->NOT_GUIDE
+                    real_action = env_model.robot.receive_action(([dx, dy], mode))
+                    buffered_state = state
+                    buffered_action = action_np
 
                 # Simulation time check
                 sim_timer.start()
@@ -553,10 +554,9 @@ if __name__ == "__main__":
                 sim_timer.stop()
 
                 # Learning time check
-                learn_timer.start()
                 # 3) Reward
-                reward = env_model.check_reward_danger()
-                print("reward : ", reward)
+                
+                reward += env_model.check_reward_danger()
                 total_reward += reward
 
                 # 4) Next state
@@ -566,17 +566,22 @@ if __name__ == "__main__":
                 done = (step >= max_steps-1) or (env_model.alived_agents() <= 1)
 
                 # 6) Store transition
-                agent.store_transition(
-                    state, 
-                    action_np, 
-                    reward, 
-                    next_state, 
-                    float(done)
-                )
+                if(step%3 == 2):
+                    agent.store_transition(
+                        buffered_state, 
+                        buffered_action, 
+                        reward, 
+                        next_state, 
+                        float(done)
+                    )
+                    print("reward : ", reward)
+                    reward = 0
 
                 # 7) Update agent
-                agent.update()
-                learn_timer.stop()
+                if (step%3==2):
+                    learn_timer.start()
+                    agent.update()
+                    learn_timer.stop()
 
                 state = next_state
                 if done:
@@ -602,6 +607,7 @@ if __name__ == "__main__":
 
         if (episode+1) % 10 == 0:
             model_filename = f"hybrid_sac_checkpoint_ep_{start_episode + episode + 1}.pth"
+            model_filename = os.path.join(log_dir, model_filename)
             agent.save_model(model_filename)
             replay_buffer_filename = "replay_buffer.pkl"
             agent.save_replay_buffer(replay_buffer_filename)

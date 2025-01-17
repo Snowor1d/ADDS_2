@@ -1310,7 +1310,7 @@ class FightingModel(Model):
         self.step_count += 1
 
         state = self.return_current_image()
-        if(self.using_model and self.step_n%4==0):
+        if(self.using_model and self.step_n%3==0):
             action = self.sac_agent.select_action(state)
             self.robot.receive_action(action)
 
