@@ -1280,7 +1280,6 @@ class FightingModel(Model):
                 if(agent.robot_tracked>0):
                     num+=1
                     reward += agent.gain
-        print("checking ", reward)
         reward = reward/300
   
         return reward

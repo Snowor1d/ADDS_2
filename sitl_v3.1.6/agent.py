@@ -741,7 +741,7 @@ class RobotAgent(CrowdAgent):
 
         self.action[0] = action[0]
         self.action[1] = action[1]
-        print(self.action)
+        #print(self.action)
 
         return self.action
 
