@@ -97,7 +97,7 @@ def gumbel_softmax_log_prob(sample, logits, eps=1e-8):
 # 3) Critic (Q) Network
 ##########################################################################
 class QNetwork(nn.Module):
-    def __init__(self, input_shape=(70,70), action_dim=4):
+    def __init__(self, input_shape=(70,70), action_dim=2):
         super(QNetwork, self).__init__()
 
         # Feature extractor (conv) for state:
@@ -205,7 +205,8 @@ class PolicyNetwork(nn.Module):#행동을 샘플링하고 정책 학습, 주어�
         action = mean + std * eps
         action = 2*torch.tanh(action)
 
-        log_prob = -0.5 * (((action - mean) / (std + 1e-8))**2 + 2*log_std + np.log(2*np.pi))        
+        log_prob = -0.5 * (((action - mean) / (std + 1e-8))**2 + 2*log_std + np.log(2*np.pi))   
+        log_prob = log_prob.sum(dim=1)     
         
         return action, log_prob
     
@@ -227,13 +228,13 @@ class SACAgent:
         
 
         # Critic networks
-        self.q1 = QNetwork(input_shape, action_dim=4).to(self.device)
-        self.q2 = QNetwork(input_shape, action_dim=4).to(self.device) #Q값의 과대평가 문제 줄이기 위해 double Q 도입
+        self.q1 = QNetwork(input_shape, action_dim=2).to(self.device)
+        self.q2 = QNetwork(input_shape, action_dim=2).to(self.device) #Q값의 과대평가 문제 줄이기 위해 double Q 도입
         # self.q1, self.q2 -> 현재 상태 s와 행동 a에 대해 Q-value를 근사하는 네트워크
         # predicted Q와 target Q의 차이를 줄이자
 
-        self.q1_target = QNetwork(input_shape, action_dim=4).to(self.device)
-        self.q2_target = QNetwork(input_shape, action_dim=4).to(self.device)
+        self.q1_target = QNetwork(input_shape, action_dim=2).to(self.device)
+        self.q2_target = QNetwork(input_shape, action_dim=2).to(self.device)
         # self.q1_target, self.q2_target -> Q의 Ground Truth 근사치 제공
         # q-network 업데이트 시 사용하는 Target 값을 제공
 
