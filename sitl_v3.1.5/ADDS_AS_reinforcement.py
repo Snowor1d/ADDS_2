@@ -272,7 +272,7 @@ class SACAgent:
         # state_np는 2D 배열인데, 차원을 추가하여 모델 입력에 적합한 차원으로 만들려는 것
 
         with torch.no_grad():
-            mean, log_std = self.policy(state_t)
+            mean, log_std = self.policy.sample_action(state_t)
             std = log_std.exp()
             
             if deterministic:

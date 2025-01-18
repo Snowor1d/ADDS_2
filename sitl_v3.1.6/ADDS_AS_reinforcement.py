@@ -203,7 +203,7 @@ class PolicyNetwork(nn.Module):#행동을 샘플링하고 정책 학습, 주어�
 
         eps = torch.randn_like(mean)
         action = mean + std * eps
-        direction = 2*torch.tanh(direction)
+        action = 2*torch.tanh(action)
 
         log_prob = -0.5 * (((action - mean) / (std + 1e-8))**2 + 2*log_std + np.log(2*np.pi))        
         
@@ -296,7 +296,7 @@ class SACAgent:
         # state_np는 2D 배열인데, 차원을 추가하여 모델 입력에 적합한 차원으로 만들려는 것
 
         with torch.no_grad():
-            mean, log_std = self.policy(state_t)
+            mean, log_std = self.policy.sample_action(state_t)
             std = log_std.exp()
             
             if deterministic:
@@ -306,7 +306,7 @@ class SACAgent:
                 action_t = mean + std * eps
         
         action_np = action_t.cpu().numpy()[0]
-        
+        print(action_np)
 
         return action_np, False
 
