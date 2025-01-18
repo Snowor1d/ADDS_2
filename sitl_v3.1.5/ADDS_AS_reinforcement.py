@@ -173,7 +173,7 @@ class PolicyNetwork(nn.Module):#행동을 샘플링하고 정책 학습, 주어�
 
         eps = torch.randn_like(mean)
         action = mean + std * eps
-        action = 2*torch.tanh(direction)
+        action = 2*torch.tanh(action)
 
         # log_prob 계산
         # (dx, dy) => 2차원 Gaussian
@@ -282,6 +282,7 @@ class SACAgent:
                 action_t = mean + std * eps
         
         action_np = action_t.cpu().numpy()[0]
+        print(action_np)
 
         return action_np, False
 
@@ -425,7 +426,7 @@ if __name__ == "__main__":
         start_epsilon = 1.0
         print("No start_epsilon.txt found. Initializing start_epsilon to 1.0")
     
-    agent = SACAgent(input_shape=(70,70), alpha=0.2, lr=float(args.lr), start_epsilon=float(start_epsilon), batch_size=float(args.batch_size), replay_size=float(args.buffer_size))
+    agent = SACAgent(input_shape=(70,70), alpha=0.2, lr=float(args.lr), start_epsilon=float(start_epsilon), batch_size=int(args.batch_size), replay_size=float(args.buffer_size))
     print(f"Agent initialized, lr={args.lr}, alpha={agent.alpha}, batch_size={args.batch_size}, replay_size={args.buffer_size}")
     replay_buffer_path = os.path.join(log_dir, "replay_buffer.pkl")
 
