@@ -1338,7 +1338,7 @@ class FightingModel(Model):
                     num+=1
                     reward += agent.gain
 
-        reward = reward/300
+        reward = reward/900
   
         return reward
 
