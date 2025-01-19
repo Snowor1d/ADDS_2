@@ -529,6 +529,7 @@ class CrowdAgent(Agent):
             self.danger = min(self.danger, self.point_to_point_distance([self.xy[0], self.xy[1]], i))
         
         self.gain = self.danger*(self.previous_danger - self.danger) ## ??? 왜
+        self.gain2 = self.previous_danger - self.danger
         if(self.danger<5):
             self.gain = 0
         for near_agent in near_agents_list:
@@ -631,7 +632,7 @@ class CrowdAgent(Agent):
         global robot_prev_xy
         robot_radius = 7
         agent_radius = 7
-        exit_confirm_radius = 7
+        exit_confirm_radius = 10
         
         to_follow_agents = [] ## 같은 mesh에 따라갈 agent가 있는지 확인하려는 list
         for agent in self.model.agents: ## 같은 mesh에 있는 agent들 중에서 int(round(agent.xy[0]))
@@ -737,11 +738,9 @@ class RobotAgent(CrowdAgent):
     def receive_action(self, action):
                 
         
-        direction_probs = action[0]
-        
 
         self.action[0] = action[0]
-        self.action[1] = action[1]
+        self.action[1] = action[0]
 
         return self.action
     def robot_policy_Q(self):
@@ -759,7 +758,7 @@ class RobotAgent(CrowdAgent):
         
         goal_x += self.action[0]
         goal_y += self.action[1]
-        
+        #print("self.action : ", self.action)
         #print(f"robot desired go to {goal_x}, {goal_y}") 
         self.model.robot_mode = "GUIDE"
 
@@ -816,9 +815,7 @@ class RobotAgent(CrowdAgent):
 
         F_x = 0
         F_y = 0
-        # print("self.xy : ", self.xy)
-        # print("desired_force : ", desired_force)
-        # print("repulsive_force : ", repulsive_force)
+        #print("desired_force : ", desired_force)
         F_x += desired_force[0]
         F_y += desired_force[1]
         
