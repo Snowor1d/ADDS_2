@@ -1385,7 +1385,7 @@ class FightingModel(Model):
         return reward
 
     def reward_evacuation(self):
-        return self.robot.previous_danger - self.robot.danger
+        return (self.robot.previous_danger - self.robot.danger)/5
         
 
     def return_agent_id(self, agent_id):

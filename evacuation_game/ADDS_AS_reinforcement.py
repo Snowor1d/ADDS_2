@@ -16,7 +16,7 @@ import argparse
 sim_timer = Timer() 
 learn_timer = Timer()
 home_dir = os.path.expanduser("~")
-log_dir = os.path.join(home_dir, "learning_log_3.1.5")
+log_dir = os.path.join(home_dir, "learning_log_evacuation_game")
 os.makedirs(log_dir, exist_ok=True)
 
 model_load = 3
@@ -493,7 +493,7 @@ if __name__ == "__main__":
                 sim_timer.stop()
 
                 # 3) Reward
-                reward += env_model.reward_based_gain()
+                reward += env_model.reward_evacuation()
                 total_reward += reward
 
                 # 4) Next state
