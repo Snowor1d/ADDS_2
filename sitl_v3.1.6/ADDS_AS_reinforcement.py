@@ -511,7 +511,7 @@ if __name__ == "__main__":
                 env_model.step()
                 sim_timer.stop()
 
-                reward += env_model.check_reward_danger()
+                reward += env_model.reward_based_gain()
                 total_reward += reward
 
                 # 4) Next state

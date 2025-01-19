@@ -187,6 +187,7 @@ class CrowdAgent(Agent):
         self.is_learning_state = 1
         self.robot_step = 0
         self.gain = 0
+        self.gain2 = 0
         self.goal_init = 0
         self.type = type
         self.robot_previous_action = "UP"
@@ -529,6 +530,7 @@ class CrowdAgent(Agent):
             self.danger = min(self.danger, self.point_to_point_distance([self.xy[0], self.xy[1]], i))
         
         self.gain = self.danger*(self.previous_danger - self.danger) ## ??? 왜
+        self.gain2 = self.previous_danger - self.danger
         if(self.danger<5):
             self.gain = 0
         for near_agent in near_agents_list:
@@ -631,7 +633,7 @@ class CrowdAgent(Agent):
         global robot_prev_xy
         robot_radius = 7
         agent_radius = 7
-        exit_confirm_radius = 7
+        exit_confirm_radius = 10
         
         to_follow_agents = [] ## 같은 mesh에 따라갈 agent가 있는지 확인하려는 list
         for agent in self.model.agents: ## 같은 mesh에 있는 agent들 중에서 int(round(agent.xy[0]))

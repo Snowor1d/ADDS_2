@@ -746,6 +746,11 @@ class RobotAgent(CrowdAgent):
         return self.action
     def robot_policy_Q(self):
 
+        self.previous_danger = self.danger
+        self.danger = 99999
+        for i in self.model.exit_point:
+            self.danger = min(self.danger, self.point_to_point_distance([self.xy[0], self.xy[1]], i))
+
         time_step = 0.2
         robot_radius = 7
 

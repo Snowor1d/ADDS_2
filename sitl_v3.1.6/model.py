@@ -31,352 +31,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 
-
-class ReplayBuffer:
-    def __init__(self, capacity=int(1e4)):
-        self.buffer = deque(maxlen=capacity)
-
-    def push(self, state, action, reward, next_state, done):
-        """
-        state: (H, W) or (C, H, W) as np array
-        action: np.array of shape (4,) 
-                e.g. [dx, dy, mode_onehot0, mode_onehot1]
-        reward: float
-        next_state: np.array
-        done: float(0 or 1)
-        """
-        self.buffer.append((state, action, reward, next_state, done))
-
-    def sample(self, batch_size):
-        batch = random.sample(self.buffer, batch_size)
-        states, actions, rewards, next_states, dones = zip(*batch)
-
-        states      = torch.FloatTensor(states).unsqueeze(1)  # (B,1,H,W) if grayscale
-        actions     = torch.FloatTensor(actions)               # (B,4)
-        rewards     = torch.FloatTensor(rewards)              # (B,)
-        next_states = torch.FloatTensor(next_states).unsqueeze(1)
-        dones       = torch.FloatTensor(dones)                # (B,)
-        return states, actions, rewards, next_states, dones
-
-    def __len__(self):
-        return len(self.buffer)
-
-##########################################################################
-# 3) Critic (Q) Network
-##########################################################################
-class QNetwork(nn.Module):
-    def __init__(self, input_shape=(70,70), action_dim=4):
-        super(QNetwork, self).__init__()
-
-        # Feature extractor (conv) for state:
-        self.conv1 = nn.Conv2d(4, 16, kernel_size=5, stride=2)
-        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=2)
-        self.conv3 = nn.Conv2d(32, 64, kernel_size=3, stride=2)
-        
-        conv_out_size = self._get_conv_out(input_shape)
-
-        # Fully connected layers
-        self.fc1 = nn.Linear(conv_out_size + action_dim, 256)
-        self.fc2 = nn.Linear(256, 128)
-        self.q_out = nn.Linear(128, 1)  # final Q-value
-
-    def _get_conv_out(self, shape):
-        dummy = torch.zeros(1, 4, shape[0], shape[1])  # (B, C, H, W) = (1,1,H,W)
-        o = self.conv1(dummy)
-        o = self.conv2(o)
-        o = self.conv3(o)
-        return int(np.prod(o.size()))
-
-    def forward(self, state, action):
-        x = F.relu(self.conv1(state))
-        x = F.relu(self.conv2(x))
-        x = F.relu(self.conv3(x))
-        x = x.view(x.size(0), -1)
-
-        # Concatenate state and action
-        x = torch.cat([x, action], dim=1)  # (B, conv_out_size + 4)
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        q_val = self.q_out(x)
-        return q_val
-
-##########################################################################
-# 4) Policy (Actor) Network
-##########################################################################
-class PolicyNetwork(nn.Module):#행동을 샘플링하고 정책 학습, 주어진 상태 s에 대해 행동 a 결정, 연속적 & 이산적 행동 가능, 혼합 가능 (Actor)
-    """
-    Outputs distribution parameters for:
-      - continuous direction: mean, log_std (2D)
-      - discrete mode: logits (2D)
-    We combine these into an action = [dx, dy, mode0, mode1].
-    We'll do the reparam trick for direction, Gumbel-Softmax for mode.
-    """
-    def __init__(self, input_shape=(70,70)):
-        super(PolicyNetwork, self).__init__()
-        self.log_std_min = -1.5
-        self.log_std_max = 0.5
-
-        # Feature extractor (conv)
-        self.conv1 = nn.Conv2d(4, 16, kernel_size=5, stride=2)
-        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=2)
-        self.conv3 = nn.Conv2d(32, 64, kernel_size=3, stride=2)
-        
-        conv_out_size = self._get_conv_out(input_shape)
-
-        self.fc_backbone = nn.Sequential(
-            nn.Linear(conv_out_size, 256),
-            nn.ReLU(),
-            nn.Linear(256, 128),
-            nn.ReLU()
-        )
-
-        #state feature만 받아서 direction의 mean, log_std 추론
-        self.mean_head = nn.Linear(128, 2)
-        self.log_std_head = nn.Linear(128, 2)
-
-        
-
-    def _get_conv_out(self, shape):
-        dummy = torch.zeros(1, 4, shape[0], shape[1])
-        o = self.conv1(dummy)
-        o = self.conv2(o)
-        o = self.conv3(o)
-        return int(np.prod(o.size()))
-
-    def backbone(self, state):
-        x = F.relu(self.conv1(state))
-        x = F.relu(self.conv2(x))
-        x = F.relu(self.conv3(x))
-        x = x.view(x.size(0), -1)        
-        feat = self.fc_backbone(x)       
-        return feat
-
-    def forward(self, state):
-
-        feat = self.backbone(state)
-        mean = self.mean_head(feat)
-        log_std = self.log_std_head(feat)
-        log_std = torch.clamp(log_std, self.log_std_min, self.log_std_max)
-        return mean, log_Std
-
-    def sample_action(self, state, temperature=1.0):
-        """
-        returns: action=(B, 2+num_modes), log_prob=(B,)
-                 => [dx, dy, mode_onehot...], log pi(a|s)
-        """
-
-        B = state.size(0)
-        mean, log_std = self.forward(state)
-        std = log_std.exp()
-
-        eps = torch.randn_like(mean)
-        action = mean + std * eps
-        direction = 2*torch.tanh(direction)
-
-        log_prob = -0.5 * (((action - mean) / (std + 1e-8))**2 + 2*log_std + np.log(2*np.pi))        
-        
-        return action, log_prob
-    
-##########################################################################
-# 5) SAC Agent for Action
-##########################################################################
-class SACAgent:
-    def __init__(self, input_shape=(70,70), gamma=0.99, alpha=0.2, tau=0.995, lr=1e-4, batch_size=64, replay_size=int(1e5), device="cpu", start_epsilon = 1.0):
-        self.gamma = gamma
-        self.alpha = alpha
-        self.tau = tau
-        self.batch_size = batch_size
-        self.device = torch.device(device)
-        self.epsilon = start_epsilon
-        self.epsilon_min = 0.1
-
-        # Replay buffer
-        self.replay_buffer = ReplayBuffer(capacity=replay_size)
-        
-
-        # Critic networks
-        self.q1 = QNetwork(input_shape, action_dim=4).to(self.device)
-        self.q2 = QNetwork(input_shape, action_dim=4).to(self.device) #Q값의 과대평가 문제 줄이기 위해 double Q 도입
-        # self.q1, self.q2 -> 현재 상태 s와 행동 a에 대해 Q-value를 근사하는 네트워크
-        # predicted Q와 target Q의 차이를 줄이자
-
-        self.q1_target = QNetwork(input_shape, action_dim=4).to(self.device)
-        self.q2_target = QNetwork(input_shape, action_dim=4).to(self.device)
-        # self.q1_target, self.q2_target -> Q의 Ground Truth 근사치 제공
-        # q-network 업데이트 시 사용하는 Target 값을 제공
-
-        self.q1_target.load_state_dict(self.q1.state_dict())
-        self.q2_target.load_state_dict(self.q2.state_dict())
-
-        # Policy network
-        self.policy = PolicyNetwork(input_shape).to(self.device)
-
-        # Optimizers
-        self.q1_optimizer = optim.Adam(self.q1.parameters(), lr=lr) #parameter optimizaing
-        self.q2_optimizer = optim.Adam(self.q2.parameters(), lr=lr)
-        self.policy_optimizer = optim.Adam(self.policy.parameters(), lr=lr)
-        # optimizer는 loss function을 최소화 하도록 네트워크 파라미터 업데이트
-
-
-# ------------------------------------------------- #
-    # Soft update
-    # ------------------------------------------------- #
-    def soft_update(self, net, net_target):
-        for param, target_param in zip(net.parameters(), net_target.parameters()):
-            target_param.data.copy_(
-                self.tau * target_param.data + (1 - self.tau) * param.data
-            )
-
-    # ------------------------------------------------- #
-    # Epsilon update (only if you want random exploration)
-    # ------------------------------------------------- #
-    def update_epsilon(self, is_down, decay_value):
-        if is_down:
-            self.epsilon = max(self.epsilon_min, self.epsilon * decay_value)
-        else:
-            self.epsilon = min(1.0, self.epsilon / decay_value)
-
-    # ------------------------------------------------- #
-    # Store experience
-    # ------------------------------------------------- #
-    def store_transition(self, s, a, r, s_next, done):
-        # if -20 <= a[0] <= 20 and -20 <= a[1] <= 20:
-        self.replay_buffer.push(s, a, r, s_next, done)
-
-    # ------------------------------------------------- #
-    # Select action
-    # ------------------------------------------------- #
-    def select_action(self, state_np, deterministic=False):
-        """
-        state_np: shape (H, W) or (1, H, W)
-        returns action_np shape (4,) = [dx, dy, mode0, mode1]
-        If using epsilon > 0.0 for random exploration, 
-        we can do random direction + random mode sometimes.
-        """
-        # Epsilon check
-        if np.random.rand() < self.epsilon:
-            # random direction in [-1,1], random mode
-            dx = np.random.uniform(-2,2)
-            dy = np.random.uniform(-2,2)
-            return np.array([dx, dy]), True
-        # Otherwise use the policy
-        state_t = torch.FloatTensor(state_np).unsqueeze(0).to(self.device)  # (1,1,H,W)
-        # state_np는 2D 배열인데, 차원을 추가하여 모델 입력에 적합한 차원으로 만들려는 것
-
-        with torch.no_grad():
-            mean, log_std = self.policy(state_t)
-            std = log_std.exp()
-            
-            if deterministic:
-                action_t = mean
-            else:
-                eps = torch.randn_like(mean)
-                action_t = mean + std * eps
-        
-        action_np = action_t.cpu().numpy()[0]
-        
-
-        return action_np, False
-
-
-
-    # ------------------------------------------------- #
-    # Update (one gradient step)
-    # ------------------------------------------------- #
-    def update(self):
-        if len(self.replay_buffer) < self.batch_size*100:
-            return
-        
-        # sample = self.replay_buffer.sample(self.batch_size)
-        #states, actions, rewards, next_states, dones = self.replay_buffer.sample(self.batch_size)
-
-        # 1. Replay Buffer에서 샘플 가져오기
-        states, actions, rewards, next_states, dones = self.replay_buffer.sample(self.batch_size, self.device)
-
-
-        # (B,1,H,W), (B,4), (B,), (B,1,H,W), (B,)
-        # Q target:
-        with torch.no_grad():
-            # next action, next log prob
-            next_action, next_log_prob = self.policy.sample_action(next_states) #update 할때 최적 정책으로 update -> off policy !!
-            # compute target Q
-            q1_next = self.q1_target(next_states, next_action)
-            q2_next = self.q2_target(next_states, next_action)
-            q_next = torch.min(q1_next, q2_next).squeeze(-1)  # (B,)
-            # soft state value
-            q_target = rewards + self.gamma * (1 - dones) * (q_next - self.alpha * next_log_prob)
-
-        # ----- Update Q1, Q2 -----
-        q1_val = self.q1(states, actions).squeeze(-1)  # (B,) #q value를 scalar 값으로
-        q2_val = self.q2(states, actions).squeeze(-1)
-        loss_q1 = F.mse_loss(q1_val, q_target) # q의 실제와 예측 차이 계산
-        loss_q2 = F.mse_loss(q2_val, q_target)
-        max_grad_norm = 1.0
-
-        self.q1_optimizer.zero_grad() #이전 단계의 기울기 초기화, optimizer.step()이 호출 될때 기울기가 누적되지 않도록 함 
-        loss_q1.backward()
-        # 손실값으로부터 모든 파라미터에 대한 기울기 계산
-        torch.nn.utils.clip_grad_norm_(self.q1.parameters(), max_grad_norm)      
-        self.q1_optimizer.step() # q1 update
-        # optimizer가 저장된 기울기(.grad)를 사용하여 네트워크의 파라미터 업데이트
-
-        self.q2_optimizer.zero_grad()
-        loss_q2.backward()
-        torch.nn.utils.clip_grad_norm_(self.q2.parameters(), max_grad_norm)
-        self.q2_optimizer.step() # q2 update
-
-        # ----- Update Policy -----
-        # re-sample action from current policy
-        new_action, log_prob = self.policy.sample_action(states)
-        q1_new = self.q1(states, new_action)
-        q2_new = self.q2(states, new_action)
-        q_new = torch.min(q1_new, q2_new).squeeze(-1)  # (B,)
-
-        # policy loss = alpha * log_prob - Q
-        policy_loss = (self.alpha * log_prob - q_new).mean() #여기서 self.alpha * log_prob가 entropy term
-        # policy_loss는 PyTorch의 스칼라 텐서로, 자동 미분 지원 
-        # 계산된 기울기는 각 파라미터의 .grad 속성에 저장
-
-        self.policy_optimizer.zero_grad()
-        policy_loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.policy.parameters(), max_grad_norm)
-        self.policy_optimizer.step()
-        # optimizer가 저장된 기울기(.grad)를 사용하여 네트워크의 파라미터 업데이트
-
-        # soft update
-        self.soft_update(self.q1, self.q1_target)
-        self.soft_update(self.q2, self.q2_target)
-
-    # ------------------------------------------------- #
-    # Save / Load
-    # ------------------------------------------------- #
-    def save_model(self, filepath):
-        torch.save({
-            'q1': self.q1.state_dict(),
-            'q2': self.q2.state_dict(),
-            'q1_target': self.q1_target.state_dict(),
-            'q2_target': self.q2_target.state_dict(),
-            'policy': self.policy.state_dict(),
-            'q1_opt': self.q1_optimizer.state_dict(),
-            'q2_opt': self.q2_optimizer.state_dict(),
-            'policy_opt': self.policy_optimizer.state_dict()
-        }, filepath)
-        print(f"Model saved to {filepath}")
-
-    def load_model(self, filepath):
-        ckpt = torch.load(filepath)
-        self.q1.load_state_dict(ckpt['q1'])
-        self.q2.load_state_dict(ckpt['q2'])
-        self.q1_target.load_state_dict(ckpt['q1_target'])
-        self.q2_target.load_state_dict(ckpt['q2_target'])
-        self.policy.load_state_dict(ckpt['policy'])
-        self.q1_optimizer.load_state_dict(ckpt['q1_opt'])
-        self.q2_optimizer.load_state_dict(ckpt['q2_opt'])
-        self.policy_optimizer.load_state_dict(ckpt['policy_opt'])
-        print(f"Model loaded from {filepath}")
-
-    def reset(self):
-        pass
+from ADDS_AS_reinforcement import SACAgent, ReplayBuffer, PolicyNetwork, QNetwork
 
 
 def are_meshes_adjacent(mesh1, mesh2):
@@ -1270,20 +925,31 @@ class FightingModel(Model):
         else :
             return self.evacuated_agents()-self.total_agents
 
-    def check_reward_danger(self):
+    def reward_based_alived(self):
         reward = 0
         num = 0
+        
+        reward = -self.alived_agents()/self.total_agents 
 
+    def reward_based_gain(self):
+        if(self.step_n <3):
+            return 0
+        reward=0
         #robot이 agent를 끌어당기면 +reward
         for agent in self.agents:
             if(agent.type == 0 or agent.type == 1 or agent.type == 2 ) and (agent.dead == False):
                 if(agent.robot_tracked>0):
-                    num+=1
-                    reward += agent.gain
-        reward = reward/300
-  
-        return reward
+                    reward += agent.gain2
+        #reward -= self.robot.detect_abnormal_order
 
+        reward = reward/30
+
+        if(reward<-100):
+            reward = -100
+        
+
+        #print("tracked 되고 있는 수 : ", num)
+        return reward
 
     def return_agent_id(self, agent_id):
         for agent in self.agents:

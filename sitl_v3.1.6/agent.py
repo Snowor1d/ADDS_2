@@ -187,6 +187,7 @@ class CrowdAgent(Agent):
         self.is_learning_state = 1
         self.robot_step = 0
         self.gain = 0
+        self.gain2 = 0
         self.goal_init = 0
         self.type = type
         self.robot_previous_action = "UP"
@@ -529,6 +530,7 @@ class CrowdAgent(Agent):
             self.danger = min(self.danger, self.point_to_point_distance([self.xy[0], self.xy[1]], i))
         
         self.gain = self.danger*(self.previous_danger - self.danger)
+        self.gain2 = self.previous_danger - self.danger
         if(self.danger<5):
             self.gain = 0
         for near_agent in near_agents_list:

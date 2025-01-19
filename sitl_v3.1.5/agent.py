@@ -187,6 +187,7 @@ class CrowdAgent(Agent):
         self.is_learning_state = 1
         self.robot_step = 0
         self.gain = 0
+        self.gain2 = 0
         self.goal_init = 0
         self.type = type
         self.robot_previous_action = "UP"
