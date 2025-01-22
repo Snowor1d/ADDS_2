@@ -23,7 +23,7 @@ sim_timer = Timer()
 learn_timer = Timer()
 
 home_dir = os.path.expanduser("~")
-log_dir = os.path.join(home_dir, "learning_log_discrete_v1")
+log_dir = os.path.join(home_dir, "learning_log_v4.0.2")
 os.makedirs(log_dir, exist_ok=True)
 
 model_load = 3
