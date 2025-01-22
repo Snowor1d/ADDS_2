@@ -732,6 +732,7 @@ class RobotAgent(CrowdAgent):
         self.past_xy = deque(maxlen=20)
         self.collision_check = 0
         self.detect_abnormal_order = 0
+        self.is_game_finished = 0
         
 
     def receive_action(self, action):
@@ -750,8 +751,11 @@ class RobotAgent(CrowdAgent):
         self.danger = 99999
         for i in self.model.exit_point:
             self.danger = min(self.danger, self.point_to_point_distance([self.xy[0], self.xy[1]], i))
+        
+        if(self.danger< 3):
+            self.is_game_finished =1 
 
-        time_step = 0.2
+        time_step = 0.15
         robot_radius = 7
 
         if(self.robot_initialized == 0 ):
@@ -815,8 +819,8 @@ class RobotAgent(CrowdAgent):
                     repulsive_force[1] += 0/4*np.exp(-(d/2))*(d_y/d) 
 
                 elif(near_agent.type == 11 or near_agent.type == 9):## 검정벽 
-                    repulsive_force[0] += 5*np.exp(-(d/2))*(d_x/d)
-                    repulsive_force[1] += 5*np.exp(-(d/2))*(d_y/d)
+                    repulsive_force[0] += 8*np.exp(-(d/2))*(d_x/d)
+                    repulsive_force[1] += 8*np.exp(-(d/2))*(d_y/d)
                     #print("repulsive_force : ", repulsive_force)
 
         F_x = 0

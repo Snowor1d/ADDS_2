@@ -114,8 +114,8 @@ class PolicyNetwork(nn.Module):#행동을 샘플링하고 정책 학습, 주어�
     """
     def __init__(self, input_shape=(70,70)):
         super(PolicyNetwork, self).__init__()
-        self.log_std_min = -1.5
-        self.log_std_max =  0.5
+        self.log_std_min = -10
+        self.log_std_max =  -2
 
         # Feature extractor (conv)
         self.conv1 = nn.Conv2d(1, 16, kernel_size=5, stride=2)
@@ -157,6 +157,7 @@ class PolicyNetwork(nn.Module):#행동을 샘플링하고 정책 학습, 주어�
         feat = self.backbone(state)
         mean = self.mean_head(feat)
         log_std = self.log_std_head(feat)
+        
         log_std = torch.clamp(log_std, self.log_std_min, self.log_std_max)
         return mean, log_std
 
@@ -292,7 +293,7 @@ class SACAgent:
     # Update (one gradient step)
     # ------------------------------------------------- #
     def update(self):
-        if len(self.replay_buffer) < self.batch_size*100:
+        if len(self.replay_buffer) < self.batch_size*50:
             return
         
         # sample = self.replay_buffer.sample(self.batch_size)
@@ -500,7 +501,9 @@ if __name__ == "__main__":
                 next_state = env_model.return_current_image()
 
                 # 5) Done?
-                done = (step >= max_steps-1) or (env_model.alived_agents() <= 1)
+                done = (step >= max_steps-1) or (env_model.robot.is_game_finished)
+                if(env_model.robot.is_game_finished):
+                    reward += 1
 
                 # 6) Store transition
                 if(step%3==2):
