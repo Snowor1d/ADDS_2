@@ -3,10 +3,10 @@ import os
 import time
 import subprocess
 
-lr = 1e-4
-decay_value = 0.995
+lr = 2e-4
+decay_value = 0.998
 buffer_size = 20000
-batch_size = 64
+batch_size = 32
 
 
 def run_reinforcement_learning():

@@ -923,12 +923,29 @@ class FightingModel(Model):
 
         reward = reward/30
 
-        if(reward<-100):
-            reward = -100
         
 
         #print("tracked 되고 있는 수 : ", num)
         return reward
+
+    def reward_based_gain_and_path(self):
+        if(self.step_n <3):
+            return 0
+        reward=0
+        #robot이 agent를 끌어당기면 +reward
+        for agent in self.agents:
+            if(agent.type == 0 or agent.type == 1 or agent.type == 2 ) and (agent.dead == False):
+                if(agent.robot_tracked>0):
+                    reward += agent.gain2
+        #reward -= self.robot.detect_abnormal_order
+
+        reward = reward/30
+
+        
+
+        #print("tracked 되고 있는 수 : ", num)
+        return reward
+
 
 
     def return_agent_id(self, agent_id):
@@ -956,10 +973,13 @@ class FightingModel(Model):
                 image[agent.pos[0]][agent.pos[1]] = 40 # 벽
             if(agent.type==10):
                 image[agent.pos[0]][agent.pos[1]] = 90 # 출구
+        for agent in self.agents:
             if(agent.type == 0 or agent.type == 1 or agent.type == 2):
                 image[int(round(agent.xy[0]))][int(round(agent.xy[1]))] = 140 #agent
+        for agent in self.agents:
             if(agent.type == 3):
                 image[int(round(agent.xy[0]))][int(round(agent.xy[1]))] = 200 #robot
+
 
         # for i in range(self.width):
         #     for j in range(self.height):
