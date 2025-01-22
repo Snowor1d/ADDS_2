@@ -239,6 +239,10 @@ class DiscreteACAgent:
                 else:
                     # 샘플링
                     action = dist.sample()
+            action_r = action.item()
+            action_list_index = ["UP", "DOWN", "LEFT", "RIGHT"]
+            print(action_list_index[action_r])
+            
             return action.item(), False
 
     def update(self):
