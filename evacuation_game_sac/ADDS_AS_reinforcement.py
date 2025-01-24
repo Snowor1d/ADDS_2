@@ -494,7 +494,7 @@ if __name__ == "__main__":
                 sim_timer.stop()
 
                 # 3) Reward
-                reward += env_model.reward_evacuation()
+                reward += env_model.a()
 
                 # 4) Next state
                 next_state = env_model.return_current_image()
@@ -502,7 +502,7 @@ if __name__ == "__main__":
                 # 5) Done?
                 done = (step >= max_steps-1) or (env_model.robot.is_game_finished)
                 if(env_model.robot.is_game_finished):
-                    reward += 1
+                    reward += 10
 
                 # 6) Store transition
                 if(step%3==2):
