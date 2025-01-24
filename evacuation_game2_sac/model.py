@@ -745,7 +745,6 @@ class FightingModel(Model):
         
         # 랜덤하게 출구 선택
         index = random.randint(0, len(all_exits) - 1)
-        index = 1
         self.exit_list = [all_exits[index]]
         self.exit_point = [all_exit_points[index]]
         
