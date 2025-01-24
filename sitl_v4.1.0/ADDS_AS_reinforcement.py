@@ -82,7 +82,7 @@ class ReplayBuffer:
         dones       = torch.FloatTensor(dones).to(device)                # (B,)
 
         # behavior_probs -> (B,4)
-        beh_probs   = torch.FloatTensor(beh_probs).to(device)
+        beh_probs   = torch.FloatTensor(beh_probs).to(device) #중요도 가중치 계산에 필요
         return states, actions, rewards, next_states, dones, beh_probs
 
     def __len__(self):
@@ -253,11 +253,11 @@ class FullACERAgent:
         states, actions, rewards, next_states, dones, beh_probs = self.replay_buffer.sample(self.batch_size, self.device)
 
         # 현재 policy 확률
-        current_probs = self.policy_network.get_probs(states)  # (B,4)
+        current_probs = self.policy_network.get_probs(states)  # (B,4) # 목표정책에서 어떤 행동이 선택될 확률
         pi_a = current_probs.gather(1, actions.unsqueeze(1)).squeeze(1)  # (B,)
 
         # behavior policy가 선택한 a의 확률
-        beh_a = beh_probs.gather(1, actions.unsqueeze(1)).squeeze(1)     # (B,)
+        beh_a = beh_probs.gather(1, actions.unsqueeze(1)).squeeze(1)     # (B,) #행동정책에서 어떤 행동이 선택될 확률
 
         # importance weight
         # rho = pi_current(a|s) / pi_behavior(a|s), clipped by c
