@@ -47,9 +47,9 @@ def int_action_to_dxdy(a):
     return (dx, dy)
     """
     if a == 0:
-        return (0, -2)   # Up
+        return (0, 2)   # Up
     elif a == 1:
-        return (0,  2)   # Down
+        return (0,  -2)   # Down
     elif a == 2:
         return (-2, 0)   # Left
     elif a == 3:

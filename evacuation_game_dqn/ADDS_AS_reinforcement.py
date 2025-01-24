@@ -28,7 +28,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--lr", type=float, default=1e-4)
 parser.add_argument("--decay_value", type=float, default=0.99)
 parser.add_argument("--buffer_size", type=int, default=1e5)
-parser.add_argument("--batch_size", type=float, default=64)
+parser.add_argument("--batch_size", type=int, default=64)
 args = parser.parse_args()
 
 #########################################################
@@ -40,9 +40,9 @@ def int_action_to_dxdy(a):
     return (dx, dy)
     """
     if a == 0:
-        return (0, -2)   # Up
+        return (0, 2)   # Up
     elif a == 1:
-        return (0,  2)   # Down
+        return (0,  -2)   # Down
     elif a == 2:
         return (-2, 0)   # Left
     elif a == 3:
@@ -191,6 +191,15 @@ class DQNAgent:
             with torch.no_grad():
                 q_values = self.q(state_t)  # shape: (1, 4)
                 action = q_values.argmax(dim=1).item()
+            if action==0:
+                print("UP")
+            elif action==1:
+                print("DOWN")
+            elif action==2:
+                print("LEFT")
+            else :
+                print("RIGHT")
+
             return action
 
     def update(self):
