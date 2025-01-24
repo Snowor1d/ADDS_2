@@ -512,7 +512,6 @@ if __name__ == "__main__":
                 sim_timer.stop()
 
                 reward += env_model.reward_based_gain()
-                total_reward += reward
 
                 # 4) Next state
                 next_state = np.array(env_model.return_current_image())
@@ -531,6 +530,7 @@ if __name__ == "__main__":
                         float(done)
                     )
                     print("reward : ", reward)
+                    total_reward += reward
                     reward = 0
 
                 # 7) Update agent

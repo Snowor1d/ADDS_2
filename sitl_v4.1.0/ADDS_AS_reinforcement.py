@@ -448,7 +448,6 @@ if __name__ == "__main__":
             sim_timer.stop()
 
             reward_acc += env_model.reward_based_gain()
-            total_reward += reward_acc
 
             next_state = env_model.return_current_image()
             done = (step >= max_steps-1) or (env_model.alived_agents() <= 1)
@@ -463,6 +462,7 @@ if __name__ == "__main__":
                     float(done),
                     buffered_probs
                 )
+                total_reward += reward_acc
                 print("reward : ", reward_acc)
                 reward_acc = 0
 

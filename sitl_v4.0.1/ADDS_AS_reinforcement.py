@@ -419,8 +419,6 @@ if __name__ == "__main__":
 
             # reward
             reward_acc += env_model.reward_based_gain()
-            total_reward += reward_acc
-
             next_state = env_model.return_current_image()
             done = (step >= max_steps-1) or (env_model.alived_agents() <= 1)
 
@@ -428,6 +426,8 @@ if __name__ == "__main__":
                 # 3 step 마다 transition 저장
                 agent.store_transition(buffered_state, buffered_action, reward_acc, next_state, float(done))
                 print("reward : ", reward_acc)
+                total_reward += reward_acc
+
                 reward_acc = 0
 
                 # 학습

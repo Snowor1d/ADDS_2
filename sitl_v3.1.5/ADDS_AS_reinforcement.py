@@ -494,7 +494,6 @@ if __name__ == "__main__":
 
                 # 3) Reward
                 reward += env_model.reward_based_gain()
-                total_reward += reward
 
                 # 4) Next state
                 next_state = env_model.return_current_image()
@@ -512,6 +511,7 @@ if __name__ == "__main__":
                         float(done)
                     )
                     print("reward : ", reward)
+                    total_reward += reward
                     reward = 0
 
                 # 7) Update agent
