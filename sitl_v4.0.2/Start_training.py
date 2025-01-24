@@ -5,7 +5,7 @@ import subprocess
 
 lr = 1e-4
 decay_value = 0.995
-buffer_size = 20000
+buffer_size = 100000
 batch_size = 64
 
 

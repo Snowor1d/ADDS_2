@@ -289,6 +289,7 @@ class FightingModel(Model):
         self.robot_xy = [0, 0]
         self.robot_mode = "GUIDE"
         self.step_count = 0
+        self.pre_evacuated_agents = 0
 
         # for i in range(50):
         #     for j in range(50):
@@ -881,6 +882,8 @@ class FightingModel(Model):
                     agent.dead = True 
         self.step_count += 1
 
+        self.pre_evacuated_agents = self.evacuated_agents()
+        
         state = self.return_current_image()
         if(self.using_model):
             self.checking_reward += self.reward_total()
@@ -943,13 +946,21 @@ class FightingModel(Model):
         a = 0.8
         b = 0.5 ## reward_d 에 더해지는 값이 양수면 출구쪽으로 가고 있다는 것인데...
         ##
+        reward_e = 0
         reward_d = 0
+        
 
         for agent in self.agents:
             if(agent.type == 0 or agent.type == 1 or agent.type == 2 ) and (agent.dead == False):
                 reward_d += max(0, min(1, agent.gain2))
         
-        reward_total = self.evacuated_agents() * a + reward_d *b
+        
+        reward_e = self.evacuated_agents() - self.pre_evacuated_agents
+        # print(f"reward_e({reward_e}) = self.evacuated_agents()({self.evacuated_agents()}) - pre_e_ants({self.pre_evacuated_agents}))")
+        
+        
+        reward_total = reward_e * a + reward_d *b
+        # print(f"reward_total ({reward_total}) = evacuated_a ({reward_e * 0.8}, {reward_e}) + reward_d({reward_d * 0.5}, {reward_d}), alived agents({self.alived_agents()})")
 
         return reward_total
 

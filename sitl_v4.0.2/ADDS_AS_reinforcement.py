@@ -180,7 +180,7 @@ class PolicyNetworkDiscrete(nn.Module):
 class DiscreteACAgent:
     def __init__(self, input_shape=(70,70), gamma=0.99,
                  lr=1e-4, batch_size=64, replay_size=int(1e5), 
-                 device="cpu", start_epsilon=1.0):
+                 device="cuda", start_epsilon=1.0):
         
         self.gamma = gamma
         self.batch_size = batch_size
@@ -241,7 +241,7 @@ class DiscreteACAgent:
                     action = dist.sample()
             action_r = action.item()
             action_list_index = ["UP", "DOWN", "LEFT", "RIGHT"]
-            print(action_list_index[action_r])
+            # print(action_list_index[action_r])
             
             return action.item(), False
 
@@ -334,7 +334,7 @@ if __name__ == "__main__":
     max_steps = 1500
     number_of_agents = 30
     start_episode = 0
-
+    reward_3_parameter = 50 ## 학습 종료시 주어지는 reward에 대한 가중치
     # epsilon 로드
     epsilon_path = os.path.join(log_dir, "start_epsilon.txt")
     if os.path.exists(epsilon_path):
@@ -420,7 +420,8 @@ if __name__ == "__main__":
 
             # reward
             reward_acc += env_model.reward_total()
-            total_reward += reward_acc
+            # print("model.reward_total : ", env_model.reward_total())
+            
 
             next_state = env_model.return_current_image()
             done = (step >= max_steps-1) or (env_model.alived_agents() <= 1)
@@ -428,7 +429,8 @@ if __name__ == "__main__":
             if step % 3 == 2:
                 # 3 step 마다 transition 저장
                 agent.store_transition(buffered_state, buffered_action, reward_acc, next_state, float(done))
-                print("reward : ", reward_acc)
+                # print("reward_acc : ", reward_acc, "       |||||||    total_reward : ", total_reward)
+                total_reward += reward_acc
                 reward_acc = 0
 
                 # 학습
@@ -438,12 +440,15 @@ if __name__ == "__main__":
 
             state = next_state
             if done:
+                total_reward += reward_acc
                 # bonus 계산 (3-1)
-                r3_raw = (max_steps - step) / max_steps * 10  # 'step'은 episode 내 총 step 수 (예: step이 마지막에 해당)
-                bonus = r3_raw if r3_raw > 0 else -10
+                r3_raw = (max_steps - (step+1)) / max_steps * reward_3_parameter  # 'step'은 episode 내 총 step 수 (예: step이 마지막에 해당)
+                bonus = r3_raw if r3_raw > 0 else -reward_3_parameter
+                print("******* bonus : ", bonus, "step = ", step)
                 total_reward_transition = reward_acc + bonus
                 # transition 저장 (buffered_state, buffered_action, total_reward_transition, next_state, done)
                 agent.store_transition(buffered_state, buffered_action, total_reward_transition, next_state, float(done))
+                reward_acc = 0
   
                 break
 
