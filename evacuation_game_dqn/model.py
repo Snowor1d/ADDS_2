@@ -33,6 +33,23 @@ import torch.nn.functional as F
 
 from ADDS_AS_reinforcement import DQNAgent, ReplayBuffer, QNetwork 
 
+def int_action_to_dxdy(a):
+    """
+    0: Up, 1: Down, 2: Left, 3: Right
+    return (dx, dy)
+    """
+    if a == 0:
+        return (0, 2)   # Up
+    elif a == 1:
+        return (0,  -2)   # Down
+    elif a == 2:
+        return (-2, 0)   # Left
+    elif a == 3:
+        return (2,  0)   # Right
+    else:
+        return (0,0)
+
+
 ##########################################################################
 # 1) Replay Buffer
 ##########################################################################
@@ -943,7 +960,15 @@ class FightingModel(Model):
             self.checking_reward += self.reward_evacuation()
         if(self.using_model and self.step_n%3==0):
             action = self.sac_agent.select_action(state)
-            self.robot.receive_action(action[0])
+            if(action==0):
+                self.robot.receive_action([0, 2])
+            elif(action==1):
+                self.robot.receive_action([0, -2])
+            elif(action==2):
+                self.robot.receive_action([-2, 0])
+            elif(action==3):
+                self.robot.receive_action([2, 0])
+            
         if(self.using_model and self.step_n%3==2):
             print("reward : ", self.checking_reward)
             self.checking_reward = 0
@@ -1002,7 +1027,7 @@ class FightingModel(Model):
         input_shape = (70, 70)
         num_actions = 4
 
-        self.sac_agent = SACAgent(input_shape, num_actions)
+        self.sac_agent = DQNAgent(input_shape, num_actions, start_epsilon=0)
         self.sac_agent.load_model(file_path)
 
         self.using_model = True

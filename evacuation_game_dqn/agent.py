@@ -738,8 +738,6 @@ class RobotAgent(CrowdAgent):
     def receive_action(self, action):
                 
         
-        direction_probs = action[0]
-        
 
         self.action[0] = action[0]
         self.action[1] = action[1]
@@ -754,6 +752,7 @@ class RobotAgent(CrowdAgent):
         
         if(self.danger< 3):
             self.is_game_finished =1 
+            print("탈출완료")
 
         time_step = 0.15
         robot_radius = 7
