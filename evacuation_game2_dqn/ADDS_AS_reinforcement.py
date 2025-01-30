@@ -16,7 +16,7 @@ import argparse
 sim_timer = Timer() 
 learn_timer = Timer()
 home_dir = os.path.expanduser("~")
-log_dir = os.path.join(home_dir, "learning_log_evacuation_game_dqn")
+log_dir = os.path.join(home_dir, "learning_log_evacuation_game2_dqn")
 os.makedirs(log_dir, exist_ok=True)
 
 model_load = 3

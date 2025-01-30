@@ -33,6 +33,25 @@ import torch.nn.functional as F
 
 from ADDS_AS_reinforcement import DQNAgent, ReplayBuffer, QNetwork 
 
+#########################################################
+# 0) Discrete Action 매핑 함수
+#########################################################
+def int_action_to_dxdy(a):
+    """
+    0: Up, 1: Down, 2: Left, 3: Right
+    return (dx, dy)
+    """
+    if a == 0:
+        return (0, 2)   # Up
+    elif a == 1:
+        return (0,  -2)   # Down
+    elif a == 2:
+        return (-2, 0)   # Left
+    elif a == 3:
+        return (2,  0)   # Right
+    else:
+        return (0,0)
+
 ##########################################################################
 # 1) Replay Buffer
 ##########################################################################
@@ -942,7 +961,8 @@ class FightingModel(Model):
             self.checking_reward += self.reward_evacuation()
         if(self.using_model and self.step_n%3==0):
             action = self.sac_agent.select_action(state)
-            self.robot.receive_action(action[0])
+            action = int_action_to_dxdy(action)
+            self.robot.receive_action(action)
         if(self.using_model and self.step_n%3==2):
             print("reward : ", self.checking_reward)
             self.checking_reward = 0
@@ -985,11 +1005,16 @@ class FightingModel(Model):
         #print("tracked 되고 있는 수 : ", num)
         return reward
 
+    # def reward_evacuation(self):
+    #     if(self.step_n<3):
+    #         return 0
+    #     return (self.robot.previous_danger - self.robot.danger)/10
+        
+
     def reward_evacuation(self):
         if(self.step_n<3):
             return 0
-        return (self.robot.previous_danger - self.robot.danger)/10
-        
+        return -self.robot.danger/100
 
     def return_agent_id(self, agent_id):
         for agent in self.agents:
