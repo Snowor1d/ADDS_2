@@ -1016,8 +1016,10 @@ class FightingModel(Model):
                 image[agent.pos[0]][agent.pos[1]] = 40 # 벽
             if(agent.type==10):
                 image[agent.pos[0]][agent.pos[1]] = 90 # 출구
+        for agent in self.agents:
             if(agent.type == 0 or agent.type == 1 or agent.type == 2):
                 image[int(round(agent.xy[0]))][int(round(agent.xy[1]))] = 140 #agent
+        for agent in self.agents:
             if(agent.type == 3):
                 image[int(round(agent.xy[0]))][int(round(agent.xy[1]))] = 200 #robot
 
