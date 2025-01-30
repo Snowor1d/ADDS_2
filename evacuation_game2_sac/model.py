@@ -988,7 +988,7 @@ class FightingModel(Model):
     def reward_evacuation(self):
         if(self.step_n<3):
             return 0
-        return (self.robot.previous_danger - self.robot.danger)/10
+        return -self.robot.danger/100
         
 
     def return_agent_id(self, agent_id):

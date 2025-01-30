@@ -58,14 +58,13 @@ if visualization_mode == 'on':
     Width = width
     Height =height
     s_model_r = model.FightingModel(30,width,height,model_num)
-    s_model_r.use_model('sac_checkpoint_ep_780.pth')  
+    s_model_r.use_model('sac_checkpoint_ep_1300.pth')  
     ran_num = random.randint(10000,20000)
     most_danger_mesh = None
     for agent in s_model_r.schedule_e.agents:
         if agent.type == 99:
             if agent.danger > most_danger:
                 most_danger = agent.danger
-    0
     
     
     

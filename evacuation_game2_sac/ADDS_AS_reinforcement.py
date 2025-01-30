@@ -16,7 +16,7 @@ import argparse
 sim_timer = Timer() 
 learn_timer = Timer()
 home_dir = os.path.expanduser("~")
-log_dir = os.path.join(home_dir, "learning_log_evacuation_game")
+log_dir = os.path.join(home_dir, "learning_log_evacuation_game2_sac")
 os.makedirs(log_dir, exist_ok=True)
 
 model_load = 3
@@ -502,7 +502,7 @@ if __name__ == "__main__":
                 # 5) Done?
                 done = (step >= max_steps-1) or (env_model.robot.is_game_finished)
                 if(env_model.robot.is_game_finished):
-                    reward += 1
+                    reward += 10
 
                 # 6) Store transition
                 if(step%3==2):
