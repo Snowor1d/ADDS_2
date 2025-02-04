@@ -495,7 +495,11 @@ if __name__ == "__main__":
                 sim_timer.stop()
 
                 # 3) Reward
-                reward += env_model.reward_based_alived()
+                r_a = env_model.reward_based_alived() 
+                r_d = env_model.reward_based_all_agents_danger()
+                reward += (r_a + r_d)
+                print("alived reward : ", r_a)
+                print("danger reward : ", r_d)
 
                 # 4) Next state
                 next_state = env_model.return_current_image()

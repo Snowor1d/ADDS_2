@@ -65,7 +65,7 @@ if visualization_mode == 'on':
         if agent.type == 99:
             if agent.danger > most_danger:
                 most_danger = agent.danger
-    0
+    
     
     
     
