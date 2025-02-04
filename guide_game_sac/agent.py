@@ -433,9 +433,7 @@ class CrowdAgent(Agent):
         robot_prev_xy[1] = robot_xy[1]
         
         if (self.type == 3):
-            
             self.robot_step += 1
-            self.make_buffer()
 
                    
             if (self.model.robot_type == "Q"):
@@ -580,7 +578,7 @@ class CrowdAgent(Agent):
             self.is_near_robot = 1
         else:
             self.is_near_robot = 0
-
+        
         self.which_goal_agent_want()
         if(self.robot_initialized == 1):
             self.robot_initalized += 1

@@ -316,7 +316,7 @@ class FightingModel(Model):
         self.exit_list = []
         self.random_agent_distribute_outdoor(number_agents, 1)
         self.make_robot()
-        self.visualize_danger()
+        #self.visualize_danger()
         self.robot_xy = [0, 0]
         self.robot_mode = "GUIDE"
         self.step_count = 0
