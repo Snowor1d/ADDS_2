@@ -941,8 +941,10 @@ class FightingModel(Model):
         if(self.using_model):
             self.checking_reward += self.reward_evacuation()
         if(self.using_model and self.step_n%3==0):
-            action = self.sac_agent.select_action(state)
-            self.robot.receive_action(action[0])
+            action, _ = self.sac_agent.select_action(state)
+            dx, dy = action[0], action[1]
+            self.robot.receive_action([dx, dy])
+
         if(self.using_model and self.step_n%3==2):
             print("reward : ", self.checking_reward)
             self.checking_reward = 0
