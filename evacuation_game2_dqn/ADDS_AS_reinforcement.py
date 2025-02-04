@@ -356,8 +356,11 @@ if __name__ == "__main__":
 
                 if(step%3==0):
                     action_np = agent.select_action(state, deterministic=False)
+                    print(action_np)
                     action = int_action_to_dxdy(action_np)
+                    
                     dx, dy = action[0], action[1]
+                    
                     real_action = env_model.robot.receive_action([dx, dy])
                     buffered_state = state
                     buffered_action = action_np
