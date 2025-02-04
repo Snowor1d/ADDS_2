@@ -41,7 +41,6 @@ def int_action_to_dxdy(a):
     return (dx, dy)
     """
 
-    a = a[0]
     if a == 0:
         return (0, 2)   # Up
     elif a == 1:
@@ -171,6 +170,8 @@ class DiscreteACAgent:
                  lr=1e-4, batch_size=64, replay_size=int(1e5), 
                  device="cuda", start_epsilon=1.0):
         
+        self.num_actions = 4
+
         self.gamma = gamma
         self.batch_size = batch_size
         self.device = torch.device(device)
@@ -211,28 +212,31 @@ class DiscreteACAgent:
         self.replay_buffer.push(s, a, r, s_next, done)
 
     def select_action(self, state_np, deterministic=False):
-        # state_np: shape (H,W)
-        # e-greedy로 탐험
+        """
+        Epsilon-greedy로 행동을 선택
+        - state_np: (H, W)
+        - 반환: 정수 행동(0~3)
+        """
+        # epsilon에 따라 random action
         if np.random.rand() < self.epsilon:
-            return np.random.randint(0,4), True
+            action = np.random.randint(0, self.num_actions)
+            return action
         else:
-            # actor network를 통한 행동 샘플
-            state_t = torch.FloatTensor(state_np).unsqueeze(0).unsqueeze(0).to(self.device)
+            # Q값 가장 큰 행동
+            state_t = torch.FloatTensor(state_np).unsqueeze(0).unsqueeze(0).to(self.device)  # (1,1,H,W)
             with torch.no_grad():
-                logits = self.policy_network(state_t)  # (1,4)
-                probs = F.softmax(logits, dim=-1)      # (1,4)
-                dist = Categorical(probs)
-                if deterministic:
-                    # 가장 확률 높은 action
-                    action = torch.argmax(probs, dim=-1)
-                else:
-                    # 샘플링
-                    action = dist.sample()
-            action_r = action.item()
-            action_list_index = ["UP", "DOWN", "LEFT", "RIGHT"]
-            # print(action_list_index[action_r])
-            
-            return action.item(), False
+                q_values = self.q_network(state_t)  # shape: (1, 4)
+                action = q_values.argmax(dim=1).item()
+            if action==0:
+                print("UP")
+            elif action==1:
+                print("DOWN")
+            elif action==2:
+                print("LEFT")
+            else :
+                print("RIGHT")
+
+            return action
 
     def update(self):
         if len(self.replay_buffer) < self.batch_size*10:
@@ -359,7 +363,7 @@ if __name__ == "__main__":
         pass
     elif model_load == 2:
         print("load specified model")
-        model_name = "dqn_checkpoint_ep_200.pth"
+        model_name = "acer_checkpoint_ep_590.pth"
         model_path = os.path.join(log_dir, model_name)
 
         if(os.path.exists(model_path)):
@@ -470,7 +474,7 @@ if __name__ == "__main__":
             open(reward_file_path, "w").close()
 
         if (episode+1) % 10 == 0:
-            model_filename = os.path.join(log_dir, f"dqn_checkpoint_ep_{start_episode + episode + 1}.pth")
+            model_filename = os.path.join(log_dir, f"acer_checkpoint_ep_{start_episode + episode + 1}.pth")
             agent.save_model(model_filename)
             replay_buffer_filename = "replay_buffer.pkl"
             agent.save_replay_buffer(replay_buffer_filename)
