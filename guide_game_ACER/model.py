@@ -9,48 +9,8 @@ from mesa.space import ContinuousSpace
 from mesa.datacollection import DataCollector
 from shapely.geometry import Polygon, MultiPolygon, Point
 from shapely.ops import triangulate
-import matplotlib.tri as mtri
-
-import agent
-from agent import WallAgent
-import random
-import copy
-import math
-import numpy as np
-import matplotlib.pyplot as plt 
-from scipy.spatial import Delaunay, ConvexHull
-from sklearn.cluster import DBSCAN
-from matplotlib.path import Path
-import triangle as tr
-import os
-from collections import deque
-#import cv2
-
-import torch
-import torch.nn as nn
-import torch.optim as optim
-import torch.nn.functional as F
-
-from ADDS_AS_reinforcement import DiscreteACAgent, ReplayBuffer, QNetworkDiscrete
-
-def int_action_to_dxdy(a):
-    """
-    0: Up, 1: Down, 2: Left, 3: Right
-    return (dx, dy)
-    """
-    if a == 0:
-        return (0, 2)   # Up
-    elif a == 1:
-        return (0,  -2)   # Down
-    elif a == 2:
-        return (-2, 0)   # Left
-    elif a == 3:
-        return (2,  0)   # Right
-    else:
-        return (0,0)
 
 
-##########################################################################
 # 1) Replay Buffer
 ##########################################################################
 class ReplayBuffer:
