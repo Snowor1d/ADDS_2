@@ -429,7 +429,7 @@ def monitor_total_reward(total_reward_file, tb_log_dir):
         time.sleep(2)
     with open(total_reward_file, "r") as f:
         # 기존 내용 무시를 위해 파일 끝으로 이동
-        f.seek(0, os.SEEK_END)
+        #f.seek(0, os.SEEK_END)
         episode = 0
         print("Start monitoring total_reward.txt for new rewards...")
         try:

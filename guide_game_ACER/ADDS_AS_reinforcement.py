@@ -13,6 +13,11 @@ import pickle
 import argparse
 from torch.distributions import Categorical
 
+from torch.utils.tensorboard import SummaryWriter
+import threading
+import subprocess
+import webbrowser
+
 # Timer instances
 sim_timer = Timer() 
 learn_timer = Timer()
@@ -31,6 +36,22 @@ parser.add_argument("--decay_value", type=float, default=0.99)
 parser.add_argument("--buffer_size", type=int, default=1e5)
 parser.add_argument("--batch_size", type=int, default=64)
 args = parser.parse_args()
+
+def launch_tensorboard(tb_log_dir, port=6006):
+    """
+    TensorBoard를 백그라운드에서 실행하고 기본 브라우저에 해당 URL을 엽니다.
+    """
+    # tensorboard 실행 (포트 지정)
+    tb_process = subprocess.Popen(["tensorboard", "--logdir", tb_log_dir, "--port", str(port)],
+                                  stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE)
+    # 잠시 대기한 후, 브라우저에서 TensorBoard URL 열기
+    time.sleep(5)  # TensorBoard가 시작할 시간을 줌
+    url = f"http://localhost:{port}"
+    webbrowser.open(url)
+    print(f"TensorBoard launched at {url}")
+    return tb_process
+
 
 #########################################################
 # 0) Discrete Action 매핑 함수
@@ -318,6 +339,39 @@ class DiscreteACAgent:
         print("Replay buffer loaded.")
         print("Replay buffer size:", len(self.replay_buffer))
 
+##########################################################################
+# TensorBoard 모니터링 함수: total_reward.txt 파일의 새 라인을 지속적으로 읽어 기록
+##########################################################################
+def monitor_total_reward(total_reward_file, tb_log_dir):
+    writer = SummaryWriter(log_dir=tb_log_dir)
+    # 파일 생성 대기
+    while not os.path.exists(total_reward_file):
+        print(f"Waiting for {total_reward_file} to be created...")
+        time.sleep(2)
+    with open(total_reward_file, "r") as f:
+        # 기존 내용 무시를 위해 파일 끝으로 이동
+        #f.seek(0, os.SEEK_END)
+        episode = 0
+        print("Start monitoring total_reward.txt for new rewards...")
+        try:
+            while True:
+                line = f.readline()
+                if line:
+                    line = line.strip()
+                    if line:
+                        try:
+                            total_reward = float(line)
+                            writer.add_scalar("Total Reward", total_reward, episode)
+                            print(f"Episode {episode}: Total Reward = {total_reward}")
+                            episode += 1
+                        except ValueError:
+                            print(f"Invalid value in total_reward.txt: {line}")
+                else:
+                    time.sleep(1)
+        except KeyboardInterrupt:
+            print("Monitoring interrupted by user.")
+        finally:
+            writer.close()
 
 
 ##########################################################################
@@ -326,6 +380,15 @@ class DiscreteACAgent:
 if __name__ == "__main__":
     import time
     import model  # Your environment code (model.FightingModel)
+
+ # TensorBoard 로그 경로 및 total_reward.txt 경로 설정
+    total_reward_file = os.path.join(log_dir, "total_reward.txt")
+    tb_log_dir = os.path.join(log_dir, "tensorboard_logs")
+
+    tb_process = launch_tensorboard(tb_log_dir, port=6006)
+    # 별도 스레드에서 total_reward.txt 모니터링 시작
+    monitor_thread = threading.Thread(target=monitor_total_reward, args=(total_reward_file, tb_log_dir), daemon=True)
+    monitor_thread.start()
 
     # hyperparams
     max_episodes = 3000
@@ -389,7 +452,7 @@ if __name__ == "__main__":
             pass
 
 
-
+    abnormal_reward = 0
     for episode in range(max_episodes):
         print(f"Episode {start_episode+episode+1}")
         # Create environment
@@ -405,6 +468,7 @@ if __name__ == "__main__":
         reward = 0
         buffered_state = state
         buffered_action = None
+        abnormal_reward = 0
         try:
             for step in range(max_steps):
                 # 1) Select action
@@ -465,6 +529,7 @@ if __name__ == "__main__":
         except Exception as e:
             print(e)
             print("error occured. retry.")
+            abnormal_reward = 1
             env_model = model.FightingModel(number_of_agents, 70, 70, 2, 'Q')
 
         # Possibly update epsilon, or do other logging
@@ -489,7 +554,8 @@ if __name__ == "__main__":
 
         reward_file_path = os.path.join(log_dir, "total_reward.txt")
         with open(reward_file_path, "a") as f:
-            f.write(f"{total_reward}\n")
+            if(abnormal_reward != 1):
+                f.write(f"{total_reward}\n")
 
         with open(epsilon_path, "w") as f:
             f.write(str(agent.epsilon))

@@ -382,7 +382,7 @@ class FightingModel(Model):
         point_grid = (int(point[0]), int(point[1]))
         x = point_grid[0]
         y = point_grid[1]
-        candidates = [(x+1,y+1), (x+1, y), (x, y+1), (x-1, y-1), (x-1, y), (x, y-1)]
+        candidates = [(x+1,y+1), (x+1, y), (x, y+1), (x-1, y-1), (x-1, y), (x, y-1), (x+1, y-1), (x-1, y+1)]
         for c in candidates:
             if (self.match_grid_to_mesh[c] in self.pure_mesh):
                 return c
