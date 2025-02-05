@@ -168,7 +168,7 @@ class PolicyNetworkDiscrete(nn.Module):
 class DiscreteACAgent:
     def __init__(self, input_shape=(70,70), gamma=0.99,
                  lr=1e-4, batch_size=64, replay_size=int(1e5), 
-                 device="cuda", start_epsilon=1.0):
+                 device="cpu", start_epsilon=1.0):
         
         self.num_actions = 4
 
@@ -363,7 +363,7 @@ if __name__ == "__main__":
         pass
     elif model_load == 2:
         print("load specified model")
-        model_name = "acer_checkpoint_ep_590.pth"
+        model_name = "acer_checkpoint_ep_1280.pth"
         model_path = os.path.join(log_dir, model_name)
 
         if(os.path.exists(model_path)):
