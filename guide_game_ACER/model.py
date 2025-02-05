@@ -1028,23 +1028,20 @@ class FightingModel(Model):
             -> 0 일 경우 (=기준 step 내 전체 탈출 못했을 경우) : -10
         '''
         ## 가중치
-        a = 0.8
-        b = 0.5 ## reward_d 에 더해지는 값이 양수면 agents가 출구쪽으로 가고 있다는 것
+        a = 1
+        b = 1 ## reward_d 에 더해지는 값이 양수면 agents가 출구쪽으로 가고 있다는 것
         ##
         reward_e = 0
         reward_d = 0
         
-
         for agent in self.agents:
             if(agent.type == 0 or agent.type == 1 or agent.type == 2 ) and (agent.dead == False):
-                reward_d += max(0, min(1, agent.gain2))
+                reward_d += max(-1, min(1, agent.gain2))
                 # print("gain : ", agent.gain, "gain2 : ", agent.gain2, "pre_danger : ", agent.previous_danger, "danger : ", agent.danger)
-        
         
         reward_e = self.evacuated_agents() - self.pre_evacuated_agents
         # print(f"reward_e({reward_e}) = self.evacuated_agents()({self.evacuated_agents()}) - pre_e_ants({self.pre_evacuated_agents}))")
-
-        
+       
         reward_total = reward_e * a + reward_d *b
         # print(f"reward_total ({reward_total}) = evacuated_a ({reward_e * 0.8}, {reward_e}) + reward_d({reward_d * 0.5}, {reward_d}), alived agents({self.alived_agents()})")
 

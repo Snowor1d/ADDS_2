@@ -23,7 +23,7 @@ import sys
 
 #-------------------------#
 visualization_mode = 'on' # choose your visualization mode 'on / off
-run_iteration = 1500
+run_iteration = 3000
 number_of_agents = 30 # agents 수
 #-------------------------#
 
@@ -299,7 +299,3 @@ if visualization_mode == 'on':
     
     server2.launch()
     
-    
-
-
-

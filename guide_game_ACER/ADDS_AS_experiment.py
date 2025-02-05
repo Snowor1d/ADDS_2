@@ -28,7 +28,7 @@ faulthandler.enable()
 visualization_mode = 'off' # choose your visualization mode 'on / off
 run_iteration = 3
 number_of_agents = 30 # agents 수
-max_step_num = 1500
+max_step_num = 3000
 #-------------------------#
 
 adds_benchmark = 0

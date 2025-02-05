@@ -59,6 +59,7 @@ class ReplayBuffer:
     def __init__(self, capacity=int(1e4), device=None):
         self.buffer = deque(maxlen=capacity)
         self.device = device
+
     def push(self, state, action, reward, next_state, done):
         self.buffer.append((state, action, reward, next_state, done))
 
@@ -79,6 +80,7 @@ class ReplayBuffer:
     def save(self, filepath):
         with open(filepath, "wb") as f:
             pickle.dump(self.buffer, f)
+
     def load(self, filepath):
         with open(filepath, "rb") as f:
             self.buffer = pickle.load(f)
@@ -168,7 +170,7 @@ class PolicyNetworkDiscrete(nn.Module):
 class DiscreteACAgent:
     def __init__(self, input_shape=(70,70), gamma=0.99,
                  lr=1e-4, batch_size=64, replay_size=int(1e5), 
-                 device="cuda", start_epsilon=1.0):
+                 device="cpu", start_epsilon=1.0):
         
         self.num_actions = 4
 
@@ -326,8 +328,8 @@ if __name__ == "__main__":
     import model  # Your environment code (model.FightingModel)
 
     # hyperparams
-    max_episodes = 1500
-    max_steps = 1500
+    max_episodes = 3000
+    max_steps = 3000
     number_of_agents = 30
     start_episode = 0
     
@@ -352,7 +354,7 @@ if __name__ == "__main__":
         lr            = args.lr,
         batch_size    = int(args.batch_size),
         replay_size   = int(args.buffer_size),
-        device        = "cuda",
+        device        = "cpu",
         start_epsilon = start_epsilon
     )
     print(f"Agent initialized (DQN), lr={args.lr}, batch_size={args.batch_size}, replay_size={args.buffer_size}")
