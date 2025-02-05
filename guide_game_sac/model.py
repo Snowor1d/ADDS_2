@@ -966,8 +966,8 @@ class FightingModel(Model):
         reward = 0
         num = 0
         
-        reward = -self.alived_agents()/self.total_agents 
-        return reward/10
+        reward = -self.alived_agents()/self.total_agents
+        return reward/3
     
     def reward_based_all_agents_danger(self):
         
@@ -975,7 +975,7 @@ class FightingModel(Model):
         for agent in self.agents:
             if(agent.type == 0 or agent.type == 1 or agent.type == 2) and (agent.dead == False):
                 reward += agent.danger
-        return -reward/100000
+        return -reward/10000
 
     def reward_based_gain(self):
         
@@ -1024,12 +1024,15 @@ class FightingModel(Model):
         image = [[0 for _ in range(self.width)] for _ in range(self.height)]
         for agent in self.agents:
             if(agent.type==9):
-                image[agent.pos[0]][agent.pos[1]] = 40 # 벽
+                image[agent.pos[0]][agent.pos[1]] = 20 # 벽
             if(agent.type==10):
-                image[agent.pos[0]][agent.pos[1]] = 90 # 출구
+                image[agent.pos[0]][agent.pos[1]] = 60 # 출구
         for agent in self.agents:
-            if(agent.type == 0 or agent.type == 1 or agent.type == 2):
-                image[int(round(agent.xy[0]))][int(round(agent.xy[1]))] = 140 #agent
+            if(agent.type == 1 or agent.type == 2):
+                image[int(round(agent.xy[0]))][int(round(agent.xy[1]))] = 100 #agent
+        for agent in self.agents:
+            if(agent.type == 0):
+                image[int(round(agent.xy[0]))][int(round(agent.xy[1]))] = 140
         for agent in self.agents:
             if(agent.type == 3):
                 image[int(round(agent.xy[0]))][int(round(agent.xy[1]))] = 200 #robot
