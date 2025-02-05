@@ -375,7 +375,7 @@ if __name__ == "__main__":
                 agent.load_replay_buffer("replay_buffer.pkl")
     elif model_load == 3:
         print("Mode 3: Loading the latest model from log_dir.")
-        model_files = [f for f in os.listdir(log_dir) if f.startswith("dqn_checkpoint") and f.endswith(".pth")]
+        model_files = [f for f in os.listdir(log_dir) if f.startswith("acer_checkpoint") and f.endswith(".pth")]
         if model_files:
             latest_model = max(model_files, key=lambda f: int(f.split("_")[-1].split(".")[0]))
             latest_model_path = os.path.join(log_dir, latest_model)
