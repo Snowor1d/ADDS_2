@@ -461,7 +461,7 @@ def monitor_total_reward(total_reward_file, tb_log_dir):
         time.sleep(2)
     with open(total_reward_file, "r") as f:
         # 기존 내용 무시를 위해 파일 끝으로 이동
-        f.seek(0, os.SEEK_END)
+        #f.seek(0, os.SEEK_END)
         episode = 0
         print("Start monitoring total_reward.txt for new rewards...")
         try:
@@ -554,7 +554,7 @@ if __name__ == "__main__":
         else:
             pass
 
-
+    abnormal_reward = 0
 
     for episode in range(max_episodes):
         print(f"Episode {start_episode+episode+1}")
@@ -571,65 +571,66 @@ if __name__ == "__main__":
         reward = 0
         buffered_state = state
         buffered_action = None
-        #try:
-        for step in range(max_steps):
-            # 1) Select action
+        abnormal_reward = 0
+        try:
+            for step in range(max_steps):
+                # 1) Select action
 
-            if(step%3==0):
-                action_np, _ = agent.select_action(state)
-                dx, dy = action_np[0], action_np[1]
-                real_action = env_model.robot.receive_action([dx, dy])
-                buffered_state = state
-                buffered_action = action_np
-            
-            
-            # Simulation time check
-            sim_timer.start()
-            # 2) Step environment
-            env_model.step()
-            sim_timer.stop()
+                if(step%3==0):
+                    action_np, _ = agent.select_action(state)
+                    dx, dy = action_np[0], action_np[1]
+                    real_action = env_model.robot.receive_action([dx, dy])
+                    buffered_state = state
+                    buffered_action = action_np
+                
+                
+                # Simulation time check
+                sim_timer.start()
+                # 2) Step environment
+                env_model.step()
+                sim_timer.stop()
 
-            # 3) Reward
-            r_a = env_model.reward_based_alived() 
-            r_d = env_model.reward_based_all_agents_danger()
-            reward += (r_a + r_d)
-            print("alived reward : ", r_a)
-            print("danger reward : ", r_d)
+                # 3) Reward
+                r_a = env_model.reward_based_alived() 
+                r_d = env_model.reward_based_all_agents_danger()
+                reward += (r_a + r_d)
+                print("alived reward : ", r_a)
+                print("danger reward : ", r_d)
 
-            # 4) Next state
-            next_state = env_model.return_current_image()
+                # 4) Next state
+                next_state = env_model.return_current_image()
 
-            # 5) Done?
-            done = (step >= max_steps-1) or (env_model.robot.is_game_finished)
-            if(env_model.robot.is_game_finished):
-                reward += 10
+                # 5) Done?
+                done = (step >= max_steps-1) or (env_model.robot.is_game_finished)
+                if(env_model.robot.is_game_finished):
+                    reward += 10
 
-            # 6) Store transition
-            if(step%3==2):
-                agent.store_transition(
-                    buffered_state,
-                    buffered_action,
-                    reward, 
-                    next_state, 
-                    float(done)
-                )
-                total_reward += reward
-                print("reward : ", reward)
-                reward = 0
+                # 6) Store transition
+                if(step%3==2):
+                    agent.store_transition(
+                        buffered_state,
+                        buffered_action,
+                        reward, 
+                        next_state, 
+                        float(done)
+                    )
+                    total_reward += reward
+                    print("reward : ", reward)
+                    reward = 0
 
-            # 7) Update agent
-            if(step%3==2):
-                learn_timer.start()
-                agent.update()
-                learn_timer.stop()
+                # 7) Update agent
+                if(step%3==2):
+                    learn_timer.start()
+                    agent.update()
+                    learn_timer.stop()
 
-            state = next_state
-            if done:
-                break
-        # except Exception as e:
-        #     print(e)
-        #     print("error occured. retry.")
-        #     env_model = model.FightingModel(number_of_agents, 70, 70, 2, 'Q')
+                state = next_state
+                if done:
+                    break
+        except Exception as e:
+            print(e)
+            print("error occured. retry.")
+            env_model = model.FightingModel(number_of_agents, 70, 70, 2, 'Q')
 
         # Possibly update epsilon, or do other logging
         decay_value = args.decay_value
@@ -653,7 +654,8 @@ if __name__ == "__main__":
 
         reward_file_path = os.path.join(log_dir, "total_reward.txt")
         with open(reward_file_path, "a") as f:
-            f.write(f"{total_reward}\n")
+            if(abnormal_reward != 1):
+                f.write(f"{total_reward}\n")
 
         with open(epsilon_path, "w") as f:
             f.write(str(agent.epsilon))
