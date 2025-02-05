@@ -995,8 +995,8 @@ class FightingModel(Model):
 
         return one_hot_image
 
-        def return_robot(self):
-            return self.robot
+    def return_robot(self):
+        return self.robot
 
 
 
