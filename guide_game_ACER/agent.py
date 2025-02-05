@@ -329,7 +329,7 @@ class CrowdAgent(Agent):
         y = point_grid[1]
         while_checking = 0
 
-        candidates = [(x+1,y+1), (x+1, y), (x, y+1), (x-1, y-1), (x-1, y), (x, y-1)]
+        candidates = [(x+1,y+1), (x+1, y), (x, y+1), (x-1, y-1), (x-1, y), (x, y-1), (x+1, y-1), (x-1, y+1)]
         while (point_grid not in self.model.match_grid_to_mesh.keys()) or (self.model.match_grid_to_mesh[point_grid] not in self.model.pure_mesh):
             while_checking += 1
             if(while_checking == 50):
@@ -593,9 +593,9 @@ class CrowdAgent(Agent):
                 # print(f"Type: {agent.type}, {agent.unique_id} ({self.model.return_agent_id(agent.unique_id).xy}) is following ROBOT ({self.model.robot.xy}), and now_goal: {agent.now_goal}")
                 
         if(goal_d != 0):
-          desired_force = [intend_force*(self.desired_speed_a*(goal_x/goal_d)), intend_force*(self.desired_speed_a*(goal_y/goal_d))] #desired_force : 사람이 탈출구쪽으로 향하려는 힘
+            desired_force = [intend_force*(self.desired_speed_a*(goal_x/goal_d)), intend_force*(self.desired_speed_a*(goal_y/goal_d))] #desired_force : 사람이 탈출구쪽으로 향하려는 힘
         else :
-          desired_force = [0, 0]
+            desired_force = [0, 0]
         
         F_x += desired_force[0]
         F_y += desired_force[1]
@@ -629,7 +629,115 @@ class CrowdAgent(Agent):
         self.robot_guide = 0
         return (next_x, next_y)
 
- 
+    def which_goal_agent_want(self):
+        global robot_prev_xy
+        robot_radius = 7
+        agent_radius = 7
+        exit_confirm_radius = 7
+
+        # 같은 mesh에 따라갈 agent들을 확인
+        to_follow_agents = []
+        for agent in self.model.agents:
+            if agent.type in [0, 1]:  # 로봇 following / myway 인 agent만 확인
+                distance = math.sqrt((self.xy[0] - agent.xy[0])**2 + (self.xy[1] - agent.xy[1])**2)
+                if distance < agent_radius and not agent.dead:
+                    to_follow_agents.append(agent)
+
+        # 현재 agent가 있는 mesh를 확인
+        now_mesh = self.choice_safe_mesh(self.xy)
+        if self.danger == 0:
+            self.danger = self.model.mesh_danger[now_mesh]
+
+        # exit point들 중에서 agent와 가장 가까운 exit을 찾음
+        shortest_distance = math.sqrt((self.xy[0] - self.model.exit_point[0][0])**2 + (self.xy[1] - self.model.exit_point[0][1])**2)
+        exit_point_index = 0
+        for index, point in enumerate(self.model.exit_point):
+            cur_distance = math.sqrt((self.xy[0] - point[0])**2 + (self.xy[1] - point[1])**2)
+            if cur_distance < shortest_distance:
+                shortest_distance = cur_distance
+                exit_point_index = index
+
+        # 만약 agent가 exit point 근처에 도달했다면, 그 exit을 목표로 설정
+        if shortest_distance < exit_confirm_radius:
+            self.now_goal = self.model.exit_point[exit_point_index]
+            return
+
+        # 로봇과의 거리 계산
+        robot_d = math.sqrt((self.xy[0] - self.model.robot.xy[0])**2 + (self.xy[1] - self.model.robot.xy[1])**2)
+
+        if self.not_tracking > 0:
+            self.not_tracking -= 1
+
+        # 로봇이 가까이 있고, 로봇 모드가 GUIDE이며, 추적 중지 시간이 끝난 경우
+        if robot_d < robot_radius and self.model.robot_mode == "GUIDE" and self.not_tracking == 0:
+            self.robot_tracked = 7
+            self.type = 0
+            if self.previous_type != 0:
+                # 확률적으로 타입 전환 (0 또는 1)
+                if random.choices([0, 1], weights=[0.1, 0.9], k=1)[0] == 0:
+                    self.type = 1
+                    self.not_tracking = 7  # 7 스텝 동안 로봇을 안 따라감
+            if self.type == 0:
+                goal_x = self.model.robot.xy[0]
+                goal_y = self.model.robot.xy[1]
+                self.now_goal = [goal_x, goal_y]
+        else:
+            if len(to_follow_agents) > 0:
+                if self.previous_mesh != now_mesh:
+                    if random.choices([0, 1], weights=[0.9, 0.1], k=1)[0] == 0:
+                        self.type = self.previous_type
+                    elif random.choices([0, 1], weights=[0.6, 0.4], k=1)[0] == 0:
+                        self.type = 2
+                        if self.previous_type != 2:
+                            self.follow_agent_id = random.choice(to_follow_agents).unique_id
+                    else:
+                        self.type = 1
+            else:
+                self.type = 1
+
+        # 현재 목표까지의 거리를 계산
+        distance_to_goal = math.sqrt((self.xy[0] - self.now_goal[0])**2 + (self.xy[1] - self.now_goal[1])**2)
+        # 만약 agent가 목표에 도착했거나(타입 1일 때) 초기화가 안 되어 있으면, 새로운 목표를 설정
+        if (distance_to_goal < 2 and self.type == 1) or self.agent_pos_initialized == 0:
+            self.type = 1
+            self.previous_mesh = now_mesh
+            self.past_mesh = self.previous_mesh
+
+            is_ongoing_direction = random.choices([0, 1], weights=[0.5, 0.5], k=1)[0]
+            if is_ongoing_direction and self.agent_pos_initialized == 1:
+                neighbors_coords = []
+                for neighbor in self.model.adjacent_mesh[now_mesh]:
+                    neighbor_coord = (
+                        (neighbor[0][0] + neighbor[1][0] + neighbor[2][0]) / 3,
+                        (neighbor[0][1] + neighbor[1][1] + neighbor[2][1]) / 3
+                    )
+                    neighbors_coords.append(neighbor_coord)
+                self.now_goal = find_closest_direction(self.xy, self.direction, neighbors_coords)
+            else:
+                # 새로운 mesh를 무작위로 선택 (지나온 mesh와 현재 mesh는 제외)
+                mesh_index = random.randint(0, len(self.model.pure_mesh) - 1)
+                random_mesh_choice = self.model.pure_mesh[mesh_index]
+                while random_mesh_choice == now_mesh or random_mesh_choice == self.past_mesh:
+                    mesh_index = random.randint(0, len(self.model.pure_mesh) - 1)
+                    random_mesh_choice = self.model.pure_mesh[mesh_index]
+                # next_vertex_matrix를 통해 다음 mesh의 vertex(삼각형)를 가져와 중심 계산
+                next_mesh = self.model.next_vertex_matrix[now_mesh][random_mesh_choice]
+                self.now_goal = [
+                    (next_mesh[0][0] + next_mesh[1][0] + next_mesh[2][0]) / 3,
+                    (next_mesh[0][1] + next_mesh[1][1] + next_mesh[2][1]) / 3
+                ]
+            self.agent_pos_initialized = 1
+
+        if self.type == 2:
+            self.now_goal = self.model.return_agent_id(self.follow_agent_id).xy
+
+        if self.robot_tracked > 0:
+            self.robot_tracked -= 1
+
+
+
+
+'''
     def which_goal_agent_want(self):
         global robot_prev_xy
         robot_radius = 7
@@ -692,7 +800,7 @@ class CrowdAgent(Agent):
             else :
                 self.type = 1
 
-        if(math.sqrt((pow(self.xy[0]-self.now_goal[0],2)+pow(self.xy[1]-self.now_goal[1],2))<2 and self.type==1) or self.agent_pos_initialized == 0): #로봇에 의해 가이드되고 있을때는 골에 근접하더라도 골 초기화 x
+        if(math.sqrt(pow(self.xy[0]-self.now_goal[0],2)+pow(self.xy[1]-self.now_goal[1],2)) < 2 and self.type==1 or self.agent_pos_initialized == 0): #로봇에 의해 가이드되고 있을때는 골에 근접하더라도 골 초기화 x
             ## agent가 가고 있는 골에 도착했을 때, 처음 agent가 생성되었을 때 
             self.type = 1
             self.previous_mesh = now_mesh
@@ -724,9 +832,9 @@ class CrowdAgent(Agent):
             self.now_goal =  self.model.return_agent_id(self.follow_agent_id).xy
         if (self.robot_tracked>0):
             self.robot_tracked -= 1
+'''
 
 
-  
 class RobotAgent(CrowdAgent):
     def __init__(self, unique_id, model, pos, type1):
         super().__init__(unique_id, model, pos, type1)

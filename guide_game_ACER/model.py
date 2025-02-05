@@ -378,11 +378,12 @@ class FightingModel(Model):
         for j in range(h):
             self.walls.append((0, j))
             self.walls.append((w-1, j))
+
     def choice_safe_mesh_visualize(self, point):
         point_grid = (int(point[0]), int(point[1]))
         x = point_grid[0]
         y = point_grid[1]
-        candidates = [(x+1,y+1), (x+1, y), (x, y+1), (x-1, y-1), (x-1, y), (x, y-1)]
+        candidates = [(x+1,y+1), (x+1, y), (x, y+1), (x-1, y-1), (x-1, y), (x, y-1), (x+1, y-1), (x-1, y+1)]
         for c in candidates:
             if (self.match_grid_to_mesh[c] in self.pure_mesh):
                 return c
@@ -404,7 +405,7 @@ class FightingModel(Model):
                     corresponding_mesh = self.match_grid_to_mesh[check]
 
                 a.danger = self.mesh_danger[corresponding_mesh]
-                self.agent_num+=1
+                self.agent_num += 1
                 #self.schedule_e.add(a)
                 self.grid.place_agent(a, [mesh[i][0], mesh[i][1]])
     
@@ -566,6 +567,7 @@ class FightingModel(Model):
         for j in range(self.height):
             self.valid_space[(70, j)] = 0
             self.valid_space[(71, j)] = 0
+            
     def get_path(self, next_vertex_matrix, start, end): #start->end까지 최단 경로로 가려면 어떻게 가야하는지 알려줌 
 
         if next_vertex_matrix[start][end] is None:
@@ -725,22 +727,7 @@ class FightingModel(Model):
         return result 
           
 
-    def make_exit(self):
-        exit_width = 5
-        exit_height = 5
-        self.exit_list = [[(0,0), (exit_width, 0), (exit_width, exit_height), (0, exit_height)],
-                         [(self.width-exit_width-1,0), (self.width-1, 0), (self.width-1, exit_height), (self.width-exit_width-1, exit_height)],
-                         [(0, self.height-exit_height-2), (exit_width, self.height-exit_height-2), (exit_width, self.height-1), (0, self.height-1)],
-                         [(self.width-exit_width-1, self.height-exit_height-2), (self.width-1, self.height-exit_height-2), (self.width-1, self.height-1), (self.width-exit_width-1, self.height-1)]
-                        ]
-        self.exit_point = [[(exit_width)/2, (exit_height)/2],
-                           [(self.width-exit_width-1+self.width-1)/2, (exit_height)/2],
-                           [(exit_width)/2, (self.height-exit_height-1+self.height-1)/2],
-                           [(self.width-exit_width-1+self.width-1)/2, (self.height-exit_height-1+self.height-1)/2]
-                           ]
-        
-        
-        return 0
+    
 
     def make_random_exit(self):
         exit_width = 5
