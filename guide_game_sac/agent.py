@@ -527,7 +527,7 @@ class CrowdAgent(Agent):
         for i in self.model.exit_point:
             self.danger = min(self.danger, self.point_to_point_distance([self.xy[0], self.xy[1]], i))
         
-        self.gain = self.danger*(self.previous_danger - self.danger) ## ??? 왜
+        self.gain = (self.previous_danger - self.danger) ## ??? 왜
         if(self.danger<5):
             self.gain = 0
         for near_agent in near_agents_list:

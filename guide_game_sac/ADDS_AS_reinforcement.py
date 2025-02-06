@@ -563,10 +563,12 @@ if __name__ == "__main__":
                 r_a = env_model.reward_based_alived() 
                 r_d = env_model.reward_based_all_agents_danger()
                 r_da = env_model.reward_distance_from_all_agents()
-                reward += (r_a + r_d + r_da)
+                r_g = env_model.reward_based_gain()
+                reward += (r_a + r_d + r_da + r_g)
                 print("alived reward : ", r_a)
                 print("danger reward : ", r_d)
                 print("distance reward : ", r_da)
+                print("gain reward : ", r_g)
 
                 # 4) Next state
                 next_state = env_model.return_current_image()
@@ -577,7 +579,7 @@ if __name__ == "__main__":
                     reward += 10
 
                 # 6) Store transition
-                if(step%3==2):
+                if(step%3==2 and step>5):
                     agent.store_transition(
                         buffered_state,
                         buffered_action,
