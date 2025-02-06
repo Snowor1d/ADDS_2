@@ -524,7 +524,7 @@ if __name__ == "__main__":
         else:
             pass
 
-
+    abnormal_reward = 0
 
     for episode in range(max_episodes):
         print(f"Episode {start_episode+episode+1}")
@@ -541,6 +541,7 @@ if __name__ == "__main__":
         reward = 0
         buffered_state = state
         buffered_action = None
+        abnormal_reward = 0
         try:
             for step in range(max_steps):
                 # 1) Select action
@@ -627,7 +628,8 @@ if __name__ == "__main__":
 
         reward_file_path = os.path.join(log_dir, "total_reward.txt")
         with open(reward_file_path, "a") as f:
-            f.write(f"{total_reward}\n")
+            if(abnormal_reward != 1):
+                f.write(f"{total_reward}\n")
 
         with open(epsilon_path, "w") as f:
             f.write(str(agent.epsilon))
