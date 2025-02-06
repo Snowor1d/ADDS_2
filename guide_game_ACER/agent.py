@@ -682,6 +682,7 @@ class CrowdAgent(Agent):
                 goal_y = self.model.robot.xy[1]
                 self.now_goal = [goal_x, goal_y]
         else:
+            self.type = 1
             if len(to_follow_agents) > 0:
                 if self.previous_mesh != now_mesh:
                     if random.choices([0, 1], weights=[0.9, 0.1], k=1)[0] == 0:
