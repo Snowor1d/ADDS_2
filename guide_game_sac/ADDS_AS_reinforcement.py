@@ -135,7 +135,7 @@ class PolicyNetwork(nn.Module):#행동을 샘플링하고 정책 학습, 주어�
     def __init__(self, input_shape=(70,70)):
         super(PolicyNetwork, self).__init__()
         self.log_std_min = -10
-        self.log_std_max =  -1
+        self.log_std_max =  -0.5
 
         # Feature extractor (conv)
         self.conv1 = nn.Conv2d(1, 16, kernel_size=5, stride=2)

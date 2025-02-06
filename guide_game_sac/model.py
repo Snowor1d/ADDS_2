@@ -994,7 +994,7 @@ class FightingModel(Model):
                     reward += agent.gain
         #reward -= self.robot.detect_abnormal_order
 
-        reward = reward/3
+        reward = reward/50
 
         if(reward<-100):
             reward = -100
