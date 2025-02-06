@@ -21,7 +21,7 @@ import webbrowser
 sim_timer = Timer() 
 learn_timer = Timer()
 home_dir = os.path.expanduser("~")
-log_dir = os.path.join(home_dir, "learning_log_guide_game_sac")
+log_dir = os.path.join(home_dir, "learning_log_guide_game_sac3")
 os.makedirs(log_dir, exist_ok=True)
 
 model_load = 3
@@ -86,39 +86,55 @@ class ReplayBuffer:
 # 3) Critic (Q) Network
 ##########################################################################
 class QNetwork(nn.Module):
-    def __init__(self, input_shape=(70,70), action_dim=4):
+    def __init__(self, input_shape=(70,70), action_dim=2):
         super(QNetwork, self).__init__()
 
-        # Feature extractor (conv) for state:
-        self.conv1 = nn.Conv2d(1, 16, kernel_size=5, stride=2)
-        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=2)
-        self.conv3 = nn.Conv2d(32, 64, kernel_size=3, stride=2)
-        
-        conv_out_size = self._get_conv_out(input_shape)
+        # ---- CNN 구조 (3×3 Conv + MaxPool) ----
+        self.conv1 = nn.Conv2d(in_channels=1, out_channels=32, kernel_size=3, padding=1)
+        self.bn1 = nn.BatchNorm2d(32)
+        self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2)  # 70 → 35
 
-        # Fully connected layers
-        self.fc1 = nn.Linear(conv_out_size + action_dim, 256)
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
+        self.bn2 = nn.BatchNorm2d(64)
+        self.pool2 = nn.MaxPool2d(kernel_size=2, stride=2)  # 35 → 17 (정확히는 17 or 18, 홀수 처리)
+
+        self.conv3 = nn.Conv2d(64, 128, kernel_size=3, padding=1)
+        self.bn3 = nn.BatchNorm2d(128)
+        # 여기서는 추가적인 Pooling이 없으므로 17×17 그대로 유지
+
+        # Conv 출력 채널 x 마지막 feature map 크기
+        self.conv_out_size = self._get_conv_out(input_shape)
+
+        # ---- Fully Connected Layers ----
+        self.fc1 = nn.Linear(self.conv_out_size + action_dim, 256)
         self.fc2 = nn.Linear(256, 128)
-        self.q_out = nn.Linear(128, 1)  # final Q-value
+        self.q_out = nn.Linear(128, 1)  # 최종 Q 값 (스칼라)
 
     def _get_conv_out(self, shape):
-        dummy = torch.zeros(1, 1, *shape)  # (B, C, H, W) = (1,1,H,W)
-        o = self.conv1(dummy)
-        o = self.conv2(o)
-        o = self.conv3(o)
-        return int(np.prod(o.size()))
+        # 더미 입력으로 Conv 결과 크기 계산
+        dummy = torch.zeros(1, 1, *shape)  # (batch=1, channel=1, H, W)
+        x = self.conv_forward(dummy)
+        return int(np.prod(x.size()))
+
+    def conv_forward(self, x):
+        x = F.relu(self.bn1(self.conv1(x)))
+        x = self.pool1(x)  # 70→35
+        x = F.relu(self.bn2(self.conv2(x)))
+        x = self.pool2(x)  # 35→17
+        x = F.relu(self.bn3(self.conv3(x)))  # 17 유지
+        return x
+
 
     def forward(self, state, action):
-        x = F.relu(self.conv1(state))
-        x = F.relu(self.conv2(x))
-        x = F.relu(self.conv3(x))
+        # state: (B,1,H,W), action: (B, action_dim)
+        x = self.conv_forward(state)
+        # Flatten
         x = x.view(x.size(0), -1)
-
-        # Concatenate state and action
-        x = torch.cat([x, action], dim=1)  # (B, conv_out_size + 4)
+        # 상태 feature와 action concat
+        x = torch.cat([x, action], dim=1)
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
-        q_val = self.q_out(x)
+        q_val = self.q_out(x)  # (B,1)
         return q_val
 
 ##########################################################################
@@ -137,41 +153,51 @@ class PolicyNetwork(nn.Module):#행동을 샘플링하고 정책 학습, 주어�
         self.log_std_min = -10
         self.log_std_max =  -0.5
 
-        # Feature extractor (conv)
-        self.conv1 = nn.Conv2d(1, 16, kernel_size=5, stride=2)
-        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=2)
-        self.conv3 = nn.Conv2d(32, 64, kernel_size=3, stride=2)
-        
-        conv_out_size = self._get_conv_out(input_shape)
+        # ---- CNN 구조 (3×3 Conv + MaxPool) ----
+        self.conv1 = nn.Conv2d(in_channels=1, out_channels=32, kernel_size=3, padding=1)
+        self.bn1 = nn.BatchNorm2d(32)
+        self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2)  # 70→35
 
-        self.fc_backbone = nn.Sequential(
-            nn.Linear(conv_out_size, 256),
-            nn.ReLU(),
-            nn.Linear(256, 128),
-            nn.ReLU()
-        )
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
+        self.bn2 = nn.BatchNorm2d(64)
+        self.pool2 = nn.MaxPool2d(kernel_size=2, stride=2)  # 35→17
 
-        #state feature만 받아서 direction의 mean, log_std 추론
-        self.mean_head = nn.Linear(128, 2)
-        self.log_std_head = nn.Linear(128, 2)
+        self.conv3 = nn.Conv2d(64, 128, kernel_size=3, padding=1)
+        self.bn3 = nn.BatchNorm2d(128)
 
-        
+        # Conv 출력 크기
+        self.conv_out_size = self._get_conv_out(input_shape)
+
+        # ---- Fully Connected Layers ----
+        self.fc1 = nn.Linear(self.conv_out_size, 256)
+        self.fc2 = nn.Linear(256, 128)
+
+        # ---- Action mean, log_std ----
+        self.mean_head = nn.Linear(128, 2)      # (dx, dy) 2차원
+        self.log_std_head = nn.Linear(128, 2)   # (log_std_dx, log_std_dy)
+
 
     def _get_conv_out(self, shape):
         dummy = torch.zeros(1, 1, *shape)
-        o = self.conv1(dummy)
-        o = self.conv2(o)
-        o = self.conv3(o)
-        return int(np.prod(o.size()))
+        x = self.conv_forward(dummy)
+        return int(np.prod(x.size()))
+
+    def conv_forward(self, x):
+        x = F.relu(self.bn1(self.conv1(x)))
+        x = self.pool1(x)
+        x = F.relu(self.bn2(self.conv2(x)))
+        x = self.pool2(x)
+        x = F.relu(self.bn3(self.conv3(x)))
+        return x
+
 
     def backbone(self, state):
-        x = F.relu(self.conv1(state))
-        x = F.relu(self.conv2(x))
-        x = F.relu(self.conv3(x))
-        x = x.view(x.size(0), -1)        
-        feat = self.fc_backbone(x)       
-        return feat
-
+        x = self.conv_forward(state)
+        x = x.view(x.size(0), -1)  # Flatten
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        return x
+        
     def forward(self, state):
 
         feat = self.backbone(state)
@@ -313,10 +339,10 @@ class SACAgent:
     # Update (one gradient step)
     # ------------------------------------------------- #
     def update(self):
-        if len(self.replay_buffer) < self.batch_size*50:
+        if len(self.replay_buffer) < self.batch_size*5:
             return
         
-        # sample = self.replay_buffer.sample(self.batch_size)
+        # sample = self.replay_buffersample(self.batch_size)
         #states, actions, rewards, next_states, dones = self.replay_buffer.sample(self.batch_size)
 
         # 1. Replay Buffer에서 샘플 가져오기
