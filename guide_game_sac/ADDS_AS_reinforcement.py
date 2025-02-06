@@ -260,9 +260,9 @@ class SACAgent:
     # ------------------------------------------------- #
     def update_epsilon(self, is_down, decay_value):
         if is_down:
-            self.epsilon = max(self.epsilon_min, self.epsilon * decay_value)
+            self.epsilon = max(self.epsilon_min, self.epsilon - decay_value)
         else:
-            self.epsilon = min(1.0, self.epsilon / decay_value)
+            self.epsilon = min(1.0, self.epsilon + decay_value)
 
     # ------------------------------------------------- #
     # Store experience
@@ -562,9 +562,13 @@ if __name__ == "__main__":
                 # 3) Reward
                 r_a = env_model.reward_based_alived() 
                 r_d = env_model.reward_based_all_agents_danger()
-                reward += (r_a + r_d)
+                r_da = env_model.reward_distance_from_all_agents()
+                r_g = env_model.reward_based_gain()
+                reward += (r_a + r_d + r_da + r_g)
                 print("alived reward : ", r_a)
                 print("danger reward : ", r_d)
+                print("distance reward : ", r_da)
+                print("gain reward : ", r_g)
 
                 # 4) Next state
                 next_state = env_model.return_current_image()
@@ -575,7 +579,7 @@ if __name__ == "__main__":
                     reward += 10
 
                 # 6) Store transition
-                if(step%3==2):
+                if(step%3==2 and step>5):
                     agent.store_transition(
                         buffered_state,
                         buffered_action,
