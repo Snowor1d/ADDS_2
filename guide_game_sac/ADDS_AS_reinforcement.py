@@ -260,9 +260,9 @@ class SACAgent:
     # ------------------------------------------------- #
     def update_epsilon(self, is_down, decay_value):
         if is_down:
-            self.epsilon = max(self.epsilon_min, self.epsilon * decay_value)
+            self.epsilon = max(self.epsilon_min, self.epsilon - decay_value)
         else:
-            self.epsilon = min(1.0, self.epsilon / decay_value)
+            self.epsilon = min(1.0, self.epsilon + decay_value)
 
     # ------------------------------------------------- #
     # Store experience
