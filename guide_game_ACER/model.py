@@ -9,6 +9,32 @@ from mesa.space import ContinuousSpace
 from mesa.datacollection import DataCollector
 from shapely.geometry import Polygon, MultiPolygon, Point
 from shapely.ops import triangulate
+import matplotlib.tri as mtri
+
+import agent
+from agent import WallAgent
+import random
+import copy
+import math
+import numpy as np
+import matplotlib.pyplot as plt 
+from scipy.spatial import Delaunay, ConvexHull
+from sklearn.cluster import DBSCAN
+from matplotlib.path import Path
+import triangle as tr
+import os
+from collections import deque
+#import cv2
+
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import torch.nn.functional as F
+
+from ADDS_AS_reinforcement import DiscreteACAgent, ReplayBuffer, PolicyNetworkDiscrete, QNetworkDiscrete
+
+
+started = 1
 
 
 # 1) Replay Buffer
@@ -48,13 +74,8 @@ def are_meshes_adjacent(mesh1, mesh2):
     common_vertices = set(mesh1) & set(mesh2)
     return len(common_vertices) >= 2  # 공통 꼭짓점이 두 개 이상일 때 인접하다고 판단
 
-# goal_list = [[0,50], [49, 50]]
-hazard_id = 5000
-total_crowd = 10
-max_specification = [20, 20]
 
-number_of_cases = 0 # 난이도 함수 ; 경우의 수
-started = 1
+
 
 def get_points_within_polygon(vertices, grid_size=1):
     polygon_path = Path(vertices)
@@ -350,7 +371,6 @@ class FightingModel(Model):
 
         return False
 
-        return self.match_grid_to_mesh[point_grid]
     def visualize_danger(self):
         for mesh in self.mesh:
             for i in range(len(mesh)):

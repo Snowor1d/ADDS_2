@@ -493,10 +493,10 @@ if __name__ == "__main__":
                 # 4) Next state
                 next_state = env_model.return_current_image()
 
-                # 5) Done?
-                final_reward = 200
+                # 5) Done
                 done = (step >= max_steps-1) or (env_model.robot.is_game_finished)
                 if(env_model.robot.is_game_finished):
+                    final_reward = 100 + (max_steps - step)*0.1
                     reward += final_reward
                     print("@@@@@@@@ robot got the fianl reward @@@@@@")
 
@@ -523,7 +523,8 @@ if __name__ == "__main__":
                 if done:
                     if max_steps <= (step + 1):
                         print("total reward = ", total_reward)
-                        total_reward -= final_reward
+                        final_reward = abs(total_reward*0.1)
+                        total_reward -= final_reward ## 탈출 실패시 final reward : 10% of total reward
                         print(f"total reward -= {final_reward} : {total_reward}")
                     break
         except Exception as e:

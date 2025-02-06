@@ -883,7 +883,7 @@ class RobotAgent(CrowdAgent):
         self.model.robot_mode = "GUIDE"
 
         intend_force = 2
-        desired_speed = 3
+        desired_speed = 2
 
             
 
