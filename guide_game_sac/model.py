@@ -991,7 +991,7 @@ class FightingModel(Model):
         for agent in self.agents:
             if(agent.type == 0 or agent.type == 1 or agent.type == 2 ) and (agent.dead == False):
                 if(agent.robot_tracked>0):
-                    reward += agent.gain2
+                    reward += agent.gain
         #reward -= self.robot.detect_abnormal_order
 
         reward = reward/3
