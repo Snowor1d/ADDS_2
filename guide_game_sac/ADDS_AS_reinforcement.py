@@ -562,9 +562,11 @@ if __name__ == "__main__":
                 # 3) Reward
                 r_a = env_model.reward_based_alived() 
                 r_d = env_model.reward_based_all_agents_danger()
-                reward += (r_a + r_d)
+                r_da = env_model.reward_distance_from_all_agents()
+                reward += (r_a + r_d + r_da)
                 print("alived reward : ", r_a)
                 print("danger reward : ", r_d)
+                print("distance reward : ", r_da)
 
                 # 4) Next state
                 next_state = env_model.return_current_image()

@@ -961,6 +961,13 @@ class FightingModel(Model):
             return self.evacuated_agents()-reference_reward[int(self.step_count/100)]
         else :
             return self.evacuated_agents()-self.total_agents
+    
+    def reward_distance_from_all_agents(self):
+        reward = 0
+        for agent in self.agents:
+            if(agent.type == 0 or agent.type == 1 or agent.type == 2) and (agent.dead == False):
+                reward += self.robot.point_to_point_distance(agent.xy, self.robot.xy)
+        return -reward/10000
 
     def reward_based_alived(self):
         reward = 0
