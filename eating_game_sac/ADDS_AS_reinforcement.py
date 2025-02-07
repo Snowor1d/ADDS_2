@@ -21,7 +21,7 @@ import webbrowser
 sim_timer = Timer() 
 learn_timer = Timer()
 home_dir = os.path.expanduser("~")
-log_dir = os.path.join(home_dir, "learning_log_eating_game")
+log_dir = os.path.join(home_dir, "learning_log_eating_game_sac")
 os.makedirs(log_dir, exist_ok=True)
 
 model_load = 3

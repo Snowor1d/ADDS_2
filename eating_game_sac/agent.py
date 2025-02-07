@@ -637,7 +637,6 @@ class CrowdAgent(Agent):
             if (agent.type == 0 or agent.type == 1): ## 로봇 following/ myway 인 agent만 확인
                 distance = math.sqrt(pow(self.xy[0]-agent.xy[0],2)+pow(self.xy[1]-agent.xy[1],2))
                 if distance < agent_radius and not agent.dead: ## agent 반경 내에 있으면
-                    agent.dead = True
                     to_follow_agents.append(agent)
 
         now_mesh = self.choice_safe_mesh(self.xy) ## agent가 있는 mesh
@@ -664,6 +663,7 @@ class CrowdAgent(Agent):
         if self.not_tracking > 0:
             self.not_tracking -= 1
         if(robot_d < robot_radius and self.model.robot_mode == "GUIDE" and self.not_tracking == 0):
+            self.dead = True
             self.robot_tracked = 7
             self.type = 0
             if self.previous_type != 0:
