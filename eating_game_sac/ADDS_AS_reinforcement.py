@@ -21,7 +21,7 @@ import webbrowser
 sim_timer = Timer() 
 learn_timer = Timer()
 home_dir = os.path.expanduser("~")
-log_dir = os.path.join(home_dir, "learning_log_guide_game_sac4")
+log_dir = os.path.join(home_dir, "learning_log_eating_game")
 os.makedirs(log_dir, exist_ok=True)
 
 model_load = 3
@@ -81,89 +81,101 @@ class ReplayBuffer:
     def load(self, filepath):
         with open(filepath, "rb") as f:
             self.buffer = pickle.load(f)
+
 ##########################################################################
-# Critic (Q) Network - 3 Conv Blocks 예시
+# 3) Critic (Q) Network
 ##########################################################################
 class QNetwork(nn.Module):
     def __init__(self, input_shape=(70,70), action_dim=2):
         super(QNetwork, self).__init__()
 
-        # ---- Conv Block 1 ----
-        self.conv1 = nn.Conv2d(1, 16, kernel_size=3, padding=1)
-        self.bn1   = nn.BatchNorm2d(16)
-        self.pool1 = nn.MaxPool2d(2,2)  # 70→35
+        # ---- CNN 구조 (3×3 Conv + MaxPool) ----
+        self.conv1 = nn.Conv2d(in_channels=1, out_channels=32, kernel_size=3, padding=1)
+        self.bn1 = nn.BatchNorm2d(32)
+        self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2)  # 70 → 35
 
-        # ---- Conv Block 2 ----
-        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, padding=1)
-        self.bn2   = nn.BatchNorm2d(32)
-        self.pool2 = nn.MaxPool2d(2,2)  # 35→17
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
+        self.bn2 = nn.BatchNorm2d(64)
+        self.pool2 = nn.MaxPool2d(kernel_size=2, stride=2)  # 35 → 17 (정확히는 17 or 18, 홀수 처리)
 
-        # ---- Conv Block 3 ----
-        self.conv3 = nn.Conv2d(32, 48, kernel_size=3, padding=1)
-        self.bn3   = nn.BatchNorm2d(48)
-        # 여기서는 추가 Pooling 없음 (17×17 유지)
+        self.conv3 = nn.Conv2d(64, 128, kernel_size=3, padding=1)
+        self.bn3 = nn.BatchNorm2d(128)
+        # 여기서는 추가적인 Pooling이 없으므로 17×17 그대로 유지
 
-        # Conv 결과 크기 계산
+        # Conv 출력 채널 x 마지막 feature map 크기
         self.conv_out_size = self._get_conv_out(input_shape)
 
         # ---- Fully Connected Layers ----
-        self.fc1   = nn.Linear(self.conv_out_size + action_dim, 256)
-        self.fc2   = nn.Linear(256, 128)
-        self.q_out = nn.Linear(128, 1)
+        self.fc1 = nn.Linear(self.conv_out_size + action_dim, 256)
+        self.fc2 = nn.Linear(256, 128)
+        self.q_out = nn.Linear(128, 1)  # 최종 Q 값 (스칼라)
 
     def _get_conv_out(self, shape):
-        dummy = torch.zeros(1, 1, *shape)
+        # 더미 입력으로 Conv 결과 크기 계산
+        dummy = torch.zeros(1, 1, *shape)  # (batch=1, channel=1, H, W)
         x = self.conv_forward(dummy)
         return int(np.prod(x.size()))
 
     def conv_forward(self, x):
-        x = self.pool1(F.relu(self.bn1(self.conv1(x))))
-        x = self.pool2(F.relu(self.bn2(self.conv2(x))))
-        x = F.relu(self.bn3(self.conv3(x)))  # 17×17×48
+        x = F.relu(self.bn1(self.conv1(x)))
+        x = self.pool1(x)  # 70→35
+        x = F.relu(self.bn2(self.conv2(x)))
+        x = self.pool2(x)  # 35→17
+        x = F.relu(self.bn3(self.conv3(x)))  # 17 유지
         return x
 
+
     def forward(self, state, action):
+        # state: (B,1,H,W), action: (B, action_dim)
         x = self.conv_forward(state)
-        x = x.view(x.size(0), -1)      # Flatten
-        x = torch.cat([x, action], 1)  # (batch, conv_out + action_dim)
+        # Flatten
+        x = x.view(x.size(0), -1)
+        # 상태 feature와 action concat
+        x = torch.cat([x, action], dim=1)
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
-        q_val = self.q_out(x)
+        q_val = self.q_out(x)  # (B,1)
         return q_val
 
-
 ##########################################################################
-# Policy (Actor) Network - 3 Conv Blocks 예시
+# 4) Policy (Actor) Network
 ##########################################################################
-class PolicyNetwork(nn.Module):
+class PolicyNetwork(nn.Module):#행동을 샘플링하고 정책 학습, 주어진 상태 s에 대해 행동 a 결정, 연속적 & 이산적 행동 가능, 혼합 가능 (Actor)
+    """
+    Outputs distribution parameters for:
+      - continuous direction: mean, log_std (2D)
+      - discrete mode: logits (2D)
+    We combine these into an action = [dx, dy, mode0, mode1].
+    We'll do the reparam trick for direction, Gumbel-Softmax for mode.
+    """
     def __init__(self, input_shape=(70,70)):
         super(PolicyNetwork, self).__init__()
         self.log_std_min = -10
-        self.log_std_max = -0.5
+        self.log_std_max =  -0.5
 
-        # ---- Conv Block 1 ----
-        self.conv1 = nn.Conv2d(1, 16, kernel_size=3, padding=1)
-        self.bn1   = nn.BatchNorm2d(16)
-        self.pool1 = nn.MaxPool2d(2,2)  # 70→35
+        # ---- CNN 구조 (3×3 Conv + MaxPool) ----
+        self.conv1 = nn.Conv2d(in_channels=1, out_channels=32, kernel_size=3, padding=1)
+        self.bn1 = nn.BatchNorm2d(32)
+        self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2)  # 70→35
 
-        # ---- Conv Block 2 ----
-        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, padding=1)
-        self.bn2   = nn.BatchNorm2d(32)
-        self.pool2 = nn.MaxPool2d(2,2)  # 35→17
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
+        self.bn2 = nn.BatchNorm2d(64)
+        self.pool2 = nn.MaxPool2d(kernel_size=2, stride=2)  # 35→17
 
-        # ---- Conv Block 3 ----
-        self.conv3 = nn.Conv2d(32, 48, kernel_size=3, padding=1)
-        self.bn3   = nn.BatchNorm2d(48)
+        self.conv3 = nn.Conv2d(64, 128, kernel_size=3, padding=1)
+        self.bn3 = nn.BatchNorm2d(128)
 
+        # Conv 출력 크기
         self.conv_out_size = self._get_conv_out(input_shape)
 
         # ---- Fully Connected Layers ----
         self.fc1 = nn.Linear(self.conv_out_size, 256)
         self.fc2 = nn.Linear(256, 128)
 
-        # 최종 출력: mean / log_std (2차원, 즉 dx/dy)
-        self.mean_head = nn.Linear(128, 2)
-        self.log_std_head = nn.Linear(128, 2)
+        # ---- Action mean, log_std ----
+        self.mean_head = nn.Linear(128, 2)      # (dx, dy) 2차원
+        self.log_std_head = nn.Linear(128, 2)   # (log_std_dx, log_std_dy)
+
 
     def _get_conv_out(self, shape):
         dummy = torch.zeros(1, 1, *shape)
@@ -171,39 +183,54 @@ class PolicyNetwork(nn.Module):
         return int(np.prod(x.size()))
 
     def conv_forward(self, x):
-        x = self.pool1(F.relu(self.bn1(self.conv1(x))))
-        x = self.pool2(F.relu(self.bn2(self.conv2(x))))
-        x = F.relu(self.bn3(self.conv3(x)))  # 17×17×48
+        x = F.relu(self.bn1(self.conv1(x)))
+        x = self.pool1(x)
+        x = F.relu(self.bn2(self.conv2(x)))
+        x = self.pool2(x)
+        x = F.relu(self.bn3(self.conv3(x)))
         return x
+
 
     def backbone(self, state):
         x = self.conv_forward(state)
-        x = x.view(x.size(0), -1)
+        x = x.view(x.size(0), -1)  # Flatten
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         return x
-
+        
     def forward(self, state):
+
         feat = self.backbone(state)
         mean = self.mean_head(feat)
         log_std = self.log_std_head(feat)
+        
         log_std = torch.clamp(log_std, self.log_std_min, self.log_std_max)
         return mean, log_std
 
-    def sample_action(self, state):
+
+    def sample_action(self, state, temperature=1.0):
+        """
+        returns: action=(B, 2+num_modes), log_prob=(B,)
+                 => [dx, dy, mode_onehot...], log pi(a|s)
+        """
+
         B = state.size(0)
         mean, log_std = self.forward(state)
         std = log_std.exp()
-        eps = torch.randn_like(mean)
-        # tanh 스케일링을 2배로 하여 -2~2 범위
-        pre_tanh = mean + std * eps
-        action = 2 * torch.tanh(pre_tanh)
 
-        # log_prob (가우시안 부분만 단순 계산; tanh 보정은 생략)
-        log_prob = -0.5 * (((pre_tanh - mean)/(std+1e-8))**2 + 2*log_std + np.log(2*np.pi))
+        eps = torch.randn_like(mean)
+        action = mean + std * eps
+        action = 2*torch.tanh(action)
+
+        # log_prob 계산
+        # (dx, dy) => 2차원 Gaussian
+        # log_prob = -1/2 * [((a-mean)/std)^2 + 2*log_std + log(2*pi)] 의 합
+        log_prob = -0.5 * (((action - mean) / (std + 1e-8))**2 + 2*log_std + np.log(2*np.pi))
+        # (B, 2)에 대해 차원별로 합 -> (B,)
         log_prob = log_prob.sum(dim=1)
 
         return action, log_prob
+
     
 ##########################################################################
 # 5) SAC Agent for Action
@@ -561,13 +588,13 @@ if __name__ == "__main__":
 
                 # 3) Reward
                 r_a = env_model.reward_based_alived() 
-                r_d = env_model.reward_based_all_agents_danger()
-                r_da = env_model.reward_distance_from_all_agents()
+                #r_d = env_model.reward_based_all_agents_danger()
+                #r_da = env_model.reward_distance_from_all_agents()
                 #r_g = env_model.reward_based_gain()
-                reward += (r_a + r_d + r_da)
-                print("alived reward : ", r_a)
-                print("danger reward : ", r_d)
-                print("distance reward : ", r_da)
+                reward += r_a
+                #print("alived reward : ", r_a)
+                #print("danger reward : ", r_d)
+                #print("distance reward : ", r_da)
                 #print("gain reward : ", r_g)
 
                 # 4) Next state
