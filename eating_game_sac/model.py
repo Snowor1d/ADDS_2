@@ -974,7 +974,7 @@ class FightingModel(Model):
         num = 0
         
         reward = -self.alived_agents()/self.total_agents
-        return reward/10
+        return reward/9
     
     def reward_based_all_agents_danger(self):
         
@@ -982,7 +982,7 @@ class FightingModel(Model):
         for agent in self.agents:
             if(agent.type == 0 or agent.type == 1 or agent.type == 2) and (agent.dead == False):
                 reward += agent.danger
-        return -reward/10000
+        return -reward/30000
 
     def reward_based_gain(self):
         
