@@ -191,7 +191,7 @@ class PolicyNetworkDiscrete(nn.Module):
 class DiscreteACAgent:
     def __init__(self, input_shape=(70,70), gamma=0.99,
                  lr=1e-4, batch_size=64, replay_size=int(1e5), 
-                 device="cuda", start_epsilon=1.0):
+                 device="cpu", start_epsilon=1.0):
         
         self.num_actions = 4
 
@@ -417,7 +417,7 @@ if __name__ == "__main__":
         lr            = args.lr,
         batch_size    = int(args.batch_size),
         replay_size   = int(args.buffer_size),
-        device        = "cuda",
+        device        = "cpu",
         start_epsilon = start_epsilon
     )
     print(f"Agent initialized (DQN), lr={args.lr}, batch_size={args.batch_size}, replay_size={args.buffer_size}")
