@@ -974,7 +974,7 @@ class FightingModel(Model):
         num = 0
         
         reward = -self.alived_agents()/self.total_agents
-        return reward/9
+        return reward/3
     
     def reward_based_all_agents_danger(self):
         
@@ -982,7 +982,7 @@ class FightingModel(Model):
         for agent in self.agents:
             if(agent.type == 0 or agent.type == 1 or agent.type == 2) and (agent.dead == False):
                 reward += agent.danger
-        return -reward/30000
+        return -reward/10000
 
     def reward_based_gain(self):
         
@@ -1002,6 +1002,22 @@ class FightingModel(Model):
 
         #print("tracked 되고 있는 수 : ", num)
         return reward
+    
+    def reward_penalty(self):
+        reward = 0
+        guided_num = 0
+        for agent in self.agents:
+            if(agent.type == 0 and agent.dead == False):
+                guided_num += 1
+        if(guided_num == 0):
+            if(self.robot.danger < 5):
+                return -0.2
+            elif(self.robot.danger < 10):
+                return -0.1
+            elif(self.robot.danger < 15):
+                return -0.05
+        return 0
+
 
     def reward_evacuation(self):
         if(self.step_n<3):
