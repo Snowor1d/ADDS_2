@@ -667,7 +667,7 @@ class CrowdAgent(Agent):
         if self.not_tracking > 0:
             self.not_tracking -= 1
         if(robot_d < robot_radius and self.model.robot_mode == "GUIDE" and self.not_tracking == 0):
-            self.robot_tracked = 7
+            self.robot_tracked = 1
             self.type = 0
             if self.previous_type != 0:
                 if random.choices([0, 1], weights=[0.1, 0.9], k=1)[0] == 0:
@@ -723,8 +723,8 @@ class CrowdAgent(Agent):
         
         if self.type == 2:
             self.now_goal =  self.model.return_agent_id(self.follow_agent_id).xy
-        if (self.robot_tracked>0):
-            self.robot_tracked -= 1
+        # if (self.robot_tracked>0):
+        #     self.robot_tracked -= 1
 
 
   

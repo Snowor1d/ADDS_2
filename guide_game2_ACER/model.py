@@ -353,7 +353,8 @@ class FightingModel(Model):
         evacuated_agents = 0
         for i in self.schedule.agents:
             if((i.type==0 or i.type==1 or i.type==2) and i.dead == 1):
-                evacuated_agents += 1
+                if i.robot_tracked == 1:
+                    evacuated_agents += 1
         return evacuated_agents
 
     
@@ -1020,31 +1021,24 @@ class FightingModel(Model):
         return - self.robot.danger/500
         
     def reward_total(self):
-        '''
-        - 현재 step 에서 탈출한 agents 수 
-        - 이전 step과 비교, 각 agent의 출구까지의 거리 차 [0, 1] 합산
-
-        ## 아래는 reinforcement.py에서 episode 종료 시 반영
-        - (기준 step - 전체 agent 탈출 step) / 기준 step *10
-            -> 0 일 경우 (=기준 step 내 전체 탈출 못했을 경우) : -10
-        '''
+        
         ## 가중치
-        a = 1
-        b = 1 ## reward_d 에 더해지는 값이 양수면 agents가 출구쪽으로 가고 있다는 것
+        a = 0.01
+        b = 1 
         ##
-        reward_e = 0
+    
         reward_d = 0
+        reward_e = 0
         
         for agent in self.agents:
             if(agent.type == 0 or agent.type == 1 or agent.type == 2 ) and (agent.dead == False):
-                reward_d += max(-1, min(1, agent.gain2))
-                # print("gain : ", agent.gain, "gain2 : ", agent.gain2, "pre_danger : ", agent.previous_danger, "danger : ", agent.danger)
+                reward_d -= agent.danger
         
         reward_e = self.evacuated_agents() - self.pre_evacuated_agents
         # print(f"reward_e({reward_e}) = self.evacuated_agents()({self.evacuated_agents()}) - pre_e_ants({self.pre_evacuated_agents}))")
        
-        reward_total = reward_e * a + reward_d *b
-        # print(f"reward_total ({reward_total}) = evacuated_a ({reward_e * 0.8}, {reward_e}) + reward_d({reward_d * 0.5}, {reward_d}), alived agents({self.alived_agents()})")
+        reward_total = reward_d * a + reward_e *b
+        # print(f"reward_total ({reward_total}) = agent.danger sum ({reward_d*a}) + reward_e ({reward_e}), alived agents({self.alived_agents()})")
 
         return reward_total
 
