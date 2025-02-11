@@ -110,7 +110,7 @@ class ReplayBuffer:
 # 2) Q-Network (Critic)
 ##########################################################################
 class QNetworkDiscrete(nn.Module):
-    def __init__(self, input_shape=(70,70), num_actions=4):
+    def __init__(self, input_shape=(40,40), num_actions=4):
         super(QNetworkDiscrete, self).__init__()
         self.conv1 = nn.Conv2d(1, 16, kernel_size=5, stride=2)
         self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=2)
@@ -143,7 +143,7 @@ class QNetworkDiscrete(nn.Module):
 # 3) Policy Network (Actor)
 ##########################################################################
 class PolicyNetworkDiscrete(nn.Module):
-    def __init__(self, input_shape=(70,70), num_actions=4):
+    def __init__(self, input_shape=(40,40), num_actions=4):
         super(PolicyNetworkDiscrete, self).__init__()
         self.conv1 = nn.Conv2d(1, 16, kernel_size=5, stride=2)
         self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=2)
@@ -189,7 +189,7 @@ class PolicyNetworkDiscrete(nn.Module):
 # 4) Actor-Critic Agent (간단 ACER 유사)
 #########################################################
 class DiscreteACAgent:
-    def __init__(self, input_shape=(70,70), gamma=0.99,
+    def __init__(self, input_shape=(40,40), gamma=0.99,
                  lr=1e-4, batch_size=64, replay_size=int(1e5), 
                  device="cpu", start_epsilon=1.0):
         
@@ -393,7 +393,7 @@ if __name__ == "__main__":
     # hyperparams
     max_episodes = 1500 
     max_steps = 1500
-    number_of_agents = 30
+    number_of_agents = 10   
     start_episode = 0
     
     epsilon_path = os.path.join(log_dir, "start_epsilon.txt")
@@ -412,7 +412,7 @@ if __name__ == "__main__":
     
 
     agent = DiscreteACAgent(
-        input_shape   = (70,70),
+        input_shape   = (40,40),
         gamma         = 0.99,
         lr            = args.lr,
         batch_size    = int(args.batch_size),
@@ -458,7 +458,7 @@ if __name__ == "__main__":
         # Create environment
         while True:
             try:
-                env_model = model.FightingModel(number_of_agents, 70, 70, 2, 'Q')
+                env_model = model.FightingModel(number_of_agents, 40, 40, 2, 'Q')
                 break
             except Exception as e:
                 print(e, "Retrying environment creation...")
@@ -531,7 +531,7 @@ if __name__ == "__main__":
             print(e)
             print("error occured. retry.")
             abnormal_reward = 1
-            env_model = model.FightingModel(number_of_agents, 70, 70, 2, 'Q')
+            env_model = model.FightingModel(number_of_agents, 40, 40, 2, 'Q')
 
         # Possibly update epsilon, or do other logging
         decay_value = args.decay_value
