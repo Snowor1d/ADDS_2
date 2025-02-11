@@ -47,7 +47,7 @@ for j in range(run_iteration):
             while True:
                 try:
                         # model 객체 생성
-                    model_o = model.FightingModel(number_of_agents, 70, 70, model_num+1, 'Q')
+                    model_o = model.FightingModel(number_of_agents, 40, 40, model_num+1, 'Q')
                     the_number_of_model += 1
                     print("------------------------------")
                     print(f"{the_number_of_model}번째 학습")

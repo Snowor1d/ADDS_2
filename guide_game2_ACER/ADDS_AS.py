@@ -24,7 +24,7 @@ import sys
 #-------------------------#
 visualization_mode = 'on' # choose your visualization mode 'on / off
 run_iteration = 1500
-number_of_agents = 30 # agents 수
+number_of_agents = 10 # agents 수
 #-------------------------#
 
 
@@ -51,13 +51,13 @@ from PIL import Image
 from mesa_viz_tornado.UserParam import UserParam
 
 most_danger = 0
-width = 70
-height = 70
+width = 40
+height = 40
 model_num = 2
 if visualization_mode == 'on':
     Width = width
     Height =height
-    s_model_r = model.FightingModel(30,width,height,model_num)
+    s_model_r = model.FightingModel(10,width,height,model_num)
     s_model_r.use_model('acer_checkpoint_ep_1100.pth')  
     ran_num = random.randint(10000,20000)
     most_danger_mesh = None
