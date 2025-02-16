@@ -182,39 +182,39 @@ class PolicyNetwork(nn.Module):#행동을 샘플링하고 정책 학습, 주어�
         return mean, log_std
 
 
-def sample_action(self, state, temperature=1.0):
-    """
-    반환:
-      action: (B, 2+num_modes)  -> [x, y, mode_onehot...], 여기서 x, y는 0~69 범위
-      log_prob: (B,)           -> log π(a|s)
-    """
-    B = state.size(0)
-    mean, log_std = self.forward(state)
-    std = log_std.exp()
+    def sample_action(self, state, temperature=1.0):
+        """
+        반환:
+        action: (B, 2+num_modes)  -> [x, y, mode_onehot...], 여기서 x, y는 0~69 범위
+        log_prob: (B,)           -> log π(a|s)
+        """
+        B = state.size(0)
+        mean, log_std = self.forward(state)
+        std = log_std.exp()
 
-    # unsquashed 공간에서 샘플링 (temperature를 곱해 exploration 조절)
-    eps = torch.randn_like(mean) * temperature
-    u = mean + std * eps  # u: unsquashed sample
+        # unsquashed 공간에서 샘플링 (temperature를 곱해 exploration 조절)
+        eps = torch.randn_like(mean) * temperature
+        u = mean + std * eps  # u: unsquashed sample
 
-    # Sigmoid를 적용한 후 69를 곱해서 [0, 69] 범위로 스케일링
-    action = torch.sigmoid(u) * 69.0
+        # Sigmoid를 적용한 후 69를 곱해서 [0, 69] 범위로 스케일링
+        action = torch.sigmoid(u) * 69.0
 
-    # u에 대한 Gaussian log_prob 계산
-    log_prob_u = -0.5 * (((u - mean) / (std + 1e-8))**2 + 2 * log_std + np.log(2 * np.pi))
-    log_prob_u = log_prob_u.sum(dim=1)
+        # u에 대한 Gaussian log_prob 계산
+        log_prob_u = -0.5 * (((u - mean) / (std + 1e-8))**2 + 2 * log_std + np.log(2 * np.pi))
+        log_prob_u = log_prob_u.sum(dim=1)
 
-    # Sigmoid 변환에 따른 자코비안 보정: ## 변환 함수의 효과를 무시한다면, a에 대한 실제 확률 밀도가 왜곡되어 학습이 잘못될 수 있다
-    # a = 69 * sigmoid(u)  ->  da/du = 69 * sigmoid(u) * (1 - sigmoid(u))
-    # 따라서 log |da/du| = log(69) + log(sigmoid(u)) + log(1 - sigmoid(u))
-    sigmoid_u = torch.sigmoid(u)
-    log_det = torch.log(69.0 * sigmoid_u * (1 - sigmoid_u) + 1e-8)
-    # 각 차원별로 보정값을 더해줌 (여기서는 좌표 2차원에 대해 보정)
-    correction = log_det.sum(dim=1)
+        # Sigmoid 변환에 따른 자코비안 보정: ## 변환 함수의 효과를 무시한다면, a에 대한 실제 확률 밀도가 왜곡되어 학습이 잘못될 수 있다
+        # a = 69 * sigmoid(u)  ->  da/du = 69 * sigmoid(u) * (1 - sigmoid(u))
+        # 따라서 log |da/du| = log(69) + log(sigmoid(u)) + log(1 - sigmoid(u))
+        sigmoid_u = torch.sigmoid(u)
+        log_det = torch.log(69.0 * sigmoid_u * (1 - sigmoid_u) + 1e-8)
+        # 각 차원별로 보정값을 더해줌 (여기서는 좌표 2차원에 대해 보정)
+        correction = log_det.sum(dim=1)
 
-    # 최종 log_prob: unsquashed log_prob에서 자코비안 보정을 빼줌
-    log_prob = log_prob_u - correction
+        # 최종 log_prob: unsquashed log_prob에서 자코비안 보정을 빼줌
+        log_prob = log_prob_u - correction
 
-    return action, log_prob
+        return action, log_prob
     
 ##########################################################################
 # 5) SAC Agent for Action
@@ -270,9 +270,9 @@ class SACAgent:
     # ------------------------------------------------- #
     def update_epsilon(self, is_down, decay_value):
         if is_down:
-            self.epsilon = max(self.epsilon_min, self.epsilon - decay_value)
+            self.epsilon = max(self.epsilon_min, self.epsilon * decay_value)
         else:
-            self.epsilon = min(1.0, self.epsilon + decay_value)
+            self.epsilon = min(1.0, self.epsilon / decay_value)
 
     # ------------------------------------------------- #
     # Store experience
@@ -605,7 +605,7 @@ if __name__ == "__main__":
                     reward = 0
 
                 # 7) Update agent
-                if(step%3==2):
+                if(env_model.robot.waiting_new_order):
                     learn_timer.start()
                     agent.update()
                     learn_timer.stop()
@@ -623,7 +623,8 @@ if __name__ == "__main__":
         decay_value = args.decay_value
         if(agent.epsilon < 0.1):
             deacy_value = 1
-        agent.update_epsilon(True, decay_value)
+        if(episode > 100):
+            agent.update_epsilon(True, decay_value)
         print("Total reward:", total_reward)
         print("now_epsilon : ", agent.epsilon)
         # Save model occasionally
