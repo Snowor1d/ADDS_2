@@ -306,11 +306,7 @@ class SACAgent:
             mean, log_std = self.policy.sample_action(state_t)
             std = log_std.exp()
             
-            if deterministic:
-                action_t = mean
-            else:
-                eps = torch.randn_like(mean)
-                action_t = mean + std * eps
+            action_t = mean
         
         action_np = action_t.cpu().numpy()[0]
         print(action_np)
