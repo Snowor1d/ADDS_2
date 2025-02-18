@@ -941,7 +941,7 @@ class FightingModel(Model):
         if(self.using_model):
             self.checking_reward += self.reward_based_gain()
         if(self.using_model and self.robot.waiting_new_order == 1):
-            action, _ = self.sac_agent.select_action(state)
+            action, _ = self.sac_agent.select_action(state, True)
             x, y = action[0], action[1]
             reward = self.checking_reward / self.robot.time_between_order 
             print("reward : ", reward)

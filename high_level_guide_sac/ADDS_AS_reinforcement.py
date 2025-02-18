@@ -182,7 +182,7 @@ class PolicyNetwork(nn.Module):#행동을 샘플링하고 정책 학습, 주어�
         return mean, log_std
 
 
-    def sample_action(self, state, temperature=1.0):
+    def sample_action(self, state, temperature=1.0, deterministic = False):
         """
         반환:
         action: (B, 2+num_modes)  -> [x, y, mode_onehot...], 여기서 x, y는 0~69 범위
@@ -194,7 +194,10 @@ class PolicyNetwork(nn.Module):#행동을 샘플링하고 정책 학습, 주어�
 
         # unsquashed 공간에서 샘플링 (temperature를 곱해 exploration 조절)
         eps = torch.randn_like(mean) * temperature
-        u = mean + std * eps  # u: unsquashed sample
+        if not deterministic:
+            u = mean + std * eps  # u: unsquashed sample
+        else:
+            u = mean
 
         # Sigmoid를 적용한 후 69를 곱해서 [0, 69] 범위로 스케일링
         action = torch.sigmoid(u) * 69.0
