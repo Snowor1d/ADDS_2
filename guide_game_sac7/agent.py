@@ -733,29 +733,50 @@ class RobotAgent(CrowdAgent):
         self.collision_check = 0
         self.detect_abnormal_order = 0
         self.is_game_finished = 0
+
         self.robot_waypoint = [0, 0]
-        self.waiting_new_order = 1
-        self.time_between_order = 1
-        self.now_exploration = 1
+        self.now_exploration = 0
         
 
     def receive_action(self, action):
-        
-        self.time_between_order = 1
+                
         
         direction_probs = action[0]
         
-        self.robot_waypoint[0] = action[0]
-        self.robot_waypoint[1] = action[1]
+
+        self.action[0] = action[0]
+        self.action[1] = action[1]
+
+        
+        if(self.now_exploration == 1):
+            print("exploration 중")
+            if(self.robot_waypoint == [0, 0]):
+                self.robot_waypoint = self.model.choice_random_waypoint()
+            now_mesh = self.model.match_grid_to_mesh[int(round(self.xy[0])), int(round(self.xy[1]))]
+            goal_mesh = self.model.match_grid_to_mesh[int(round(self.xy[0])), int(round(self.xy[1]))]
+            next_mesh = self.model.next_vertex_matrix[now_mesh][goal_mesh]
+            if(now_mesh == next_mesh):
+                goal_x = self.robot_waypoint[0] - self.xy[0]
+                goal_y = self.robot_waypoint[1] - self.xy[1]
+
+            else:
+                next_mesh_middle = ((next_mesh[0][0]+next_mesh[1][0]+next_mesh[2][0])/3, (next_mesh[0][1]+next_mesh[1][1]+next_mesh[2][1])/3)
+                goal_x = next_mesh_middle[0] - self.xy[0]
+                goal_y = next_mesh_middle[1] - self.xy[1]
+
+            goal_d = math.sqrt(pow(goal_x,2) + pow(goal_y,2))
+            goal_x = goal_x/goal_d
+            goal_y = goal_y/goal_d
+            self.action[0] = goal_x
+            self.action[1] = goal_y
+        
 
         return self.action
     def robot_policy_Q(self):
-        #print(self.robot_waypoint)
-        if(math.sqrt(pow(self.xy[0]-self.robot_waypoint[0],2)+pow(self.xy[1]-self.robot_waypoint[1],2))<2):
-            self.waiting_new_order = 1
-        else:
-            self.time_between_order += 1
-            self.waiting_new_order = 0
+
+        if(math.sqrt(pow(self.xy[0]-self.robot_waypoint[0], 2)+pow(self.xy[1]-self.robot_waypoint[1], 2))<2):
+            self.now_exploration = 0
+            self.robot_waypoint = [0, 0]
 
         self.previous_danger = self.danger
         self.danger = 99999
@@ -775,27 +796,15 @@ class RobotAgent(CrowdAgent):
 
         goal_x = 0
         goal_y = 0
-
-        now_mesh = self.model.match_grid_to_mesh[int(round(self.xy[0])), int(round(self.xy[1]))]
-        goal_mesh = self.model.match_grid_to_mesh[int(round(self.xy[0])), int(round(self.xy[1]))]
-        next_mesh = self.model.next_vertex_matrix[now_mesh][goal_mesh]
-        if(now_mesh == next_mesh):
-            goal_x = self.robot_waypoint[0] - self.xy[0]
-            goal_y = self.robot_waypoint[1] - self.xy[1]
-        else :
-            next_mesh_middle = ((next_mesh[0][0]+next_mesh[1][0]+next_mesh[2][0])/3, (next_mesh[0][1]+next_mesh[1][1]+next_mesh[2][1])/3)
-            goal_x = next_mesh_middle[0] - self.xy[0]
-            goal_y = next_mesh_middle[1] - self.xy[1]
         
-        goal_d = math.sqrt(pow(goal_x,2) + pow(goal_y,2))
-        goal_x = goal_x/goal_d
-        goal_y = goal_y/goal_d
+        goal_x += self.action[0]
+        goal_y += self.action[1]
         
         #print(f"robot desired go to {goal_x}, {goal_y}") 
         self.model.robot_mode = "GUIDE"
 
         intend_force = 2
-        desired_speed = 1.7
+        desired_speed = 3
 
             
 
