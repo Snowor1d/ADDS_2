@@ -555,7 +555,7 @@ if __name__ == "__main__":
             for step in range(max_steps):
                 # 1) Select action
 
-                if(env_model.robot.waiting_new_order):
+                if(step % 10 == 0):
                     action_np, _ = agent.select_action(state)
                     x, y = action_np[0], action_np[1]
                     real_action = env_model.robot.receive_action([x, y])
@@ -573,9 +573,9 @@ if __name__ == "__main__":
                 #r_a = env_model.reward_based_alived() 
                 #r_d = env_model.reward_based_all_agents_danger()
                 #r_da = env_model.reward_distance_from_all_agents()
-                r_g = env_model.reward_based_gain()
+                #r_g = env_model.reward_based_gain()
                 #r_p = env_model.reward_penalty()
-                reward += r_g
+                #reward += (r_a+r_d)
                 #print("alived reward : ", r_a)
                 #print("danger reward : ", r_d)
                 #print("distance reward : ", r_da)
@@ -590,8 +590,8 @@ if __name__ == "__main__":
                     reward += 10
 
                 # 6) Store transition
-                if(env_model.robot.waiting_new_order and step>5):
-                    reward = reward/env_model.robot.time_between_order
+                if(step%10==0 and step>5):
+                    reward = env_model.reward_based_alived() + env_model.reward_based_all_agents_danger()
                     agent.store_transition(
                         buffered_state,
                         buffered_action,
@@ -604,8 +604,6 @@ if __name__ == "__main__":
                     print("reward : ", reward)
                     reward = 0
 
-                # 7) Update agent
-                if(env_model.robot.waiting_new_order):
                     learn_timer.start()
                     agent.update()
                     learn_timer.stop()
