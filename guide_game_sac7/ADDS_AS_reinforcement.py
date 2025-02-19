@@ -210,14 +210,14 @@ class PolicyNetwork(nn.Module):#행동을 샘플링하고 정책 학습, 주어�
 # 5) SAC Agent for Action
 ##########################################################################
 class SACAgent:
-    def __init__(self, input_shape=(70,70), gamma=0.99, alpha=0.2, tau=0.995, lr=1e-4, batch_size=64, replay_size=int(1e5), device="cpu", start_epsilon = 1.0):
+    def __init__(self, input_shape=(70,70), gamma=0.99, alpha=0.2, tau=0.995, lr=1e-4, batch_size=64, replay_size=int(1e5), device="cpu", start_epsilon = 1.0, start_epsilon_long = 0.1):
         self.gamma = gamma
         self.alpha = alpha
         self.tau = tau
         self.batch_size = batch_size
         self.device = torch.device(device)
         self.epsilon = start_epsilon
-        self.epsilon_long = 0.1
+        self.epsilon_long = start_epsilon_long 
         self.epsilon_long_min = 0.005
         self.epsilon_min = 0.1
 
@@ -268,9 +268,9 @@ class SACAgent:
 
     def update_epsilon2(self, is_down, decay_value):
         if is_down : 
-            self.epsilon = max(self.epsilon_long_min, self.epsilon_long * decay_value)
+            self.epsilon_long = max(self.epsilon_long_min, self.epsilon_long * decay_value)
         else:
-            self.epsilon = min(1.0, self.epsilon_long / decay_value)
+            self.epsilon_long = min(1.0, self.epsilon_long / decay_value)
     # ------------------------------------------------- #
     # Store experience
     # ------------------------------------------------- #
@@ -490,16 +490,25 @@ if __name__ == "__main__":
     if os.path.exists(epsilon_path):
         with open(epsilon_path, "r") as f:
             try:
-                start_epsilon = float(f.read().strip())
-                print(f"Loaded start_epsilon: {start_epsilon}")
+                lines = f.readlines()
+                if len(lines) >= 2:
+                    start_epsilon = float(lines[0].strip())
+                    start_epsilon_long = float(lines[1].strip())
+                    print(f"Loaded start_epsilon: {start_epsilon}, start_epsilon_long: {start_epsilon_long}")
+                else:
+                    print("Not enough lines in start_epsilon.txt. Resetting values.")
+                    start_epsilon = 1.0
+                    start_epsilon_long = 0.05  # 기본값 설정
             except ValueError:
-                print("Invalid value in start_epsilon.txt. Resetting to 1.0")
+                print("Invalid value in start_epsilon.txt. Resetting to defaults.")
                 start_epsilon = 1.0
+                start_epsilon_long = 0.05  # 기본값 설정
     else:
         start_epsilon = 1.0
-        print("No start_epsilon.txt found. Initializing start_epsilon to 1.0")
+        start_epsilon_long = 0.05  # 기본값 설정
+        print("No start_epsilon.txt found. Initializing values to defaults.")
     
-    agent = SACAgent(input_shape=(70,70), alpha=0.2, lr=float(args.lr), start_epsilon=float(start_epsilon), batch_size=int(args.batch_size), replay_size=float(args.buffer_size))
+    agent = SACAgent(input_shape=(70,70), alpha=0.2, lr=float(args.lr), start_epsilon=float(start_epsilon), start_epsilon_long = float(start_epsilon_long), batch_size=int(args.batch_size), replay_size=float(args.buffer_size))
     print(f"Agent initialized, lr={args.lr}, alpha={agent.alpha}, batch_size={args.batch_size}, replay_size={args.buffer_size}")
     replay_buffer_path = os.path.join(log_dir, "replay_buffer.pkl")
 
@@ -621,12 +630,12 @@ if __name__ == "__main__":
 
         # Possibly update epsilon, or do other logging
         decay_value = args.decay_value
-        if(agent.epsilon < 0.1):
-            deacy_value = 1
+
         agent.update_epsilon(True, decay_value)
         agent.update_epsilon2(True, decay_value)
         print("Total reward:", total_reward)
         print("now_epsilon : ", agent.epsilon)
+        print("now_epsilon_long : ", agent.epsilon_long)
         # Save model occasionally
 
         reward_file_path = os.path.join(log_dir, "total_reward.txt")
@@ -646,7 +655,8 @@ if __name__ == "__main__":
                 f.write(f"{total_reward}\n")
 
         with open(epsilon_path, "w") as f:
-            f.write(str(agent.epsilon))
+            f.write(str(agent.epsilon)+"\n")
+            f.write(str(agent.epsilon_long))
 
 
         # each episode time print
