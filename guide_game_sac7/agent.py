@@ -771,7 +771,7 @@ class RobotAgent(CrowdAgent):
             self.action[1] = goal_y
         
 
-        return self.action
+        return np.array(self.action)
     def robot_policy_Q(self):
 
         if(math.sqrt(pow(self.xy[0]-self.robot_waypoint[0], 2)+pow(self.xy[1]-self.robot_waypoint[1], 2))<2):

@@ -192,16 +192,23 @@ class PolicyNetwork(nn.Module):#행동을 샘플링하고 정책 학습, 주어�
         mean, log_std = self.forward(state)
         std = log_std.exp()
 
-        eps = torch.randn_like(mean)
-        action = mean + std * eps
-        action = 2*torch.tanh(action)
-
+        eps = torch.randn_like(mean) * temperature
+        u = mean + std * eps
+        action = torch.sigmoid(u)
         # log_prob 계산
         # (dx, dy) => 2차원 Gaussian
-        # log_prob = -1/2 * [((a-mean)/std)^2 + 2*log_std + log(2*pi)] 의 합
-        log_prob = -0.5 * (((action - mean) / (std + 1e-8))**2 + 2*log_std + np.log(2*np.pi))
-        # (B, 2)에 대해 차원별로 합 -> (B,)
-        log_prob = log_prob.sum(dim=1)
+
+        # u에 대한 가우시안 로그 확률 계산 (각 차원별)
+        log_prob_u = -0.5 * (((u - mean) / (std + 1e-8))**2 + 2 * log_std + np.log(2 * np.pi))
+        log_prob_u = log_prob_u.sum(dim=1)
+
+        # Sigmoid의 야코비안 보정: 
+        #  dσ(u)/du = σ(u) * (1 - σ(u))
+        # 로그 보정항 = sum_i log(σ(u_i)*(1-σ(u_i)))
+        jacobian = torch.log(action * (1 - action) + 1e-8)  # 1e-8로 log(0) 방지
+        jacobian = jacobian.sum(dim=1)
+
+        log_prob = log_prob_u - jacobian
 
         return action, log_prob
 
@@ -300,15 +307,13 @@ class SACAgent:
         # state_np는 2D 배열인데, 차원을 추가하여 모델 입력에 적합한 차원으로 만들려는 것
 
         with torch.no_grad():
-            mean, log_std = self.policy.sample_action(state_t)
-            std = log_std.exp()
-            
             if deterministic:
-                action_t = mean
+                # 결정적 행동 선택: mean에 대해 바로 sigmoid 변환.
+                mean, _ = self.policy.forward(state_t)
+                action_t = torch.sigmoid(mean)
             else:
-                eps = torch.randn_like(mean)
-                action_t = mean + std * eps
-        
+                # 비결정적 선택: sample_action에서 샘플링 (자코비안 보정 포함)
+                action_t, log_prob = self.policy.sample_action(state_t)
         action_np = action_t.cpu().numpy()[0]
         print(action_np)
 
@@ -320,7 +325,7 @@ class SACAgent:
     # Update (one gradient step)
     # ------------------------------------------------- #
     def update(self):
-        if len(self.replay_buffer) < self.batch_size*50:
+        if len(self.replay_buffer) < self.batch_size*5:
             return
         
         # sample = self.replay_buffer.sample(self.batch_size)
@@ -558,75 +563,77 @@ if __name__ == "__main__":
         buffered_state = state
         buffered_action = None
         abnormal_reward = 0
-        try:
-            for step in range(max_steps):
-                # 1) Select action
+        #try:
+        for step in range(max_steps):
+            # 1) Select action
 
-                if(step%3==0):
-                    
-                    if(np.random.rand() < agent.epsilon_long):
-                        env_model.robot.now_exploration = 1
-                    
-                    action_np, _ = agent.select_action(state)
-                    dx, dy = action_np[0], action_np[1]
-                    real_action = env_model.robot.receive_action([dx, dy])
-                    buffered_state = state
-                    buffered_action = real_action
+            if(step%3==0):
                 
+                if(np.random.rand() < agent.epsilon_long):
+                    env_model.robot.now_exploration = 1
                 
-                # Simulation time check
-                sim_timer.start()
-                # 2) Step environment
-                env_model.step()
-                sim_timer.stop()
+                action_np, _ = agent.select_action(state)
+                dx, dy = action_np[0], action_np[1]
+                real_action = env_model.robot.receive_action([dx, dy])
+                action_np[0] = real_action[0]
+                action_np[1] = real_action[1]
+                buffered_state = state
+                buffered_action = action_np
+            
+            
+            # Simulation time check
+            sim_timer.start()
+            # 2) Step environment
+            env_model.step()
+            sim_timer.stop()
 
-                # 3) Reward
-                r_a = env_model.reward_based_alived() 
-                r_d = env_model.reward_based_all_agents_danger()
-                #r_da = env_model.reward_distance_from_all_agents()
-                #r_g = env_model.reward_based_gain()
-                #r_p = env_model.reward_penalty()
-                reward += (r_a + r_d)
-                #print("alived reward : ", r_a)
-                #print("danger reward : ", r_d)
-                #print("distance reward : ", r_da)
-                #print("gain reward : ", r_g)
+            # 3) Reward
+            r_a = env_model.reward_based_alived() 
+            r_d = env_model.reward_based_all_agents_danger()
+            #r_da = env_model.reward_distance_from_all_agents()
+            #r_g = env_model.reward_based_gain()
+            #r_p = env_model.reward_penalty()
+            reward += (r_a + r_d)
+            #print("alived reward : ", r_a)
+            #print("danger reward : ", r_d)
+            #print("distance reward : ", r_da)
+            #print("gain reward : ", r_g)
 
-                # 4) Next state
-                next_state = env_model.return_current_image()
+            # 4) Next state
+            next_state = env_model.return_current_image()
 
-                # 5) Done?
-                done = (step >= max_steps-1) or (env_model.robot.is_game_finished)
-                if(env_model.robot.is_game_finished):
-                    reward += 10
+            # 5) Done?
+            done = (step >= max_steps-1) or (env_model.robot.is_game_finished)
+            if(env_model.robot.is_game_finished):
+                reward += 10
 
-                # 6) Store transition
-                if(step%3==2 and step>5):
-                    agent.store_transition(
-                        buffered_state,
-                        buffered_action,
-                        reward, 
-                        next_state, 
-                        float(done)
-                    )
-                    total_reward += reward
-                    print("reward : ", reward)
-                    reward = 0
+            # 6) Store transition
+            if(step%3==2 and step>5):
+                agent.store_transition(
+                    buffered_state,
+                    buffered_action,
+                    reward, 
+                    next_state, 
+                    float(done)
+                )
+                total_reward += reward
+                print("reward : ", reward)
+                reward = 0
 
-                # 7) Update agent
-                if(step%3==2):
-                    learn_timer.start()
-                    agent.update()
-                    learn_timer.stop()
+            # 7) Update agent
+            if(step%3==2):
+                learn_timer.start()
+                agent.update()
+                learn_timer.stop()
 
-                state = next_state
-                if done:
-                    break
-        except Exception as e:
-            print(e)
-            print("error occured. retry.")
-            env_model = model.FightingModel(number_of_agents, 70, 70, 2, 'Q')
-            abnormal_reward = 1
+            state = next_state
+            if done:
+                break
+        # except Exception as e:
+        #     print(e)
+        #     print("error occured. retry.")
+        #     env_model = model.FightingModel(number_of_agents, 70, 70, 2, 'Q')
+        #     abnormal_reward = 1
 
         # Possibly update epsilon, or do other logging
         decay_value = args.decay_value
