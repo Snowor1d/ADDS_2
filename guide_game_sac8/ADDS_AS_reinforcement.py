@@ -86,40 +86,46 @@ class ReplayBuffer:
 # 3) Critic (Q) Network
 ##########################################################################
 class QNetwork(nn.Module):
-    def __init__(self, input_shape=(70,70), action_dim=4):
+    def __init__(self, input_shape=(70,70), action_dim=2):
         super(QNetwork, self).__init__()
-
-        # Feature extractor (conv) for state:
-        self.conv1 = nn.Conv2d(1, 16, kernel_size=5, stride=2)
-        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=2)
-        self.conv3 = nn.Conv2d(32, 64, kernel_size=3, stride=2)
+        # 새로운 Convolutional feature extractor with 1 채널 입력
+        self.conv1 = nn.Conv2d(1, 32, kernel_size=3, stride=2, padding=1)
+        self.bn1   = nn.BatchNorm2d(32)
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)
+        self.bn2   = nn.BatchNorm2d(64)
+        # 마지막 conv layer는 stride=1로 공간 정보를 좀 더 유지
+        self.conv3 = nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1)
+        self.bn3   = nn.BatchNorm2d(128)
         
         conv_out_size = self._get_conv_out(input_shape)
-
-        # Fully connected layers
+        
+        # Fully connected layers: conv feature와 행동을 concat하여 Q-value 예측
         self.fc1 = nn.Linear(conv_out_size + action_dim, 256)
         self.fc2 = nn.Linear(256, 128)
-        self.q_out = nn.Linear(128, 1)  # final Q-value
+        self.q_out = nn.Linear(128, 1)
 
     def _get_conv_out(self, shape):
-        dummy = torch.zeros(1, 1, *shape)  # (B, C, H, W) = (1,1,H,W)
-        o = self.conv1(dummy)
-        o = self.conv2(o)
-        o = self.conv3(o)
-        return int(np.prod(o.size()))
+        dummy = torch.zeros(1, 1, *shape)  # (batch, channel=1, H, W)
+        o = self.bn1(self.conv1(dummy))
+        o = F.relu(o)
+        o = self.bn2(self.conv2(o))
+        o = F.relu(o)
+        o = self.bn3(self.conv3(o))
+        o = F.relu(o)
+        return int(np.prod(o.size()[1:]))  # product over C, H, W
 
     def forward(self, state, action):
-        x = F.relu(self.conv1(state))
-        x = F.relu(self.conv2(x))
-        x = F.relu(self.conv3(x))
+        x = F.relu(self.bn1(self.conv1(state)))
+        x = F.relu(self.bn2(self.conv2(x)))
+        x = F.relu(self.bn3(self.conv3(x)))
         x = x.view(x.size(0), -1)
-
-        # Concatenate state and action
-        x = torch.cat([x, action], dim=1)  # (B, conv_out_size + 4)
+        # 행동과 상태 feature를 연결
+        x = torch.cat([x, action], dim=1)
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         q_val = self.q_out(x)
         return q_val
+
 
 ##########################################################################
 # 4) Policy (Actor) Network
@@ -137,10 +143,13 @@ class PolicyNetwork(nn.Module):#행동을 샘플링하고 정책 학습, 주어�
         self.log_std_min = -10
         self.log_std_max =  -0.5
 
-        # Feature extractor (conv)
-        self.conv1 = nn.Conv2d(1, 16, kernel_size=5, stride=2)
-        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=2)
-        self.conv3 = nn.Conv2d(32, 64, kernel_size=3, stride=2)
+        # 새로운 Convolutional feature extractor (1채널 입력)
+        self.conv1 = nn.Conv2d(1, 32, kernel_size=3, stride=2, padding=1)
+        self.bn1   = nn.BatchNorm2d(32)
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)
+        self.bn2   = nn.BatchNorm2d(64)
+        self.conv3 = nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1)
+        self.bn3   = nn.BatchNorm2d(128)
         
         conv_out_size = self._get_conv_out(input_shape)
 
@@ -156,28 +165,28 @@ class PolicyNetwork(nn.Module):#행동을 샘플링하고 정책 학습, 주어�
         self.log_std_head = nn.Linear(128, 2)
 
         
-
     def _get_conv_out(self, shape):
         dummy = torch.zeros(1, 1, *shape)
-        o = self.conv1(dummy)
-        o = self.conv2(o)
-        o = self.conv3(o)
-        return int(np.prod(o.size()))
+        o = self.bn1(self.conv1(dummy))
+        o = F.relu(o)
+        o = self.bn2(self.conv2(o))
+        o = F.relu(o)
+        o = self.bn3(self.conv3(o))
+        o = F.relu(o)
+        return int(np.prod(o.size()[1:]))  # (C*H*W)
 
     def backbone(self, state):
-        x = F.relu(self.conv1(state))
-        x = F.relu(self.conv2(x))
-        x = F.relu(self.conv3(x))
+        x = F.relu(self.bn1(self.conv1(state)))
+        x = F.relu(self.bn2(self.conv2(x)))
+        x = F.relu(self.bn3(self.conv3(x)))
         x = x.view(x.size(0), -1)        
         feat = self.fc_backbone(x)       
         return feat
 
     def forward(self, state):
-
         feat = self.backbone(state)
         mean = self.mean_head(feat)
         log_std = self.log_std_head(feat)
-        
         log_std = torch.clamp(log_std, self.log_std_min, self.log_std_max)
         return mean, log_std
 
