@@ -194,7 +194,8 @@ class PolicyNetwork(nn.Module):#행동을 샘플링하고 정책 학습, 주어�
 
         eps = torch.randn_like(mean) * temperature
         u = mean + std * eps
-        action = torch.sigmoid(u)
+        sigma = torch.sigmoid(u)
+        action = 4 * sigma - 2
         # log_prob 계산
         # (dx, dy) => 2차원 Gaussian
 
@@ -205,9 +206,7 @@ class PolicyNetwork(nn.Module):#행동을 샘플링하고 정책 학습, 주어�
         # Sigmoid의 야코비안 보정: 
         #  dσ(u)/du = σ(u) * (1 - σ(u))
         # 로그 보정항 = sum_i log(σ(u_i)*(1-σ(u_i)))
-        jacobian = torch.log(action * (1 - action) + 1e-8)  # 1e-8로 log(0) 방지
-        jacobian = jacobian.sum(dim=1)
-
+        jacobian = torch.log(4 * sigma * (1 - sigma) + 1e-8).sum(dim=1)
         log_prob = log_prob_u - jacobian
 
         return action, log_prob
@@ -310,7 +309,7 @@ class SACAgent:
             if deterministic:
                 # 결정적 행동 선택: mean에 대해 바로 sigmoid 변환.
                 mean, _ = self.policy.forward(state_t)
-                action_t = torch.sigmoid(mean)
+                action_t = 4*torch.sigmoid(mean)-2
             else:
                 # 비결정적 선택: sample_action에서 샘플링 (자코비안 보정 포함)
                 action_t, log_prob = self.policy.sample_action(state_t)
