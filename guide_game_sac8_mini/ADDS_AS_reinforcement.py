@@ -86,7 +86,7 @@ class ReplayBuffer:
 # 3) Critic (Q) Network
 ##########################################################################
 class QNetwork(nn.Module):
-    def __init__(self, input_shape=(70,70), action_dim=2):
+    def __init__(self, input_shape=(40,40), action_dim=2):
         super(QNetwork, self).__init__()
         # 새로운 Convolutional feature extractor with 1 채널 입력
         self.conv1 = nn.Conv2d(1, 32, kernel_size=3, stride=2, padding=1)
@@ -138,7 +138,7 @@ class PolicyNetwork(nn.Module):#행동을 샘플링하고 정책 학습, 주어�
     We combine these into an action = [dx, dy, mode0, mode1].
     We'll do the reparam trick for direction, Gumbel-Softmax for mode.
     """
-    def __init__(self, input_shape=(70,70)):
+    def __init__(self, input_shape=(40,40)):
         super(PolicyNetwork, self).__init__()
         self.log_std_min = -10
         self.log_std_max =  -0.5
@@ -225,7 +225,7 @@ class PolicyNetwork(nn.Module):#행동을 샘플링하고 정책 학습, 주어�
 # 5) SAC Agent for Action
 ##########################################################################
 class SACAgent:
-    def __init__(self, input_shape=(70,70), gamma=0.99, alpha=0.2, tau=0.995, lr=1e-4, batch_size=64, replay_size=int(1e5), device="cpu", start_epsilon = 1.0, start_epsilon_long = 0.1):
+    def __init__(self, input_shape=(40,40), gamma=0.99, alpha=0.2, tau=0.995, lr=1e-4, batch_size=64, replay_size=int(1e5), device="cpu", start_epsilon = 1.0, start_epsilon_long = 0.1):
         self.gamma = gamma
         self.alpha = alpha
         self.tau = tau
@@ -333,7 +333,7 @@ class SACAgent:
     # Update (one gradient step)
     # ------------------------------------------------- #
     def update(self):
-        if len(self.replay_buffer) < self.batch_size*50:
+        if len(self.replay_buffer) < self.batch_size*5:
             return
         
         # sample = self.replay_buffer.sample(self.batch_size)
@@ -494,7 +494,7 @@ if __name__ == "__main__":
 
     # hyperparams
     max_episodes = 1500
-    max_steps = 1500
+    max_steps = 5000
     number_of_agents = 30
     start_episode = 0
     
@@ -521,7 +521,7 @@ if __name__ == "__main__":
         start_epsilon_long = 0.05  # 기본값 설정
         print("No start_epsilon.txt found. Initializing values to defaults.")
     
-    agent = SACAgent(input_shape=(70,70), alpha=0.2, lr=float(args.lr), start_epsilon=float(start_epsilon), start_epsilon_long = float(start_epsilon_long), batch_size=int(args.batch_size), replay_size=float(args.buffer_size))
+    agent = SACAgent(input_shape=(40,40), alpha=0.2, lr=float(args.lr), start_epsilon=float(start_epsilon), start_epsilon_long = float(start_epsilon_long), batch_size=int(args.batch_size), replay_size=float(args.buffer_size))
     print(f"Agent initialized, lr={args.lr}, alpha={agent.alpha}, batch_size={args.batch_size}, replay_size={args.buffer_size}")
     replay_buffer_path = os.path.join(log_dir, "replay_buffer.pkl")
 
@@ -560,7 +560,7 @@ if __name__ == "__main__":
         # Create environment
         while True:
             try:
-                env_model = model.FightingModel(number_of_agents, 70, 70, 2, 'Q')
+                env_model = model.FightingModel(number_of_agents, 40, 40, 2, 'Q')
                 break
             except Exception as e:
                 print(e, "Retrying environment creation...")
@@ -578,7 +578,7 @@ if __name__ == "__main__":
                 if(step%3==0):
                     
                     if(np.random.rand() < agent.epsilon_long):
-                        env_model.robot.now_exploration = 1
+                        env_model.robot.now_exploration = 0
                     
                     action_np, _ = agent.select_action(state)
                     dx, dy = action_np[0], action_np[1]
@@ -596,12 +596,13 @@ if __name__ == "__main__":
                 sim_timer.stop()
 
                 # 3) Reward
-                r_a = env_model.reward_based_alived() 
-                r_d = env_model.reward_based_all_agents_danger()
+                #r_a = env_model.reward_based_alived() 
+                #r_d = env_model.reward_based_all_agents_danger()
+                r_e = env_model.reward_based_evacuated_confirmed()
                 #r_da = env_model.reward_distance_from_all_agents()
                 #r_g = env_model.reward_based_gain()
                 #r_p = env_model.reward_penalty()
-                reward += (r_a + r_d)
+                reward += r_e
                 #print("alived reward : ", r_a)
                 #print("danger reward : ", r_d)
                 #print("distance reward : ", r_da)
@@ -640,7 +641,7 @@ if __name__ == "__main__":
         except Exception as e:
             print(e)
             print("error occured. retry.")
-            env_model = model.FightingModel(number_of_agents, 70, 70, 2, 'Q')
+            env_model = model.FightingModel(number_of_agents, 40, 40, 2, 'Q')
             abnormal_reward = 1
 
         # Possibly update epsilon, or do other logging
