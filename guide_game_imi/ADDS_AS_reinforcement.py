@@ -235,6 +235,7 @@ class SACAgent:
         self.epsilon_long = start_epsilon_long 
         self.epsilon_long_min = 0.005
         self.epsilon_min = 0.1
+        self.writer = SummaryWriter()
 
         self.imitation_global_step = 0
 
@@ -421,7 +422,7 @@ class SACAgent:
         with open(imitation_log_path, "a") as f:
             f.write(f"{loss_imitation.item()}\n")
         
-        self.imitation_writer.add_scalar("Imitation Loss", loss_imitation.item(), self.imitation_global_step)
+        self.writer.add_scalar("Imitation Loss", loss_imitation.item(), self.imitation_global_step)
         self.imitation_global_step += 1
         
         return loss_imitation.item()
@@ -599,13 +600,15 @@ if __name__ == "__main__":
         print("Starting imitation learning pre-training for {} steps.".format(pretrain_steps))
         for i in range(pretrain_steps):
             if len(agent.replay_buffer) >= agent.batch_size * 50:
-                agent.update()
+                agent.update_imitation()
             else:
                 print("Not enough imitation data for pretraining.")
                 break
         print("Imitation learning pre-training completed.")
     else:
         print("No imitation learning dataset found. Skipping imitation pre-training.")
+    imitation_model_path = os.path.join(log_dir, "imitation_model.pth")
+    agent.save_model(imitation_model_path)
 
     abnormal_reward = 0
 

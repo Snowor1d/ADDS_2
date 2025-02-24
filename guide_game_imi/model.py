@@ -955,7 +955,7 @@ class FightingModel(Model):
             self.checking_reward += self.reward_based_evacuated_confirmed()
         if(self.using_model and self.step_n%3==0):
             if(np.random.rand() < 0.04):
-                self.robot.now_exploration = 1
+                self.robot.now_exploration = 0
             action, _ = self.sac_agent.select_action(state)
             dx, dy = action[0], action[1]
             self.robot.receive_action([dx, dy])
@@ -1058,7 +1058,7 @@ class FightingModel(Model):
         num_actions = 4
 
         self.sac_agent = SACAgent(input_shape, num_actions, start_epsilon=0)
-        #self.sac_agent.load_model(file_path)
+        self.sac_agent.load_model(file_path)
 
         self.using_model = True
 
