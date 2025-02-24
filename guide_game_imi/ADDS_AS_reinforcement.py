@@ -21,7 +21,7 @@ import webbrowser
 sim_timer = Timer() 
 learn_timer = Timer()
 home_dir = os.path.expanduser("~")
-log_dir = os.path.join(home_dir, "learning_log_guide_game_sac9")
+log_dir = os.path.join(home_dir, "learning_log_guide_game_imi")
 os.makedirs(log_dir, exist_ok=True)
 
 model_load = 3
@@ -236,6 +236,8 @@ class SACAgent:
         self.epsilon_long_min = 0.005
         self.epsilon_min = 0.1
 
+        self.imitation_global_step = 0
+
         # Replay buffer
         self.replay_buffer = ReplayBuffer(capacity=int(replay_size))
         
@@ -396,6 +398,34 @@ class SACAgent:
         self.soft_update(self.q1, self.q1_target)
         self.soft_update(self.q2, self.q2_target)
 
+    def update_imitation(self):
+        if len(self.replay_buffer) < self.batch_size:
+            return
+        
+        # 전문가 행동 데이터를 포함하는 상태(state)와 expert_actions를 샘플링
+        # 여기서는 replay_buffer의 "actions" 필드가 전문가 행동이라고 가정합니다.
+        states, expert_actions, _, _, _ = self.replay_buffer.sample(self.batch_size, self.device)
+        
+        # 정책 네트워크의 forward 함수는 (mean, log_std)를 반환하므로, 여기서는 mean을 사용합니다.
+        predicted_mean, _ = self.policy.forward(states)
+        predicted_action = 4 * torch.sigmoid(predicted_mean)-2
+        # MSE 손실 계산: 예측된 행동과 전문가 행동 사이의 차이 최소화
+        loss_imitation = F.mse_loss(predicted_action, expert_actions)
+        
+        self.policy_optimizer.zero_grad()
+        loss_imitation.backward()
+        torch.nn.utils.clip_grad_norm_(self.policy.parameters(), 1.0)
+        self.policy_optimizer.step()
+
+        imitation_log_path = os.path.join(log_dir, "imitation.txt")
+        with open(imitation_log_path, "a") as f:
+            f.write(f"{loss_imitation.item()}\n")
+        
+        self.imitation_writer.add_scalar("Imitation Loss", loss_imitation.item(), self.imitation_global_step)
+        self.imitation_global_step += 1
+        
+        return loss_imitation.item()
+
     # ------------------------------------------------- #
     # Save / Load
     # ------------------------------------------------- #
@@ -472,6 +502,8 @@ def monitor_total_reward(total_reward_file, tb_log_dir):
         finally:
             writer.close()
 
+
+
 ##########################################################################
 # Example usage in your training loop
 ##########################################################################
@@ -483,7 +515,7 @@ if __name__ == "__main__":
 
 
     # TensorBoard 로그 경로 및 total_reward.txt 경로 설정
-    total_reward_file = os.path.join(log_dir, "total_reward.txt")
+    total_reward_file = os.path.join(log_dir, "imitation.txt")
     tb_log_dir = os.path.join(log_dir, "tensorboard_logs")
 
     tb_process = launch_tensorboard(tb_log_dir, port=6006)
@@ -523,7 +555,6 @@ if __name__ == "__main__":
     
     agent = SACAgent(input_shape=(70,70), alpha=0.2, lr=float(args.lr), start_epsilon=float(start_epsilon), start_epsilon_long = float(start_epsilon_long), batch_size=int(args.batch_size), replay_size=float(args.buffer_size))
     print(f"Agent initialized, lr={args.lr}, alpha={agent.alpha}, batch_size={args.batch_size}, replay_size={args.buffer_size}")
-    replay_buffer_path = os.path.join(log_dir, "replay_buffer.pkl")
 
         
     if model_load == 1:
@@ -536,8 +567,8 @@ if __name__ == "__main__":
         if(os.path.exists(model_path)):
             start_episode = int(model_name.split("_")[-1].split(".")[0])
             agent.load_model(model_name)
-            if os.path.exists(replay_buffer_path):
-                agent.load_replay_buffer("replay_buffer.pkl")
+            # if os.path.exists(replay_buffer_path):
+            #     agent.load_replay_buffer("replay_buffer.pkl")
     elif model_load == 3:
         print("Mode 3: Loading the latest model from log_dir.")
         model_files = [f for f in os.listdir(log_dir) if f.startswith("sac_checkpoint") and f.endswith(".pth")]
@@ -547,136 +578,164 @@ if __name__ == "__main__":
             start_episode = int(latest_model.split("_")[-1].split(".")[0])
             print(f"Loading latest model: {latest_model}")
             agent.load_model(latest_model_path)
-            if os.path.exists(replay_buffer_path):
-                print(f"Loading replay buffer from {replay_buffer_path}")
-                agent.load_replay_buffer(replay_buffer_path)
+            # if os.path.exists(replay_buffer_path):
+            #     print(f"Loading replay buffer from {replay_buffer_path}")
+            #     agent.load_replay_buffer(replay_buffer_path)
         else:
             pass
+    # ================================
+    # [모방 학습 pre-training 단계]
+    # ================================
+    imitation_buffer_path = os.path.join(log_dir, "imitation_buffer.pkl")
+    if os.path.exists(imitation_buffer_path):
+        print("Loading imitation learning dataset for pre-training.")
+        imitation_replay_buffer = ReplayBuffer(capacity=int(args.buffer_size))
+        imitation_replay_buffer.load(imitation_buffer_path)
+        # 모방 데이터셋을 에이전트의 replay_buffer에 추가
+        agent.replay_buffer.buffer.extend(imitation_replay_buffer.buffer)
+        print("Imitation data loaded. Total imitation samples:", len(imitation_replay_buffer.buffer))
+        
+        pretrain_steps = 1000  # 모방 학습으로 업데이트할 횟수 (필요에 따라 조정)
+        print("Starting imitation learning pre-training for {} steps.".format(pretrain_steps))
+        for i in range(pretrain_steps):
+            if len(agent.replay_buffer) >= agent.batch_size * 50:
+                agent.update()
+            else:
+                print("Not enough imitation data for pretraining.")
+                break
+        print("Imitation learning pre-training completed.")
+    else:
+        print("No imitation learning dataset found. Skipping imitation pre-training.")
 
     abnormal_reward = 0
 
-    for episode in range(max_episodes):
-        print(f"Episode {start_episode+episode+1}")
-        # Create environment
-        while True:
-            try:
-                env_model = model.FightingModel(number_of_agents, 70, 70, 2, 'Q')
-                break
-            except Exception as e:
-                print(e, "Retrying environment creation...")
+
+    
+
+    # abnormal_reward = 0
+    # replay_buffer_path = os.path.join(log_dir, "replay_buffer.pkl")
+    # for episode in range(max_episodes):
+    #     print(f"Episode {start_episode+episode+1}")
+    #     # Create environment
+    #     while True:
+    #         try:
+    #             env_model = model.FightingModel(number_of_agents, 70, 70, 2, 'Q')
+    #             break
+    #         except Exception as e:
+    #             print(e, "Retrying environment creation...")
         
-        state = env_model.return_current_image()
-        total_reward = 0
-        reward = 0
-        buffered_state = state
-        buffered_action = None
-        abnormal_reward = 0
-        try:
-            for step in range(max_steps):
-                # 1) Select action
+    #     state = env_model.return_current_image()
+    #     total_reward = 0
+    #     reward = 0
+    #     buffered_state = state
+    #     buffered_action = None
+    #     abnormal_reward = 0
+    #     try:
+    #         for step in range(max_steps):
+    #             # 1) Select action
 
-                if(step%5==0):
+    #             if(step%3==0):
                     
-                    if(np.random.rand() < agent.epsilon_long):
-                        env_model.robot.now_exploration = 0
+    #                 if(np.random.rand() < agent.epsilon_long):
+    #                     env_model.robot.now_exploration = 1
                     
-                    action_np, _ = agent.select_action(state)
-                    dx, dy = action_np[0], action_np[1]
-                    real_action = env_model.robot.receive_action([dx, dy])
-                    action_np[0] = real_action[0]
-                    action_np[1] = real_action[1]
-                    buffered_state = state
-                    buffered_action = action_np
+    #                 action_np, _ = agent.select_action(state)
+    #                 dx, dy = action_np[0], action_np[1]
+    #                 real_action = env_model.robot.receive_action([dx, dy])
+    #                 action_np[0] = real_action[0]
+    #                 action_np[1] = real_action[1]
+    #                 buffered_state = state
+    #                 buffered_action = action_np
                 
                 
-                # Simulation time check
-                sim_timer.start()
-                # 2) Step environment
-                env_model.step()
-                sim_timer.stop()
+    #             # Simulation time check
+    #             sim_timer.start()
+    #             # 2) Step environment
+    #             env_model.step()
+    #             sim_timer.stop()
 
-                # 3) Reward
-                #r_a = env_model.reward_based_alived() 
-                r_d = env_model.reward_based_all_agents_danger()
-                #r_da = env_model.reward_distance_from_all_agents()
-                #r_g = env_model.reward_based_gain()
-                #r_p = env_model.reward_penalty()
-                reward = r_d
-                #print("alived reward : ", r_a)
-                #print("danger reward : ", r_d)
-                #print("distance reward : ", r_da)
-                #print("gain reward : ", r_g)
+    #             # 3) Reward
+    #             r_a = env_model.reward_based_alived() 
+    #             r_d = env_model.reward_based_all_agents_danger()
+    #             #r_da = env_model.reward_distance_from_all_agents()
+    #             #r_g = env_model.reward_based_gain()
+    #             #r_p = env_model.reward_penalty()
+    #             reward += (r_a + r_d)
+    #             #print("alived reward : ", r_a)
+    #             #print("danger reward : ", r_d)
+    #             #print("distance reward : ", r_da)
+    #             #print("gain reward : ", r_g)
 
-                # 4) Next state
-                next_state = env_model.return_current_image()
+    #             # 4) Next state
+    #             next_state = env_model.return_current_image()
 
-                # 5) Done?
-                done = (step >= max_steps-1) or (env_model.robot.is_game_finished)
-                if(env_model.robot.is_game_finished):
-                    reward += 10
+    #             # 5) Done?
+    #             done = (step >= max_steps-1) or (env_model.robot.is_game_finished)
+    #             if(env_model.robot.is_game_finished):
+    #                 reward += 10
 
-                # 6) Store transition
-                if(step%5==4 and step>5):
-                    agent.store_transition(
-                        buffered_state,
-                        buffered_action,
-                        reward, 
-                        next_state, 
-                        float(done)
-                    )
-                    total_reward += reward
-                    print("reward : ", reward)
-                    reward = 0
+    #             # 6) Store transition
+    #             if(step%3==2 and step>5):
+    #                 agent.store_transition(
+    #                     buffered_state,
+    #                     buffered_action,
+    #                     reward, 
+    #                     next_state, 
+    #                     float(done)
+    #                 )
+    #                 total_reward += reward
+    #                 print("reward : ", reward)
+    #                 reward = 0
 
-                # 7) Update agent
-                if(step%5==4):
-                    learn_timer.start()
-                    agent.update()
-                    learn_timer.stop()
+    #             # 7) Update agent
+    #             if(step%3==2):
+    #                 learn_timer.start()
+    #                 agent.update()
+    #                 learn_timer.stop()
 
-                state = next_state
-                if done:
-                    break
-        except Exception as e:
-            print(e)
-            print("error occured. retry.")
-            env_model = model.FightingModel(number_of_agents, 70, 70, 2, 'Q')
-            abnormal_reward = 1
+    #             state = next_state
+    #             if done:
+    #                 break
+    #     except Exception as e:
+    #         print(e)
+    #         print("error occured. retry.")
+    #         env_model = model.FightingModel(number_of_agents, 70, 70, 2, 'Q')
+    #         abnormal_reward = 1
 
-        # Possibly update epsilon, or do other logging
-        decay_value = args.decay_value
+    #     # Possibly update epsilon, or do other logging
+    #     decay_value = args.decay_value
 
-        agent.update_epsilon(True, decay_value)
-        agent.update_epsilon2(True, decay_value)
-        print("Total reward:", total_reward)
-        print("now_epsilon : ", agent.epsilon)
-        print("now_epsilon_long : ", agent.epsilon_long)
-        # Save model occasionally
+    #     agent.update_epsilon(True, decay_value)
+    #     agent.update_epsilon2(True, decay_value)
+    #     print("Total reward:", total_reward)
+    #     print("now_epsilon : ", agent.epsilon)
+    #     print("now_epsilon_long : ", agent.epsilon_long)
+    #     # Save model occasionally
 
-        reward_file_path = os.path.join(log_dir, "total_reward.txt")
-        if not os.path.exists(reward_file_path):
-            # 파일이 없으면 빈 파일 생성
-            open(reward_file_path, "w").close()
+    #     reward_file_path = os.path.join(log_dir, "total_reward.txt")
+    #     if not os.path.exists(reward_file_path):
+    #         # 파일이 없으면 빈 파일 생성
+    #         open(reward_file_path, "w").close()
 
-        if (episode+1) % 10 == 0:
-            model_filename = os.path.join(log_dir, f"sac_checkpoint_ep_{start_episode + episode + 1}.pth")
-            agent.save_model(model_filename)
-            replay_buffer_filename = "replay_buffer.pkl"
-            agent.save_replay_buffer(replay_buffer_filename)
+    #     if (episode+1) % 10 == 0:
+    #         model_filename = os.path.join(log_dir, f"sac_checkpoint_ep_{start_episode + episode + 1}.pth")
+    #         agent.save_model(model_filename)
+    #         replay_buffer_filename = "replay_buffer.pkl"
+    #         agent.save_replay_buffer(replay_buffer_filename)
 
-        reward_file_path = os.path.join(log_dir, "total_reward.txt")
-        with open(reward_file_path, "a") as f:
-            if(abnormal_reward != 1):
-                f.write(f"{total_reward}\n")
+    #     reward_file_path = os.path.join(log_dir, "total_reward.txt")
+    #     with open(reward_file_path, "a") as f:
+    #         if(abnormal_reward != 1):
+    #             f.write(f"{total_reward}\n")
 
-        with open(epsilon_path, "w") as f:
-            f.write(str(agent.epsilon)+"\n")
-            f.write(str(agent.epsilon_long))
+    #     with open(epsilon_path, "w") as f:
+    #         f.write(str(agent.epsilon)+"\n")
+    #         f.write(str(agent.epsilon_long))
 
 
-        # each episode time print
-        if ENABLE_TIMER:
-            print(f"episode {start_episode+episode+1} - Total Simulation Time: {sim_timer.get_time():.6f} 초")
-            print(f"episode {start_episode+episode+1} - Total Learning Time: {learn_timer.get_time():.6f} 초")
-            sim_timer.reset()
-            learn_timer.reset()
+    #     # each episode time print
+    #     if ENABLE_TIMER:
+    #         print(f"episode {start_episode+episode+1} - Total Simulation Time: {sim_timer.get_time():.6f} 초")
+    #         print(f"episode {start_episode+episode+1} - Total Learning Time: {learn_timer.get_time():.6f} 초")
+    #         sim_timer.reset()
+    #         learn_timer.reset()
