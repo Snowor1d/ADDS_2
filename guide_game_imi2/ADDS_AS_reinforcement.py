@@ -186,7 +186,7 @@ class PolicyNetwork(nn.Module):
         return action, log_prob
     
 ##########################################################################
-# 5) SAC Agent for Action
+# 5) SAC Agent for Actions
 ##########################################################################
 class SACAgent:
     def __init__(self, input_shape=(70,70), gamma=0.99, alpha=0.2, tau=0.995, lr=1e-4, batch_size=64, replay_size=int(1e5), device="cpu", start_epsilon = 1.0, start_epsilon_long = 0.1):

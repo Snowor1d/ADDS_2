@@ -254,6 +254,8 @@ class CrowdAgent(Agent):
         self.is_confirmed = 0
         self.is_confirmed_past = 0
 
+
+
         self.model.robot_mode = "GUIDE"
 
         # self.xy[0] = self.random.randrange(self.model.grid.width)
