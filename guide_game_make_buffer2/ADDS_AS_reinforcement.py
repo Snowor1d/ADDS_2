@@ -621,68 +621,45 @@ if __name__ == "__main__":
 
         try:
             for step in range(max_steps):
-                # 1) Select action
-
-                if(step%3==0):
-                    
+                # 1) Select action (현재 4채널 state 사용)
+                if step % 3 == 0:
                     env_model.robot.one_by_one = 1
                     action_np, _ = agent.select_action(state)
+                    # 실제 행동 보정
                     dx, dy = 0, 0
                     real_action = env_model.robot.receive_action([dx, dy])
                     action_np[0] = real_action[0]
                     action_np[1] = real_action[1]
                     buffered_state = state.copy()
                     buffered_action = action_np
-                
-                
+
                 # Simulation time check
                 sim_timer.start()
                 # 2) Step environment
                 env_model.step()
                 sim_timer.stop()
 
-                # 3) Reward
-                #r_a = env_model.reward_based_alived() 
-                #r_d = env_model.reward_based_all_agents_danger()
-                #r_da = env_model.reward_distance_from_all_agents()
-                #r_g = env_model.reward_based_gain()
-                #r_p = env_model.reward_penalty()
+                # 3) Reward (여기서는 reward=0으로 설정)
                 reward = 0
-                #print("alived reward : ", r_a)
-                #print("danger reward : ", r_d)
-                #print("distance reward : ", r_da)
-                #print("gain reward : ", r_g)
 
-                # 4) Next state
-                next_state = np.stack(state_stack, axis=0)
+                # 4) Next state: 새 이미지를 받아 state_stack 업데이트
+                new_image = env_model.return_current_image()  # shape: (H, W)
+                state_stack.pop(0)         # 가장 오래된 이미지 제거
+                state_stack.append(new_image)  # 새 이미지 추가
+                next_state = np.stack(state_stack, axis=0)  # (4, H, W)
 
-                # 5) Done?
-                done = (step >= max_steps-1) or (env_model.robot.is_game_finished)
-                # if(env_model.robot.is_game_finished):
-                #     reward += 10
+                # 5) Done 여부 판단
+                done = (step >= max_steps - 1) or (env_model.robot.is_game_finished)
 
                 # 6) Store transition
-                if(step%3==2 and step>5):
-                    agent.store_transition(
-                        buffered_state,
-                        buffered_action,
-                        reward, 
-                        next_state, 
-                        float(done)
-                    )
-                    # total_reward += reward
-                    # print("reward : ", reward)
-                    # reward = 0
+                if step % 3 == 2 and step > 5:
+                    agent.store_transition(buffered_state, buffered_action, reward, next_state, float(done))
 
-                # # 7) Update agent
-                # if(step%3==2):
-                #     learn_timer.start()
-                #     agent.update()
-                #     learn_timer.stop()
-
+                # 상태 업데이트
                 state = next_state
                 if done:
                     break
+
         except Exception as e:
             print(e)
             print("error occured. retry.")
