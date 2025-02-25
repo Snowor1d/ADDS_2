@@ -16,6 +16,7 @@ import threading
 from torch.utils.tensorboard import SummaryWriter
 import subprocess
 import webbrowser
+import glob
 
 # Timer instances
 sim_timer = Timer() 
@@ -544,30 +545,63 @@ if __name__ == "__main__":
     # ================================
     # [모방 학습 pre-training 단계]
     # ================================
-    imitation_buffer_path = os.path.join(log_dir, "replay_buffer_0.pkl")
-    if os.path.exists(imitation_buffer_path):
-        print("Loading imitation learning dataset for pre-training.")
-        imitation_replay_buffer = ReplayBuffer(capacity=int(args.buffer_size))
-        imitation_replay_buffer.load(imitation_buffer_path)
-        # 모방 데이터셋을 에이전트의 replay_buffer에 추가
-        agent.replay_buffer.buffer.extend(imitation_replay_buffer.buffer)
-        print("Imitation data loaded. Total imitation samples:", len(imitation_replay_buffer.buffer))
-        
-        pretrain_steps = 1000  # 모방 학습으로 업데이트할 횟수 (필요에 따라 조정)
-        print("Starting imitation learning pre-training for {} steps.".format(pretrain_steps))
-        for i in range(pretrain_steps):
-            if len(agent.replay_buffer) >= agent.batch_size:
-                agent.update_imitation()
-            else:
-                print("Not enough imitation data for pretraining.")
-                break
-        print("Imitation learning pre-training completed.")
-    else:
-        print("No imitation learning dataset found. Skipping imitation pre-training.")
-    imitation_model_path = os.path.join(log_dir, "imitation_model.pth")
-    agent.save_model(imitation_model_path)
 
-    abnormal_reward = 0
+    # 총 모방 학습 스텝 수 (예: 10000 스텝)
+    TOTAL_PRETRAIN_STEPS = 10000
+    current_steps = 0
+
+    # log_dir 내의 모든 replay_buffer_*.pkl 파일들을 번호 순서대로 정렬
+    buffer_files = sorted(glob.glob(os.path.join(log_dir, "replay_buffer_*.pkl")),
+                        key=lambda f: int(f.split('_')[-1].split('.')[0]))
+
+    if buffer_files:
+        print("Found replay buffer files:")
+        for file in buffer_files:
+            print("  ", file)
+        
+        # 전체 학습 스텝이 TOTAL_PRETRAIN_STEPS에 도달할 때까지 반복
+        while current_steps < TOTAL_PRETRAIN_STEPS:
+            # replay_buffer 파일들을 순차적으로 처리
+            for file in buffer_files:
+                print(f"\nLoading replay buffer from file: {file}")
+                temp_buffer = ReplayBuffer(capacity=int(args.buffer_size))
+                temp_buffer.load(file)
+                # 해당 파일의 데이터를 agent의 replay buffer에 추가
+                agent.replay_buffer.buffer.extend(temp_buffer.buffer)
+                print("Total imitation samples in current buffer:", len(agent.replay_buffer.buffer))
+                
+                # 파일당 일정 스텝(예: 500 스텝) 학습하거나 전체 목표에 도달할 때까지
+                imitation_steps = 500
+                for i in range(imitation_steps):
+                    if current_steps >= TOTAL_PRETRAIN_STEPS:
+                        break
+                    if len(agent.replay_buffer) >= agent.batch_size:
+                        agent.update_imitation()
+                        current_steps += 1
+                        # 매 100 스텝마다 모델 저장
+                        if current_steps % 1000 == 0:
+                            save_path = os.path.join(log_dir, f"imitation_model_{current_steps}.pth")
+                            agent.save_model(save_path)
+                            print(f"Saved imitation model at step {current_steps} to {save_path}")
+                    else:
+                        print("Not enough imitation data for pretraining from file:", file)
+                        break
+                
+                print(f"Completed imitation pre-training for {file} (current total steps: {current_steps})")
+                # 메모리 절약을 위해 replay buffer를 비움
+                agent.replay_buffer.buffer.clear()
+                
+                if current_steps >= TOTAL_PRETRAIN_STEPS:
+                    break
+
+        print(f"Imitation pre-training completed with total steps = {current_steps}")
+    else:
+        print("No replay buffer files found. Skipping imitation pre-training.")
+
+    # 최종적으로 최종 모델 저장
+    final_model_path = os.path.join(log_dir, "imitation_model_final.pth")
+    agent.save_model(final_model_path)
+    print(f"Final imitation model saved to {final_model_path}")
 
 
     
