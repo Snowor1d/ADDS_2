@@ -65,12 +65,11 @@ class ReplayBuffer:
         batch = random.sample(self.buffer, batch_size)
         states, actions, rewards, next_states, dones = zip(*batch)
 
-        # state와 next_state는 이미 (4, H, W) 형태라고 가정
-        states      = torch.FloatTensor(states).to(device)      # (B,4,H,W)
-        actions     = torch.FloatTensor(actions).to(device)
-        rewards     = torch.FloatTensor(rewards).to(device)
-        next_states = torch.FloatTensor(next_states).to(device)   # (B,4,H,W)
-        dones       = torch.FloatTensor(dones).to(device)
+        states      = torch.FloatTensor(states).unsqueeze(1).to(device)  # (B,1,H,W) if grayscale
+        actions     = torch.FloatTensor(actions).to(device)             # (B,4)
+        rewards     = torch.FloatTensor(rewards).to(device)             # (B,)
+        next_states = torch.FloatTensor(next_states).unsqueeze(1).to(device)
+        dones       = torch.FloatTensor(dones).to(device)               # (B,)
         return states, actions, rewards, next_states, dones
 
     def __len__(self):
@@ -89,34 +88,38 @@ class ReplayBuffer:
 class QNetwork(nn.Module):
     def __init__(self, input_shape=(70,70), action_dim=2):
         super(QNetwork, self).__init__()
-        # 4채널 입력을 가정 (현재 state, 3,6,9 step 전 state)
-        self.conv1 = nn.Conv2d(4, 32, kernel_size=3, stride=2, padding=1)
+        # 새로운 Convolutional feature extractor with 1 채널 입력
+        self.conv1 = nn.Conv2d(1, 32, kernel_size=3, stride=2, padding=1)
         self.bn1   = nn.BatchNorm2d(32)
         self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)
         self.bn2   = nn.BatchNorm2d(64)
-        # 마지막 conv layer: stride=1로 공간 정보를 보존
+        # 마지막 conv layer는 stride=1로 공간 정보를 좀 더 유지
         self.conv3 = nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1)
         self.bn3   = nn.BatchNorm2d(128)
         
         conv_out_size = self._get_conv_out(input_shape)
         
-        # Fully connected layers: conv feature와 행동을 연결하여 Q-value 예측
+        # Fully connected layers: conv feature와 행동을 concat하여 Q-value 예측
         self.fc1 = nn.Linear(conv_out_size + action_dim, 256)
         self.fc2 = nn.Linear(256, 128)
         self.q_out = nn.Linear(128, 1)
 
     def _get_conv_out(self, shape):
-        dummy = torch.zeros(1, 4, *shape)  # (batch, 채널=4, H, W)
-        o = F.relu(self.bn1(self.conv1(dummy)))
-        o = F.relu(self.bn2(self.conv2(o)))
-        o = F.relu(self.bn3(self.conv3(o)))
-        return int(np.prod(o.size()[1:]))
+        dummy = torch.zeros(1, 1, *shape)  # (batch, channel=1, H, W)
+        o = self.bn1(self.conv1(dummy))
+        o = F.relu(o)
+        o = self.bn2(self.conv2(o))
+        o = F.relu(o)
+        o = self.bn3(self.conv3(o))
+        o = F.relu(o)
+        return int(np.prod(o.size()[1:]))  # product over C, H, W
 
     def forward(self, state, action):
         x = F.relu(self.bn1(self.conv1(state)))
         x = F.relu(self.bn2(self.conv2(x)))
         x = F.relu(self.bn3(self.conv3(x)))
         x = x.view(x.size(0), -1)
+        # 행동과 상태 feature를 연결
         x = torch.cat([x, action], dim=1)
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
@@ -124,18 +127,24 @@ class QNetwork(nn.Module):
         return q_val
 
 
-
 ##########################################################################
 # 4) Policy (Actor) Network
 ##########################################################################
-class PolicyNetwork(nn.Module):
+class PolicyNetwork(nn.Module):#행동을 샘플링하고 정책 학습, 주어진 상태 s에 대해 행동 a 결정, 연속적 & 이산적 행동 가능, 혼합 가능 (Actor)
+    """
+    Outputs distribution parameters for:
+      - continuous direction: mean, log_std (2D)
+      - discrete mode: logits (2D)
+    We combine these into an action = [dx, dy, mode0, mode1].
+    We'll do the reparam trick for direction, Gumbel-Softmax for mode.
+    """
     def __init__(self, input_shape=(70,70)):
         super(PolicyNetwork, self).__init__()
         self.log_std_min = -10
-        self.log_std_max = -0.5
+        self.log_std_max =  -0.5
 
-        # 4채널 입력을 가정
-        self.conv1 = nn.Conv2d(4, 32, kernel_size=3, stride=2, padding=1)
+        # 새로운 Convolutional feature extractor (1채널 입력)
+        self.conv1 = nn.Conv2d(1, 32, kernel_size=3, stride=2, padding=1)
         self.bn1   = nn.BatchNorm2d(32)
         self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)
         self.bn2   = nn.BatchNorm2d(64)
@@ -151,16 +160,20 @@ class PolicyNetwork(nn.Module):
             nn.ReLU()
         )
 
-        # 상태 feature로부터 방향(mean, log_std) 추론
+        #state feature만 받아서 direction의 mean, log_std 추론
         self.mean_head = nn.Linear(128, 2)
         self.log_std_head = nn.Linear(128, 2)
 
+        
     def _get_conv_out(self, shape):
-        dummy = torch.zeros(1, 4, *shape)
-        o = F.relu(self.bn1(self.conv1(dummy)))
-        o = F.relu(self.bn2(self.conv2(o)))
-        o = F.relu(self.bn3(self.conv3(o)))
-        return int(np.prod(o.size()[1:]))
+        dummy = torch.zeros(1, 1, *shape)
+        o = self.bn1(self.conv1(dummy))
+        o = F.relu(o)
+        o = self.bn2(self.conv2(o))
+        o = F.relu(o)
+        o = self.bn3(self.conv3(o))
+        o = F.relu(o)
+        return int(np.prod(o.size()[1:]))  # (C*H*W)
 
     def backbone(self, state):
         x = F.relu(self.bn1(self.conv1(state)))
@@ -177,18 +190,34 @@ class PolicyNetwork(nn.Module):
         log_std = torch.clamp(log_std, self.log_std_min, self.log_std_max)
         return mean, log_std
 
+
     def sample_action(self, state, temperature=1.0):
+        """
+        returns: action=(B, 2+num_modes), log_prob=(B,)
+                 => [dx, dy, mode_onehot...], log pi(a|s)
+        """
+
         B = state.size(0)
         mean, log_std = self.forward(state)
         std = log_std.exp()
+
         eps = torch.randn_like(mean) * temperature
         u = mean + std * eps
         sigma = torch.sigmoid(u)
         action = 4 * sigma - 2
+        # log_prob 계산
+        # (dx, dy) => 2차원 Gaussian
+
+        # u에 대한 가우시안 로그 확률 계산 (각 차원별)
         log_prob_u = -0.5 * (((u - mean) / (std + 1e-8))**2 + 2 * log_std + np.log(2 * np.pi))
         log_prob_u = log_prob_u.sum(dim=1)
+
+        # Sigmoid의 야코비안 보정: 
+        #  dσ(u)/du = σ(u) * (1 - σ(u))
+        # 로그 보정항 = sum_i log(σ(u_i)*(1-σ(u_i)))
         jacobian = torch.log(4 * sigma * (1 - sigma) + 1e-8).sum(dim=1)
         log_prob = log_prob_u - jacobian
+
         return action, log_prob
 
     
@@ -234,7 +263,7 @@ class SACAgent:
         self.q1_optimizer = optim.Adam(self.q1.parameters(), lr=lr) #parameter optimizaing
         self.q2_optimizer = optim.Adam(self.q2.parameters(), lr=lr)
         self.policy_optimizer = optim.Adam(self.policy.parameters(), lr=lr)
-        self.replay_buffer_archive_count = 0
+
 
 # ------------------------------------------------- #
     # Soft update
@@ -397,7 +426,7 @@ class SACAgent:
         with open(imitation_log_path, "a") as f:
             f.write(f"{loss_imitation.item()}\n")
         
-        #self.writer.add_scalar("Imitation Loss", loss_imitation.item(), self.imitation_global_step)
+        self.imitation_writer.add_scalar("Imitation Loss", loss_imitation.item(), self.imitation_global_step)
         self.imitation_global_step += 1
         
         return loss_imitation.item()
@@ -614,11 +643,6 @@ if __name__ == "__main__":
         buffered_state = state
         buffered_action = None
         abnormal_reward = 0
-
-        initial_state = env_model.return_current_image()
-        state_stack = [initial_state for _ in range(4)]
-        state = np.stack(state_stack, axis=0)
-
         try:
             for step in range(max_steps):
                 # 1) Select action
@@ -631,7 +655,7 @@ if __name__ == "__main__":
                     real_action = env_model.robot.receive_action([dx, dy])
                     action_np[0] = real_action[0]
                     action_np[1] = real_action[1]
-                    buffered_state = state.copy()
+                    buffered_state = state
                     buffered_action = action_np
                 
                 
@@ -654,7 +678,7 @@ if __name__ == "__main__":
                 #print("gain reward : ", r_g)
 
                 # 4) Next state
-                next_state = np.stack(state_stack, axis=0)
+                next_state = env_model.return_current_image()
 
                 # 5) Done?
                 done = (step >= max_steps-1) or (env_model.robot.is_game_finished)

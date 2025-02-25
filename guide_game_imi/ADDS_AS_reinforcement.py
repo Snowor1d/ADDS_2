@@ -417,7 +417,6 @@ class SACAgent:
         loss_imitation.backward()
         torch.nn.utils.clip_grad_norm_(self.policy.parameters(), 1.0)
         self.policy_optimizer.step()
-
         imitation_log_path = os.path.join(log_dir, "imitation.txt")
         with open(imitation_log_path, "a") as f:
             f.write(f"{loss_imitation.item()}\n")

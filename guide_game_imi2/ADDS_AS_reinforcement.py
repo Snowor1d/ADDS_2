@@ -21,7 +21,7 @@ import webbrowser
 sim_timer = Timer() 
 learn_timer = Timer()
 home_dir = os.path.expanduser("~")
-log_dir = os.path.join(home_dir, "Replay_buffer_list")
+log_dir = os.path.join(home_dir, "learning_log_guide_game_imi2")
 os.makedirs(log_dir, exist_ok=True)
 
 model_load = 3
@@ -65,12 +65,11 @@ class ReplayBuffer:
         batch = random.sample(self.buffer, batch_size)
         states, actions, rewards, next_states, dones = zip(*batch)
 
-        # state와 next_state는 이미 (4, H, W) 형태라고 가정
-        states      = torch.FloatTensor(states).to(device)      # (B,4,H,W)
-        actions     = torch.FloatTensor(actions).to(device)
-        rewards     = torch.FloatTensor(rewards).to(device)
-        next_states = torch.FloatTensor(next_states).to(device)   # (B,4,H,W)
-        dones       = torch.FloatTensor(dones).to(device)
+        states      = torch.FloatTensor(states).to(device)  # (B,1,H,W) if grayscale
+        actions     = torch.FloatTensor(actions).to(device)             # (B,4)
+        rewards     = torch.FloatTensor(rewards).to(device)             # (B,)
+        next_states = torch.FloatTensor(next_states).unsqueeze(1).to(device)
+        dones       = torch.FloatTensor(dones).to(device)               # (B,)
         return states, actions, rewards, next_states, dones
 
     def __len__(self):
@@ -87,26 +86,24 @@ class ReplayBuffer:
 # 3) Critic (Q) Network
 ##########################################################################
 class QNetwork(nn.Module):
-    def __init__(self, input_shape=(70,70), action_dim=2):
+    def __init__(self, input_shape=(70,70), action_dim=2, in_channels=4):
         super(QNetwork, self).__init__()
-        # 4채널 입력을 가정 (현재 state, 3,6,9 step 전 state)
-        self.conv1 = nn.Conv2d(4, 32, kernel_size=3, stride=2, padding=1)
+        self.in_channels = in_channels
+        self.conv1 = nn.Conv2d(in_channels, 32, kernel_size=3, stride=2, padding=1)
         self.bn1   = nn.BatchNorm2d(32)
         self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)
         self.bn2   = nn.BatchNorm2d(64)
-        # 마지막 conv layer: stride=1로 공간 정보를 보존
         self.conv3 = nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1)
         self.bn3   = nn.BatchNorm2d(128)
         
         conv_out_size = self._get_conv_out(input_shape)
         
-        # Fully connected layers: conv feature와 행동을 연결하여 Q-value 예측
         self.fc1 = nn.Linear(conv_out_size + action_dim, 256)
         self.fc2 = nn.Linear(256, 128)
         self.q_out = nn.Linear(128, 1)
 
     def _get_conv_out(self, shape):
-        dummy = torch.zeros(1, 4, *shape)  # (batch, 채널=4, H, W)
+        dummy = torch.zeros(1, self.in_channels, *shape)  # (batch, in_channels, H, W)
         o = F.relu(self.bn1(self.conv1(dummy)))
         o = F.relu(self.bn2(self.conv2(o)))
         o = F.relu(self.bn3(self.conv3(o)))
@@ -123,19 +120,17 @@ class QNetwork(nn.Module):
         q_val = self.q_out(x)
         return q_val
 
-
-
 ##########################################################################
 # 4) Policy (Actor) Network
 ##########################################################################
 class PolicyNetwork(nn.Module):
-    def __init__(self, input_shape=(70,70)):
+    def __init__(self, input_shape=(70,70), in_channels=4):
         super(PolicyNetwork, self).__init__()
+        self.in_channels = in_channels
         self.log_std_min = -10
         self.log_std_max = -0.5
 
-        # 4채널 입력을 가정
-        self.conv1 = nn.Conv2d(4, 32, kernel_size=3, stride=2, padding=1)
+        self.conv1 = nn.Conv2d(in_channels, 32, kernel_size=3, stride=2, padding=1)
         self.bn1   = nn.BatchNorm2d(32)
         self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)
         self.bn2   = nn.BatchNorm2d(64)
@@ -151,12 +146,11 @@ class PolicyNetwork(nn.Module):
             nn.ReLU()
         )
 
-        # 상태 feature로부터 방향(mean, log_std) 추론
         self.mean_head = nn.Linear(128, 2)
         self.log_std_head = nn.Linear(128, 2)
 
     def _get_conv_out(self, shape):
-        dummy = torch.zeros(1, 4, *shape)
+        dummy = torch.zeros(1, self.in_channels, *shape)  # (batch, in_channels, H, W)
         o = F.relu(self.bn1(self.conv1(dummy)))
         o = F.relu(self.bn2(self.conv2(o)))
         o = F.relu(self.bn3(self.conv3(o)))
@@ -190,7 +184,6 @@ class PolicyNetwork(nn.Module):
         jacobian = torch.log(4 * sigma * (1 - sigma) + 1e-8).sum(dim=1)
         log_prob = log_prob_u - jacobian
         return action, log_prob
-
     
 ##########################################################################
 # 5) SAC Agent for Action
@@ -206,6 +199,7 @@ class SACAgent:
         self.epsilon_long = start_epsilon_long 
         self.epsilon_long_min = 0.005
         self.epsilon_min = 0.1
+        self.writer = SummaryWriter()
 
         self.imitation_global_step = 0
 
@@ -213,28 +207,22 @@ class SACAgent:
         self.replay_buffer = ReplayBuffer(capacity=int(replay_size))
         
 
-        # Critic networks
-        self.q1 = QNetwork(input_shape, action_dim=2).to(self.device)
-        self.q2 = QNetwork(input_shape, action_dim=2).to(self.device) #Q값의 과대평가 문제 줄이기 위해 double Q 도입
-        # self.q1, self.q2 -> 현재 상태 s와 행동 a에 대해 Q-value를 근사하는 네트워크
-        # predicted Q와 target Q의 차이를 줄이자
+        # Critic networks (in_channels=4 적용)
+        self.q1 = QNetwork(input_shape, action_dim=2, in_channels=4).to(self.device)
+        self.q2 = QNetwork(input_shape, action_dim=2, in_channels=4).to(self.device)
 
-        self.q1_target = QNetwork(input_shape, action_dim=2).to(self.device)
-        self.q2_target = QNetwork(input_shape, action_dim=2).to(self.device)
-        # self.q1_target, self.q2_target -> Q의 Ground Truth 근사치 제공
-        # q-network 업데이트 시 사용하는 Target 값을 제공
-
+        self.q1_target = QNetwork(input_shape, action_dim=2, in_channels=4).to(self.device)
+        self.q2_target = QNetwork(input_shape, action_dim=2, in_channels=4).to(self.device)
         self.q1_target.load_state_dict(self.q1.state_dict())
         self.q2_target.load_state_dict(self.q2.state_dict())
 
-        # Policy network
-        self.policy = PolicyNetwork(input_shape).to(self.device)
+        # Policy network (in_channels=4 적용)
+        self.policy = PolicyNetwork(input_shape, in_channels=4).to(self.device)
 
-        # Optimizers
-        self.q1_optimizer = optim.Adam(self.q1.parameters(), lr=lr) #parameter optimizaing
+        self.q1_optimizer = optim.Adam(self.q1.parameters(), lr=lr)
         self.q2_optimizer = optim.Adam(self.q2.parameters(), lr=lr)
         self.policy_optimizer = optim.Adam(self.policy.parameters(), lr=lr)
-        self.replay_buffer_archive_count = 0
+
 
 # ------------------------------------------------- #
     # Soft update
@@ -262,14 +250,9 @@ class SACAgent:
     # ------------------------------------------------- #
     # Store experience
     # ------------------------------------------------- #
-    # ------------------------------------------------- #
-    # Store experience (and archive if full)
-    # ------------------------------------------------- #
     def store_transition(self, s, a, r, s_next, done):
+        # if -20 <= a[0] <= 20 and -20 <= a[1] <= 20:
         self.replay_buffer.push(s, a, r, s_next, done)
-        # 만약 버퍼가 가득 찼다면 아카이브 후 버퍼를 초기화
-        if len(self.replay_buffer) == self.replay_buffer.buffer.maxlen:
-            self.archive_replay_buffer()
 
     # ------------------------------------------------- #
     # Select action
@@ -289,7 +272,7 @@ class SACAgent:
             return np.array([dx, dy]), True
 
         # Otherwise use the policy
-        state_t = torch.FloatTensor(state_np).unsqueeze(0).unsqueeze(0).to(self.device)  # (1,1,H,W)
+        state_t = torch.FloatTensor(state_np).unsqueeze(0).to(self.device)  # (1,1,H,W)
         # state_np는 2D 배열인데, 차원을 추가하여 모델 입력에 적합한 차원으로 만들려는 것
 
         with torch.no_grad():
@@ -392,12 +375,11 @@ class SACAgent:
         loss_imitation.backward()
         torch.nn.utils.clip_grad_norm_(self.policy.parameters(), 1.0)
         self.policy_optimizer.step()
-
         imitation_log_path = os.path.join(log_dir, "imitation.txt")
         with open(imitation_log_path, "a") as f:
             f.write(f"{loss_imitation.item()}\n")
         
-        #self.writer.add_scalar("Imitation Loss", loss_imitation.item(), self.imitation_global_step)
+        self.writer.add_scalar("Imitation Loss", loss_imitation.item(), self.imitation_global_step)
         self.imitation_global_step += 1
         
         return loss_imitation.item()
@@ -444,14 +426,6 @@ class SACAgent:
         print("Replay buffer loaded.")
         print("Replay buffer size:", len(self.replay_buffer))
 
-    def archive_replay_buffer(self):
-        archive_filename = f"replay_buffer_{self.replay_buffer_archive_count}.pkl"
-        archive_path = os.path.join(log_dir, archive_filename)
-        self.replay_buffer.save(archive_path)
-        print(f"Archived replay buffer to {archive_path}")
-        self.replay_buffer_archive_count += 1
-        # 버퍼 초기화: 새 데이터 수집을 위해 현재 저장된 데이터를 모두 지움
-        self.replay_buffer.buffer.clear()
 ##########################################################################
 # TensorBoard 모니터링 함수: total_reward.txt 파일의 새 라인을 지속적으로 읽어 기록
 ##########################################################################
@@ -567,157 +541,161 @@ if __name__ == "__main__":
             #     agent.load_replay_buffer(replay_buffer_path)
         else:
             pass
-    # # ================================
-    # # [모방 학습 pre-training 단계]
-    # # ================================
-    # imitation_buffer_path = os.path.join(log_dir, "imitation_buffer.pkl")
-    # if os.path.exists(imitation_buffer_path):
-    #     print("Loading imitation learning dataset for pre-training.")
-    #     imitation_replay_buffer = ReplayBuffer(capacity=int(args.buffer_size))
-    #     imitation_replay_buffer.load(imitation_buffer_path)
-    #     # 모방 데이터셋을 에이전트의 replay_buffer에 추가
-    #     agent.replay_buffer.buffer.extend(imitation_replay_buffer.buffer)
-    #     print("Imitation data loaded. Total imitation samples:", len(imitation_replay_buffer.buffer))
+    # ================================
+    # [모방 학습 pre-training 단계]
+    # ================================
+    imitation_buffer_path = os.path.join(log_dir, "replay_buffer_0.pkl")
+    if os.path.exists(imitation_buffer_path):
+        print("Loading imitation learning dataset for pre-training.")
+        imitation_replay_buffer = ReplayBuffer(capacity=int(args.buffer_size))
+        imitation_replay_buffer.load(imitation_buffer_path)
+        # 모방 데이터셋을 에이전트의 replay_buffer에 추가
+        agent.replay_buffer.buffer.extend(imitation_replay_buffer.buffer)
+        print("Imitation data loaded. Total imitation samples:", len(imitation_replay_buffer.buffer))
         
-    #     pretrain_steps = 1000  # 모방 학습으로 업데이트할 횟수 (필요에 따라 조정)
-    #     print("Starting imitation learning pre-training for {} steps.".format(pretrain_steps))
-    #     for i in range(pretrain_steps):
-    #         if len(agent.replay_buffer) >= agent.batch_size * 50:
-    #             agent.update()
-    #         else:
-    #             print("Not enough imitation data for pretraining.")
-    #             break
-    #     print("Imitation learning pre-training completed.")
-    # else:
-    #     print("No imitation learning dataset found. Skipping imitation pre-training.")
+        pretrain_steps = 1000  # 모방 학습으로 업데이트할 횟수 (필요에 따라 조정)
+        print("Starting imitation learning pre-training for {} steps.".format(pretrain_steps))
+        for i in range(pretrain_steps):
+            if len(agent.replay_buffer) >= agent.batch_size:
+                agent.update_imitation()
+            else:
+                print("Not enough imitation data for pretraining.")
+                break
+        print("Imitation learning pre-training completed.")
+    else:
+        print("No imitation learning dataset found. Skipping imitation pre-training.")
+    imitation_model_path = os.path.join(log_dir, "imitation_model.pth")
+    agent.save_model(imitation_model_path)
 
-    # abnormal_reward = 0
+    abnormal_reward = 0
 
 
     
 
-    abnormal_reward = 0
-    replay_buffer_path = os.path.join(log_dir, "replay_buffer.pkl")
-    for episode in range(max_episodes):
-        print(f"Episode {start_episode+episode+1}")
-        # Create environment
-        while True:
-            try:
-                env_model = model.FightingModel(number_of_agents, 70, 70, 2, 'Q')
-                break
-            except Exception as e:
-                print(e, "Retrying environment creation...")
+    # abnormal_reward = 0
+    # replay_buffer_path = os.path.join(log_dir, "replay_buffer.pkl")
+    # for episode in range(max_episodes):
+    #     print(f"Episode {start_episode+episode+1}")
+    #     # Create environment
+    #     while True:
+    #         try:
+    #             env_model = model.FightingModel(number_of_agents, 70, 70, 2, 'Q')
+    #             break
+    #         except Exception as e:
+    #             print(e, "Retrying environment creation...")
         
-        state = env_model.return_current_image()
-        total_reward = 0
-        reward = 0
-        buffered_state = state
-        buffered_action = None
-        abnormal_reward = 0
+    #     state = env_model.return_current_image()
+    #     total_reward = 0
+    #     reward = 0
+    #     buffered_state = state
+    #     buffered_action = None
+    #     abnormal_reward = 0
+    #     try:
+    #         for step in range(max_steps):
+    #             # 1) Select action
 
-        initial_state = env_model.return_current_image()
-        state_stack = [initial_state for _ in range(4)]
-        state = np.stack(state_stack, axis=0)
-
-        try:
-            for step in range(max_steps):
-                # 1) Select action
-
-                if(step%3==0):
+    #             if(step%3==0):
                     
-                    env_model.robot.one_by_one = 1
-                    action_np, _ = agent.select_action(state)
-                    dx, dy = 0, 0
-                    real_action = env_model.robot.receive_action([dx, dy])
-                    action_np[0] = real_action[0]
-                    action_np[1] = real_action[1]
-                    buffered_state = state.copy()
-                    buffered_action = action_np
+    #                 if(np.random.rand() < agent.epsilon_long):
+    #                     env_model.robot.now_exploration = 1
+                    
+    #                 action_np, _ = agent.select_action(state)
+    #                 dx, dy = action_np[0], action_np[1]
+    #                 real_action = env_model.robot.receive_action([dx, dy])
+    #                 action_np[0] = real_action[0]
+    #                 action_np[1] = real_action[1]
+    #                 buffered_state = state
+    #                 buffered_action = action_np
                 
                 
-                # Simulation time check
-                sim_timer.start()
-                # 2) Step environment
-                env_model.step()
-                sim_timer.stop()
+    #             # Simulation time check
+    #             sim_timer.start()
+    #             # 2) Step environment
+    #             env_model.step()
+    #             sim_timer.stop()
 
-                # 3) Reward
-                #r_a = env_model.reward_based_alived() 
-                #r_d = env_model.reward_based_all_agents_danger()
-                #r_da = env_model.reward_distance_from_all_agents()
-                #r_g = env_model.reward_based_gain()
-                #r_p = env_model.reward_penalty()
-                reward = 0
-                #print("alived reward : ", r_a)
-                #print("danger reward : ", r_d)
-                #print("distance reward : ", r_da)
-                #print("gain reward : ", r_g)
+    #             # 3) Reward
+    #             r_a = env_model.reward_based_alived() 
+    #             r_d = env_model.reward_based_all_agents_danger()
+    #             #r_da = env_model.reward_distance_from_all_agents()
+    #             #r_g = env_model.reward_based_gain()
+    #             #r_p = env_model.reward_penalty()
+    #             reward += (r_a + r_d)
+    #             #print("alived reward : ", r_a)
+    #             #print("danger reward : ", r_d)
+    #             #print("distance reward : ", r_da)
+    #             #print("gain reward : ", r_g)
 
-                # 4) Next state
-                next_state = np.stack(state_stack, axis=0)
+    #             # 4) Next state
+    #             next_state = env_model.return_current_image()
 
-                # 5) Done?
-                done = (step >= max_steps-1) or (env_model.robot.is_game_finished)
-                # if(env_model.robot.is_game_finished):
-                #     reward += 10
+    #             # 5) Done?
+    #             done = (step >= max_steps-1) or (env_model.robot.is_game_finished)
+    #             if(env_model.robot.is_game_finished):
+    #                 reward += 10
 
-                # 6) Store transition
-                if(step%3==2 and step>5):
-                    agent.store_transition(
-                        buffered_state,
-                        buffered_action,
-                        reward, 
-                        next_state, 
-                        float(done)
-                    )
-                    # total_reward += reward
-                    # print("reward : ", reward)
-                    # reward = 0
+    #             # 6) Store transition
+    #             if(step%3==2 and step>5):
+    #                 agent.store_transition(
+    #                     buffered_state,
+    #                     buffered_action,
+    #                     reward, 
+    #                     next_state, 
+    #                     float(done)
+    #                 )
+    #                 total_reward += reward
+    #                 print("reward : ", reward)
+    #                 reward = 0
 
-                # # 7) Update agent
-                # if(step%3==2):
-                #     learn_timer.start()
-                #     agent.update()
-                #     learn_timer.stop()
+    #             # 7) Update agent
+    #             if(step%3==2):
+    #                 learn_timer.start()
+    #                 agent.update()
+    #                 learn_timer.stop()
 
-                state = next_state
-                if done:
-                    break
-        except Exception as e:
-            print(e)
-            print("error occured. retry.")
-            env_model = model.FightingModel(number_of_agents, 70, 70, 2, 'Q')
-            abnormal_reward = 1
+    #             state = next_state
+    #             if done:
+    #                 break
+    #     except Exception as e:
+    #         print(e)
+    #         print("error occured. retry.")
+    #         env_model = model.FightingModel(number_of_agents, 70, 70, 2, 'Q')
+    #         abnormal_reward = 1
 
-        # Possibly update epsilon, or do other logging
-        decay_value = args.decay_value
+    #     # Possibly update epsilon, or do other logging
+    #     decay_value = args.decay_value
 
-        # agent.update_epsilon(True, decay_value)
-        # agent.update_epsilon2(True, decay_value)
-        # print("Total reward:", total_reward)
-        # print("now_epsilon : ", agent.epsilon)
-        # print("now_epsilon_long : ", agent.epsilon_long)
-        # Save model occasionally
+    #     agent.update_epsilon(True, decay_value)
+    #     agent.update_epsilon2(True, decay_value)
+    #     print("Total reward:", total_reward)
+    #     print("now_epsilon : ", agent.epsilon)
+    #     print("now_epsilon_long : ", agent.epsilon_long)
+    #     # Save model occasionally
 
-        reward_file_path = os.path.join(log_dir, "total_reward.txt")
-        if not os.path.exists(reward_file_path):
-            # 파일이 없으면 빈 파일 생성
-            open(reward_file_path, "w").close()
+    #     reward_file_path = os.path.join(log_dir, "total_reward.txt")
+    #     if not os.path.exists(reward_file_path):
+    #         # 파일이 없으면 빈 파일 생성
+    #         open(reward_file_path, "w").close()
 
-        if (episode+1) % 10 == 0:
-            model_filename = os.path.join(log_dir, f"sac_checkpoint_ep_{start_episode + episode + 1}.pth")
-            #agent.save_model(model_filename)
-            replay_buffer_filename = "replay_buffer.pkl"
-            agent.save_replay_buffer(replay_buffer_filename)
+    #     if (episode+1) % 10 == 0:
+    #         model_filename = os.path.join(log_dir, f"sac_checkpoint_ep_{start_episode + episode + 1}.pth")
+    #         agent.save_model(model_filename)
+    #         replay_buffer_filename = "replay_buffer.pkl"
+    #         agent.save_replay_buffer(replay_buffer_filename)
 
-        # with open(epsilon_path, "w") as f:
-        #     f.write(str(agent.epsilon)+"\n")
-        #     f.write(str(agent.epsilon_long))
+    #     reward_file_path = os.path.join(log_dir, "total_reward.txt")
+    #     with open(reward_file_path, "a") as f:
+    #         if(abnormal_reward != 1):
+    #             f.write(f"{total_reward}\n")
+
+    #     with open(epsilon_path, "w") as f:
+    #         f.write(str(agent.epsilon)+"\n")
+    #         f.write(str(agent.epsilon_long))
 
 
-        # each episode time print
-        if ENABLE_TIMER:
-            print(f"episode {start_episode+episode+1} - Total Simulation Time: {sim_timer.get_time():.6f} 초")
-            print(f"episode {start_episode+episode+1} - Total Learning Time: {learn_timer.get_time():.6f} 초")
-            sim_timer.reset()
-            learn_timer.reset()
+    #     # each episode time print
+    #     if ENABLE_TIMER:
+    #         print(f"episode {start_episode+episode+1} - Total Simulation Time: {sim_timer.get_time():.6f} 초")
+    #         print(f"episode {start_episode+episode+1} - Total Learning Time: {learn_timer.get_time():.6f} 초")
+    #         sim_timer.reset()
+    #         learn_timer.reset()

@@ -254,6 +254,8 @@ class CrowdAgent(Agent):
         self.is_confirmed = 0
         self.is_confirmed_past = 0
 
+
+
         self.model.robot_mode = "GUIDE"
 
         # self.xy[0] = self.random.randrange(self.model.grid.width)
@@ -736,9 +738,6 @@ class RobotAgent(CrowdAgent):
         self.collision_check = 0
         self.detect_abnormal_order = 0
         self.is_game_finished = 0
-        self.now_tracking_agent = None
-        self.tracking_mode = 0 #0이면 아직 설정되지 않음, 1이면 agent racking, 2이면 탈출구로 
-        self.nearest_exit = [0, 0]
 
         self.robot_waypoint = [0, 0]
         self.now_exploration = 0
@@ -753,48 +752,7 @@ class RobotAgent(CrowdAgent):
         self.action[0] = action[0]
         self.action[1] = action[1]
 
-        if(self.one_by_one == 1):
-            print("one by one guide 중")
-
-            if(self.tracking_mode == 1):
-                if(math.sqrt(pow(self.xy[0]-self.now_tracking_agent.xy[0], 2)+pow(self.xy[1]-self.now_tracking_agent.xy[1], 2))<2):
-                    self.tracking_mode = 2
-            elif(self.tracking_mode == 2 and math.sqrt(pow(self.xy[0]-self.nearest_exit[0], 2)+pow(self.xy[1]-self.nearest_exit[1], 2))<2):
-                self.tracking_mode = 0
-                self.now_tracking_agent = None
-
-            if(self.tracking_mode == 0):
-                if(self.now_tracking_agent == None):
-                    trackable_agent = []
-                    for agent in self.model.agents:
-                        if ((agent.type == 0 or agent.type == 1 or agent.type == 2) and (agent.dead == False)):
-                            trackable_agent.append(agent)
-                    print("len : ", len(trackable_agent))
-                    if(len(trackable_agent) == 0):
-                        return [0, 0]
-                    self.now_tracking_agent = random.choice(trackable_agent)
-                self.tracking_mode = 1
-            elif(self.tracking_mode == 1):
-                self.robot_waypoint = self.now_tracking_agent.xy
-            elif(self.tracking_mode == 2):
-                self.robot_waypoint = self.nearest_exit
-
-            now_mesh = self.model.match_grid_to_mesh[int(round(self.xy[0])), int(round(self.xy[1]))]
-            goal_mesh = self.model.match_grid_to_mesh[int(round(self.robot_waypoint[0])), int(round(self.robot_waypoint[1]))]
-            next_mesh = self.model.next_vertex_matrix[now_mesh][goal_mesh]
-            if(now_mesh == next_mesh):
-                goal_x = self.robot_waypoint[0] - self.xy[0]
-                goal_y = self.robot_waypoint[1] - self.xy[1]
-            else:
-                next_mesh_middle = ((next_mesh[0][0]+next_mesh[1][0]+next_mesh[2][0])/3, (next_mesh[0][1]+next_mesh[1][1]+next_mesh[2][1])/3)
-                goal_x = next_mesh_middle[0] - self.xy[0]
-                goal_y = next_mesh_middle[1] - self.xy[1]
-            goal_d = math.sqrt(pow(goal_x,2) + pow(goal_y,2))
-            goal_x = goal_x/goal_d
-            goal_y = goal_y/goal_d
-            self.action[0] = goal_x
-            self.action[1] = goal_y
-            
+        
         if(self.now_exploration == 1):
             print("exploration 중")
             if(self.robot_waypoint == [0, 0]):
@@ -816,8 +774,6 @@ class RobotAgent(CrowdAgent):
             goal_y = goal_y/goal_d
             self.action[0] = goal_x
             self.action[1] = goal_y
-
-            return np.array(self.action)
         
 
         return np.array(self.action)
@@ -832,13 +788,6 @@ class RobotAgent(CrowdAgent):
         for i in self.model.exit_point:
             self.danger = min(self.danger, self.point_to_point_distance([self.xy[0], self.xy[1]], i))
         
-        self.danger = 99999
-        self.nearest_exit = self.model.exit_point[0]
-        for i in self.model.exit_point:
-            if (self.danger < self.point_to_point_distance([self.xy[0], self.xy[1]], i)):
-                self.danger = self.point_to_point_distance([self.xy[0], self.xy[1]], i)
-                self.nearest_exit = i
-
         if(self.model.alived_agents()< 2):
             self.is_game_finished =1 
 
