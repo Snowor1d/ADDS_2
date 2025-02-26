@@ -4,31 +4,29 @@ import math
 import os
 import pickle
 import time
-
 import numpy as np
-
-# model.py, ADDS_AS_reinforcement.py 경로를 맞춰주세요.
 from model import FightingModel
 from ADDS_AS_reinforcement import ReplayBuffer
 
 ############################
 # 화면 및 조이스틱 설정
+'''
+맵 70 * 70 (맵 전체 픽셀 크기 700 * 700)
+화면 크기 800 * 800
+오프셋 25씩
+조이스틱 UI 위치 730, 730
+'''
 ############################
 SCREEN_WIDTH = 800
 SCREEN_HEIGHT = 800
-
-# 맵 70x70을 그릴 때의 셀 크기
 CELL_SIZE = 10
-# 맵 전체 픽셀 크기 = 70 * CELL_SIZE = 700
-# 화면이 800x800이므로, 조금 여유있게 중앙정렬하기 위해 오프셋을 줍니다.
-MAP_OFFSET_X = (SCREEN_WIDTH - 70*CELL_SIZE) // 2  # 대략 50
-MAP_OFFSET_Y = (SCREEN_HEIGHT - 70*CELL_SIZE) // 2 # 대략 50
+MAP_OFFSET_X = (SCREEN_WIDTH - 70*CELL_SIZE) // 4 
+MAP_OFFSET_Y = (SCREEN_HEIGHT - 70*CELL_SIZE) // 4 
 
-# 조이스틱 UI
-JOYSTICK_CENTER = (120, 700)  # 화면 아래쪽 근처
+JOYSTICK_CENTER = (730, 730)
 JOYSTICK_RADIUS = 60
 KNOB_RADIUS = 15
-MAX_MOVE = 2.0  # 환경에서 허용하는 로봇 이동 범위가 -2~2
+MAX_MOVE = 2.0  # 환경에서 허용하는 로봇 이동 범위 -2~2
 
 # 색상
 WHITE = (255, 255, 255)
@@ -68,7 +66,7 @@ def draw_joystick(surface, center, radius, knob_pos):
     pygame.draw.circle(surface, RED, knob_pos, KNOB_RADIUS)
 
 def get_joystick_action(joystick_center, knob_pos, max_move=MAX_MOVE):
-    """조이스틱에서 (-max_move ~ +max_move) 범위의 (dx, dy)를 구합니다."""
+    """조이스틱에서 (-max_move ~ +max_move) 범위의 (dx, dy)를 구함"""
     cx, cy = joystick_center
     kx, ky = knob_pos
     dx = kx - cx
@@ -95,18 +93,18 @@ def draw_environment(surface, env_map):
                 MAP_OFFSET_Y + x*CELL_SIZE,
                 CELL_SIZE, CELL_SIZE
             )
-            if val == 0:
+            if val == 0: # 빈공간
                 color = WHITE
-            elif val == 20:
-                color = BLACK
-            elif val == 60:
-                color = BLUE
-            elif val == 100:
+            elif val == 100: # agent
                 color = GREEN
-            elif val == 140:
+            elif val == 140: # guided agent
                 color = YELLOW
-            elif val == 200:
+            elif val == 60: # 출구
+                color = BLUE
+            elif val == 200: # 로봇
                 color = RED
+            elif val == 20: # 벽
+                color = BLACK
             else:
                 color = (150, 150, 150)
             pygame.draw.rect(surface, color, rect)
@@ -142,7 +140,7 @@ def main():
     episode_done = False
 
     while running:
-        clock.tick(30)  # 초당 30프레임
+        clock.tick(15)  # 초당 15프레임
 
         # -------------------------
         # 이벤트 처리
@@ -186,7 +184,7 @@ def main():
         # -------------------------
         user_dx, user_dy = get_joystick_action(JOYSTICK_CENTER, (knob_x, knob_y))
 
-        # (중요) 방향 뒤집힘을 해결하기 위해, 실제 env는 action=[dy, dx] 로 전달
+        # 방향 뒤집힘을 해결하기 위해 실제 env는 action=[dy, dx] 로 전달
         env_dx = user_dy
         env_dy = user_dx
 
@@ -229,6 +227,7 @@ def main():
         total_reward += reward
         step_count += 1
         state = next_state
+        remained_agent = env_model.alived_agents()
 
         if done and not episode_done:
             # 에피소드 끝
@@ -253,10 +252,10 @@ def main():
         draw_joystick(screen, JOYSTICK_CENTER, JOYSTICK_RADIUS, (knob_x, knob_y))
 
         # 텍스트
-        draw_text(screen, f"Step: {step_count}", 10, 10, color=BLACK, font_size=22)
-        draw_text(screen, f"Reward: {reward:.3f}", 10, 35, color=BLACK, font_size=22)
-        draw_text(screen, f"EpiTotal: {total_reward:.3f}", 10, 60, color=BLACK, font_size=22)
-        draw_text(screen, "ESC to quit", 10, 85, color=(128,0,0), font_size=18)
+        draw_text(screen, f"Step: {step_count}", 35, 35, color=BLACK, font_size=22)
+        draw_text(screen, f"Remained Agent: {remained_agent}", 35, 60, color=BLACK, font_size=22)
+        draw_text(screen, f"Total Reward: {total_reward:.3f}", 35, 85, color=BLACK, font_size=22)
+        draw_text(screen, "ESC to quit", 35, 110, color=(128,0,0), font_size=18)
 
         pygame.display.flip()
 
@@ -266,7 +265,7 @@ def main():
     pygame.quit()
 
     # 마지막으로 ReplayBuffer 저장
-    save_path = os.path.join(os.path.dirname(__file__), "imitation_dataset.pkl")
+    save_path = os.path.join(log_dir, "imitation_dataset.pkl")
     with open(save_path, "wb") as f:
         pickle.dump(replay_buffer.buffer, f)
     print(f"Replay buffer saved to {save_path}, size={len(replay_buffer.buffer)}")
