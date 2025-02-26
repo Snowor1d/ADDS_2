@@ -777,11 +777,11 @@ class RobotAgent(CrowdAgent):
                     print("len : ", len(trackable_agent))
                     if(len(trackable_agent) == 0):
                         return [0, 0]
-                    min_d = 999999999
+                    max_d = 0
                     for agent in trackable_agent:
-                        if(self.point_to_point_distance(self.xy, agent.xy)<min_d):
+                        if(agent.danger>max_d):
                             self.now_tracking_agent = agent
-                            min_d = self.point_to_point_distance(self.xy, agent.xy)
+                            max_d = self.point_to_point_distance(self.xy, agent.xy)
                 self.tracking_mode = 1
             elif(self.tracking_mode == 1):
                 self.robot_waypoint = self.now_tracking_agent.xy

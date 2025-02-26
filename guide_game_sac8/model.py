@@ -955,7 +955,7 @@ class FightingModel(Model):
             self.checking_reward += self.reward_based_evacuated_confirmed()
         if(self.using_model and self.step_n%3==0):
             if(np.random.rand() < 0.04):
-                self.robot.now_exploration = 1
+                self.robot.now_exploration = 0
             action, _ = self.sac_agent.select_action(state)
             dx, dy = action[0], action[1]
             self.robot.receive_action([dx, dy])
@@ -1058,7 +1058,7 @@ class FightingModel(Model):
         num_actions = 4
 
         self.sac_agent = SACAgent(input_shape, num_actions, start_epsilon=0)
-        #self.sac_agent.load_model(file_path)
+        self.sac_agent.load_model(file_path)
 
         self.using_model = True
 
@@ -1073,10 +1073,10 @@ class FightingModel(Model):
             if(agent.type==10):
                 image[agent.pos[0]][agent.pos[1]] = 60 # 출구
         for agent in self.agents:
-            if(agent.type == 1 or agent.type == 2):
+            if(agent.type == 1 or agent.type == 2) and agent.dead==False:
                 image[int(round(agent.xy[0]))][int(round(agent.xy[1]))] = 100 #agent
         for agent in self.agents:
-            if(agent.type == 0):
+            if(agent.type == 0) and agent.dead == False:
                 image[int(round(agent.xy[0]))][int(round(agent.xy[1]))] = 140
         for agent in self.agents:
             if(agent.type == 3):

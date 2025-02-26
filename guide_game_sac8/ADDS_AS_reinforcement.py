@@ -578,7 +578,7 @@ if __name__ == "__main__":
                 if(step%3==0):
                     
                     if(np.random.rand() < agent.epsilon_long):
-                        env_model.robot.now_exploration = 1
+                        env_model.robot.now_exploration = 0
                     
                     action_np, _ = agent.select_action(state)
                     dx, dy = action_np[0], action_np[1]
