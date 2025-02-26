@@ -777,23 +777,30 @@ class RobotAgent(CrowdAgent):
                     print("len : ", len(trackable_agent))
                     if(len(trackable_agent) == 0):
                         return [0, 0]
-                    self.now_tracking_agent = random.choice(trackable_agent)
+                    min_d = 999999999
+                    for agent in trackable_agent:
+                        if(self.point_to_point_distance(self.xy, agent.xy)<min_d):
+                            self.now_tracking_agent = agent
+                            min_d = self.point_to_point_distance(self.xy, agent.xy)
                 self.tracking_mode = 1
             elif(self.tracking_mode == 1):
                 self.robot_waypoint = self.now_tracking_agent.xy
             elif(self.tracking_mode == 2):
                 self.robot_waypoint = self.nearest_exit
 
-            now_mesh = self.model.match_grid_to_mesh[int(round(self.xy[0])), int(round(self.xy[1]))]
-            goal_mesh = self.model.match_grid_to_mesh[int(round(self.robot_waypoint[0])), int(round(self.robot_waypoint[1]))]
-            next_mesh = self.model.next_vertex_matrix[now_mesh][goal_mesh]
-            if(now_mesh == next_mesh):
-                goal_x = self.robot_waypoint[0] - self.xy[0]
-                goal_y = self.robot_waypoint[1] - self.xy[1]
-            else:
-                next_mesh_middle = ((next_mesh[0][0]+next_mesh[1][0]+next_mesh[2][0])/3, (next_mesh[0][1]+next_mesh[1][1]+next_mesh[2][1])/3)
-                goal_x = next_mesh_middle[0] - self.xy[0]
-                goal_y = next_mesh_middle[1] - self.xy[1]
+            # now_mesh = self.model.match_grid_to_mesh[int(round(self.xy[0])), int(round(self.xy[1]))]
+            # goal_mesh = self.model.match_grid_to_mesh[int(round(self.robot_waypoint[0])), int(round(self.robot_waypoint[1]))]
+            # next_mesh = self.model.next_vertex_matrix[now_mesh][goal_mesh]
+            # if(now_mesh == next_mesh):
+            #     goal_x = self.robot_waypoint[0] - self.xy[0]
+            #     goal_y = self.robot_waypoint[1] - self.xy[1]
+            # else:
+            #     next_mesh_middle = ((next_mesh[0][0]+next_mesh[1][0]+next_mesh[2][0])/3, (next_mesh[0][1]+next_mesh[1][1]+next_mesh[2][1])/3)
+            #     goal_x = next_mesh_middle[0] - self.xy[0]
+            #     goal_y = next_mesh_middle[1] - self.xy[1]
+
+            goal_x = self.robot_waypoint[0] - self.xy[0]
+            goal_y = self.robot_waypoint[1] - self.xy[1]
             goal_d = math.sqrt(pow(goal_x,2) + pow(goal_y,2))
             goal_x = goal_x/goal_d
             goal_y = goal_y/goal_d

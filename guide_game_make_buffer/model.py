@@ -417,7 +417,7 @@ class FightingModel(Model):
 
     def mesh_map(self):
 
-        D = 20
+        D = 30
         map_boundary = [[0, 0], [self.width, 0], [self.width, self.height], [0, self.height]]
         obstacle_hulls = []
 
@@ -1072,10 +1072,10 @@ class FightingModel(Model):
             if(agent.type==10):
                 image[agent.pos[0]][agent.pos[1]] = 60 # 출구
         for agent in self.agents:
-            if(agent.type == 1 or agent.type == 2):
+            if((agent.type == 1 or agent.type == 2) and agent.dead == False):
                 image[int(round(agent.xy[0]))][int(round(agent.xy[1]))] = 100 #agent
         for agent in self.agents:
-            if(agent.type == 0):
+            if(agent.type == 0 and agent.dead == False):
                 image[int(round(agent.xy[0]))][int(round(agent.xy[1]))] = 140
         for agent in self.agents:
             if(agent.type == 3):
