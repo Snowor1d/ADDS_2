@@ -757,13 +757,16 @@ class RobotAgent(CrowdAgent):
 
         if(self.one_by_one == 1):
             print("one by one guide 중")
-
             if(self.tracking_mode == 1):
                 if(math.sqrt(pow(self.xy[0]-self.now_tracking_agent.xy[0], 2)+pow(self.xy[1]-self.now_tracking_agent.xy[1], 2))<2):
+                    self.tracking_mode = 2
+                elif(self.agents_in_robot_area(self.xy)>0):
                     self.tracking_mode = 2
             elif(self.tracking_mode == 2 and math.sqrt(pow(self.xy[0]-self.nearest_exit[0], 2)+pow(self.xy[1]-self.nearest_exit[1], 2))<2):
                 self.tracking_mode = 0
                 self.now_tracking_agent = None
+            elif(self.tracking_mode == 2 and self.agents_in_robot_area(self.xy)==0):
+                self.tracking_mode = 1
 
             if(self.tracking_mode == 0):
                 if(self.now_tracking_agent == None):
