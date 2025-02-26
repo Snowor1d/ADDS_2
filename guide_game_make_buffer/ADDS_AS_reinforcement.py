@@ -13,6 +13,7 @@ import pickle
 import argparse
 
 import threading
+import re
 from torch.utils.tensorboard import SummaryWriter
 import subprocess
 import webbrowser
@@ -235,6 +236,19 @@ class SACAgent:
         self.epsilon_long = start_epsilon_long 
         self.epsilon_long_min = 0.005
         self.epsilon_min = 0.1
+        self.replay_buffer_archive_count = 0
+
+       # 기존에 log_dir에 저장된 replay_buffer 파일을 확인하여 archive count를 초기화
+        pattern = re.compile(r"replay_buffer_(\d+)\.pkl")
+        if os.path.exists(log_dir):
+            archive_files = [f for f in os.listdir(log_dir) if pattern.match(f)]
+            if archive_files:
+                counts = [int(pattern.match(f).group(1)) for f in archive_files]
+                self.replay_buffer_archive_count = max(counts) + 1
+            else:
+                self.replay_buffer_archive_count = 0
+        else:
+            self.replay_buffer_archive_count = 0
 
         self.imitation_global_step = 0
 
@@ -426,7 +440,7 @@ class SACAgent:
         with open(imitation_log_path, "a") as f:
             f.write(f"{loss_imitation.item()}\n")
         
-        self.imitation_writer.add_scalar("Imitation Loss", loss_imitation.item(), self.imitation_global_step)
+        #self.writer.add_scalar("Imitation Loss", loss_imitation.item(), self.imitation_global_step)
         self.imitation_global_step += 1
         
         return loss_imitation.item()
