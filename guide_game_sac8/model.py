@@ -334,6 +334,12 @@ class FightingModel(Model):
         self.robot_mode = "GUIDE"
         self.step_count = 0
 
+        self.now_evacuated = 0
+        self.now_evacuated_with_robot = 0
+
+        self.previous_evacuated = 0
+        self.previous_evacuated_with_robot = 0
+
         # for i in range(50):
         #     for j in range(50):
         #         print("(", i, j, ")", self.valid_space[(i, j)])
@@ -350,6 +356,13 @@ class FightingModel(Model):
             if((i.type==0 or i.type==1 or i.type==2) and i.dead == 1):
                 evacuated_agents += 1
         return evacuated_agents
+    
+    def evacuated_agents_with_robot(self):
+        evacuated_agents_with_robot = 0
+        for i in self.schedule.agents:
+            if((i.type==0 or i.type==1 or i.type==2) and i.dead == 1 and i.is_effected_by_robot == 1):
+                evacuated_agents_with_robot += 1
+        return evacuated_agents_with_robot
 
     
     def write_log(self):
@@ -952,7 +965,7 @@ class FightingModel(Model):
 
         state = self.return_current_image()
         if(self.using_model):
-            self.checking_reward += self.reward_based_evacuated_confirmed()
+            self.checking_reward += self.reward_based_evacuated_with_robot()
         if(self.using_model and self.step_n%3==0):
             if(np.random.rand() < 0.04):
                 self.robot.now_exploration = 0
@@ -967,6 +980,13 @@ class FightingModel(Model):
         self.schedule.step()
         self.datacollector_currents.collect(self)  # passing the model
 
+        self.previous_evacuated = self.now_evacuated
+        self.now_evacuated = self.evacuated_agents()
+
+        self.previous_evacuated_with_robot = self.now_evacuated_with_robot
+        self.now_evacuated_with_robot = self.evacuated_agents_with_robot()
+
+
         
         
         
@@ -976,6 +996,13 @@ class FightingModel(Model):
             return self.evacuated_agents()-reference_reward[int(self.step_count/100)]
         else :
             return self.evacuated_agents()-self.total_agents
+        
+    def reward_based_evacuated_timestep_with_robot(self):
+        if (self.now_evacuated >= 10 and self.previous_evacuated < 10):
+            return (3000-self.step_n)/3000
+    
+    def reward_based_evacuated_with_robot(self):
+        return (self.now_evacuated_with_robot - self.previous_evacuated_with_robot)
     
     def reward_distance_from_all_agents(self):
         reward = 0
@@ -1058,7 +1085,7 @@ class FightingModel(Model):
         num_actions = 4
 
         self.sac_agent = SACAgent(input_shape, num_actions, start_epsilon=0)
-        self.sac_agent.load_model(file_path)
+        #self.sac_agent.load_model(file_path)
 
         self.using_model = True
 
