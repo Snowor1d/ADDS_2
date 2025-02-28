@@ -306,8 +306,8 @@ class FightingModel(Model):
         self.mesh_list = list()
         #self.extract_map(self.map_num)     
         self.distance = {}  
-        self.schedule = RandomActivation(self)
         self.schedule_e = RandomActivation(self)
+        self.schedule = RandomActivation(self)
         self.running = (
             True
         )
