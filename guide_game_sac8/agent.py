@@ -446,12 +446,13 @@ class CrowdAgent(Agent):
             
             self.model.grid.move_agent(self, new_position_robot)
             self.pos = new_position_robot
-            
             return
+        
         if(self.type == 0 or self.type == 1 or self.type == 2):
+            self.pos = (int(round(self.xy[0])), int(round(self.xy[1])))
             new_position = self.agent_modeling()
+            print("new_position : ", new_position)
             new_position = (int(round(new_position[0])), int(round(new_position[1])))
-            self.pos = (int(round(self.pos[0])), int(round(self.pos[1])))
             self.model.grid.move_agent(self, new_position) ## 그 위치로 이동
 
     def choice_near_goal(self, pos):

@@ -1085,7 +1085,7 @@ class FightingModel(Model):
         num_actions = 4
 
         self.sac_agent = SACAgent(input_shape, num_actions, start_epsilon=0)
-        self.sac_agent.load_model(file_path)
+        #self.sac_agent.load_model(file_path)
 
         self.using_model = True
 

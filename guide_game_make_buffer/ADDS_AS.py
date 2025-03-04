@@ -57,7 +57,7 @@ model_num = 2
 if visualization_mode == 'on':
     Width = width
     Height =height
-    s_model_r = model.FightingModel(15,width,height,model_num)
+    s_model_r = model.FightingModel(30,width,height,model_num)
     s_model_r.use_model('sac_checkpoint_ep_90.pth')  
     ran_num = random.randint(10000,20000)
     most_danger_mesh = None

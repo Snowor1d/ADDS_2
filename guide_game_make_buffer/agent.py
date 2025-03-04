@@ -447,9 +447,10 @@ class CrowdAgent(Agent):
             
             return
         if(self.type == 0 or self.type == 1 or self.type == 2):
+            self.pos = (int(round(self.xy[0])), int(round(self.xy[1])))
             new_position = self.agent_modeling()
+            print("new_position : ", new_position)
             new_position = (int(round(new_position[0])), int(round(new_position[1])))
-            self.pos = (int(round(self.pos[0])), int(round(self.pos[1])))
             self.model.grid.move_agent(self, new_position) ## 그 위치로 이동
 
     def choice_near_goal(self, pos):
@@ -555,8 +556,9 @@ class CrowdAgent(Agent):
                     if(near_agent.type==3):
                         repulsive_force[0] += 4*np.exp(-(d/2))*(d_x/d) 
                         repulsive_force[1] += 4*np.exp(-(d/2))*(d_y/d)
-                    repulsive_force[0] += 4*np.exp(-(d/2))*(d_x/d) #반발력.. 지수함수 -> 완전 밀착되기 직전에만 힘이 강하게 작용하는게 맞다고 생각해서
-                    repulsive_force[1] += 4*np.exp(-(d/2))*(d_y/d) 
+                    repulsive_force[0] += 4*np.exp(-(d/2))*(d_x/d) #반발력.. 지수e함수 -> 완전 밀착되기 직전에만 힘이 강하게 작용하는게 맞다고 생각해서
+                    repulsive_force[1] += 4*np.exp(-(d/2))*(d_y/d)
+                    print("repulsive_force : ", repulsive_force)
 
                 if(near_agent.type == 11 or near_agent.type == 9):## 검정벽 
                     repulsive_force[0] += 8*np.exp(-(d/2))*(d_x/d)
@@ -583,9 +585,6 @@ class CrowdAgent(Agent):
             self.is_near_robot = 0
         
         self.which_goal_agent_want()
-        if(self.robot_initialized == 1):
-            self.robot_initialized += 1
-            self.now_goal = [self.xy[0], self.xy[1]]
         self.previous_type = self.type
         # for agent in self.model.agents:
             # if (agent.type == 0):
