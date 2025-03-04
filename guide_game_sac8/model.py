@@ -1097,6 +1097,7 @@ class FightingModel(Model):
         for agent in self.agents:
             if(agent.type==9):
                 image[agent.pos[0]][agent.pos[1]] = 20 # 벽
+        for agent in self.agents:
             if(agent.type==10):
                 image[agent.pos[0]][agent.pos[1]] = 60 # 출구
         for agent in self.agents:

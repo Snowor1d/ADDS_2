@@ -552,16 +552,16 @@ class CrowdAgent(Agent):
                     repulsive_force[0] += 0
                     repulsive_force[1] += 0
 
-                elif(near_agent.type == 1 or near_agent.type==3 or near_agent.type==2 or near_agent.type==0): ## agents
+                if(near_agent.type == 1 or near_agent.type==3 or near_agent.type==2 or near_agent.type==0): ## agents
                     if(near_agent.type==3):
-                        repulsive_force[0] += 1*np.exp(-(d/2))*(d_x/d) 
-                        repulsive_force[1] += 1*np.exp(-(d/2))*(d_y/d)
-                    repulsive_force[0] += 1*np.exp(-(d/2))*(d_x/d) #반발력.. 지수함수 -> 완전 밀착되기 직전에만 힘이 강하게 작용하는게 맞다고 생각해서
-                    repulsive_force[1] += 1*np.exp(-(d/2))*(d_y/d) 
+                        repulsive_force[0] += 4*np.exp(-(d/2))*(d_x/d) 
+                        repulsive_force[1] += 4*np.exp(-(d/2))*(d_y/d)
+                    repulsive_force[0] += 4*np.exp(-(d/2))*(d_x/d) #반발력.. 지수함수 -> 완전 밀착되기 직전에만 힘이 강하게 작용하는게 맞다고 생각해서
+                    repulsive_force[1] += 4*np.exp(-(d/2))*(d_y/d) 
 
-                elif(near_agent.type == 11 or near_agent.type == 9):## 검정벽 
-                    repulsive_force[0] += 2*np.exp(-(d/2))*(d_x/d)
-                    repulsive_force[1] += 2*np.exp(-(d/2))*(d_y/d)
+                if(near_agent.type == 11 or near_agent.type == 9):## 검정벽 
+                    repulsive_force[0] += 8*np.exp(-(d/2))*(d_x/d)
+                    repulsive_force[1] += 8*np.exp(-(d/2))*(d_y/d)
             else :
                 if(random_disperse):
                     repulsive_force = [1, -1]
@@ -585,7 +585,7 @@ class CrowdAgent(Agent):
         
         self.which_goal_agent_want()
         if(self.robot_initialized == 1):
-            self.robot_initalized += 1
+            self.robot_initialized += 1
             self.now_goal = [self.xy[0], self.xy[1]]
         self.previous_type = self.type
         # for agent in self.model.agents:
