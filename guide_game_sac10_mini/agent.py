@@ -758,12 +758,9 @@ class RobotAgent(CrowdAgent):
         self.robot_waypoint[1] = action[1] + self.xy[1]
 
         if (self.model.is_valid_space(self.robot_waypoint[0], self.robot_waypoint[1]) == False):
-            self.robot_waypoint[0] = -1
-            self.robot_waypoint[1] = -1
-            self.detect_invalid_order = 1
+            self.robot_waypoint = self.model.return_valid_space(self.robot_waypoint[0], self.robot_waypoint[1])
             print("invalid order")
-        else:
-            self.detect_invalid_order = 0
+
 
         return np.array(self.action)
     def robot_policy_Q(self):

@@ -232,7 +232,7 @@ class PolicyNetwork(nn.Module):#행동을 샘플링하고 정책 학습, 주어�
 # 5) SAC Agent for Action
 ##########################################################################
 class SACAgent:
-    def __init__(self, input_shape=(50,50), gamma=0.99, alpha=0.2, tau=0.995, lr=1e-4, batch_size=64, replay_size=int(1e5), device="cuda", start_epsilon = 1.0, start_epsilon_long = 0.1):
+    def __init__(self, input_shape=(50,50), gamma=0.99, alpha=0.2, tau=0.995, lr=1e-4, batch_size=64, replay_size=int(1e5), device="cpu", start_epsilon = 0.0, start_epsilon_long = 0.1):
         self.gamma = gamma
         self.alpha = alpha
         self.tau = tau
@@ -517,14 +517,14 @@ if __name__ == "__main__":
                     print(f"Loaded start_epsilon: {start_epsilon}, start_epsilon_long: {start_epsilon_long}")
                 else:
                     print("Not enough lines in start_epsilon.txt. Resetting values.")
-                    start_epsilon = 1.0
+                    start_epsilon = 0
                     start_epsilon_long = 0.05  # 기본값 설정
             except ValueError:
                 print("Invalid value in start_epsilon.txt. Resetting to defaults.")
-                start_epsilon = 1.0
+                start_epsilon = 0
                 start_epsilon_long = 0.05  # 기본값 설정
     else:
-        start_epsilon = 1.0
+        start_epsilon = 0
         start_epsilon_long = 0.05  # 기본값 설정
         print("No start_epsilon.txt found. Initializing values to defaults.")
     
@@ -607,8 +607,9 @@ if __name__ == "__main__":
                 #r_d = env_model.reward_based_all_agents_danger()
                 #r_da = env_model.reward_distance_from_all_agents()
                 r_g = env_model.reward_based_gain()
-                r_p = env_model.reward_based_invalid_order()
-                reward += (r_g + r_p)
+                #r_p = env_model.reward_penalty()
+                r_p2 = env_model.reward_penalty2()
+                reward += (r_g + r_p2)
                 #print("alived reward : ", r_a)
                 #print("danger reward : ", r_d)
                 #print("distance reward : ", r_da)

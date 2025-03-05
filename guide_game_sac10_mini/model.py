@@ -439,8 +439,42 @@ class FightingModel(Model):
             else:
                 return True
         else:
-            print("엥")
             return False 
+        
+    def return_valid_space(self, x, y):
+
+        ix, iy = int(round(x)), int(round(y))
+        if self.is_valid_space(ix, iy):
+            return [ix, iy]
+        
+        directions = [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)]
+        visited = set()
+        visited.add((ix, iy))
+        queue = deque()
+        queue.append((ix, iy))
+        
+        directions = [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)]
+        while queue:
+            cx, cy = queue.popleft()
+            
+            for dx, dy in directions:
+                nx, ny = cx + dx, cy + dy
+                # if not (0 <= nx < self.width and 0 <= ny < self.height):
+                #     continue
+                if (nx, ny) in visited:
+                    continue
+
+                visited.add((nx, ny))
+
+                if self.is_valid_space(nx, ny):
+                    return [nx, ny]
+                
+                queue.append((nx, ny))
+        
+        return None 
+            
+
+
 
     def mesh_map(self):
 
@@ -980,12 +1014,16 @@ class FightingModel(Model):
         state = self.return_current_image()
         if(self.using_model):
             self.checking_reward += self.reward_based_gain()
-            self.checking_reward += self.reward_based_invalid_order()
+            self.checking_reward += self.reward_penalty()
+            
+            print("reward_based_gain : ", self.reward_based_gain())
+            print("reward_penalty : ", self.reward_penalty())
         if(self.using_model and self.robot.waiting_new_order == 1):
             action, _ = self.sac_agent.select_action(state)
             x, y = action[0], action[1]
             print(action)
-            reward = self.checking_reward / self.robot.time_between_order
+            reward = self.checking_reward
+            #eward = self.checking_reward / self.robot.time_between_order
             print("reward : ", reward)
             self.checking_reward = 0
             self.robot.receive_action([x, y])
@@ -1062,11 +1100,7 @@ class FightingModel(Model):
                     reward += agent.gain
         #reward -= self.robot.detect_abnormal_order
 
-        reward = reward/150
-
-        if(reward<-100):
-            reward = -100
-        
+        reward = reward
 
         #print("tracked 되고 있는 수 : ", num)
         return reward
@@ -1077,14 +1111,33 @@ class FightingModel(Model):
         for agent in self.agents:
             if(agent.type == 0 and agent.dead == False):
                 guided_num += 1
+        
+        penalty_distance = 10
+        penalty_max = 5
+        
         if(guided_num == 0):
-            if(self.robot.danger < 5):
-                return -0.2
-            elif(self.robot.danger < 10):
-                return -0.1
-            elif(self.robot.danger < 15):
-                return -0.05
-        return 0
+            danger = self.robot.danger
+            if danger >= penalty_distance:
+                penalty = 0
+            else:
+                penalty = penalty_max * (1- (danger / penalty_distance))
+            reward -= penalty
+        
+        return reward
+
+    def reward_penalty2(self):
+        reward = 0
+        guided_num = 0
+
+        penalty_distance = 10
+
+        for agent in self.agents:
+            if(agent.type == 0 and agent.dead == False):
+                guided_num += 1
+        if(guided_num == 0):
+            if(self.robot.danger<penalty_distance):
+                reward += (self.robot.danger - self.robot.previous_danger)
+        return reward*10
 
 
     def reward_evacuation(self):
@@ -1104,7 +1157,7 @@ class FightingModel(Model):
         num_actions = 4
 
         self.sac_agent = SACAgent(input_shape, num_actions, start_epsilon=0)
-        #self.sac_agent.load_model(file_path)
+        self.sac_agent.load_model(file_path)
 
         self.using_model = True
 
