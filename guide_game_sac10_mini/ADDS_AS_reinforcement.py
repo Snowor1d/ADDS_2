@@ -241,7 +241,7 @@ class SACAgent:
         self.epsilon = start_epsilon
         self.epsilon_long = start_epsilon_long 
         self.epsilon_long_min = 0.005
-        self.epsilon_min = 0.1
+        self.epsilon_min = 0
 
         # Replay buffer
         self.replay_buffer = ReplayBuffer(capacity=int(replay_size))
