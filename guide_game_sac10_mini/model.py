@@ -1019,7 +1019,7 @@ class FightingModel(Model):
             print("reward_based_gain : ", self.reward_based_gain())
             print("reward_penalty : ", self.reward_penalty())
         if(self.using_model and self.robot.waiting_new_order == 1):
-            action, _ = self.sac_agent.select_action(state)
+            action, _ = self.sac_agent.select_action(state, deterministic=True)
             x, y = action[0], action[1]
             print(action)
             reward = self.checking_reward
