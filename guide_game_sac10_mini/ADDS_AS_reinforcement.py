@@ -504,6 +504,7 @@ if __name__ == "__main__":
     max_steps = 1500
     number_of_agents = 30
     start_episode = 0
+    reward_accumulated = 0
     
     epsilon_path = os.path.join(log_dir, "start_epsilon.txt")
     
@@ -609,7 +610,11 @@ if __name__ == "__main__":
                 r_g = env_model.reward_based_gain()
                 #r_p = env_model.reward_penalty()
                 r_p2 = env_model.reward_penalty2()
-                reward += (r_g + r_p2)
+                now_reward = r_g+r_p2
+                if (reward_accumulated == 0):
+                    reward = now_reward
+                else:
+                    reward += now_reward  
                 #print("alived reward : ", r_a)
                 #print("danger reward : ", r_d)
                 #print("distance reward : ", r_da)
