@@ -15,6 +15,8 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 
+SAFE_ZONE_RANGE = 10
+
 
 
 def eend_command(command):
@@ -176,7 +178,7 @@ class CrowdAgent(Agent):
 
     def __init__(self, unique_id, model, pos, type): 
         super().__init__(unique_id, model)
-        
+        self.agent_safe_zone = 0
         self.next_mesh = None
         self.past_mesh = None
         self.previous_mesh = None
@@ -503,6 +505,9 @@ class CrowdAgent(Agent):
         global robot_status
         global robot_step_num
         global random_disperse
+
+        if (self.danger < SAFE_ZONE_RANGE):
+            self.agent_safe_zone = 1
 
         x = int(round(self.xy[0]))
         y = int(round(self.xy[1]))

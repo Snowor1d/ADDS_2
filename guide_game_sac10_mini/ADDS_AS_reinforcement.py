@@ -25,7 +25,7 @@ log_dir = os.path.join(home_dir, "learning_log_guide_game_sac10_mini")
 os.makedirs(log_dir, exist_ok=True)
 
 action_scale =7
-
+START_EPSILON = 0.2
 model_load = 3
 # start_fresh : 1
 # load specified model : 2
@@ -227,12 +227,15 @@ class PolicyNetwork(nn.Module):#행동을 샘플링하고 정책 학습, 주어�
         log_prob = log_prob_u - jacobian
 
         return action, log_prob
+
+
+
     
 ##########################################################################
 # 5) SAC Agent for Action
 ##########################################################################
 class SACAgent:
-    def __init__(self, input_shape=(50,50), gamma=0.99, alpha=0.2, tau=0.995, lr=1e-4, batch_size=64, replay_size=int(1e5), device="cpu", start_epsilon = 0.0, start_epsilon_long = 0.1):
+    def __init__(self, input_shape=(50,50), gamma=0.99, alpha=0.2, tau=0.995, lr=1e-4, batch_size=64, replay_size=int(1e5), device="cpu", start_epsilon = START_EPSILON, start_epsilon_long = 0.1):
         self.gamma = gamma
         self.alpha = alpha
         self.tau = tau
@@ -518,14 +521,14 @@ if __name__ == "__main__":
                     print(f"Loaded start_epsilon: {start_epsilon}, start_epsilon_long: {start_epsilon_long}")
                 else:
                     print("Not enough lines in start_epsilon.txt. Resetting values.")
-                    start_epsilon = 0
+                    start_epsilon = START_EPSILON
                     start_epsilon_long = 0.05  # 기본값 설정
             except ValueError:
                 print("Invalid value in start_epsilon.txt. Resetting to defaults.")
-                start_epsilon = 0
+                start_epsilon = START_EPSILON
                 start_epsilon_long = 0.05  # 기본값 설정
     else:
-        start_epsilon = 0
+        start_epsilon = START_EPSILON
         start_epsilon_long = 0.05  # 기본값 설정
         print("No start_epsilon.txt found. Initializing values to defaults.")
     
@@ -605,12 +608,14 @@ if __name__ == "__main__":
 
                 # 3) Reward
                 #r_a = env_model.reward_based_alived() 
-                #r_d = env_model.reward_based_all_agents_danger()
+                r_d = env_model.reward_based_all_agents_danger()
+                r_dn = env_model.reward_based_distance_from_near_agents()
                 #r_da = env_model.reward_distance_from_all_agents()
-                r_g = env_model.reward_based_gain()
+                #r_g = env_model.reward_based_gain()
+                #r_e = env_model.reward_based_evacuated_with_robot()
                 #r_p = env_model.reward_penalty()
-                r_p2 = env_model.reward_penalty2()
-                now_reward = r_g+r_p2
+                #r_p2 = env_model.reward_penalty2()
+                now_reward = (r_d + r_dn)
                 if (reward_accumulated == 0):
                     reward = now_reward
                 else:
@@ -671,7 +676,7 @@ if __name__ == "__main__":
             # 파일이 없으면 빈 파일 생성
             open(reward_file_path, "w").close()
 
-        if (episode+1) % 10 == 0:
+        if (episode+1) % 50 == 0:
             model_filename = os.path.join(log_dir, f"sac_checkpoint_ep_{start_episode + episode + 1}.pth")
             agent.save_model(model_filename)
             replay_buffer_filename = "replay_buffer.pkl"
