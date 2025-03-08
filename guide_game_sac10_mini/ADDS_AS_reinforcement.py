@@ -24,8 +24,7 @@ home_dir = os.path.expanduser("~")
 log_dir = os.path.join(home_dir, "learning_log_guide_game_sac10_mini")
 os.makedirs(log_dir, exist_ok=True)
 
-action_scale =7
-
+#START_EPSILON = 0.2
 model_load = 3
 # start_fresh : 1
 # load specified model : 2
@@ -36,8 +35,14 @@ parser.add_argument("--lr", type=float, default=1e-4)
 parser.add_argument("--decay_value", type=float, default=0.99)
 parser.add_argument("--buffer_size", type=int, default=1e5)
 parser.add_argument("--batch_size", type=float, default=64)
+parser.add_argument("--action_scale", type=float, default=7)
+parser.add_argument("--device", type=str, default="cuda")
+parser.add_argument("--start_epsilon", type=float, default=0.1)
+parser.add_argument("--epsilon_min", type=float, default=0.01)
+parser.add_argument("--alpha", type=float, default=0.2)
 args = parser.parse_args()
-
+START_EPSILON = float(args.start_epsilon)
+ACTION_SCALE = float(args.action_scale)
 def launch_tensorboard(tb_log_dir, port=6006):
     """
     TensorBoard를 백그라운드에서 실행하고 기본 브라우저에 해당 URL을 엽니다.
@@ -206,7 +211,7 @@ class PolicyNetwork(nn.Module):#행동을 샘플링하고 정책 학습, 주어�
         eps = torch.randn_like(mean) * temperature
         u = mean + std * eps
         sigma = torch.sigmoid(u)
-        action = 2*action_scale * sigma - action_scale
+        action = 2*ACTION_SCALE * sigma - ACTION_SCALE
         # log_prob 계산
         # (dx, dy) => 2차원 Gaussian
 
@@ -221,18 +226,21 @@ class PolicyNetwork(nn.Module):#행동을 샘플링하고 정책 학습, 주어�
         # Sigmoid의 야코비안 보정: 
         #  dσ(u)/du = σ(u) * (1 - σ(u))
         # 로그 보정항 = sum_i log(σ(u_i)*(1-σ(u_i)))
-        jacobian = torch.log(2*action_scale * sigma * (1.0 - sigma) + 1e-8).sum(dim=1)  # (B,)
+        jacobian = torch.log(2*ACTION_SCALE * sigma * (1.0 - sigma) + 1e-8).sum(dim=1)  # (B,)
 
         # 최종 log_prob = log_prob_u - jacobian
         log_prob = log_prob_u - jacobian
 
         return action, log_prob
+
+
+
     
 ##########################################################################
 # 5) SAC Agent for Action
 ##########################################################################
 class SACAgent:
-    def __init__(self, input_shape=(50,50), gamma=0.99, alpha=0.2, tau=0.995, lr=1e-4, batch_size=64, replay_size=int(1e5), device="cpu", start_epsilon = 0.0, start_epsilon_long = 0.1):
+    def __init__(self, input_shape=(50,50), gamma=0.99, alpha=0.2, tau=0.995, lr=1e-4, batch_size=64, replay_size=int(1e5), device=args.device, start_epsilon = START_EPSILON, start_epsilon_long = 0.1):
         self.gamma = gamma
         self.alpha = alpha
         self.tau = tau
@@ -241,7 +249,7 @@ class SACAgent:
         self.epsilon = start_epsilon
         self.epsilon_long = start_epsilon_long 
         self.epsilon_long_min = 0.005
-        self.epsilon_min = 0
+        self.epsilon_min = float(args.epsilon_min)
 
         # Replay buffer
         self.replay_buffer = ReplayBuffer(capacity=int(replay_size))
@@ -313,8 +321,8 @@ class SACAgent:
         # Epsilon check
         if np.random.rand() < self.epsilon:
             # random direction in [-1,1], random mode
-            dx = np.random.uniform(-action_scale,action_scale)
-            dy = np.random.uniform(-action_scale,action_scale)
+            dx = np.random.uniform(-ACTION_SCALE,ACTION_SCALE)
+            dy = np.random.uniform(-ACTION_SCALE,ACTION_SCALE)
             return np.array([dx, dy]), True
 
         # Otherwise use the policy
@@ -325,7 +333,7 @@ class SACAgent:
             if deterministic:
                 # 결정적 행동 선택: mean에 대해 바로 sigmoid 변환.
                 mean, _ = self.policy.forward(state_t)
-                action_t = 2*action_scale*torch.sigmoid(mean)-action_scale
+                action_t = 2*ACTION_SCALE*torch.sigmoid(mean)-ACTION_SCALE
             else:
                 # 비결정적 선택: sample_action에서 샘플링 (자코비안 보정 포함)
                 action_t, log_prob = self.policy.sample_action(state_t)
@@ -518,18 +526,18 @@ if __name__ == "__main__":
                     print(f"Loaded start_epsilon: {start_epsilon}, start_epsilon_long: {start_epsilon_long}")
                 else:
                     print("Not enough lines in start_epsilon.txt. Resetting values.")
-                    start_epsilon = 0
+                    start_epsilon = START_EPSILON
                     start_epsilon_long = 0.05  # 기본값 설정
             except ValueError:
                 print("Invalid value in start_epsilon.txt. Resetting to defaults.")
-                start_epsilon = 0
+                start_epsilon = START_EPSILON
                 start_epsilon_long = 0.05  # 기본값 설정
     else:
-        start_epsilon = 0
+        start_epsilon = START_EPSILON
         start_epsilon_long = 0.05  # 기본값 설정
         print("No start_epsilon.txt found. Initializing values to defaults.")
     
-    agent = SACAgent(input_shape=(50,50), alpha=0.2, lr=float(args.lr), start_epsilon=float(start_epsilon), start_epsilon_long = float(start_epsilon_long), batch_size=int(args.batch_size), replay_size=float(args.buffer_size))
+    agent = SACAgent(input_shape=(50,50), alpha=float(args.alpha), lr=float(args.lr), start_epsilon=float(start_epsilon), start_epsilon_long = float(start_epsilon_long), batch_size=int(args.batch_size), replay_size=float(args.buffer_size))
     print(f"Agent initialized, lr={args.lr}, alpha={agent.alpha}, batch_size={args.batch_size}, replay_size={args.buffer_size}")
     replay_buffer_path = os.path.join(log_dir, "replay_buffer.pkl")
 
@@ -605,12 +613,14 @@ if __name__ == "__main__":
 
                 # 3) Reward
                 #r_a = env_model.reward_based_alived() 
-                #r_d = env_model.reward_based_all_agents_danger()
+                r_d = env_model.reward_based_all_agents_danger()
+                r_dn = env_model.reward_based_distance_from_near_agents()
                 #r_da = env_model.reward_distance_from_all_agents()
-                r_g = env_model.reward_based_gain()
+                #r_g = env_model.reward_based_gain()
+                #r_e = env_model.reward_based_evacuated_with_robot()
                 #r_p = env_model.reward_penalty()
-                r_p2 = env_model.reward_penalty2()
-                now_reward = r_g+r_p2
+                #r_p2 = env_model.reward_penalty2()
+                now_reward = (r_d + r_dn)
                 if (reward_accumulated == 0):
                     reward = now_reward
                 else:
@@ -671,7 +681,7 @@ if __name__ == "__main__":
             # 파일이 없으면 빈 파일 생성
             open(reward_file_path, "w").close()
 
-        if (episode+1) % 10 == 0:
+        if (episode+1) % 50 == 0:
             model_filename = os.path.join(log_dir, f"sac_checkpoint_ep_{start_episode + episode + 1}.pth")
             agent.save_model(model_filename)
             replay_buffer_filename = "replay_buffer.pkl"

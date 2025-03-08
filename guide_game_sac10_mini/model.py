@@ -915,10 +915,10 @@ class FightingModel(Model):
         # self.grid.place_agent(self.robot, (get_point[0], get_point[1]))
 
         self.agent_id = self.agent_id + 10
-        self.robot = RobotAgent(self.agent_id, self, [20, 35], 3)
+        self.robot = RobotAgent(self.agent_id, self, [25, 25], 3)
         self.agent_id = self.agent_id + 10
         self.schedule.add(self.robot)
-        self.grid.place_agent(self.robot, (20, 35))
+        self.grid.place_agent(self.robot, (25, 25))
     
 
     
@@ -1015,9 +1015,8 @@ class FightingModel(Model):
         if(self.using_model):
             self.checking_reward += self.reward_based_gain()
             self.checking_reward += self.reward_penalty()
-            
-            print("reward_based_gain : ", self.reward_based_gain())
-            print("reward_penalty : ", self.reward_penalty())
+            print("reward_based_all_agents_danger : ", self.reward_based_all_agents_danger())
+            print("reward_based_distance : ", self.reward_based_distance_from_near_agents())
         if(self.using_model and self.robot.waiting_new_order == 1):
             action, _ = self.sac_agent.select_action(state, deterministic=True)
             x, y = action[0], action[1]
@@ -1076,12 +1075,34 @@ class FightingModel(Model):
         return reward/10
     
     def reward_based_all_agents_danger(self):
-        
+
         reward = 0
+        
         for agent in self.agents:
             if(agent.type == 0 or agent.type == 1 or agent.type == 2) and (agent.dead == False):
                 reward += agent.danger
-        return -reward/10000
+        return -reward/1000
+    
+    def reward_based_distance_from_near_agents(self):
+        guided_num = 0
+        for agent in self.agents:
+            if(agent.type == 0 and agent.dead == False):
+                guided_num += 1
+        
+        if (guided_num > 0):
+            return 0 
+        
+        minimum_distance = 999999
+        for agent in self.agents:
+            if(agent.type == 0 or agent.type ==1 or agent.type == 2) and (agent.dead == False):
+                distance = self.robot.point_to_point_distance(self.robot.xy, agent.xy)
+                if(distance < minimum_distance):
+                    minimum_distance = distance
+        if(minimum_distance == 999999):
+            return 0
+        if(minimum_distance < 8):
+            return 0
+        return -minimum_distance/10
     
     def reward_based_evacuated_confirmed(self):
         reward = 0
