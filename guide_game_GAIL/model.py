@@ -569,11 +569,11 @@ class FightingModel(Model):
             for j in range(self.height):
                 self.valid_space[(i, j)] = 1
         for i in range(self.width):
-            self.valid_space[(i, 70)] = 0
-            self.valid_space[(i, 71)] = 0
+            self.valid_space[(i, 50)] = 0
+            self.valid_space[(i, 51)] = 0
         for j in range(self.height):
-            self.valid_space[(70, j)] = 0
-            self.valid_space[(71, j)] = 0
+            self.valid_space[(50, j)] = 0
+            self.valid_space[(51, j)] = 0
     def get_path(self, next_vertex_matrix, start, end): #start->end까지 최단 경로로 가려면 어떻게 가야하는지 알려줌 
 
         if next_vertex_matrix[start][end] is None:
@@ -586,8 +586,8 @@ class FightingModel(Model):
         return path
 
     def extract_map(self, map_num):
-        width = 70
-        height = 70 
+        width = 50
+        height = 50 
         #좌하단 #우하단 #우상단 #좌상단 순으로 입력해주기
         if map_num == 0:
             self.obstacles.append([[10, 10], [20, 20], [10, 20]])
@@ -1081,11 +1081,11 @@ class FightingModel(Model):
         return None
     
     def use_model(self, file_path):
-        input_shape = (70, 70)
+        input_shape = (50, 50)
         num_actions = 4
 
         self.sac_agent = SACAgent(input_shape, num_actions, start_epsilon=0)
-        self.sac_agent.load_model(file_path)
+        #self.sac_agent.load_model(file_path)
 
         self.using_model = True
 

@@ -14,6 +14,7 @@ import pickle
 import time
 import numpy as np
 from model import FightingModel
+import re
 
 ##########################
 # 화면 설정
@@ -21,8 +22,8 @@ from model import FightingModel
 SCREEN_WIDTH = 800
 SCREEN_HEIGHT = 800
 CELL_SIZE = 10
-MAP_OFFSET_X = (SCREEN_WIDTH - 70*CELL_SIZE) // 2
-MAP_OFFSET_Y = (SCREEN_HEIGHT - 70*CELL_SIZE) // 2
+MAP_OFFSET_X = (SCREEN_WIDTH - 50*CELL_SIZE) // 2
+MAP_OFFSET_Y = (SCREEN_HEIGHT - 50*CELL_SIZE) // 2
 
 JOYSTICK_CENTER = (120, 700)
 JOYSTICK_RADIUS = 60
@@ -140,14 +141,14 @@ def main():
     while running:
         # FightingModel 환경 생성
         env_model = FightingModel(
-            number_agents=30,
-            width=70,
-            height=70,
+            number_agents=20,
+            width=50,
+            height=50,
             model_num=2,
             robot='Q'
         )
         # 초기 상태
-        state = env_model.return_current_image()  # 70x70 2D
+        state = env_model.return_current_image()  # 50x50 2D
         state = np.array(state, dtype=np.float32)
 
         total_reward = 0.0
@@ -249,8 +250,18 @@ def main():
 
     pygame.quit()
 
-    # 최종 데이터 저장
-    save_path = os.path.join(log_dir, "imitation_dataset.pkl")
+    pattern = r"^imitation_dataset_(\d+)\.pkl$"
+    existing_files = [f for f in os.listdir(log_dir) if f.startswith("imitation_dataset_") and f.endswith(".pkl")]
+    max_index = -1
+    for ef in existing_files:
+        match = re.match(pattern, ef)
+        if match:
+            idx = int(match.group(1))
+            if idx > max_index:
+                max_index = idx
+    next_index = max_index + 1  # 다음 파일 번호
+
+    save_path = os.path.join(log_dir, f"imitation_dataset_{next_index}.pkl")
     with open(save_path, "wb") as f:
         pickle.dump(expert_data, f)
 

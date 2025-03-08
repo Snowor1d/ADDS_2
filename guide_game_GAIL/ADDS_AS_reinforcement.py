@@ -38,11 +38,18 @@ model_load = 1
 parser = argparse.ArgumentParser()
 parser.add_argument("--lr", type=float, default=1e-4)
 parser.add_argument("--decay_value", type=float, default=0.99)
-parser.add_argument("--buffer_size", type=int, default=1e5)
+parser.add_argument("--buffer_size", type=int, default=100000)
 parser.add_argument("--batch_size", type=int, default=64)
-parser.add_argument("--use_gail", action="store_true", default=False)
-parser.add_argument("--expert_path", type=str, default="imitation_dataset.pkl")
+parser.add_argument("--alpha", type=float, default=0.2)
+parser.add_argument("--start_epsilon", type=float, default=1.0)
+parser.add_argument("--epsilon_min", type=float, default=0.1)
+parser.add_argument("--device", type=str, default="cpu")
+parser.add_argument("--use_gail", type=lambda x: (str(x).lower() == 'true'), default=False)
+parser.add_argument("--expert_dir", type=str, default="expert_data_dir")
+parser.add_argument("--expert_buffer_size", type=int, default=50000)
 args = parser.parse_args()
+
+start_episode = 0
 
 
 def launch_tensorboard(tb_log_dir, port=6006):
@@ -64,7 +71,7 @@ class DiscriminatorNetwork(nn.Module):
       - 입력: (state, action)
       - 출력: D(s,a) in (0,1) => "전문가로부터 왔을 확률"
     """
-    def __init__(self, input_shape=(70,70), action_dim=2):
+    def __init__(self, input_shape=(50,50), action_dim=2):
         super(DiscriminatorNetwork, self).__init__()
 
         self.conv1 = nn.Conv2d(1, 16, kernel_size=5, stride=2)
@@ -168,7 +175,7 @@ class ExpertBuffer:
 # 4. QNetwork (Critic) for SAC
 # ========================================
 class QNetwork(nn.Module):
-    def __init__(self, input_shape=(70,70), action_dim=2):
+    def __init__(self, input_shape=(50,50), action_dim=2):
         super(QNetwork, self).__init__()
 
         self.conv1 = nn.Conv2d(1, 16, kernel_size=5, stride=2)
@@ -203,7 +210,7 @@ class QNetwork(nn.Module):
 # 5. PolicyNetwork (Actor) for SAC
 # ========================================
 class PolicyNetwork(nn.Module):
-    def __init__(self, input_shape=(70,70)):
+    def __init__(self, input_shape=(50,50)):
         super(PolicyNetwork, self).__init__()
         self.log_std_min = -10
         self.log_std_max = -0.5
@@ -262,9 +269,9 @@ class PolicyNetwork(nn.Module):
 # 6. SACAgent (with GAIL option)
 # ========================================
 class SACAgent:
-    def __init__(self, input_shape=(70,70), gamma=0.99, alpha=0.2, tau=0.995,
+    def __init__(self, input_shape=(50,50), gamma=0.99, alpha=0.2, tau=0.995,
                  lr=1e-4, batch_size=64, replay_size=int(1e5), device="cpu",
-                 gail_alpha=0.5, start_epsilon=1.0, start_epsilon_long=0.05):
+                 gail_alpha=0.5, start_epsilon=1.0, start_epsilon_long=0.05, epsilon_min=0.1):
         """
         gail_alpha: 0~1 사이. 1이면 완전히 GAIL 보상만, 0이면 env 보상만
         start_epsilon: 초기 epsilon (랜덤 탐사율)
@@ -297,9 +304,23 @@ class SACAgent:
         self.policy_optimizer = optim.Adam(self.policy.parameters(), lr=lr)
 
         self.epsilon = start_epsilon
-        self.epsilon_min = 0.1
+        self.epsilon_min = epsilon_min
         self.epsilon_long = start_epsilon_long
         self.epsilon_long_min = 0.005
+
+    def load_model(self, filepath):
+        filepath = os.path.join(log_dir, filepath)
+        ckpt = torch.load(filepath)
+        self.q1.load_state_dict(ckpt['q1'])
+        self.q2.load_state_dict(ckpt['q2'])
+        self.q1_target.load_state_dict(ckpt['q1_target'])
+        self.q2_target.load_state_dict(ckpt['q2_target'])
+        self.policy.load_state_dict(ckpt['policy'])
+        self.q1_optimizer.load_state_dict(ckpt['q1_opt'])
+        self.q2_optimizer.load_state_dict(ckpt['q2_opt'])
+        self.policy_optimizer.load_state_dict(ckpt['policy_opt'])
+        print(f"Model loaded from {filepath}")
+
 
     def soft_update(self, net, net_target):
         for param, target_param in zip(net.parameters(), net_target.parameters()):
@@ -356,7 +377,6 @@ class SACAgent:
     def update(self, disc=None):
         if len(self.replay_buffer) < self.batch_size*10:
             return
-
         states, actions, rewards, next_states, dones = self.replay_buffer.sample(self.batch_size)
         states, actions, rewards, next_states, dones = (
             states.to(self.device),
@@ -412,6 +432,44 @@ class SACAgent:
         self.soft_update(self.q1, self.q1_target)
         self.soft_update(self.q2, self.q2_target)
 
+# -------------------------------------------------------
+# 여러 pkl 파일에서 Expert 데이터를 무작위로 로드하는 함수
+# -------------------------------------------------------
+def load_expert_data_randomly(expert_dir, capacity):
+    """
+    expert_dir 안에 있는 여러 .pkl 파일을 무작위 순서로 읽어
+    (s,a,r,ns,d) 튜플을 최대 capacity 만큼 로드하여 리턴
+    """
+    if not os.path.exists(expert_dir):
+        print(f"[WARN] Expert directory does not exist: {expert_dir}")
+        return []
+
+    pkl_files = [f for f in os.listdir(expert_dir) if f.endswith(".pkl")]
+    if not pkl_files:
+        print(f"[WARN] No .pkl files found in {expert_dir}")
+        return []
+
+    random.shuffle(pkl_files)
+    expert_data_temp = []
+    for pkl_file in pkl_files:
+        if len(expert_data_temp) >= capacity:
+            break
+        full_path = os.path.join(expert_dir, pkl_file)
+        try:
+            with open(full_path, "rb") as f:
+                data = pickle.load(f)  # (s,a,r,ns,d) list
+        except Exception as e:
+            print(f"[WARN] Failed to load {pkl_file}: {e}")
+            continue
+
+        for sample in data:
+            expert_data_temp.append(sample)
+            if len(expert_data_temp) >= capacity:
+                break
+
+    print(f"Loaded {len(expert_data_temp)} expert samples from {expert_dir}, capacity={capacity}")
+    return expert_data_temp
+
 def monitor_total_reward(total_reward_file, tb_log_dir, start_episode):
     writer = SummaryWriter(log_dir=tb_log_dir)
     while not os.path.exists(total_reward_file):
@@ -462,9 +520,9 @@ if __name__ == "__main__":
     # ------------------------------------------
     # Hyperparams & GAIL 여부
     # ------------------------------------------
-    max_episodes = 1500
-    max_steps = 2000
-    number_of_agents = 30
+    max_episodes = 2000
+    max_steps = 3000
+    number_of_agents = 20
 
     epsilon_path = os.path.join(log_dir, "start_epsilon.txt")
 
@@ -479,14 +537,14 @@ if __name__ == "__main__":
                     print(f"Loaded start_epsilon: {start_epsilon}, start_epsilon_long: {start_epsilon_long}")
                 else:
                     print("Not enough lines in start_epsilon.txt. Resetting values.")
-                    start_epsilon = 1.0
+                    start_epsilon = args.start_epsilon
                     start_epsilon_long = 0.05
             except ValueError:
                 print("Invalid value in start_epsilon.txt. Resetting to defaults.")
-                start_epsilon = 1.0
+                start_epsilon = args.start_epsilon
                 start_epsilon_long = 0.05
     else:
-        start_epsilon = 1.0
+        start_epsilon = args.start_epsilon
         start_epsilon_long = 0.05
         print("No start_epsilon.txt found. Initializing values to defaults.")
 
@@ -494,13 +552,14 @@ if __name__ == "__main__":
     # [2] SACAgent 생성
     # ------------------------------------------
     agent = SACAgent(
-        input_shape=(70,70),
-        alpha=0.2,
-        lr=float(args.lr),
-        start_epsilon=float(start_epsilon),
-        start_epsilon_long=float(start_epsilon_long),
-        batch_size=int(args.batch_size),
-        replay_size=int(args.buffer_size)
+        input_shape=(50,50),
+        alpha=args.alpha,
+        lr=args.lr,
+        start_epsilon=start_epsilon,
+        epsilon_min=args.epsilon_min,
+        batch_size=args.batch_size,
+        replay_size=args.buffer_size,
+        device=args.device
     )
     print(f"Agent initialized, lr={args.lr}, alpha={agent.alpha}, batch_size={args.batch_size}, replay_size={args.buffer_size}")
 
@@ -544,13 +603,7 @@ if __name__ == "__main__":
         print("GAIL mode ON. Loading expert dataset.")
         # 예: (s,a,r,ns,d) 형태
         expert_data_path = "imitation_dataset.pkl"
-        if os.path.exists(expert_data_path):
-            with open(expert_data_path, "rb") as f:
-                expert_samples = pickle.load(f)  # list of (s,a,r,ns,d)
-            print(f"Loaded {len(expert_samples)} expert samples.")
-        else:
-            print("No imitation_dataset.pkl found! GAIL cannot proceed well.")
-            expert_samples = []
+        expert_samples = load_expert_data_randomly(expert_data_path, capacity=args.expert_buffer_size)
 
         disc = DiscriminatorNetwork().to(agent.device)
         disc_optimizer = optim.Adam(disc.parameters(), lr=1e-4)
@@ -578,10 +631,15 @@ if __name__ == "__main__":
     for episode in range(max_episodes):
         print(f"Episode {start_episode + episode + 1}")
 
+        # 매 10 에피소드마다, expert_buffer 새로 로딩 (GAIL ON일 때만)
+        if use_gail and (episode % 10 == 0) and (episode != 0):
+            expert_samples = load_expert_data_randomly(args.expert_dir, args.expert_buffer_size)
+            expert_buffer = deque(expert_samples, maxlen=args.expert_buffer_size)
+
         # Create environment
         while True:
             try:
-                env_model = model.FightingModel(number_of_agents, 70, 70, 2, 'Q')
+                env_model = model.FightingModel(number_of_agents, 50, 50, 2, 'Q')
                 break
             except Exception as e:
                 print(e, "Retrying environment creation...")
@@ -684,7 +742,7 @@ if __name__ == "__main__":
         except Exception as e:
             print(e)
             print("error occured. retry.")
-            env_model = model.FightingModel(number_of_agents, 70, 70, 2, 'Q')
+            env_model = model.FightingModel(number_of_agents, 50, 50, 2, 'Q')
             abnormal_reward = 1
 
         # Possibly update epsilon

@@ -51,8 +51,8 @@ from PIL import Image
 from mesa_viz_tornado.UserParam import UserParam
 import cv2
 most_danger = 0
-width = 70
-height = 70
+width = 50
+height = 50
 model_num = 2
 if visualization_mode == 'on':
     Width = width
