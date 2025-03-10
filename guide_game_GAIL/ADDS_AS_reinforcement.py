@@ -105,7 +105,8 @@ class DiscriminatorNetwork(nn.Module):
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         logit = self.logits(x)
-        out = torch.sigmoid(logit)  # (B,1)
+        #out = torch.sigmoid(logit)  # (B,1) #CNN으로 이미지 특징 추출하고, 추출한 특징과 action을 바탕으로 0인지 1인지 출력하는군
+        out = logit #바로 logit 출력
         return out
 
 # ========================================
@@ -367,7 +368,7 @@ class SACAgent:
          r_total = gail_alpha * log(D(s,a)) + (1-gail_alpha)*env_reward
         """
         with torch.no_grad():
-            d_val = disc(state_t, action_t) 
+            d_val = disc(state_t, action_t) # 전문가 데이터는 라벨이 1로 주어지기 때문에, 판별자가 전문가 데이터와 유사한 상태-액션 쌍에 대해 높은 확률을 출력, 그래서 전문가와 유사할수록 높은 값을 가지게 됨. 
             r_gail = torch.log(d_val + 1e-8).squeeze(-1) # log(D(s,a))
             # tensor화
             env_r = env_reward.to(self.device)
@@ -678,8 +679,8 @@ if __name__ == "__main__":
 
                 # 3) Reward
                 r_a = env_model.reward_based_alived()
-                r_d = env_model.reward_based_all_agents_danger()
-                reward += (r_a + r_d)
+                #r_d = env_model.reward_based_all_agents_danger()
+                reward += r_a
 
                 # 4) Next state
                 next_state = env_model.return_current_image()
@@ -707,23 +708,24 @@ if __name__ == "__main__":
                     if step % 5 == 0 and len(agent.replay_buffer) > 100 and len(expert_buffer) > 100:
                         disc_optimizer.zero_grad()
                         # expert
-                        exp_states, exp_actions = sample_expert(batch_size=32)
-                        lbl_exp = torch.ones((32,1), dtype=torch.float, device=agent.device)
+                        exp_states, exp_actions = sample_expert(batch_size=32) # expert data에서 32개 샘플링
+                        lbl_exp = torch.ones((32,1), dtype=torch.float, device=agent.device) # 이 expert data는 모두 1이라고 명시 
 
                         # policy
-                        pol_states, pol_actions, _, _, _ = agent.replay_buffer.sample(32)
-                        pol_states = pol_states.to(agent.device)
+                        pol_states, pol_actions, _, _, _ = agent.replay_buffer.sample(32) # replay buffer에서 32개 샘플링
+                        pol_states = pol_states.to(agent.device) # agent로부터 샘플링된 상태와 액션 텐서를 학습에 사용되는 디바이스(GPU or CPU)로 복사 
                         pol_actions= pol_actions.to(agent.device)
-                        lbl_pol = torch.zeros((32,1),dtype=torch.float,device=agent.device)
-
+                        lbl_pol = torch.zeros((32,1),dtype=torch.float,device=agent.device) #모두 0이라고 명시 (expert가 아니므로)
+                        
                         # concat
-                        all_s = torch.cat([exp_states, pol_states], dim=0)
+                        all_s = torch.cat([exp_states, pol_states], dim=0) 
                         all_a = torch.cat([exp_actions, pol_actions], dim=0)
                         all_l = torch.cat([lbl_exp, lbl_pol], dim=0)
+                        # 전문가 샘플, 에이전트 샘플 합치기 
 
-                        pred = disc(all_s, all_a)
-                        loss_disc = F.binary_cross_entropy(pred, all_l)
-                        loss_disc.backward()
+                        pred = disc(all_s, all_a) #판별자로 예측 
+                        loss_disc = F.binary_cross_entropy_with_logits(pred, all_l)  #이진 교차 엔트로피(BCE) 손실 계산 ## 이진 교차 엔트로피 손실 : 이진 분류 문제에서 모델의 예측과 실제 정답 간의 차이 측정
+                        loss_disc.backward() # 손실값으로 역전파
                         disc_optimizer.step()
 
                 # 8) SAC update (with disc for GAIL reward?)
