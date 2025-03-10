@@ -449,7 +449,7 @@ class CrowdAgent(Agent):
         if(self.type == 0 or self.type == 1 or self.type == 2):
             self.pos = (int(round(self.xy[0])), int(round(self.xy[1])))
             new_position = self.agent_modeling()
-            print("new_position : ", new_position)
+            #print("new_position : ", new_position)
             new_position = (int(round(new_position[0])), int(round(new_position[1])))
             self.model.grid.move_agent(self, new_position) ## 그 위치로 이동
 
@@ -558,7 +558,7 @@ class CrowdAgent(Agent):
                         repulsive_force[1] += 3*np.exp(-(d/2))*(d_y/d)
                     repulsive_force[0] += 3*np.exp(-(d/2))*(d_x/d) #반발력.. 지수e함수 -> 완전 밀착되기 직전에만 힘이 강하게 작용하는게 맞다고 생각해서
                     repulsive_force[1] += 3*np.exp(-(d/2))*(d_y/d)
-                    print("repulsive_force : ", repulsive_force)
+                    #print("repulsive_force : ", repulsive_force)
 
                 if(near_agent.type == 11 or near_agent.type == 9):## 검정벽 
                     repulsive_force[0] += 15*np.exp(-(d/2))*(d_x/d)
@@ -758,14 +758,14 @@ class RobotAgent(CrowdAgent):
             print("one by one guide 중")
             if(self.tracking_mode == 1):
                 if(math.sqrt(pow(self.xy[0]-self.now_tracking_agent.xy[0], 2)+pow(self.xy[1]-self.now_tracking_agent.xy[1], 2))<2):
-                    self.tracking_mode = 2
+                    self.tracking_mode = 2 # 탈출구쪽으로 이제 가
                 elif(self.agents_in_robot_area(self.xy)>0):
-                    self.tracking_mode = 2
+                    self.tracking_mode = 2 # 탈출구쪽으로 이제 가
             elif(self.tracking_mode == 2 and math.sqrt(pow(self.xy[0]-self.nearest_exit[0], 2)+pow(self.xy[1]-self.nearest_exit[1], 2))<2):
-                self.tracking_mode = 0
+                self.tracking_mode = 0 # 찾아갈 agent 고르기 
                 self.now_tracking_agent = None
             elif(self.tracking_mode == 2 and self.agents_in_robot_area(self.xy)==0):
-                self.tracking_mode = 1
+                self.tracking_mode = 0
 
             if(self.tracking_mode == 0):
                 if(self.now_tracking_agent == None):
@@ -773,10 +773,9 @@ class RobotAgent(CrowdAgent):
                     for agent in self.model.agents:
                         if ((agent.type == 0 or agent.type == 1 or agent.type == 2) and (agent.dead == False)):
                             trackable_agent.append(agent)
-                    print("len : ", len(trackable_agent))
                     if(len(trackable_agent) == 0):
                         return [0, 0]
-                    max_d = 0
+                    max_d = -1
                     for agent in trackable_agent:
                         if(agent.danger>max_d):
                             self.now_tracking_agent = agent
