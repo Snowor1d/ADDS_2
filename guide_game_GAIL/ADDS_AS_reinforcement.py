@@ -309,6 +309,19 @@ class SACAgent:
         self.epsilon_long = start_epsilon_long
         self.epsilon_long_min = 0.005
 
+    def save_model(self, filepath):
+        torch.save({
+            'q1': self.q1.state_dict(),
+            'q2': self.q2.state_dict(),
+            'q1_target': self.q1_target.state_dict(),
+            'q2_target': self.q2_target.state_dict(),
+            'policy': self.policy.state_dict(),
+            'q1_opt': self.q1_optimizer.state_dict(),
+            'q2_opt': self.q2_optimizer.state_dict(),
+            'policy_opt': self.policy_optimizer.state_dict()
+        }, filepath)
+        print(f"Model saved to {filepath}")
+
     def load_model(self, filepath):
         filepath = os.path.join(log_dir, filepath)
         ckpt = torch.load(filepath)
@@ -762,7 +775,7 @@ if __name__ == "__main__":
         if not os.path.exists(reward_file_path):
             open(reward_file_path, "w").close()
 
-        if (episode + 1) % 10 == 0:
+        if (episode + 1) % 50 == 0:
             model_filename = os.path.join(log_dir, f"sac_checkpoint_ep_{start_episode + episode + 1}.pth")
             agent.save_model(model_filename)
             replay_buffer_filename = "replay_buffer.pkl"
