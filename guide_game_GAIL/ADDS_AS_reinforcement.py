@@ -445,6 +445,17 @@ class SACAgent:
         # soft update
         self.soft_update(self.q1, self.q1_target)
         self.soft_update(self.q2, self.q2_target)
+        
+    def save_replay_buffer(self, filepath):
+        filepath = os.path.join(log_dir, filepath)
+        self.replay_buffer.save(filepath)
+
+    def load_replay_buffer(self, filepath):
+        filepath = os.path.join(log_dir, filepath)
+        self.replay_buffer.load(filepath)
+        print("Replay buffer loaded.")
+        print("Replay buffer size:", len(self.replay_buffer))
+
 
 # -------------------------------------------------------
 # 여러 pkl 파일에서 Expert 데이터를 무작위로 로드하는 함수
