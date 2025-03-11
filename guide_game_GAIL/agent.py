@@ -443,14 +443,14 @@ class CrowdAgent(Agent):
                    
             if (self.model.robot_type == "Q"):
                 new_position_robot = self.robot_policy_Q()
-            try:
-                self.model.grid.move_agent(self, new_position_robot)
-            except:
-                print("error")
-                print("agent position : ", self.xy)
-                print("agent type : ", self.type)
-                print("new position : ", new_position)
-                sys.exit()
+            
+            self.model.grid.move_agent(self, new_position_robot)
+            # except:
+            #     print("error")
+            #     print("agent position : ", self.xy)
+            #     print("agent type : ", self.type)
+            #     print("new position : ", new_position)
+            #     sys.exit()
             self.pos = new_position_robot
             return
         
@@ -459,14 +459,14 @@ class CrowdAgent(Agent):
             new_position = self.agent_modeling()
             # print("new_position : ", new_position)
             new_position = (int(round(new_position[0])), int(round(new_position[1])))
-            try:
-                self.model.grid.move_agent(self, new_position) ## 그 위치로 이동
-            except:
-                print("error")
-                print("agent position : ", self.xy)
-                print("agent type : ", self.type)
-                print("new position : ", new_position)
-                sys.exit()
+            #try:
+            self.model.grid.move_agent(self, new_position) ## 그 위치로 이동
+            # except:
+            #     print("error")
+            #     print("agent position : ", self.xy)
+            #     print("agent type : ", self.type)
+            #     print("new position : ", new_position)
+            #     sys.exit()
 
     def choice_near_goal(self, pos):
         shortest_distance = 9999999999
@@ -588,7 +588,6 @@ class CrowdAgent(Agent):
         goal_x = self.now_goal[0] - self.xy[0]
         goal_y = self.now_goal[1] - self.xy[1]
         goal_d = math.sqrt(pow(goal_x,2) + pow(goal_y,2))
-
         robot_x = self.model.robot.xy[0] - self.xy[0]
         robot_y = self.model.robot.xy[1] - self.xy[1]
         robot_d = math.sqrt(pow(robot_x,2)+pow(robot_y,2))
@@ -779,7 +778,7 @@ class RobotAgent(CrowdAgent):
         self.action[0] = action[0]
         self.action[1] = action[1]
 
-        
+        # print("action : ", self.action)
         if(self.now_exploration == 1):
             print("exploration 중")
             if(self.robot_waypoint == [0, 0]):
@@ -838,8 +837,6 @@ class RobotAgent(CrowdAgent):
         intend_force = 2
         desired_speed = 3
 
-            
-
         desired_force = [intend_force*(desired_speed*(goal_x)), intend_force*(desired_speed*(goal_y))]; #desired_force : 사람이 탈출구쪽으로 향하려는 힘
         
         x=int(round(self.xy[0]))
@@ -888,20 +885,21 @@ class RobotAgent(CrowdAgent):
 
         F_x = 0
         F_y = 0
-        # print("self.xy : ", self.xy)
+
         # print("desired_force : ", desired_force)
         # print("repulsive_force : ", repulsive_force)
         F_x += desired_force[0]
         F_y += desired_force[1]
-        
 
         F_x += repulsive_force[0]
         F_y += repulsive_force[1]
+
         vel = [0,0]
         vel[0] = F_x/self.mass
         vel[1] = F_y/self.mass
         self.xy[0] += vel[0] * time_step
         self.xy[1] += vel[1] * time_step
+
         if(self.xy[0]<1):
             self.xy[0] = 1
         if(self.xy[1]<1):
@@ -910,7 +908,7 @@ class RobotAgent(CrowdAgent):
             self.xy[0] = self.model.width-2
         if(self.xy[1]>self.model.height-2):
             self.xy[1] = self.model.height-2
-            
+
 
         next_x = int(round(self.xy[0]))
         next_y = int(round(self.xy[1]))

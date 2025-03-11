@@ -45,6 +45,7 @@ parser.add_argument("--use_gail", type=lambda x: (str(x).lower() == 'true'), def
 parser.add_argument("--expert_dir", type=str, default="expert_data_dir")
 parser.add_argument("--expert_buffer_size", type=int, default=50000)
 parser.add_argument("--log_dir", type=str, default="learning_log_guide_game_gail")
+parser.add_argument("--gail_alpha", type=float, default=1.0)
 args = parser.parse_args()
 
 home_dir = os.path.expanduser("~")
@@ -384,9 +385,11 @@ class SACAgent:
          r_total = gail_alpha * log(D(s,a)) + (1-gail_alpha)*env_reward
         """
         with torch.no_grad():
-            d_val = disc(state_t, action_t) # 전문가 데이터는 라벨이 1로 주어지기 때문에, 판별자가 전문가 데이터와 유사한 상태-액션 쌍에 대해 높은 확률을 출력, 그래서 전문가와 유사할수록 높은 값을 가지게 됨. 
-            r_gail = torch.log(d_val + 1e-8).squeeze(-1) # log(D(s,a))
+            logits = disc(state_t, action_t) # 전문가 데이터는 라벨이 1로 주어지기 때문에, 판별자가 전문가 데이터와 유사한 상태-액션 쌍에 대해 높은 확률을 출력, 그래서 전문가와 유사할수록 높은 값을 가지게 됨. 
+            prob = torch.sigmoid(logits)
+            r_gail = torch.log(prob + 1e-8).squeeze(-1) # log(D(s,a))
             # tensor화
+
             env_r = env_reward.to(self.device)
             r_total = self.gail_alpha*r_gail + (1.0 - self.gail_alpha)*env_r
         return r_total
@@ -587,7 +590,8 @@ if __name__ == "__main__":
         epsilon_min=args.epsilon_min,
         batch_size=args.batch_size,
         replay_size=args.buffer_size,
-        device=args.device
+        device=args.device,
+        gail_alpha=args.gail_alpha
     )
     print(f"Agent initialized, lr={args.lr}, alpha={agent.alpha}, batch_size={args.batch_size}, replay_size={args.buffer_size}")
 
@@ -729,7 +733,6 @@ if __name__ == "__main__":
                 total_reward += reward
                 #print("reward : ", reward)
                 reward = 0
-
             # 7) GAIL Discriminator Update (예: 5 스텝마다)
             if use_gail and disc is not None and disc_optimizer is not None:
                 if step % 5 == 0 and len(agent.replay_buffer) > 100 and len(expert_buffer) > 100:
