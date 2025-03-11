@@ -462,35 +462,51 @@ class SACAgent:
         print("Replay buffer loaded.")
         print("Replay buffer size:", len(self.replay_buffer))
 
-def load_expert_data_randomly(path, capacity):
+def load_expert_data_randomly(prefix, capacity):
     """
-    전역 변수 log_dir에서, 주어진 접두어(path)로 시작하는 .pkl 파일들을 모두 로드합니다.
-    로드된 (s,a,r,ns,d) 튜플 리스트를 무작위로 섞은 후 capacity 개수만큼 반환합니다.
+    전역 변수 log_dir에서, 주어진 접두어(prefix)로 시작하는 .pkl 파일들을 랜덤 순서로 처리하면서,
+    (s,a,r,ns,d) 튜플을 reservoir sampling 기법으로 capacity 개수만큼 무작위로 선택하여 반환합니다.
     
-    예:
-        path = "imitation_dataset"  # 파일명이 imitation_dataset_1.pkl, imitation_dataset_2.pkl 등
+    reservoir sampling 알고리즘을 사용하여, 전체 데이터 개수에 상관없이 메모리 사용량을 capacity로 제한합니다.
     """
-    expert_files = [f for f in os.listdir(log_dir) if f.startswith(path) and f.endswith(".pkl")]
+    # 접두어(prefix)에 해당하는 파일 목록 추출
+    expert_files = [f for f in os.listdir(log_dir) if f.startswith(prefix) and f.endswith(".pkl")]
     if not expert_files:
-        print(f"[WARN] No files found in {log_dir} starting with '{path}'")
+        print(f"[WARN] {log_dir} 내에서 '{prefix}'로 시작하는 파일을 찾지 못했습니다.")
         return []
     
-    all_data = []
+    # 파일 순서를 랜덤하게 섞음
+    random.shuffle(expert_files)
+    
+    reservoir = []
+    total_count = 0  # 지금까지 읽은 샘플 수
+    
+    # 파일 하나씩 읽으며 reservoir sampling 수행
     for fname in expert_files:
         full_path = os.path.join(log_dir, fname)
         try:
             with open(full_path, "rb") as f:
                 data = pickle.load(f)
-            all_data.extend(data)
         except Exception as e:
-            print(f"[WARN] Failed to load {fname}: {e}")
-    
-    random.shuffle(all_data)
-    if len(all_data) > capacity:
-        all_data = all_data[:capacity]
-    
-    print(f"Loaded {len(all_data)} expert samples from {len(expert_files)} files in {log_dir}, capacity={capacity}")
-    return all_data
+            print(f"[WARN] {fname} 로딩 실패: {e}")
+            continue
+        
+        # 각 파일 내의 샘플 순서도 랜덤화 (선택적)
+        random.shuffle(data)
+        
+        for sample in data:
+            total_count += 1
+            if len(reservoir) < capacity:
+                # 아직 버퍼가 꽉 차지 않았다면 그냥 추가
+                reservoir.append(sample)
+            else:
+                # 버퍼가 꽉 찬 이후엔 지금까지 본 샘플 수에 대해 균등하게 선택될 수 있도록 대체
+                idx = random.randint(0, total_count - 1)
+                if idx < capacity:
+                    reservoir[idx] = sample
+
+    print(f"{log_dir} 내 {len(expert_files)}개 파일에서 총 {total_count}개의 샘플 중 {len(reservoir)}개를 선택 (capacity={capacity})")
+    return reservoir
 def monitor_total_reward(total_reward_file, tb_log_dir, start_episode):
     # total_reward 로그는 tb_log_dir/total_reward 하위 디렉토리에 기록
     writer = SummaryWriter(log_dir=os.path.join(tb_log_dir, "total_reward"))
