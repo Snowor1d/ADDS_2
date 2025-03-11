@@ -15,9 +15,10 @@ device = "cpu"
 use_gail = True
 log_dir = "learning_log_guide_game_gail"
 gail_alpha = 1
+expert_dir = "imitation_dataset"
 
 def run_reinforcement_learning():
-    subprocess.run(["python3", "ADDS_AS_reinforcement.py" , "--lr", str(lr), "--decay_value", str(decay_value), "--buffer_size", str(buffer_size), "--batch_size", str(batch_size), "--alpha", str(alpha), "--start_epsilon", str(start_epsilon), "--epsilon_min", str(epsilon_min), "--device", device, "--use_gail", str(use_gail), "--expert_buffer_size", str(expert_buffer_size), "--log_dir", str(log_dir), "--gail_alpha", str(gail_alpha)])
+    subprocess.run(["python3", "ADDS_AS_reinforcement.py" , "--lr", str(lr), "--decay_value", str(decay_value), "--buffer_size", str(buffer_size), "--batch_size", str(batch_size), "--alpha", str(alpha), "--start_epsilon", str(start_epsilon), "--epsilon_min", str(epsilon_min), "--device", device, "--use_gail", str(use_gail), "--expert_buffer_size", str(expert_buffer_size), "--log_dir", str(log_dir), "--gail_alpha", str(gail_alpha), "--expert_dir", str(expert_dir)])
 
 if __name__ == "__main__":
     while True:

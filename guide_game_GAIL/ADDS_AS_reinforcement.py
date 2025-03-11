@@ -462,47 +462,38 @@ class SACAgent:
         print("Replay buffer loaded.")
         print("Replay buffer size:", len(self.replay_buffer))
 
-
-# -------------------------------------------------------
-# 여러 pkl 파일에서 Expert 데이터를 무작위로 로드하는 함수
-# -------------------------------------------------------
-def load_expert_data_randomly(expert_dir, capacity):
+def load_expert_data_randomly(path, capacity):
     """
-    expert_dir 안에 있는 여러 .pkl 파일을 무작위 순서로 읽어
-    (s,a,r,ns,d) 튜플을 최대 capacity 만큼 로드하여 리턴
+    전역 변수 log_dir에서, 주어진 접두어(path)로 시작하는 .pkl 파일들을 모두 로드합니다.
+    로드된 (s,a,r,ns,d) 튜플 리스트를 무작위로 섞은 후 capacity 개수만큼 반환합니다.
+    
+    예:
+        path = "imitation_dataset"  # 파일명이 imitation_dataset_1.pkl, imitation_dataset_2.pkl 등
     """
-    if not os.path.exists(expert_dir):
-        print(f"[WARN] Expert directory does not exist: {expert_dir}")
+    expert_files = [f for f in os.listdir(log_dir) if f.startswith(path) and f.endswith(".pkl")]
+    if not expert_files:
+        print(f"[WARN] No files found in {log_dir} starting with '{path}'")
         return []
-
-    pkl_files = [f for f in os.listdir(expert_dir) if f.endswith(".pkl")]
-    if not pkl_files:
-        print(f"[WARN] No .pkl files found in {expert_dir}")
-        return []
-
-    random.shuffle(pkl_files)
-    expert_data_temp = []
-    for pkl_file in pkl_files:
-        if len(expert_data_temp) >= capacity:
-            break
-        full_path = os.path.join(expert_dir, pkl_file)
+    
+    all_data = []
+    for fname in expert_files:
+        full_path = os.path.join(log_dir, fname)
         try:
             with open(full_path, "rb") as f:
-                data = pickle.load(f)  # (s,a,r,ns,d) list
+                data = pickle.load(f)
+            all_data.extend(data)
         except Exception as e:
-            print(f"[WARN] Failed to load {pkl_file}: {e}")
-            continue
-
-        for sample in data:
-            expert_data_temp.append(sample)
-            if len(expert_data_temp) >= capacity:
-                break
-
-    print(f"Loaded {len(expert_data_temp)} expert samples from {expert_dir}, capacity={capacity}")
-    return expert_data_temp
-
+            print(f"[WARN] Failed to load {fname}: {e}")
+    
+    random.shuffle(all_data)
+    if len(all_data) > capacity:
+        all_data = all_data[:capacity]
+    
+    print(f"Loaded {len(all_data)} expert samples from {len(expert_files)} files in {log_dir}, capacity={capacity}")
+    return all_data
 def monitor_total_reward(total_reward_file, tb_log_dir, start_episode):
-    writer = SummaryWriter(log_dir=tb_log_dir)
+    # total_reward 로그는 tb_log_dir/total_reward 하위 디렉토리에 기록
+    writer = SummaryWriter(log_dir=os.path.join(tb_log_dir, "total_reward"))
     while not os.path.exists(total_reward_file):
         print(f"Waiting for {total_reward_file} to be created...")
         time.sleep(2)
@@ -517,8 +508,7 @@ def monitor_total_reward(total_reward_file, tb_log_dir, start_episode):
                     if line:
                         try:
                             total_reward = float(line)
-                            writer.add_scalar("Total Reward", total_reward, episode)
-                            # print(f"Episode {start_episode + episode + 1}: Total Reward = {total_reward}")
+                            writer.add_scalar("Total Reward", total_reward, start_episode + episode + 1)
                             episode += 1
                         except ValueError:
                             print("Invalid value in total_reward.txt:", line)
@@ -529,6 +519,33 @@ def monitor_total_reward(total_reward_file, tb_log_dir, start_episode):
         finally:
             writer.close()
 
+def monitor_total_gail_reward(gail_reward_file, tb_log_dir, start_episode):
+    # GAIL 로그는 tb_log_dir/gail_reward 하위 디렉토리에 기록
+    writer = SummaryWriter(log_dir=os.path.join(tb_log_dir, "gail_reward"))
+    while not os.path.exists(gail_reward_file):
+        print(f"Waiting for {gail_reward_file} to be created...")
+        time.sleep(2)
+    with open(gail_reward_file, "r") as f:
+        episode = 0
+        print("Start monitoring total_reward_gail.txt for GAIL rewards...")
+        try:
+            while True:
+                line = f.readline()
+                if line:
+                    line = line.strip()
+                    if line:
+                        try:
+                            gail_r = float(line)
+                            writer.add_scalar("GAIL Reward", gail_r, start_episode + episode + 1)
+                            episode += 1
+                        except ValueError:
+                            print("Invalid value in total_reward_gail.txt:", line)
+                else:
+                    time.sleep(1)
+        except KeyboardInterrupt:
+            print("Monitoring GAIL reward interrupted by user.")
+        finally:
+            writer.close()
 # ====================================================
 # 7. 메인 학습 루프 (SAC + GAIL 하이브리드)
 # ====================================================
@@ -539,15 +556,27 @@ if __name__ == "__main__":
     # TensorBoard, timer, etc. (기존 그대로)
     # ------------------------------------------
     total_reward_file = os.path.join(log_dir, "total_reward.txt")
+    total_reward_gail_file = os.path.join(log_dir, "total_reward_gail.txt")
     tb_log_dir = os.path.join(log_dir, "tensorboard_logs")
 
     tb_process = launch_tensorboard(tb_log_dir, port=6006)
-    monitor_thread = threading.Thread(
+    monitor_thread1 = threading.Thread(
         target=monitor_total_reward, 
         args=(total_reward_file, tb_log_dir, start_episode), 
         daemon=True)
-    monitor_thread.start()
+    monitor_thread1.start()
 
+    monitor_thread2 = threading.Thread(
+        target=monitor_total_gail_reward,
+        args=(total_reward_gail_file, tb_log_dir, start_episode),
+        daemon=True)
+    monitor_thread2.start()
+
+    monitor_thread1 = threading.Thread(
+        target=monitor_total_reward, 
+        args=(total_reward_file, tb_log_dir, start_episode), 
+        daemon=True)
+    monitor_thread1.start()
     # ------------------------------------------
     # Hyperparams & GAIL 여부
     # ------------------------------------------
@@ -634,8 +663,7 @@ if __name__ == "__main__":
     if use_gail:
         print("GAIL mode ON. Loading expert dataset.")
         # 예: (s,a,r,ns,d) 형태
-        expert_data_path = "imitation_dataset.pkl"
-        expert_samples = load_expert_data_randomly(expert_data_path, capacity=args.expert_buffer_size)
+        expert_samples = load_expert_data_randomly(args.expert_dir, capacity=args.expert_buffer_size)
 
         disc = DiscriminatorNetwork().to(agent.device)
         disc_optimizer = optim.Adam(disc.parameters(), lr=1e-4)
@@ -662,6 +690,8 @@ if __name__ == "__main__":
     # ------------------------------------------
     for episode in range(max_episodes):
         print(f"Episode {start_episode + episode + 1}")
+
+        episode_gail_reward = 0
 
         # 매 10 에피소드마다, expert_buffer 새로 로딩 (GAIL ON일 때만)
         if use_gail and (episode % 10 == 0) and (episode != 0):
@@ -731,6 +761,14 @@ if __name__ == "__main__":
                     float(done)
                 )
                 total_reward += reward
+
+                if use_gail and disc is not None:
+                    with torch.no_grad():
+                        s_t = torch.FloatTensor(buffered_state).unsqueeze(0).unsqueeze(0).to(agent.device)
+                        a_t = torch.FloatTensor(buffered_action).unsqueeze(0).to(agent.device)
+                        rew_t = torch.tensor([reward], dtype=torch.float32).to(agent.device)
+                        r_gail_t = agent.calc_gail_reward(disc, s_t, a_t, rew_t)
+                        episode_gail_reward += r_gail_t.item()
                 #print("reward : ", reward)
                 reward = 0
             # 7) GAIL Discriminator Update (예: 5 스텝마다)
@@ -784,7 +822,8 @@ if __name__ == "__main__":
             agent.update_epsilon(True, decay_value)
             agent.update_epsilon2(True, decay_value)
 
-        print("Total reward:", total_reward)
+        print("Total reward :", total_reward)
+        print("GAIL reward sum : ", episode_gail_reward)
         print("now_epsilon : ", agent.epsilon)
         print("now_epsilon_long : ", agent.epsilon_long)
 
@@ -802,6 +841,13 @@ if __name__ == "__main__":
         with open(reward_file_path, "a") as f:
             if(abnormal_reward != 1):
                 f.write(f"{total_reward}\n")
+
+        if use_gail:
+            gail_reward_path = os.path.join(log_dir, "total_reward_gail.txt")
+            if not os.path.exists(gail_reward_path):
+                open(gail_reward_path, "w").close()
+            with open(gail_reward_path, "a") as f:
+                f.write(f"{episode_gail_reward}\n")
 
         # epsilon 저장
         with open(epsilon_path, "w") as f:
