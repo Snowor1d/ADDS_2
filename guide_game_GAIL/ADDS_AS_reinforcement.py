@@ -46,6 +46,7 @@ parser.add_argument("--expert_dir", type=str, default="expert_data_dir")
 parser.add_argument("--expert_buffer_size", type=int, default=50000)
 parser.add_argument("--log_dir", type=str, default="learning_log_guide_game_gail")
 parser.add_argument("--gail_alpha", type=float, default=1.0)
+parser.add_argument("--gail_scale", type=float, default=0.1)
 args = parser.parse_args()
 
 home_dir = os.path.expanduser("~")
@@ -287,6 +288,7 @@ class SACAgent:
         self.tau = tau
         self.batch_size = batch_size
         self.gail_alpha = gail_alpha
+        self.gail_scaler = args.gail_scale
         self.device = torch.device(device)
 
         # ReplayBuffer
@@ -389,7 +391,7 @@ class SACAgent:
             prob = torch.sigmoid(logits)
             r_gail = torch.log(prob + 1e-8).squeeze(-1) # log(D(s,a))
             # tensor화
-
+            r_gail = self.gail_scaler * r_gail
             env_r = env_reward.to(self.device)
             r_total = self.gail_alpha*r_gail + (1.0 - self.gail_alpha)*env_r
         return r_total
