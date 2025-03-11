@@ -461,29 +461,31 @@ class SACAgent:
         self.replay_buffer.load(filepath)
         print("Replay buffer loaded.")
         print("Replay buffer size:", len(self.replay_buffer))
-
 def load_expert_data_randomly(prefix, capacity):
     """
-    전역 변수 log_dir에서, 주어진 접두어(prefix)로 시작하는 .pkl 파일들을 랜덤 순서로 처리하면서,
-    (s,a,r,ns,d) 튜플을 reservoir sampling 기법으로 capacity 개수만큼 무작위로 선택하여 반환합니다.
+    전역 변수 log_dir에서, 주어진 접두어(prefix)로 시작하는 .pkl 파일 목록을 가져온 후,
+    파일 이름만으로 랜덤하게 선택하여, 파일을 하나씩 읽고 내부 데이터를 버퍼에 채웁니다.
+    버퍼가 capacity에 도달하면 중단합니다.
     
-    reservoir sampling 알고리즘을 사용하여, 전체 데이터 개수에 상관없이 메모리 사용량을 capacity로 제한합니다.
+    예:
+        prefix = "imitation_dataset"  # 파일명이 imitation_dataset_1.pkl, imitation_dataset_2.pkl 등
     """
-    # 접두어(prefix)에 해당하는 파일 목록 추출
     expert_files = [f for f in os.listdir(log_dir) if f.startswith(prefix) and f.endswith(".pkl")]
     if not expert_files:
         print(f"[WARN] {log_dir} 내에서 '{prefix}'로 시작하는 파일을 찾지 못했습니다.")
         return []
     
-    # 파일 순서를 랜덤하게 섞음
-    random.shuffle(expert_files)
+    buffer = []
+    # 읽지 않은 파일 목록 (중복 선택되지 않도록 함)
+    remaining_files = expert_files.copy()
     
-    reservoir = []
-    total_count = 0  # 지금까지 읽은 샘플 수
-    
-    # 파일 하나씩 읽으며 reservoir sampling 수행
-    for fname in expert_files:
+    # capacity를 채울 때까지 또는 파일 목록이 소진될 때까지 반복
+    while len(buffer) < capacity and remaining_files:
+        # 남은 파일 중 하나를 랜덤 선택
+        fname = random.choice(remaining_files)
+        remaining_files.remove(fname)
         full_path = os.path.join(log_dir, fname)
+        
         try:
             with open(full_path, "rb") as f:
                 data = pickle.load(f)
@@ -491,22 +493,17 @@ def load_expert_data_randomly(prefix, capacity):
             print(f"[WARN] {fname} 로딩 실패: {e}")
             continue
         
-        # 각 파일 내의 샘플 순서도 랜덤화 (선택적)
+        # 파일 내부 데이터의 순서를 랜덤하게 섞음
         random.shuffle(data)
-        
         for sample in data:
-            total_count += 1
-            if len(reservoir) < capacity:
-                # 아직 버퍼가 꽉 차지 않았다면 그냥 추가
-                reservoir.append(sample)
+            if len(buffer) < capacity:
+                buffer.append(sample)
             else:
-                # 버퍼가 꽉 찬 이후엔 지금까지 본 샘플 수에 대해 균등하게 선택될 수 있도록 대체
-                idx = random.randint(0, total_count - 1)
-                if idx < capacity:
-                    reservoir[idx] = sample
+                break
 
-    print(f"{log_dir} 내 {len(expert_files)}개 파일에서 총 {total_count}개의 샘플 중 {len(reservoir)}개를 선택 (capacity={capacity})")
-    return reservoir
+    print(f"{log_dir} 내 {len(expert_files)}개 파일 중 {len(expert_files) - len(remaining_files)}개 파일에서 데이터를 읽어 총 {len(buffer)}개의 샘플을 로드 (capacity={capacity})")
+    return buffer
+
 def monitor_total_reward(total_reward_file, tb_log_dir, start_episode):
     # total_reward 로그는 tb_log_dir/total_reward 하위 디렉토리에 기록
     writer = SummaryWriter(log_dir=os.path.join(tb_log_dir, "total_reward"))
