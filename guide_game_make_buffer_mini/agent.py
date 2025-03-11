@@ -612,6 +612,16 @@ class CrowdAgent(Agent):
 
         self.xy[0] += self.vel[0] * time_step
         self.xy[1] += self.vel[1] * time_step
+        
+        if(self.xy[0] < 1):
+            self.xy[0] = 1
+        if(self.xy[1] < 1):
+            self.xy[1] = 1
+        if(self.xy[0] > self.model.width-1):
+            self.xy[0] = self.model.width-1
+        if(self.xy[1] > self.model.height-1):
+            self.xy[1] = self.model.height-1
+
         next_x = int(round(self.xy[0]))
         next_y = int(round(self.xy[1]))
 
@@ -626,6 +636,7 @@ class CrowdAgent(Agent):
 
         self.robot_guide = 0
         return (next_x, next_y)
+
 
  
     def which_goal_agent_want(self):

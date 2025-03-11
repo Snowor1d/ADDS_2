@@ -443,8 +443,14 @@ class CrowdAgent(Agent):
                    
             if (self.model.robot_type == "Q"):
                 new_position_robot = self.robot_policy_Q()
-            
-            self.model.grid.move_agent(self, new_position_robot)
+            try:
+                self.model.grid.move_agent(self, new_position_robot)
+            except:
+                print("error")
+                print("agent position : ", self.xy)
+                print("agent type : ", self.type)
+                print("new position : ", new_position)
+                sys.exit()
             self.pos = new_position_robot
             return
         
@@ -453,7 +459,14 @@ class CrowdAgent(Agent):
             new_position = self.agent_modeling()
             # print("new_position : ", new_position)
             new_position = (int(round(new_position[0])), int(round(new_position[1])))
-            self.model.grid.move_agent(self, new_position) ## 그 위치로 이동
+            try:
+                self.model.grid.move_agent(self, new_position) ## 그 위치로 이동
+            except:
+                print("error")
+                print("agent position : ", self.xy)
+                print("agent type : ", self.type)
+                print("new position : ", new_position)
+                sys.exit()
 
     def choice_near_goal(self, pos):
         shortest_distance = 9999999999
@@ -506,7 +519,7 @@ class CrowdAgent(Agent):
 
         x = int(round(self.xy[0]))
         y = int(round(self.xy[1]))
-        temp_loc = [(x-1, y), (x+1, y), (x, y+1), (x, y-1), (x+1, y+1), (x+1, y-1), (x-1, y+1), (x-1, y-1)]
+        temp_loc = [(x-1, y), (x+1, y), (x, y+1), (x, y-1), (x+1, y+1), (x+1, y-1), (x-1, y+1), (x-1, y-1), (x-2, y), (x+2, y), (x, y+2), (x, y-2)]
         near_loc = []
         for i in temp_loc:
             if(i[0]>0 and i[1]>0 and i[0]<self.model.grid.width and i[1] < self.model.grid.height):
@@ -616,6 +629,16 @@ class CrowdAgent(Agent):
 
         self.xy[0] += self.vel[0] * time_step
         self.xy[1] += self.vel[1] * time_step
+
+        if(self.xy[0] < 1):
+            self.xy[0] = 1
+        if(self.xy[1] < 1):
+            self.xy[1] = 1
+        if(self.xy[0] > self.model.width-1):
+            self.xy[0] = self.model.width-1
+        if(self.xy[1] > self.model.height-1):
+            self.xy[1] = self.model.height-1
+
         next_x = int(round(self.xy[0]))
         next_y = int(round(self.xy[1]))
 

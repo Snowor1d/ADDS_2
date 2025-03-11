@@ -974,7 +974,7 @@ class FightingModel(Model):
             self.robot.receive_action([dx, dy])
 
         if(self.using_model and self.step_n%3==2):
-            print("reward : ", self.checking_reward)
+            #print("reward : ", self.checking_reward)
             self.checking_reward = 0
 
         self.schedule.step()
