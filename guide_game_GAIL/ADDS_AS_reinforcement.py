@@ -259,18 +259,30 @@ class PolicyNetwork(nn.Module):
         log_std = torch.clamp(log_std, self.log_std_min, self.log_std_max)
         return mean, log_std
 
-    def sample_action(self, state):
-        # reparam trick
-        mean, log_std = self.forward(state)
-        std = log_std.exp()
-        eps = torch.randn_like(mean)
-        action = mean + std * eps
-        action = 2.0 * torch.tanh(action)  # [-2, 2] 범위
-        # log_prob
-        log_prob = -0.5 * ((action - mean)**2 / (std**2 + 1e-8) + 2*log_std + np.log(2*np.pi))
-        log_prob = log_prob.sum(dim=1)
-        return action, log_prob
+def sample_action(self, state):
+    # reparameterization trick
+    mean, log_std = self.forward(state)
+    std = log_std.exp()
+    eps = torch.randn_like(mean)
+    raw_action = mean + std * eps  # Gaussian 샘플
+    
+    # sigmoid를 이용한 스쿼싱 및 스케일링: sigmoid 출력은 [0,1]이므로 [-2,2]로 변환
+    action_sigmoid = torch.sigmoid(raw_action)
+    action = 4.0 * action_sigmoid - 2.0
 
+    # 원래 Gaussian 분포에 따른 로그 확률 계산
+    log_prob = -0.5 * ((raw_action - mean)**2 / (std**2 + 1e-8) + 2 * log_std + np.log(2 * np.pi))
+    log_prob = log_prob.sum(dim=1)
+
+    # 변환에 따른 로그 자코비안 보정: y = 4 * sigmoid(raw_action) - 2 이므로,
+    # derivative = 4 * sigmoid(raw_action) * (1 - sigmoid(raw_action))
+    log_det_jacobian = torch.log(4.0 * action_sigmoid * (1.0 - action_sigmoid) + 1e-6)
+    log_det_jacobian = log_det_jacobian.sum(dim=1)
+
+    # 최종 로그 확률에 자코비안 보정 적용 (변환에 따른 정보 손실 보정)
+    log_prob = log_prob - log_det_jacobian
+
+    return action, log_prob
 # ========================================
 # 6. SACAgent (with GAIL option)
 # ========================================
@@ -728,108 +740,108 @@ if __name__ == "__main__":
         buffered_action = None
         abnormal_reward = 0
 
-        #try:
-        for step in range(max_steps):
+        try:
+            for step in range(max_steps):
 
-            # 1) Select action
-            if step % 3 == 0:
-                # exploration
-                if np.random.rand() < agent.epsilon_long:
-                    env_model.robot.now_exploration = 0
+                # 1) Select action
+                if step % 3 == 0:
+                    # exploration
+                    if np.random.rand() < agent.epsilon_long:
+                        env_model.robot.now_exploration = 0
 
-                action_np, _ = agent.select_action(state)
-                dx, dy = action_np[0], action_np[1]
-                real_action = env_model.robot.receive_action([dx, dy])
-                # 실제 적용된 action(벽 등으로 약간 바뀔 수 있다고 가정)
-                action_np[0] = real_action[0]
-                action_np[1] = real_action[1]
+                    action_np, _ = agent.select_action(state)
+                    dx, dy = action_np[0], action_np[1]
+                    real_action = env_model.robot.receive_action([dx, dy])
+                    # 실제 적용된 action(벽 등으로 약간 바뀔 수 있다고 가정)
+                    action_np[0] = real_action[0]
+                    action_np[1] = real_action[1]
 
-                buffered_state = state
-                buffered_action = action_np
+                    buffered_state = state
+                    buffered_action = action_np
 
-            # Simulation time check
-            sim_timer.start()
-            # 2) Step environment
-            env_model.step()
-            sim_timer.stop()
+                # Simulation time check
+                sim_timer.start()
+                # 2) Step environment
+                env_model.step()
+                sim_timer.stop()
 
-            # 3) Reward
-            r_a = env_model.reward_based_alived()
-            #r_d = env_model.reward_based_all_agents_danger()
-            reward = r_a
+                # 3) Reward
+                r_a = env_model.reward_based_alived()
+                #r_d = env_model.reward_based_all_agents_danger()
+                reward = r_a
 
-            # 4) Next state
-            next_state = env_model.return_current_image()
+                # 4) Next state
+                next_state = env_model.return_current_image()
 
-            # 5) Done?
-            done = (step >= max_steps - 1) or (env_model.robot.is_game_finished)
-            if env_model.robot.is_game_finished:
-                reward += 10
+                # 5) Done?
+                done = (step >= max_steps - 1) or (env_model.robot.is_game_finished)
+                if env_model.robot.is_game_finished:
+                    reward += 10
 
-            # 6) Store transition
-            if step % 3 == 2 and step > 5:
-                agent.store_transition(
-                    buffered_state,
-                    buffered_action,
-                    reward,
-                    next_state,
-                    float(done)
-                )
-                total_reward += reward
+                # 6) Store transition
+                if step % 3 == 2 and step > 5:
+                    agent.store_transition(
+                        buffered_state,
+                        buffered_action,
+                        reward,
+                        next_state,
+                        float(done)
+                    )
+                    total_reward += reward
 
-                if use_gail and disc is not None:
-                    with torch.no_grad():
-                        s_t = torch.FloatTensor(buffered_state).unsqueeze(0).unsqueeze(0).to(agent.device)
-                        a_t = torch.FloatTensor(buffered_action).unsqueeze(0).to(agent.device)
-                        rew_t = torch.tensor([reward], dtype=torch.float32).to(agent.device)
-                        r_gail_t = agent.calc_gail_reward(disc, s_t, a_t, rew_t)
-                        episode_gail_reward += r_gail_t.item()
-                #print("reward : ", reward)
-                reward = 0
-            # 7) GAIL Discriminator Update (예: 5 스텝마다)
-            if use_gail and disc is not None and disc_optimizer is not None:
-                if step % 5 == 0 and len(agent.replay_buffer) > 100 and len(expert_buffer) > 100:
-                    disc_optimizer.zero_grad()
-                    # expert
-                    exp_states, exp_actions = sample_expert(batch_size=32) # expert data에서 32개 샘플링
-                    lbl_exp = torch.ones((32,1), dtype=torch.float, device=agent.device) # 이 expert data는 모두 1이라고 명시 
+                    if use_gail and disc is not None:
+                        with torch.no_grad():
+                            s_t = torch.FloatTensor(buffered_state).unsqueeze(0).unsqueeze(0).to(agent.device)
+                            a_t = torch.FloatTensor(buffered_action).unsqueeze(0).to(agent.device)
+                            rew_t = torch.tensor([reward], dtype=torch.float32).to(agent.device)
+                            r_gail_t = agent.calc_gail_reward(disc, s_t, a_t, rew_t)
+                            episode_gail_reward += r_gail_t.item()
+                    #print("reward : ", reward)
+                    reward = 0
+                # 7) GAIL Discriminator Update (예: 5 스텝마다)
+                if use_gail and disc is not None and disc_optimizer is not None:
+                    if step % 5 == 0 and len(agent.replay_buffer) > 100 and len(expert_buffer) > 100:
+                        disc_optimizer.zero_grad()
+                        # expert
+                        exp_states, exp_actions = sample_expert(batch_size=32) # expert data에서 32개 샘플링
+                        lbl_exp = torch.ones((32,1), dtype=torch.float, device=agent.device) # 이 expert data는 모두 1이라고 명시 
 
-                    # policy
-                    pol_states, pol_actions, _, _, _ = agent.replay_buffer.sample(32) # replay buffer에서 32개 샘플링
-                    pol_states = pol_states.to(agent.device) # agent로부터 샘플링된 상태와 액션 텐서를 학습에 사용되는 디바이스(GPU or CPU)로 복사 
-                    pol_actions= pol_actions.to(agent.device)
-                    lbl_pol = torch.zeros((32,1),dtype=torch.float,device=agent.device) #모두 0이라고 명시 (expert가 아니므로)
-                    
-                    # concat
-                    all_s = torch.cat([exp_states, pol_states], dim=0) 
-                    all_a = torch.cat([exp_actions, pol_actions], dim=0)
-                    all_l = torch.cat([lbl_exp, lbl_pol], dim=0)
-                    # 전문가 샘플, 에이전트 샘플 합치기 
+                        # policy
+                        pol_states, pol_actions, _, _, _ = agent.replay_buffer.sample(32) # replay buffer에서 32개 샘플링
+                        pol_states = pol_states.to(agent.device) # agent로부터 샘플링된 상태와 액션 텐서를 학습에 사용되는 디바이스(GPU or CPU)로 복사 
+                        pol_actions= pol_actions.to(agent.device)
+                        lbl_pol = torch.zeros((32,1),dtype=torch.float,device=agent.device) #모두 0이라고 명시 (expert가 아니므로)
+                        
+                        # concat
+                        all_s = torch.cat([exp_states, pol_states], dim=0) 
+                        all_a = torch.cat([exp_actions, pol_actions], dim=0)
+                        all_l = torch.cat([lbl_exp, lbl_pol], dim=0)
+                        # 전문가 샘플, 에이전트 샘플 합치기 
 
-                    pred = disc(all_s, all_a) #판별자로 예측 
-                    loss_disc = F.binary_cross_entropy_with_logits(pred, all_l)  #이진 교차 엔트로피(BCE) 손실 계산 ## 이진 교차 엔트로피 손실 : 이진 분류 문제에서 모델의 예측과 실제 정답 간의 차이 측정
-                    loss_disc.backward() # 손실값으로 역전파
-                    disc_optimizer.step()
+                        pred = disc(all_s, all_a) #판별자로 예측 
+                        loss_disc = F.binary_cross_entropy_with_logits(pred, all_l)  #이진 교차 엔트로피(BCE) 손실 계산 ## 이진 교차 엔트로피 손실 : 이진 분류 문제에서 모델의 예측과 실제 정답 간의 차이 측정
+                        loss_disc.backward() # 손실값으로 역전파
+                        disc_optimizer.step()
 
-            # 8) SAC update (with disc for GAIL reward?)
-            if step % 3 == 2:
-                learn_timer.start()
-                if use_gail and disc is not None:
-                    agent.update(disc=disc)  # agent.update with GAIL
-                else:
-                    agent.update()           # no GAIL
-                learn_timer.stop()
+                # 8) SAC update (with disc for GAIL reward?)
+                if step % 3 == 2:
+                    learn_timer.start()
+                    if use_gail and disc is not None:
+                        agent.update(disc=disc)  # agent.update with GAIL
+                    else:
+                        agent.update()           # no GAIL
+                    learn_timer.stop()
 
-            state = next_state
-            if done:
-                break
+                state = next_state
+                if done:
+                    break
 
-        # except Exception as e:
-        #     print(e)
-        #     print("error occured. retry.")
-        #     print(f"{step} steps done.")
-        #     env_model = model.FightingModel(number_of_agents, 50, 50, 2, 'Q')
-        #     abnormal_reward = 1
+        except Exception as e:
+            print(e)
+            print("error occured. retry.")
+            print(f"{step} steps done.")
+            env_model = model.FightingModel(number_of_agents, 50, 50, 2, 'Q')
+            abnormal_reward = 1
 
         # Possibly update epsilon
         if (episode + 1) % 1 == 0: # every 10 episodes
