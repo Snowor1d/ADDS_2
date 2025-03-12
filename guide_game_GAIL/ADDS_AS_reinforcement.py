@@ -409,7 +409,7 @@ class SACAgent:
         return r_total
 
     def update(self, disc=None):
-        if len(self.replay_buffer) < self.batch_size*10:
+        if len(self.replay_buffer) < self.batch_size*100:
             return
         states, actions, rewards, next_states, dones = self.replay_buffer.sample(self.batch_size)
         states, actions, rewards, next_states, dones = (
@@ -800,7 +800,7 @@ if __name__ == "__main__":
                     reward = 0
                 # 7) GAIL Discriminator Update (예: 5 스텝마다)
                 if use_gail and disc is not None and disc_optimizer is not None:
-                    if step % 5 == 0 and len(agent.replay_buffer) > 100 and len(expert_buffer) > 100:
+                    if step % 20 == 0 and len(agent.replay_buffer) > 100 and len(expert_buffer) > 100:
                         disc_optimizer.zero_grad()
                         # expert
                         exp_states, exp_actions = sample_expert(batch_size=32) # expert data에서 32개 샘플링
