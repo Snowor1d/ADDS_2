@@ -32,7 +32,7 @@ weight_changing = [1, 1, 1, 1] # 각 w1, w2, w3, w4에 해당하는 weight를 �
 # s.connect((host, port))
 
 num_remained_agent = 0
-NUMBER_OF_CELLS = 70 
+NUMBER_OF_CELLS = 50
 
 
 one_foot = 1
