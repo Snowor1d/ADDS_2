@@ -55,6 +55,77 @@ os.makedirs(log_dir, exist_ok=True)
 
 start_episode = 0
 
+def evaluate_discriminator(disc, expert_buffer, policy_buffer, device="cpu", batch_size=32):
+    """
+    Discriminator가 얼마나 전문가 vs. 정책 샘플을 잘 구분하는지 평가.
+    - expert_buffer: 전문가 데이터 (ExpertBuffer or deque)
+    - policy_buffer: 정책(Agent) 데이터 (ReplayBuffer)
+    - batch_size: 각에서 뽑을 샘플 수
+    - return: accuracy (0.0 ~ 1.0)
+    """
+    disc.eval()
+    with torch.no_grad():
+        # 1) 전문가 샘플(batch_size개) 추출
+        expert_samples = random.sample(expert_buffer, batch_size)
+        s_e, a_e, _, _, _ = zip(*expert_samples)  # (s,a,r,ns,d)
+        s_e_t = torch.FloatTensor(s_e).unsqueeze(1).to(device)
+        a_e_t = torch.FloatTensor(a_e).to(device)
+        lbl_e = torch.ones((batch_size, 1), dtype=torch.float, device=device)
+
+        # 2) 정책(Agent) 샘플(batch_size개) 추출
+        policy_samples = random.sample(policy_buffer, batch_size)
+        s_p, a_p, _, _, _ = zip(*policy_samples)
+        s_p_t = torch.FloatTensor(s_p).unsqueeze(1).to(device)
+        a_p_t = torch.FloatTensor(a_p).to(device)
+        lbl_p = torch.zeros((batch_size, 1), dtype=torch.float, device=device)
+
+        # 3) Discriminator 출력 계산 (로짓)
+        logits_e = disc(s_e_t, a_e_t)
+        logits_p = disc(s_p_t, a_p_t)
+
+        # 4) 시그모이드 확률
+        prob_e = torch.sigmoid(logits_e)  # 기대값은 1
+        prob_p = torch.sigmoid(logits_p)  # 기대값은 0
+
+        # 5) 0.5 기준으로 분류
+        pred_e = (prob_e >= 0.5).float()  # 전문가로 예측
+        pred_p = (prob_p >= 0.5).float()  # 전문가로 예측
+
+        # 6) 정확도 계산
+        correct_e = (pred_e == lbl_e).sum().item()
+        correct_p = (pred_p == lbl_p).sum().item()
+        accuracy = (correct_e + correct_p) / (2.0 * batch_size)
+    disc.train()
+    return accuracy
+
+def monitor_disc_score(disc_score_file, tb_log_dir, start_episode):
+    writer = SummaryWriter(log_dir=os.path.join(tb_log_dir, "disc_score"))
+    # 파일 생성 대기
+    while not os.path.exists(disc_score_file):
+        print(f"Waiting for {disc_score_file} to be created...")
+        time.sleep(2)
+    with open(disc_score_file, "r") as f:
+        episode = 0
+        print("Start monitoring disc_score.txt for new scores...")
+        try:
+            while True:
+                line = f.readline()
+                if line:
+                    line=line.strip()
+                    if line:
+                        try:
+                            disc_acc = float(line)
+                            writer.add_scalar("Discriminator/Accuracy", disc_acc, start_episode + episode + 1)
+                            episode += 1
+                        except ValueError:
+                            print("Invalid value in disc_score.txt:", line)
+                else:
+                    time.sleep(1)
+        except KeyboardInterrupt:
+            print("Monitoring disc_score interrupted by user.")
+        finally:
+            writer.close()
+
 
 
 def launch_tensorboard(tb_log_dir, port=6006):
@@ -259,30 +330,30 @@ class PolicyNetwork(nn.Module):
         log_std = torch.clamp(log_std, self.log_std_min, self.log_std_max)
         return mean, log_std
 
-def sample_action(self, state):
-    # reparameterization trick
-    mean, log_std = self.forward(state)
-    std = log_std.exp()
-    eps = torch.randn_like(mean)
-    raw_action = mean + std * eps  # Gaussian 샘플
-    
-    # sigmoid를 이용한 스쿼싱 및 스케일링: sigmoid 출력은 [0,1]이므로 [-2,2]로 변환
-    action_sigmoid = torch.sigmoid(raw_action)
-    action = 4.0 * action_sigmoid - 2.0
+    def sample_action(self, state):
+        # reparameterization trick
+        mean, log_std = self.forward(state)
+        std = log_std.exp()
+        eps = torch.randn_like(mean)
+        raw_action = mean + std * eps  # Gaussian 샘플
+        
+        # sigmoid를 이용한 스쿼싱 및 스케일링: sigmoid 출력은 [0,1]이므로 [-2,2]로 변환
+        action_sigmoid = torch.sigmoid(raw_action)
+        action = 4.0 * action_sigmoid - 2.0
 
-    # 원래 Gaussian 분포에 따른 로그 확률 계산
-    log_prob = -0.5 * ((raw_action - mean)**2 / (std**2 + 1e-8) + 2 * log_std + np.log(2 * np.pi))
-    log_prob = log_prob.sum(dim=1)
+        # 원래 Gaussian 분포에 따른 로그 확률 계산
+        log_prob = -0.5 * ((raw_action - mean)**2 / (std**2 + 1e-8) + 2 * log_std + np.log(2 * np.pi))
+        log_prob = log_prob.sum(dim=1)
 
-    # 변환에 따른 로그 자코비안 보정: y = 4 * sigmoid(raw_action) - 2 이므로,
-    # derivative = 4 * sigmoid(raw_action) * (1 - sigmoid(raw_action))
-    log_det_jacobian = torch.log(4.0 * action_sigmoid * (1.0 - action_sigmoid) + 1e-6)
-    log_det_jacobian = log_det_jacobian.sum(dim=1)
+        # 변환에 따른 로그 자코비안 보정: y = 4 * sigmoid(raw_action) - 2 이므로,
+        # derivative = 4 * sigmoid(raw_action) * (1 - sigmoid(raw_action))
+        log_det_jacobian = torch.log(4.0 * action_sigmoid * (1.0 - action_sigmoid) + 1e-6)
+        log_det_jacobian = log_det_jacobian.sum(dim=1)
 
-    # 최종 로그 확률에 자코비안 보정 적용 (변환에 따른 정보 손실 보정)
-    log_prob = log_prob - log_det_jacobian
+        # 최종 로그 확률에 자코비안 보정 적용 (변환에 따른 정보 손실 보정)
+        log_prob = log_prob - log_det_jacobian
 
-    return action, log_prob
+        return action, log_prob
 # ========================================
 # 6. SACAgent (with GAIL option)
 # ========================================
@@ -573,6 +644,46 @@ def monitor_total_gail_reward(gail_reward_file, tb_log_dir, start_episode):
             print("Monitoring GAIL reward interrupted by user.")
         finally:
             writer.close()
+
+
+def update_discriminator_and_log(disc, disc_optimizer, 
+                                 expert_buffer, policy_buffer, 
+                                 disc_score_path, device="cpu", batch_size=32):
+    """
+    1) Discriminator update
+    2) Evaluate & log disc accuracy
+    """
+    # --- 1) Update Discriminator (간단 예시) ---
+    disc_optimizer.zero_grad()
+    exp_samples = random.sample(expert_buffer, batch_size)
+    pol_samples = random.sample(policy_buffer, batch_size)
+
+    s_e, a_e, _, _, _ = zip(*exp_samples)
+    s_e_t = torch.FloatTensor(s_e).unsqueeze(1).to(device)
+    a_e_t = torch.FloatTensor(a_e).to(device)
+    lbl_e = torch.ones((batch_size,1), dtype=torch.float, device=device)
+
+    s_p, a_p, _, _, _ = zip(*pol_samples)
+    s_p_t = torch.FloatTensor(s_p).unsqueeze(1).to(device)
+    a_p_t = torch.FloatTensor(a_p).to(device)
+    lbl_p = torch.zeros((batch_size,1),dtype=torch.float,device=device)
+
+    all_s = torch.cat([s_e_t, s_p_t], dim=0)
+    all_a = torch.cat([a_e_t, a_p_t], dim=0)
+    all_l = torch.cat([lbl_e, lbl_p], dim=0)
+
+    preds = disc(all_s, all_a)
+    loss_disc = F.binary_cross_entropy_with_logits(preds, all_l)
+    loss_disc.backward()
+    disc_optimizer.step()
+
+    # --- 2) Evaluate accuracy ---
+    disc_accuracy = evaluate_discriminator(disc, expert_buffer, policy_buffer, device, batch_size)
+
+    # --- 2-1) disc_score.txt 파일에 기록 ---
+    with open(disc_score_path, "a") as f:
+        f.write(f"{disc_accuracy}\n")
+
 # ====================================================
 # 7. 메인 학습 루프 (SAC + GAIL 하이브리드)
 # ====================================================
@@ -584,6 +695,8 @@ if __name__ == "__main__":
     # ------------------------------------------
     total_reward_file = os.path.join(log_dir, "total_reward.txt")
     total_reward_gail_file = os.path.join(log_dir, "total_reward_gail.txt")
+    disc_score_file = os.path.join(log_dir, "disc_score.txt")
+
     tb_log_dir = os.path.join(log_dir, "tensorboard_logs")
 
     tb_process = launch_tensorboard(tb_log_dir, port=6006)
@@ -599,11 +712,12 @@ if __name__ == "__main__":
         daemon=True)
     monitor_thread2.start()
 
-    monitor_thread1 = threading.Thread(
-        target=monitor_total_reward, 
-        args=(total_reward_file, tb_log_dir, start_episode), 
-        daemon=True)
-    monitor_thread1.start()
+    monitor_thread3 = threading.Thread(
+        target=monitor_disc_score,
+        args=(disc_score_file, tb_log_dir, start_episode),
+        daemon=True
+    )
+    monitor_thread3.start()
     # ------------------------------------------
     # Hyperparams & GAIL 여부
     # ------------------------------------------
@@ -801,27 +915,15 @@ if __name__ == "__main__":
                 # 7) GAIL Discriminator Update (예: 5 스텝마다)
                 if use_gail and disc is not None and disc_optimizer is not None:
                     if step % 20 == 0 and len(agent.replay_buffer) > 100 and len(expert_buffer) > 100:
-                        disc_optimizer.zero_grad()
-                        # expert
-                        exp_states, exp_actions = sample_expert(batch_size=32) # expert data에서 32개 샘플링
-                        lbl_exp = torch.ones((32,1), dtype=torch.float, device=agent.device) # 이 expert data는 모두 1이라고 명시 
-
-                        # policy
-                        pol_states, pol_actions, _, _, _ = agent.replay_buffer.sample(32) # replay buffer에서 32개 샘플링
-                        pol_states = pol_states.to(agent.device) # agent로부터 샘플링된 상태와 액션 텐서를 학습에 사용되는 디바이스(GPU or CPU)로 복사 
-                        pol_actions= pol_actions.to(agent.device)
-                        lbl_pol = torch.zeros((32,1),dtype=torch.float,device=agent.device) #모두 0이라고 명시 (expert가 아니므로)
-                        
-                        # concat
-                        all_s = torch.cat([exp_states, pol_states], dim=0) 
-                        all_a = torch.cat([exp_actions, pol_actions], dim=0)
-                        all_l = torch.cat([lbl_exp, lbl_pol], dim=0)
-                        # 전문가 샘플, 에이전트 샘플 합치기 
-
-                        pred = disc(all_s, all_a) #판별자로 예측 
-                        loss_disc = F.binary_cross_entropy_with_logits(pred, all_l)  #이진 교차 엔트로피(BCE) 손실 계산 ## 이진 교차 엔트로피 손실 : 이진 분류 문제에서 모델의 예측과 실제 정답 간의 차이 측정
-                        loss_disc.backward() # 손실값으로 역전파
-                        disc_optimizer.step()
+                        update_discriminator_and_log(
+                            disc=disc, 
+                            disc_optimizer=disc_optimizer,
+                            expert_buffer=expert_buffer, 
+                            policy_buffer=agent.replay_buffer.buffer, 
+                            global_step=episode,  # 전역 스텝
+                            device=agent.device,
+                            batch_size=32
+                        )
 
                 # 8) SAC update (with disc for GAIL reward?)
                 if step % 3 == 2:
