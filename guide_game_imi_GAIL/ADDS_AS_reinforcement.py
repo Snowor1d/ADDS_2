@@ -47,6 +47,9 @@ parser.add_argument("--expert_buffer_size", type=int, default=50000)
 parser.add_argument("--log_dir", type=str, default="learning_log_guide_game_gail")
 parser.add_argument("--gail_alpha", type=float, default=1.0)
 parser.add_argument("--gail_scale", type=float, default=0.1)
+parser.add_argument("--imitation_decay", type=float, default=0.99)
+parser.add_argument("--bc_init_weight", type=float, default=1.0)
+parser.add_argument("--bc_alpha", type=float, default=1.0)
 args = parser.parse_args()
 
 home_dir = os.path.expanduser("~")
@@ -387,7 +390,7 @@ class PolicyNetwork(nn.Module):
 class SACAgent:
     def __init__(self, input_shape=(50,50), gamma=0.99, alpha=0.2, tau=0.995,
                  lr=1e-4, batch_size=64, replay_size=int(1e5), device="cpu",
-                 gail_alpha=0.5, start_epsilon=args.start_epsilon, start_epsilon_long=0.05, epsilon_min=args.epsilon_min, imitation_decay = 0.99, bc_init_weight = 1.0):
+                 gail_alpha=0.5, start_epsilon=args.start_epsilon, start_epsilon_long=0.05, epsilon_min=args.epsilon_min, imitation_decay = args.imitation_decay, bc_init_weight = args.bc_init_weight, bc_alpha = args.bc_alpha):
         """
         gail_alpha: 0~1 사이. 1이면 완전히 GAIL 보상만, 0이면 env 보상만
         start_epsilon: 초기 epsilon (랜덤 탐사율)
@@ -402,7 +405,7 @@ class SACAgent:
         self.device = torch.device(device)
         self.imitation_decay = imitation_decay
         self.bc_weight = bc_init_weight
-
+        self.bc_alpha = bc_alpha
         # ReplayBuffer
         self.replay_buffer = ReplayBuffer(capacity=replay_size)
 
@@ -560,7 +563,7 @@ class SACAgent:
         bc_loss = 0.0
         if expert_states is not None and expert_actions is not None:
             bc_loss = self.calc_bc_loss_in_actor_update(expert_states, expert_actions)
-        policy_loss = policy_loss + bc_loss 
+        policy_loss = (1-self.bc_alpha) * policy_loss + (self.bc_alpha) * bc_loss
 
         self.policy_optimizer.zero_grad()
         policy_loss.backward()
@@ -580,32 +583,6 @@ class SACAgent:
         self.replay_buffer.load(filepath)
         print("Replay buffer loaded.")
         print("Replay buffer size:", len(self.replay_buffer))
-
-    def update_imitation(self, expert_states, expert_actions):
-        """
-        Behavior Cloning(BC) Loss 계산 -> (예측 행동 vs 전문가 행동) MSE
-        현재 bc_weight (self.bc_weight)를 사용.
-        """
-        predicted_mean, _ = self.policy.forward(expert_states)           # (B, 2)
-        predicted_action = 4.0 * torch.sigmoid(predicted_mean) - 2.0     # [-2,2] 범위
-        
-        loss_bc = F.mse_loss(predicted_action, expert_actions)
-        # BC 손실에 가중치 적용 (필요하다면)
-        loss_bc_weighted = self.bc_weight * loss_bc
-        
-        # Optimizer는 policy_optimizer와 동일하게 사용
-        self.policy_optimizer.zero_grad()
-        loss_bc_weighted.backward()
-        torch.nn.utils.clip_grad_norm_(self.policy.parameters(), 1.0)
-        self.policy_optimizer.step()
-        
-        # mse_loss.txt 기록
-        mse_loss_log_path = os.path.join(log_dir, "mse_loss.txt")
-        with open(mse_loss_log_path, "a") as f:
-            f.write(f"{loss_bc.item()}\n")
-
-        
-        return loss_bc.item()
     
 
     def decay_bc_weight(self):
@@ -614,6 +591,7 @@ class SACAgent:
         BC 손실 가중치를 점차 감소.
         """
         self.bc_weight *= self.imitation_decay
+        self.bc_alpha *= self.imitation_decay
 
     def calc_bc_loss_in_actor_update(self, expert_states, expert_actions):
         """
@@ -1013,7 +991,7 @@ if __name__ == "__main__":
                             disc_optimizer=disc_optimizer,
                             expert_buffer=expert_buffer, 
                             policy_buffer=agent.replay_buffer.buffer, 
-                            global_step=episode,  # 전역 스텝
+                            disc_score_path=disc_score_file,
                             device=agent.device,
                             batch_size=32
                         )
