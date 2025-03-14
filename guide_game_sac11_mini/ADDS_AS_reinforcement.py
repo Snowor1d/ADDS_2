@@ -53,8 +53,15 @@ parser.add_argument("--start_batch_times", type=float, default=50)
 args = parser.parse_args()
 
 
+home_dir = os.path.expanduser("~")
+log_dir = os.path.join(home_dir, args.log_dir)
+os.makedirs(log_dir, exist_ok=True)
+
+
 ACTION_SCALE = args.action_scale
+
 log_dir = args.log_dir
+
 os.makedirs(log_dir, exist_ok=True)
 
 REWARD_A = args.reward_A

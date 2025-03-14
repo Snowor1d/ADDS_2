@@ -16,13 +16,13 @@ alpha = 0.2 # in SAC
 device = "cpu" 
 start_batch_times = 1 #when start update?
 
-reward_A = 1 #reward_based_alived
-reward_B = 1 #reward_based_all_agents_danger
-reward_C = 1 #reward_based_gain
-reward_D = 1 #reward_based_penalty
-reward_E = 1 #reward_based_evacuated_with_robot
-reward_F = 1 #reward_based_distance_from_near_agent
-finished_bonus = 0
+reward_A = 0 #reward_based_alived
+reward_B = 0 #reward_based_all_agents_danger
+reward_C = 5 #reward_based_gain
+reward_D = 0 #reward_based_penalty
+reward_E = 0 #reward_based_evacuated_with_robot
+reward_F = 0 #reward_based_distance_from_near_agent
+finished_bonus = 10
 scale_check = True # want to check reward scale?
 action_scale = 5
 
@@ -48,7 +48,7 @@ def run_reinforcement_learning():
         "--reward_E", str(reward_E),
         "--reward_F", str(reward_F),
         "--finished_bonus", str(finished_bonus),
-        "--scale_check", str(True),
+        "--scale_check", str(scale_check),
         "--action_scale", str(action_scale),
         "--start_batch_times", str(start_batch_times)
     ])
