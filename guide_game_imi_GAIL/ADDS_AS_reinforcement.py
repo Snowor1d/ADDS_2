@@ -50,6 +50,7 @@ parser.add_argument("--gail_scale", type=float, default=0.1)
 parser.add_argument("--imitation_decay", type=float, default=0.99)
 parser.add_argument("--bc_init_weight", type=float, default=1.0)
 parser.add_argument("--bc_alpha", type=float, default=1.0)
+parser.add_argument('--imitation_lock', type=int, default=50)
 args = parser.parse_args()
 
 home_dir = os.path.expanduser("~")
@@ -408,6 +409,7 @@ class SACAgent:
         self.bc_alpha = bc_alpha
         # ReplayBuffer
         self.replay_buffer = ReplayBuffer(capacity=replay_size)
+        self.imitation_lock = args.imitation_lock 
 
         # Critic networks
         self.q1 = QNetwork(input_shape, action_dim=2).to(self.device)
@@ -562,8 +564,7 @@ class SACAgent:
 
         bc_loss = 0.0
         if expert_states is not None and expert_actions is not None:
-            print("들어감")
-            bc_loss = self.calc_bc_loss_in_actor_update(expert_states, expert_actions)
+            bc_loss = self.calc_bc_loss_in_actor_update(expert_states, expert_actions, wri=1)
         policy_loss = (1-self.bc_alpha) * policy_loss + (self.bc_alpha) * bc_loss
 
         self.policy_optimizer.zero_grad()
@@ -594,7 +595,7 @@ class SACAgent:
         self.bc_weight *= self.imitation_decay
         self.bc_alpha *= self.imitation_decay
 
-    def calc_bc_loss_in_actor_update(self, expert_states, expert_actions):
+    def calc_bc_loss_in_actor_update(self, expert_states, expert_actions, wri=1):
         """
         SAC actor loss 계산 시, BC Loss도 함께 더해서 계산하는 방식.
         (예시: update() 함수 내부에서 호출 가능)
@@ -606,10 +607,10 @@ class SACAgent:
         mse_loss_file = os.path.join(log_dir, "mse_loss.txt")
         if not os.path.exists(mse_loss_file):
             open(mse_loss_file, "w").close()
-        
-        with open(mse_loss_file, "a") as f:
-            f.write(f"{loss_bc.item()}\n")
-        return self.bc_weight * loss_bc
+        if(wri ==1):
+            with open(mse_loss_file, "a") as f:
+                f.write(f"{loss_bc.item()}\n")
+            return self.bc_weight * loss_bc
 
 def load_expert_data_randomly(prefix, capacity):
     """
@@ -989,7 +990,7 @@ if __name__ == "__main__":
                     reward = 0
                 # 7) GAIL Discriminator Update (예: 5 스텝마다)
                 if use_gail and disc is not None and disc_optimizer is not None:
-                    if step % 100 == 0 and len(agent.replay_buffer) > agent.buffer_size and len(expert_buffer) > 100:
+                    if step % 100 == 0 and len(agent.replay_buffer) > agent.batch_size and len(expert_buffer) > 100:
                         update_discriminator_and_log(
                             disc=disc, 
                             disc_optimizer=disc_optimizer,
@@ -1017,8 +1018,8 @@ if __name__ == "__main__":
                 state = next_state
                 if done:
                     break
-
-                agent.decay_bc_weight()
+                if(episode > agent.imitation_lock):
+                    agent.decay_bc_weight()
 
         except Exception as e:
             print(e)
