@@ -19,6 +19,7 @@ import agent
 import model
 import time
 import sys
+USING_TRAINED_MODEL = False
 
 
 #-------------------------#
@@ -50,6 +51,7 @@ import tornado.websocket
 from PIL import Image      
 from mesa_viz_tornado.UserParam import UserParam
 import cv2
+
 most_danger = 0
 width = 50
 height = 50
@@ -57,7 +59,7 @@ model_num = 2
 if visualization_mode == 'on':
     Width = width
     Height =height
-    s_model_r = model.FightingModel(30,width,height,model_num)
+    s_model_r = model.FightingModel(5,width,height,model_num)
     s_model_r.use_model('sac_checkpoint_ep_0.pth')  
     ran_num = random.randint(10000,20000)
     most_danger_mesh = None

@@ -27,6 +27,7 @@ model_load = 3
 # load specified model : 2
 # load latest model : 3
 
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--lr", type=float, default=1e-4)
 parser.add_argument("--decay_value", type=float, default=0.99)
@@ -47,8 +48,12 @@ parser.add_argument("--reward_E", type=float, default=0)
 parser.add_argument("--reward_F", type=float, default=0)
 parser.add_argument("--finished_bonus", type=float, default=0)
 parser.add_argument("--scale_check", type=bool, default=False)
-
+parser.add_argument("--action_scale", type=float, default=3)
+parser.add_argument("--start_batch_times", type=float, default=50)
 args = parser.parse_args()
+
+
+ACTION_SCALE = args.action_scale
 log_dir = args.log_dir
 os.makedirs(log_dir, exist_ok=True)
 
@@ -60,6 +65,7 @@ REWARD_E = args.reward_E
 REWARD_F = args.reward_F
 FINISHED_BONUS = args.finished_bonus
 SCALE_CHECK = args.scale_check
+START_BATCH_TIMES = args.start_batch_times
 
 def launch_tensorboard(tb_log_dir, port=6006):
     """
@@ -383,7 +389,7 @@ class SACAgent:
     # Update (one gradient step)
     # ------------------------------------------------- #
     def update(self):
-        if len(self.replay_buffer) < self.batch_size*50:
+        if len(self.replay_buffer) < self.batch_size*START_BATCH_TIMES:
             return
         
         # sample = self.replay_buffer.sample(self.batch_size)
@@ -625,7 +631,7 @@ if __name__ == "__main__":
             for step in range(max_steps):
                 # 1) Select action
 
-                if(step%3==0):
+                if(step%ACTION_SCALE==0):
                     
                     if(np.random.rand() < agent.epsilon_long):
                         env_model.robot.now_exploration = 0
@@ -655,17 +661,25 @@ if __name__ == "__main__":
                     reward += FINISHED_BONUS
 
                 # 6) Store transition
-                if((step%3==2 and step>5) or (env_model.robot.is_game_finished)):                    
-                    if not(REWARD_A):
+                if((step%ACTION_SCALE==(ACTION_SCALE-1) and step>ACTION_SCALE) or (env_model.robot.is_game_finished)):
+                    r_a = 0
+                    r_b = 0
+                    r_c = 0
+                    r_d = 0
+                    r_e = 0
+                    r_f = 0                    
+                    if (REWARD_A):
                         r_a = env_model.reward_based_alived() * REWARD_A
-                    if not(REWARD_B):
-                        r_b = env_model.reward_distance_from_all_agents_danger() * REWARD_B
-                    if not(REWARD_C):
+                    if (REWARD_B):
+                        r_b = env_model.reward_based_all_agents_danger() * REWARD_B
+                    if (REWARD_C):
                         r_c = env_model.reward_based_gain() * REWARD_C
-                    if not(REWARD_D):
-                        r_d = env_model.reward_based_penalty() * REWARD_D
-                    if not(REWARD_E):
+                    if (REWARD_D):
+                        r_d = env_model.reward_penalty() * REWARD_D
+                    if (REWARD_E):
                         r_e = env_model.reward_based_evacuated_with_robot() * REWARD_E
+                    if (REWARD_F):
+                        r_f = env_model.reward_based_distance_from_near_agents() * REWARD_F
                     
                     reward += (r_a + r_b + r_c + r_d + r_e)
 
@@ -675,6 +689,7 @@ if __name__ == "__main__":
                         print("reward_c : ", r_c)
                         print("reward_d : ", r_d)
                         print("reward_e : ", r_e)
+                        print("reward f : ", r_f)
 
                     agent.store_transition(
                         buffered_state,
@@ -688,7 +703,7 @@ if __name__ == "__main__":
                     reward = 0
 
                 # 7) Update agent
-                if(step%3==2):
+                if(step%ACTION_SCALE==(ACTION_SCALE-1)):
                     learn_timer.start()
                     agent.update()
                     learn_timer.stop()
@@ -704,9 +719,9 @@ if __name__ == "__main__":
 
         # Possibly update epsilon, or do other logging
         decay_value = args.decay_value
-
-        agent.update_epsilon(True, decay_value)
-        agent.update_epsilon2(True, decay_value)
+        if(len(agent.replay_buffer)>agent.batch_size*START_BATCH_TIMES):
+            agent.update_epsilon(True, decay_value)
+            agent.update_epsilon2(True, decay_value)
         print("Total reward:", total_reward)
         print("now_epsilon : ", agent.epsilon)
         print("now_epsilon_long : ", agent.epsilon_long)
@@ -717,7 +732,7 @@ if __name__ == "__main__":
             # 파일이 없으면 빈 파일 생성
             open(reward_file_path, "w").close()
 
-        if (episode+1) % 10 == 0:
+        if (episode+1) % 50 == 0:
             model_filename = os.path.join(log_dir, f"sac_checkpoint_ep_{start_episode + episode + 1}.pth")
             agent.save_model(model_filename)
             replay_buffer_filename = "replay_buffer.pkl"

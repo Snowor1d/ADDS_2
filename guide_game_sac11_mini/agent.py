@@ -37,20 +37,12 @@ NUMBER_OF_CELLS = 50
 
 one_foot = 1
 SumList = [0, 0, 0, 0, 0]
-DifficultyList = [0, 0, 0, 0, 0]
 
-ATTACK_DAMAGE = 50
-INITIAL_HEALTH = 100
-HEALING_POTION = 20
 exit_w = 5
 exit_h = 5
 exit_area = [[0,exit_w], [0, exit_h]]
-STRATEGY = 1
-random_disperse = 1
 
-theta_1 = random.randint(1,10)
-theta_2 = random.randint(1,10)
-theta_3 = random.randint(1,10)
+random_disperse = 1
 
 check_initialize = 0
 exit_area = [[0,exit_w], [0,exit_h]]
@@ -103,16 +95,6 @@ def calculate_degree(vector1, vector2):
     
     return angle_degrees
 
-def Multiple_linear_regresssion(distance_ratio, remained_ratio, now_affected_agents_ratio, v_min, v_max):
-    global theta_1, theta_2, theta_3
-    v = distance_ratio*theta_1 + remained_ratio*theta_2 + now_affected_agents_ratio*theta_3
-    if (v>v_max):
-        return v_max
-    elif (v<v_min):
-        return v_min
-    else:
-        return v
-
 
 
 
@@ -146,28 +128,28 @@ class WallAgent(Agent): ## wall .. 탈출구 범위 내에 agents를 채워넣�
         self.xy =pos
 
 
-def set_agent_type_settings(agent, type):
-    """Updates the agent's instance variables according to its type.
+# def set_agent_type_settings(agent, type):
+#     """Updates the agent's instance variables according to its type.
 
-    Args:
-        agent (FightingAgent): The agent instance.
-        type (int): The type of the agent.
-    """
-    if type == 1:
-        agent.health = 2 * INITIAL_HEALTH ## 200
-        agent.attack_damage = 2 * ATTACK_DAMAGE ## 100
-    if type == 2:
-        agent.health = math.ceil(INITIAL_HEALTH / 2) ## 50
-        agent.attack_damage = math.ceil(ATTACK_DAMAGE / 2) ## 25
-    if type == 3:
-        agent.health = math.ceil(INITIAL_HEALTH / 4) ## 25
-        agent.attack_damage = ATTACK_DAMAGE * 4 ## 80
-    if type == 10: ## 구분하려고 아무 숫자 함, exit_rec 채우는 agent type
-        agent.health = 500 ## ''
-        agent.attack_damage = 0 ## ''
-    if type == 11: ## 마찬가지.. 이건 wall list 채우는 agent의 type
-        agent.health = 500
-        agent.attack_damage = 0
+#     Args:
+#         agent (FightingAgent): The agent instance.
+#         type (int): The type of the agent.
+#     """
+#     if type == 1:
+#         agent.health = 2 * INITIAL_HEALTH ## 200
+#         agent.attack_damage = 2 * ATTACK_DAMAGE ## 100
+#     if type == 2:
+#         agent.health = math.ceil(INITIAL_HEALTH / 2) ## 50
+#         agent.attack_damage = math.ceil(ATTACK_DAMAGE / 2) ## 25
+#     if type == 3:
+#         agent.health = math.ceil(INITIAL_HEALTH / 4) ## 25
+#         agent.attack_damage = ATTACK_DAMAGE * 4 ## 80
+#     if type == 10: ## 구분하려고 아무 숫자 함, exit_rec 채우는 agent type
+#         agent.health = 500 ## ''
+#         agent.attack_damage = 0 ## ''
+#     if type == 11: ## 마찬가지.. 이건 wall list 채우는 agent의 type
+#         agent.health = 500
+#         agent.attack_damage = 0
 
     
     
@@ -191,9 +173,7 @@ class CrowdAgent(Agent):
         self.goal_init = 0
         self.type = type
         self.robot_previous_action = "UP"
-        self.health = INITIAL_HEALTH
-        self.attack_damage = ATTACK_DAMAGE
-        self.attacked = False
+
         self.dead = False
         self.robot_tracked = 0
         self.danger = 0
@@ -263,7 +243,6 @@ class CrowdAgent(Agent):
         # self.xy[0] = self.random.randrange(self.model.grid.width)
         # self.xy[1] = self.random.randrange(self.model.grid.height)
         
-        set_agent_type_settings(self, type)
 
         self.judge_list = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]] #앞에 있는 것이 우선순위. 0 : guide, 1 : agent following, 2 : my way
         self.agent_judge_probability = [random.gauss(60, 15)/100, random.gauss(50, 15)/100] #[로봇을 따라갈 확률, 다른 agent를 따라갈 확률]
@@ -277,8 +256,6 @@ class CrowdAgent(Agent):
         self.escaped_agents = 0
 
 
-    def __repr__(self) -> str:
-        return f"{self.unique_id} -> {self.health}"
 
     def step(self) -> None:
         global check_initialize
@@ -310,21 +287,11 @@ class CrowdAgent(Agent):
             self.dead_count += 1
             return
 
-
-        # when attacked needs one turn until be able to attack
-        if self.attacked:
-            self.attacked = False
-            return
         if(self.type != 3): #robot은 죽지 않는다
-            #print("self.xy[0] : ", self.xy[0])
             if self.model.exit_grid[int(self.xy[0])][int(self.xy[1])]:
                 self.dead = True
                 return
-            
-        # if(self.type == 0 or self.type==1):
-        #     print("agent 위치 : ", self.xy)
-        #     print("robot과의 거리 : ", self.agent_to_agent_distance_real(self.xy, robot_xy))
-        #     print("--------------------")
+
 
         self.move()
 
@@ -394,35 +361,7 @@ class CrowdAgent(Agent):
         else:
             now_stage = ((0,0), (5, 45))
         return now_stage
-
-
-    def attackOrMove(self, cells_with_agents, possible_steps) -> None:
-        """Decides if the user is going to attack or just move.
-        Acts randomly.
-
-        Args:
-            cells_with_agents (list[FightingAgent]): The list of other agents nearby.
-            possible_steps (list[Coordinates]): The list of available cell where to go.
-        """
-        should_attack = self.random.randint(0, 1) ## 50% 확률로 attack
-        if should_attack:
-            self.attack(cells_with_agents)
-            return
-        new_position = self.random.choice(possible_steps) ## 다음 step에 이동할 위치 설정
-        self.model.grid.move_agent(self, new_position) ## 그 위치로 이동
-
-    def attack(self, cells_with_agents) -> None:
-        """Handles the attack of the agent.
-        Gets the list of cells with the agents the agent can attack.
-
-        Args:
-            cells_with_agents (list[FightingAgent]): The list of other agents nearby.
-        """
-        agentToAttack = self.random.choice(cells_with_agents) ## agent끼리 마주쳤을 때 맞을 애는 랜덤으로 고름
-        agentToAttack.attacked = True ## 맞은 애 attacked 됐다~ 
-        if agentToAttack.health <= 0: ## health 가 0보다 작으면 dead
-            agentToAttack.dead = True
-
+    
     def move(self) -> None:
         global goal_list
         global num_remained_agent
@@ -451,7 +390,6 @@ class CrowdAgent(Agent):
         if(self.type == 0 or self.type == 1 or self.type == 2):
             self.pos = (int(round(self.xy[0])), int(round(self.xy[1])))
             new_position = self.agent_modeling()
-            print("new_position : ", new_position)
             new_position = (int(round(new_position[0])), int(round(new_position[1])))
             self.model.grid.move_agent(self, new_position) ## 그 위치로 이동
 
@@ -489,7 +427,7 @@ class CrowdAgent(Agent):
         #from model import Model
         number_a = 0
         robot_radius = 7
-        for i in self.model.agents:
+        for i in self.model.crowds:
             if(i.dead == False and (i.type == 0 or i.type == 1 or i.type == 2)): ##  agent가 살아있을 때 / 끌려가는 agent 일 때
                 if (pow(robot_xyP[0]-i.xy[0], 2) + pow(robot_xyP[1]-i.xy[1], 2)) < pow(robot_radius, 2) : ## 로봇 반경 내에 agent가 있다면
                     number_a += 1
@@ -590,9 +528,7 @@ class CrowdAgent(Agent):
             self.robot_initialized += 1
             self.now_goal = [self.xy[0], self.xy[1]]
         self.previous_type = self.type
-        # for agent in self.model.agents:
-            # if (agent.type == 0):
-                # print(f"Type: {agent.type}, {agent.unique_id} ({self.model.return_agent_id(agent.unique_id).xy}) is following ROBOT ({self.model.robot.xy}), and now_goal: {agent.now_goal}")
+
                 
         if(goal_d != 0):
           desired_force = [intend_force*(self.desired_speed_a*(goal_x/goal_d)), intend_force*(self.desired_speed_a*(goal_y/goal_d))] #desired_force : 사람이 탈출구쪽으로 향하려는 힘
@@ -639,7 +575,7 @@ class CrowdAgent(Agent):
         exit_confirm_radius = 7
         
         to_follow_agents = [] ## 같은 mesh에 따라갈 agent가 있는지 확인하려는 list
-        for agent in self.model.agents: ## 같은 mesh에 있는 agent들 중에서 int(round(agent.xy[0]))
+        for agent in self.model.crowds : ## 같은 mesh에 있는 agent들 중에서 int(round(agent.xy[0]))
             if (agent.type == 0 or agent.type == 1): ## 로봇 following/ myway 인 agent만 확인
                 distance = math.sqrt(pow(self.xy[0]-agent.xy[0],2)+pow(self.xy[1]-agent.xy[1],2))
                 if distance < agent_radius and not agent.dead: ## agent 반경 내에 있으면
@@ -736,7 +672,6 @@ class CrowdAgent(Agent):
 class RobotAgent(CrowdAgent):
     def __init__(self, unique_id, model, pos, type1):
         super().__init__(unique_id, model, pos, type1)
-        self.buffer = ReplayBuffer(capacity=800)
         self.action = [0, 0, "GUIDE"]
         self.past_xy = deque(maxlen=20)
         self.collision_check = 0
@@ -926,7 +861,7 @@ class RobotAgent(CrowdAgent):
         if(self.model.is_down_exit):
             evacuation_points.append(((5,0), (49, 5)))
 
-        for i in self.model.agents: ##SumOfDistaces 구하는 과정
+        for i in self.model.crowds: ##SumOfDistaces 구하는 과정
             if(i.dead == False and (i.type==0 or i.type==1)):
                 agent_space = self.model.grid_to_space[int(round(i.xy[0]))][int(round(i.xy[1]))]
                 
@@ -954,23 +889,4 @@ class RobotAgent(CrowdAgent):
 
         return reward
     
-    
-class ReplayBuffer: #replay buffer class 
-    def __init__(self, capacity):
-        self.buffer = deque(maxlen=capacity)
 
-    def add(self, experience):
-        self.buffer.append(experience)
-    
-    def sample(self, batch_size):
-        return random.sample(self.buffer, batch_size)
-
-    def size(self):
-        return len(self.buffer)
-
-    def is_full(self):
-        return len(self.buffer) == self.buffer.maxlen
-        
-    def is_half(self):
-        if len(self.buffer) >= self.buffer.maxlen*2/3:
-            return True
