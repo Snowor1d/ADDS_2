@@ -444,7 +444,7 @@ class CrowdAgent(Agent):
 
         x = int(round(self.xy[0]))
         y = int(round(self.xy[1]))
-        temp_loc = [(x-1, y), (x+1, y), (x, y+1), (x, y-1), (x+1, y+1), (x+1, y-1), (x-1, y+1), (x-1, y-1)]
+        temp_loc = [(x-1, y), (x+1, y), (x, y+1), (x, y-1), (x+1, y+1), (x+1, y-1), (x-1, y+1), (x-1, y-1), (x-2,y), (x+2, y), (x, y+2), (x, y-2)]
         near_loc = []
         for i in temp_loc:
             if(i[0]>0 and i[1]>0 and i[0]<self.model.grid.width and i[1] < self.model.grid.height):
@@ -552,17 +552,18 @@ class CrowdAgent(Agent):
 
         self.xy[0] += self.vel[0] * time_step
         self.xy[1] += self.vel[1] * time_step
+
+        if(self.xy[0] < 1):
+            self.xy[0] = 1
+        if(self.xy[1] < 1):
+            self.xy[1] = 1
+        if(self.xy[0] > self.model.width-1):
+            self.xy[0] = self.model.width-1
+        if(self.xy[1] > self.model.height-1):
+            self.xy[1] = self.model.height-1
+
         next_x = int(round(self.xy[0]))
         next_y = int(round(self.xy[1]))
-
-        if(next_x<0):
-            next_x = 0
-        if(next_y<0):
-            next_y = 0
-        if(next_x>self.model.width-1):
-            next_x = self.model.width-1
-        if(next_y>self.model.height):
-            next_y = self.model.height-1
 
         self.robot_guide = 0
         return (next_x, next_y)

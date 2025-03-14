@@ -5,16 +5,16 @@ import subprocess
 
 lr = 1e-4
 decay_value = 0.999 
-buffer_size = 50000
+buffer_size = 100000
 batch_size = 64
-epsilon_min = 0 #min epsilon
-start_epsilon = 0 #start epsilon
+epsilon_min = 0.1 #min epsilon
+start_epsilon = 1 #start epsilon
 log_dir = "learning_log_guide_game_sac11_mini"
 log_std_max = 1
 log_std_min = -0.5
 alpha = 0.2 # in SAC
 device = "cpu" 
-start_batch_times = 1 #when start update?
+start_batch_times = 50 #when start update?
 
 reward_A = 0 #reward_based_alived
 reward_B = 0 #reward_based_all_agents_danger
@@ -23,8 +23,10 @@ reward_D = 0 #reward_based_penalty
 reward_E = 0 #reward_based_evacuated_with_robot
 reward_F = 0 #reward_based_distance_from_near_agent
 finished_bonus = 10
-scale_check = True # want to check reward scale?
+scale_check = 0 # want to check reward scale?
 action_scale = 5
+max_steps = 2000
+crowd_number = 20
 
 
 def run_reinforcement_learning():
@@ -50,7 +52,9 @@ def run_reinforcement_learning():
         "--finished_bonus", str(finished_bonus),
         "--scale_check", str(scale_check),
         "--action_scale", str(action_scale),
-        "--start_batch_times", str(start_batch_times)
+        "--start_batch_times", str(start_batch_times),
+        "--max_steps", str(max_steps),
+        "--crowd_number", str(crowd_number)
     ])
 
 

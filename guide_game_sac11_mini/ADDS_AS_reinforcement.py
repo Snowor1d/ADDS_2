@@ -47,21 +47,18 @@ parser.add_argument("--reward_D", type=float, default=0)
 parser.add_argument("--reward_E", type=float, default=0)
 parser.add_argument("--reward_F", type=float, default=0)
 parser.add_argument("--finished_bonus", type=float, default=0)
-parser.add_argument("--scale_check", type=bool, default=False)
+parser.add_argument("--scale_check", type=int, default=0)
 parser.add_argument("--action_scale", type=float, default=3)
 parser.add_argument("--start_batch_times", type=float, default=50)
+parser.add_argument("--max_steps", type=int, default=2000)
+parser.add_argument("--crowd_number", type=int, default=20)
 args = parser.parse_args()
-
-
 home_dir = os.path.expanduser("~")
 log_dir = os.path.join(home_dir, args.log_dir)
 os.makedirs(log_dir, exist_ok=True)
 
 
 ACTION_SCALE = args.action_scale
-
-log_dir = args.log_dir
-
 os.makedirs(log_dir, exist_ok=True)
 
 REWARD_A = args.reward_A
@@ -584,7 +581,7 @@ if __name__ == "__main__":
         start_epsilon_long = 0.05  # 기본값 설정
         print("No start_epsilon.txt found. Initializing values to defaults.")
     
-    agent = SACAgent(input_shape=(50,50), alpha=args.alpha, lr=float(args.lr), start_epsilon=float(start_epsilon), start_epsilon_long = float(start_epsilon_long), batch_size=int(args.batch_size), replay_size=float(args.buffer_size), device=args.device)
+    agent = SACAgent(input_shape=(50,50), alpha=args.alpha, lr=float(args.lr), start_epsilon=float(args.start_epsilon), start_epsilon_long = float(start_epsilon_long), batch_size=int(args.batch_size), replay_size=float(args.buffer_size), device=args.device)
     print(f"Agent initialized, lr={args.lr}, alpha={agent.alpha}, batch_size={args.batch_size}, replay_size={args.buffer_size}")
     replay_buffer_path = os.path.join(log_dir, "replay_buffer.pkl")
 
