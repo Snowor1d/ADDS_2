@@ -562,6 +562,7 @@ class SACAgent:
 
         bc_loss = 0.0
         if expert_states is not None and expert_actions is not None:
+            print("들어감")
             bc_loss = self.calc_bc_loss_in_actor_update(expert_states, expert_actions)
         policy_loss = (1-self.bc_alpha) * policy_loss + (self.bc_alpha) * bc_loss
 
@@ -603,6 +604,9 @@ class SACAgent:
         loss_bc = F.mse_loss(predicted_action, expert_actions)
 
         mse_loss_file = os.path.join(log_dir, "mse_loss.txt")
+        if not os.path.exists(mse_loss_file):
+            open(mse_loss_file, "w").close()
+        
         with open(mse_loss_file, "a") as f:
             f.write(f"{loss_bc.item()}\n")
         return self.bc_weight * loss_bc

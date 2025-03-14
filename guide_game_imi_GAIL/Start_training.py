@@ -18,7 +18,7 @@ log_dir = "learning_log_guide_game_imi_gail"
 gail_alpha = 1
 expert_dir = "replay_buffer"
 imitation_decay = 0.99
-bc_init_weight = 10
+bc_init_weight = 1
 bc_alpha = 1
 
 def run_reinforcement_learning():
