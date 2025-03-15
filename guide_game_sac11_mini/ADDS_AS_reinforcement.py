@@ -52,6 +52,7 @@ parser.add_argument("--action_scale", type=float, default=3)
 parser.add_argument("--start_batch_times", type=float, default=50)
 parser.add_argument("--max_steps", type=int, default=2000)
 parser.add_argument("--crowd_number", type=int, default=20)
+parser.add_argument("--gamma", type=float, default=0.999)
 args = parser.parse_args()
 home_dir = os.path.expanduser("~")
 log_dir = os.path.join(home_dir, args.log_dir)
@@ -285,7 +286,7 @@ class PolicyNetwork(nn.Module):#행동을 샘플링하고 정책 학습, 주어�
 # 5) SAC Agent for Action
 ##########################################################################
 class SACAgent:
-    def __init__(self, input_shape=(50,50), gamma=0.99, alpha=0.2, tau=0.995, lr=1e-4, batch_size=64, replay_size=int(1e5), device="cpu", start_epsilon = 1.0, start_epsilon_long = 0.1):
+    def __init__(self, input_shape=(50,50), gamma=args.gamma, alpha=0.2, tau=0.995, lr=1e-4, batch_size=64, replay_size=int(1e5), device="cpu", start_epsilon = 1.0, start_epsilon_long = 0.1):
         self.gamma = gamma
         self.alpha = alpha
         self.tau = tau

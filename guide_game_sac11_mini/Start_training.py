@@ -11,10 +11,11 @@ epsilon_min = 0.1 #min epsilon
 start_epsilon = 1 #start epsilon
 log_dir = "learning_log_guide_game_sac11_mini"
 log_std_max = 1
-log_std_min = -0.5
+log_std_min = -20
 alpha = 0.2 # in SAC
 device = "cpu" 
 start_batch_times = 50 #when start update?
+gamma = 0.999
 
 reward_A = 0 #reward_based_alived
 reward_B = 0 #reward_based_all_agents_danger
@@ -54,7 +55,8 @@ def run_reinforcement_learning():
         "--action_scale", str(action_scale),
         "--start_batch_times", str(start_batch_times),
         "--max_steps", str(max_steps),
-        "--crowd_number", str(crowd_number)
+        "--crowd_number", str(crowd_number),
+        "--gamma", str(gamma)
     ])
 
 
