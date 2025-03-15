@@ -32,7 +32,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 from ADDS_AS_reinforcement import SACAgent, ReplayBuffer, PolicyNetwork, QNetwork, ACTION_SCALE
-from Start_training import reward_A, reward_B, reward_C, reward_D, reward_E, reward_F, finished_bonus, scale_check
+from Start_training import reward_A, reward_B, reward_C, reward_D, reward_E, reward_F, reward_G, reward_H, finished_bonus, scale_check
 
 
 def are_meshes_adjacent(mesh1, mesh2):
@@ -308,6 +308,9 @@ class FightingModel(Model):
 
         self.previous_evacuated = 0
         self.previous_evacuated_with_robot = 0
+
+        self.before_minimum_distance = 0
+        self.minimum_distance = 0
 
         # for i in range(50):
         #     for j in range(50):
@@ -950,6 +953,8 @@ class FightingModel(Model):
             print("reward_penalty : ", self.reward_penalty() * reward_D)
             print("reward_based_evacuated_with_robot : ", self.reward_based_evacuated_with_robot() * reward_E)
             print("reward_based_distance_from_near_agents : ", self.reward_based_distance_from_near_agents() * reward_F)
+            print("reward_based_distance_from_near_agent_gain : ", self.reward_based_distance_from_near_agent_gain() * reward_G)
+            print("reward_based_gain_with_time_bonus", self.reward_based_gain_with_time_bonus * reward_H)
         self.schedule.step()
         self.datacollector_currents.collect(self)  # passing the model
 
@@ -1034,6 +1039,46 @@ class FightingModel(Model):
             elif(self.robot.danger < 15):
                 return -0.05
         return 0
+    
+    def reward_based_distance_from_near_agent_gain(self):
+        guided_num = 0
+        for agent in self.crowds:
+            if(agent.type == 0 and agent.dead == False):
+                guided_num += 1
+        
+        if (guided_num > 0):
+            self.before_minimum_distance = 0
+            return 0 
+        
+        minimum_distance = 999999
+        for agent in self.crowds:
+            if(agent.type == 0 or agent.type ==1 or agent.type == 2) and (agent.dead == False):
+                distance = self.robot.point_to_point_distance(self.robot.xy, agent.xy)
+                if(distance < minimum_distance):
+                    minimum_distance = distance
+        
+        self.before_minimum_distance = self.minimum_distance
+        self.minimum_distance = minimum_distance
+
+        if(self.before_minimum_distance == 0 or self.minimum_distance == 0):
+            return 0
+        
+        return (self.before_minimum_distance - self.minimum_distance)
+        
+    def reward_based_gain_with_time_bonus(self):
+        reward=0
+        #robot이 agent를 끌어당기면 +reward
+        for agent in self.crowds:
+            if(agent.type == 0 or agent.type == 1 or agent.type == 2 ) and (agent.dead == False):
+                if(agent.robot_tracked>0):
+                    reward += agent.gain
+
+        if (self.alived_agents()<self.total_agents*0.4):
+            reward * 2
+
+        #print("tracked 되고 있는 수 : ", num)
+        return reward
+
 
 
     def reward_evacuation(self):

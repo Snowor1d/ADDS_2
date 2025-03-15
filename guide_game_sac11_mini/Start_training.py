@@ -17,14 +17,16 @@ device = "cpu"
 start_batch_times = 50 #when start update?
 gamma = 0.999
 
-reward_A = 0 #reward_based_alived
-reward_B = 0 #reward_based_all_agents_danger
-reward_C = 5 #reward_based_gain
-reward_D = 0 #reward_based_penalty
-reward_E = 0 #reward_based_evacuated_with_robot
-reward_F = 0 #reward_based_distance_from_near_agent
+reward_A = 1 #reward_based_alived
+reward_B = 1 #reward_based_all_agents_danger
+reward_C = 1 #reward_based_gain
+reward_D = 1 #reward_based_penalty
+reward_E = 1 #reward_based_evacuated_with_robot
+reward_F = 1 #reward_based_distance_from_near_agents
+reward_G = 1 #reward_based_distance_from_near_agent_gain
+reward_H = 1 #reward_based_gain_with_time_bonus
 finished_bonus = 10
-scale_check = 0 # want to check reward scale?
+scale_check = 1 # want to check reward scale?
 action_scale = 5
 max_steps = 2000
 crowd_number = 20
@@ -50,6 +52,8 @@ def run_reinforcement_learning():
         "--reward_D", str(reward_D),
         "--reward_E", str(reward_E),
         "--reward_F", str(reward_F),
+        "--reward_G", str(reward_G),
+        "--reward_H", str(reward_H),
         "--finished_bonus", str(finished_bonus),
         "--scale_check", str(scale_check),
         "--action_scale", str(action_scale),

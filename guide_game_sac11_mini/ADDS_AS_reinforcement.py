@@ -46,6 +46,8 @@ parser.add_argument("--reward_C", type=float, default=0)
 parser.add_argument("--reward_D", type=float, default=0)
 parser.add_argument("--reward_E", type=float, default=0)
 parser.add_argument("--reward_F", type=float, default=0)
+parser.add_argument("--reward_G", type=float, default=0)
+parser.add_argument("--reward_H", type=float, default=0)
 parser.add_argument("--finished_bonus", type=float, default=0)
 parser.add_argument("--scale_check", type=int, default=0)
 parser.add_argument("--action_scale", type=float, default=3)
@@ -68,6 +70,8 @@ REWARD_C = args.reward_C
 REWARD_D = args.reward_D
 REWARD_E = args.reward_E
 REWARD_F = args.reward_F
+REWARD_G = args.reward_G
+REWARD_H = args.reward_H
 FINISHED_BONUS = args.finished_bonus
 SCALE_CHECK = args.scale_check
 START_BATCH_TIMES = args.start_batch_times
@@ -685,8 +689,11 @@ if __name__ == "__main__":
                         r_e = env_model.reward_based_evacuated_with_robot() * REWARD_E
                     if (REWARD_F):
                         r_f = env_model.reward_based_distance_from_near_agents() * REWARD_F
-                    
-                    reward += (r_a + r_b + r_c + r_d + r_e)
+                    if (REWARD_G):
+                        r_g = env_model.reward_based_distance_from_near_agent_gain() * REWARD_G
+                    if (REWARD_H):
+                        r_h = env_model.reward_based_gain_with_time_bonus() * REWARD_H
+                    reward += (r_a + r_b + r_c + r_d + r_e + r_g + r_h)
 
                     if(SCALE_CHECK):
                         print("reward_a : ", r_a)
@@ -695,6 +702,8 @@ if __name__ == "__main__":
                         print("reward_d : ", r_d)
                         print("reward_e : ", r_e)
                         print("reward f : ", r_f)
+                        print("reward g : ", r_g)
+                        print("reward h : ", r_h)
 
                     agent.store_transition(
                         buffered_state,
