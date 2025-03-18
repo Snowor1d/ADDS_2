@@ -168,31 +168,40 @@ class QNetwork(nn.Module):
     - action은 별도 FC(action_fc)로 embedding 후 concat
     - FC 레이어에 depth 하나 추가 (256->128->64->1)
     """
-    def __init__(self, input_shape=(50,50), action_dim=2):
+    """
+    첫 conv에서 stride=2로 (50x50)->(25x25),
+    이후 ResidualBlock 3개는 모두 stride=1로 공간 크기 유지:
+      - res1: (32->64)
+      - res2: (64->128)
+      - res3: (128->128)
+    최종 feature map의 크기는 (128, 25, 25).
+    Flatten 시 약 80,000차원 -> action_fc(32)와 concat -> FC 3개 거쳐 Q값 출력
+    """
+    def __init__(self, input_shape=(50, 50), action_dim=2):
         super(QNetwork, self).__init__()
-        # 1) 최초 Conv & BatchNorm
+        # 1) 최초 Conv & BatchNorm (stride=2로 다운샘플)
         self.conv1 = nn.Conv2d(1, 32, kernel_size=3, stride=2, padding=1)
         self.bn1   = nn.BatchNorm2d(32)
 
-        # 2) ResidualBlock 2개로 심화된 CNN 구성
-        self.res1 = ResidualBlock(32, 64, downsample=True)   # stride=2로 다운샘플
-        self.res2 = ResidualBlock(64, 128, downsample=True)  # stride=2로 다운샘플
+        # 2) ResidualBlock 3개 (stride=1)
+        self.res1 = ResidualBlock(32, 64, downsample=False)
+        self.res2 = ResidualBlock(64, 128, downsample=False)
+        self.res3 = ResidualBlock(128, 128, downsample=False)
 
-        # 3) 최종 BatchNorm
+        # 3) 추가 BatchNorm (option)
         self.bn_final = nn.BatchNorm2d(128)
 
         # 4) conv 출력 크기 계산
         self.conv_out_size = self._get_conv_out(input_shape)
 
-        # 5) Action embedding: action_dim -> 32
-        #    (2차원 행동을 비선형 변환하여 CNN feature와 concat)
+        # 5) Action embedding: action_dim(=2) -> 32
         self.action_fc = nn.Sequential(
             nn.Linear(action_dim, 32),
             nn.ReLU()
         )
 
         # 6) Fully Connected Layers (3개 레이어)
-        self.fc1 = nn.Linear(self.conv_out_size + 32, 256)  # conv_out + act_embed
+        self.fc1 = nn.Linear(self.conv_out_size + 32, 256)
         self.fc2 = nn.Linear(256, 128)
         self.fc3 = nn.Linear(128, 64)
         self.q_out = nn.Linear(64, 1)
@@ -204,9 +213,9 @@ class QNetwork(nn.Module):
         x = F.relu(x)
         x = self.res1(x)
         x = self.res2(x)
-        x = self.bn_final(x)
+        x = self.res3(x)
+        x = self.bn_final(x)  # final batchnorm
         x = F.relu(x)
-        # (N, C, H', W')에서 (C*H'*W')를 곱해서 크기 계산
         return int(np.prod(x.size()[1:]))
 
     def forward(self, state, action):
@@ -218,6 +227,7 @@ class QNetwork(nn.Module):
         x = F.relu(self.bn1(self.conv1(state)))
         x = self.res1(x)
         x = self.res2(x)
+        x = self.res3(x)
         x = self.bn_final(x)
         x = F.relu(x)
         x = x.view(x.size(0), -1)  # flatten
@@ -228,7 +238,7 @@ class QNetwork(nn.Module):
         # concat
         x = torch.cat([x, a_emb], dim=1)
 
-        # FC 부분 (3-layer)
+        # FC 부분
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         x = F.relu(self.fc3(x))
@@ -236,7 +246,6 @@ class QNetwork(nn.Module):
         # 최종 Q-value
         q_val = self.q_out(x)
         return q_val
-
     
 
 ##########################################################################
