@@ -6,16 +6,17 @@ import subprocess
 lr = 1e-4
 decay_value = 0.999 
 buffer_size = 100000
-batch_size = 64
+batch_size = 128
 epsilon_min = 0.1 #min epsilon
 start_epsilon = 1 #start epsilon
-log_dir = "learning_log_guide_game_sac11_mini(3)"
+log_dir = "learning_log_guide_game_sac12_mini"
 log_std_max = 1
 log_std_min = -20
 alpha = 0.2 # in SAC
 device = "cpu" 
 start_batch_times = 1 #when start update?
 gamma = 0.99
+port_num = 6006
 
 reward_A = 1 #reward_based_alived
 reward_B = 1 #reward_based_all_agents_danger
@@ -62,7 +63,8 @@ def run_reinforcement_learning():
         "--start_batch_times", str(start_batch_times),
         "--max_steps", str(max_steps),
         "--crowd_number", str(crowd_number),
-        "--gamma", str(gamma)
+        "--gamma", str(gamma),
+        "--port_num", str(port_num)
     ])
 
 

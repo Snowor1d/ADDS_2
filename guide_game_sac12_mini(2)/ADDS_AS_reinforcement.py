@@ -56,6 +56,7 @@ parser.add_argument("--start_batch_times", type=float, default=50)
 parser.add_argument("--max_steps", type=int, default=2000)
 parser.add_argument("--crowd_number", type=int, default=20)
 parser.add_argument("--gamma", type=float, default=0.999)
+parser.add_argument('--port_num', type=int, default=6006)
 args = parser.parse_args()
 home_dir = os.path.expanduser("~")
 log_dir = os.path.join(home_dir, args.log_dir)
@@ -124,72 +125,119 @@ class ReplayBuffer:
         with open(filepath, "rb") as f:
             self.buffer = pickle.load(f)
 
+class ResidualBlock(nn.Module):
+    """
+    Residual Block with optional downsample (stride=2).
+    """
+    def __init__(self, in_channels, out_channels, downsample=False):
+        super(ResidualBlock, self).__init__()
+        # downsample이 True면 stride=2로, False면 stride=1로 설정
+        stride = 2 if downsample else 1
+
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, 
+                               stride=stride, padding=1)
+        self.bn1 = nn.BatchNorm2d(out_channels)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, 
+                               stride=1, padding=1)
+        self.bn2 = nn.BatchNorm2d(out_channels)
+
+        # skip connection: in/out 채널 or stride가 다르면 conv1x1로 맞춰줌
+        if downsample or (in_channels != out_channels):
+            self.skip = nn.Conv2d(in_channels, out_channels, kernel_size=1, 
+                                  stride=stride, padding=0)
+        else:
+            self.skip = nn.Identity()  # 그대로 통과
+    
+    def forward(self, x):
+        residual = self.skip(x) 
+        out = F.relu(self.bn1(self.conv1(x)))
+        out = self.bn2(self.conv2(out))
+        out += residual
+        return F.relu(out)
+
+
+
 ##########################################################################
 # 3) Critic (Q) Network
 ##########################################################################
 class QNetwork(nn.Module):
+    """
+    SAC용 Q-Network 예시:
+    - CNN 부분에서 ResidualBlock을 사용 (2개)
+    - 각 ResidualBlock에 downsample=True로 stride=2로 설정해 특징 추출
+    - action은 별도 FC(action_fc)로 embedding 후 concat
+    - FC 레이어에 depth 하나 추가 (256->128->64->1)
+    """
     def __init__(self, input_shape=(50,50), action_dim=2):
         super(QNetwork, self).__init__()
-        # 새로운 Convolutional feature extractor with 1 채널 입력
+        # 1) 최초 Conv & BatchNorm
         self.conv1 = nn.Conv2d(1, 32, kernel_size=3, stride=2, padding=1)
         self.bn1   = nn.BatchNorm2d(32)
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)
-        self.bn2   = nn.BatchNorm2d(64)
-        # 마지막 conv layer는 stride=1로 공간 정보를 좀 더 유지
-        self.conv3 = nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1)
-        self.bn3   = nn.BatchNorm2d(128)
-        
-        conv_out_size = self._get_conv_out(input_shape)
-        
-        # Fully connected layers: conv feature와 행동을 concat하여 Q-value 예측
-        self.fc1 = nn.Linear(conv_out_size + action_dim, 256)
+
+        # 2) ResidualBlock 2개로 심화된 CNN 구성
+        self.res1 = ResidualBlock(32, 64, downsample=True)   # stride=2로 다운샘플
+        self.res2 = ResidualBlock(64, 128, downsample=True)  # stride=2로 다운샘플
+
+        # 3) 최종 BatchNorm
+        self.bn_final = nn.BatchNorm2d(128)
+
+        # 4) conv 출력 크기 계산
+        self.conv_out_size = self._get_conv_out(input_shape)
+
+        # 5) Action embedding: action_dim -> 32
+        #    (2차원 행동을 비선형 변환하여 CNN feature와 concat)
+        self.action_fc = nn.Sequential(
+            nn.Linear(action_dim, 32),
+            nn.ReLU()
+        )
+
+        # 6) Fully Connected Layers (3개 레이어)
+        self.fc1 = nn.Linear(self.conv_out_size + 32, 256)  # conv_out + act_embed
         self.fc2 = nn.Linear(256, 128)
-        self.q_out = nn.Linear(128, 1)
+        self.fc3 = nn.Linear(128, 64)
+        self.q_out = nn.Linear(64, 1)
 
     def _get_conv_out(self, shape):
-        dummy = torch.zeros(1, 1, *shape)  # (batch, channel=1, H, W)
-        o = self.bn1(self.conv1(dummy))
-        o = F.relu(o)
-        o = self.bn2(self.conv2(o))
-        o = F.relu(o)
-        o = self.bn3(self.conv3(o))
-        o = F.relu(o)
-        return int(np.prod(o.size()[1:]))  # product over C, H, W
+        """CNN 부분의 출력 feature 크기 계산용 더미 forward."""
+        dummy = torch.zeros(1, 1, *shape)  # (batch=1, channel=1, H, W)
+        x = self.bn1(self.conv1(dummy))
+        x = F.relu(x)
+        x = self.res1(x)
+        x = self.res2(x)
+        x = self.bn_final(x)
+        x = F.relu(x)
+        # (N, C, H', W')에서 (C*H'*W')를 곱해서 크기 계산
+        return int(np.prod(x.size()[1:]))
 
     def forward(self, state, action):
+        """
+        state: (B, 1, H, W)  # grayscale
+        action: (B, action_dim)
+        """
+        # CNN feature 추출
         x = F.relu(self.bn1(self.conv1(state)))
-        x = F.relu(self.bn2(self.conv2(x)))
-        x = F.relu(self.bn3(self.conv3(x)))
-        x = x.view(x.size(0), -1)
-        # 행동과 상태 feature를 연결
-        x = torch.cat([x, action], dim=1)
+        x = self.res1(x)
+        x = self.res2(x)
+        x = self.bn_final(x)
+        x = F.relu(x)
+        x = x.view(x.size(0), -1)  # flatten
+
+        # action 임베딩
+        a_emb = self.action_fc(action)
+
+        # concat
+        x = torch.cat([x, a_emb], dim=1)
+
+        # FC 부분 (3-layer)
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
+        x = F.relu(self.fc3(x))
+
+        # 최종 Q-value
         q_val = self.q_out(x)
         return q_val
+
     
-
-class ResidualBlock(nn.Module):
-    def __init__(self, in_channels, out_channels):
-        super(ResidualBlock, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
-        self.bn1 = nn.BatchNorm2d(out_channels)
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1)
-        self.bn2 = nn.BatchNorm2d(out_channels)
-
-        # Skip Connection: 입력(x)의 차원이 변하면 Conv를 통해 맞춰줌
-        if in_channels != out_channels:
-            self.skip = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1, padding=0)
-        else:
-            self.skip = nn.Identity()  # 입력과 출력이 같은 경우, 그대로 전달
-
-    def forward(self, x):
-        residual = self.skip(x)  # Skip connection (입력값)
-        x = F.relu(self.bn1(self.conv1(x)))
-        x = self.bn2(self.conv2(x))
-        x += residual  # 스킵 커넥션 추가
-        return F.relu(x)
-
 
 ##########################################################################
 # 4) Policy (Actor) Network
@@ -553,7 +601,7 @@ if __name__ == "__main__":
     total_reward_file = os.path.join(log_dir, "total_reward.txt")
     tb_log_dir = os.path.join(log_dir, "tensorboard_logs")
 
-    tb_process = launch_tensorboard(tb_log_dir, port=6006)
+    tb_process = launch_tensorboard(tb_log_dir, port=args.port_num)
     # 별도 스레드에서 total_reward.txt 모니터링 시작
     monitor_thread = threading.Thread(target=monitor_total_reward, args=(total_reward_file, tb_log_dir), daemon=True)
     monitor_thread.start()
