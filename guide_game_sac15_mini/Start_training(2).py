@@ -7,9 +7,14 @@ lr = 1e-4
 decay_value = 0.999 
 buffer_size = 100000
 batch_size = 128
+
 epsilon_min = 0.1 #min epsilon
 start_epsilon = 1 #start epsilon
-log_dir = "learning_log_guide_game_sac14_mini"
+
+long_epsilon_min = 0
+start_long_epsilon = 0.1
+
+log_dir = "learning_log_guide_game_sac15_mini"
 log_std_max = 1
 log_std_min = -20
 alpha = 0.2 # in SAC
@@ -27,9 +32,10 @@ reward_F = 1 #reward_based_distance_from_near_agents
 reward_G = 1 #reward_based_distance_from_near_agent_gain
 reward_H = 1 #reward_based_gain_with_time_bonus
 reward_I = 1 #reward_based_alived_root
-finished_bonus = 10
+reward_J = 1 #reward_based_distance_from_all_agents
+finished_bonus = 50
 scale_check = 1 # want to check reward scale?
-action_scale = 5
+action_scale = 4
 max_steps = 2000
 crowd_number = 20
 
@@ -57,6 +63,7 @@ def run_reinforcement_learning():
         "--reward_G", str(reward_G),
         "--reward_H", str(reward_H),
         "--reward_I", str(reward_I),
+        "--reward_J", str(reward_J),
         "--finished_bonus", str(finished_bonus),
         "--scale_check", str(scale_check),
         "--action_scale", str(action_scale),
@@ -64,7 +71,9 @@ def run_reinforcement_learning():
         "--max_steps", str(max_steps),
         "--crowd_number", str(crowd_number),
         "--gamma", str(gamma),
-        "--port_num", str(port_num)
+        "--port_num", str(port_num),
+        "--long_epsilon_min", str(long_epsilon_min),
+        "--start_long_epsilon", str(start_long_epsilon)
     ])
 
 
