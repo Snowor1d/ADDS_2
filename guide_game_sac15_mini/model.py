@@ -1155,7 +1155,7 @@ class FightingModel(Model):
         for agent in self.crowds:
             if(agent.dead == False):
                 distance = self.robot.point_to_point_distance(self.robot.xy, agent.xy)
-            reward += distance
+                reward += distance
         return -reward
 
 
