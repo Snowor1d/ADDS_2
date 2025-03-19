@@ -686,7 +686,8 @@ if __name__ == "__main__":
                     r_f = 0              
                     r_g = 0
                     r_h = 0
-                    r_i = 0      
+                    r_i = 0
+                    r_j = 0      
                     if (REWARD_A):
                         r_a = env_model.reward_based_alived() * REWARD_A
                     if (REWARD_B):
