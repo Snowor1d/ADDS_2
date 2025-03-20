@@ -14,7 +14,7 @@ start_epsilon = 1 #start epsilon
 long_epsilon_min = 0
 start_long_epsilon = 0.1
 
-log_dir = "learning_log_guide_game_sac15_mini"
+log_dir = "learning_log_guide_game_sac16_mini"
 log_std_max = 1
 log_std_min = -20
 alpha = 0.2 # in SAC
