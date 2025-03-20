@@ -16,7 +16,7 @@ import threading
 from torch.utils.tensorboard import SummaryWriter
 import subprocess
 import webbrowser
-
+from Start_training import log_dir
 # Timer instances
 sim_timer = Timer() 
 learn_timer = Timer()
@@ -35,7 +35,7 @@ parser.add_argument("--buffer_size", type=int, default=1e5)
 parser.add_argument("--batch_size", type=float, default=64)
 parser.add_argument("--start_epsilon", type=float, default=1.0)
 parser.add_argument("--epsilon_min", type=float, default=0.1)
-parser.add_argument("--log_dir", type=str, default="learning_log_guide_game_sac11_mini")
+parser.add_argument("--log_dir", type=str, default=log_dir)
 parser.add_argument("--log_std_max", type=float, default=1)
 parser.add_argument("--log_std_min", type=float, default=-0.5)
 parser.add_argument("--alpha", type=float, default=0.2)
@@ -49,6 +49,7 @@ parser.add_argument("--reward_F", type=float, default=0)
 parser.add_argument("--reward_G", type=float, default=0)
 parser.add_argument("--reward_H", type=float, default=0)
 parser.add_argument("--reward_I", type=float, default=0)
+parser.add_argument("--reward_J", type=float, default=0)
 parser.add_argument("--finished_bonus", type=float, default=0)
 parser.add_argument("--scale_check", type=int, default=0)
 parser.add_argument("--action_scale", type=float, default=3)
@@ -56,6 +57,9 @@ parser.add_argument("--start_batch_times", type=float, default=50)
 parser.add_argument("--max_steps", type=int, default=2000)
 parser.add_argument("--crowd_number", type=int, default=20)
 parser.add_argument("--gamma", type=float, default=0.999)
+parser.add_argument("--port_num", type=int, default=6006)
+parser.add_argument("--long_epsilon_min", type=float, default =0)
+parser.add_argument("--start_long_epsilon", type=float, default=0)
 args = parser.parse_args()
 home_dir = os.path.expanduser("~")
 log_dir = os.path.join(home_dir, args.log_dir)
@@ -74,6 +78,7 @@ REWARD_F = args.reward_F
 REWARD_G = args.reward_G
 REWARD_H = args.reward_H
 REWARD_I = args.reward_I
+REWARD_J = args.reward_J
 FINISHED_BONUS = args.finished_bonus
 SCALE_CHECK = args.scale_check
 START_BATCH_TIMES = args.start_batch_times
@@ -124,6 +129,28 @@ class ReplayBuffer:
         with open(filepath, "rb") as f:
             self.buffer = pickle.load(f)
 
+class ResidualBlock(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super(ResidualBlock, self).__init__()
+        # stride=1로만 운영 (downsample하지 않음)
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
+        self.bn1 = nn.BatchNorm2d(out_channels)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1)
+        self.bn2 = nn.BatchNorm2d(out_channels)
+
+        # in/out 채널 다르면 skip 연결에 1×1 Conv
+        if in_channels != out_channels:
+            self.skip = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1)
+        else:
+            self.skip = nn.Identity()
+
+    def forward(self, x):
+        residual = self.skip(x)
+        out = F.relu(self.bn1(self.conv1(x)))
+        out = self.bn2(self.conv2(out))
+        out = out + residual
+        return F.relu(out)
+    
 ##########################################################################
 # 3) Critic (Q) Network
 ##########################################################################
@@ -168,28 +195,6 @@ class QNetwork(nn.Module):
         q_val = self.q_out(x)
         return q_val
     
-
-class ResidualBlock(nn.Module):
-    def __init__(self, in_channels, out_channels):
-        super(ResidualBlock, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
-        self.bn1 = nn.BatchNorm2d(out_channels)
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1)
-        self.bn2 = nn.BatchNorm2d(out_channels)
-
-        # Skip Connection: 입력(x)의 차원이 변하면 Conv를 통해 맞춰줌
-        if in_channels != out_channels:
-            self.skip = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1, padding=0)
-        else:
-            self.skip = nn.Identity()  # 입력과 출력이 같은 경우, 그대로 전달
-
-    def forward(self, x):
-        residual = self.skip(x)  # Skip connection (입력값)
-        x = F.relu(self.bn1(self.conv1(x)))
-        x = self.bn2(self.conv2(x))
-        x += residual  # 스킵 커넥션 추가
-        return F.relu(x)
-
 
 ##########################################################################
 # 4) Policy (Actor) Network
@@ -287,20 +292,19 @@ class PolicyNetwork(nn.Module):#행동을 샘플링하고 정책 학습, 주어�
 
         return action, log_prob
 
-    
 ##########################################################################
 # 5) SAC Agent for Action
 ##########################################################################
 class SACAgent:
-    def __init__(self, input_shape=(50,50), gamma=args.gamma, alpha=0.2, tau=0.995, lr=1e-4, batch_size=64, replay_size=int(1e5), device="cpu", start_epsilon = 1.0, start_epsilon_long = 0.1):
+    def __init__(self, input_shape=(50,50), gamma=args.gamma, alpha=0.2, tau=0.995, lr=1e-4, batch_size=64, replay_size=int(1e5), device="cpu", start_epsilon = 1.0, start_epsilon_long = 0.1, long_epsilon_min=0):
         self.gamma = gamma
         self.alpha = alpha
         self.tau = tau
         self.batch_size = batch_size
         self.device = torch.device(device)
         self.epsilon = start_epsilon
-        self.epsilon_long = start_epsilon_long 
-        self.epsilon_long_min = 0.005
+        self.epsilon_long = start_epsilon_long
+        self.epsilon_long_min = long_epsilon_min
         self.epsilon_min = args.epsilon_min
 
         # Replay buffer
@@ -553,7 +557,7 @@ if __name__ == "__main__":
     total_reward_file = os.path.join(log_dir, "total_reward.txt")
     tb_log_dir = os.path.join(log_dir, "tensorboard_logs")
 
-    tb_process = launch_tensorboard(tb_log_dir, port=6006)
+    tb_process = launch_tensorboard(tb_log_dir, port=args.port_num)
     # 별도 스레드에서 total_reward.txt 모니터링 시작
     monitor_thread = threading.Thread(target=monitor_total_reward, args=(total_reward_file, tb_log_dir), daemon=True)
     monitor_thread.start()
@@ -578,17 +582,17 @@ if __name__ == "__main__":
                 else:
                     print("Not enough lines in start_epsilon.txt. Resetting values.")
                     start_epsilon = args.start_epsilon
-                    start_epsilon_long = 0.05  # 기본값 설정
+                    start_epsilon_long = args.start_long_epsilon  # 기본값 설정
             except ValueError:
                 print("Invalid value in start_epsilon.txt. Resetting to defaults.")
                 start_epsilon = args.start_epsilon
-                start_epsilon_long = 0.05  # 기본값 설정
+                start_epsilon_long = args.start_long_epsilon  # 기본값 설정
     else:
         start_epsilon = args.start_epsilon
-        start_epsilon_long = 0.05  # 기본값 설정
+        start_epsilon_long = args.start_long_epsilon  # 기본값 설정
         print("No start_epsilon.txt found. Initializing values to defaults.")
     
-    agent = SACAgent(input_shape=(50,50), alpha=args.alpha, lr=float(args.lr), start_epsilon=start_epsilon, start_epsilon_long = float(start_epsilon_long), batch_size=int(args.batch_size), replay_size=float(args.buffer_size), device=args.device)
+    agent = SACAgent(input_shape=(50,50), alpha=args.alpha, lr=float(args.lr), start_epsilon=start_epsilon, start_epsilon_long = float(args.start_long_epsilon), long_epsilon_min=float(args.long_epsilon_min), batch_size=int(args.batch_size), replay_size=float(args.buffer_size), device=args.device)
     print(f"Agent initialized, lr={args.lr}, alpha={agent.alpha}, batch_size={args.batch_size}, replay_size={args.buffer_size}")
     replay_buffer_path = os.path.join(log_dir, "replay_buffer.pkl")
 
@@ -645,7 +649,7 @@ if __name__ == "__main__":
                 if(step%ACTION_SCALE==0):
                     
                     if(np.random.rand() < agent.epsilon_long):
-                        env_model.robot.now_exploration = 0
+                        env_model.robot.now_exploration = 1
                     
                     action_np, _ = agent.select_action(state)
                     dx, dy = action_np[0], action_np[1]
@@ -681,7 +685,8 @@ if __name__ == "__main__":
                     r_f = 0              
                     r_g = 0
                     r_h = 0
-                    r_i = 0      
+                    r_i = 0
+                    r_j = 0      
                     if (REWARD_A):
                         r_a = env_model.reward_based_alived() * REWARD_A
                     if (REWARD_B):
@@ -700,7 +705,9 @@ if __name__ == "__main__":
                         r_h = env_model.reward_based_gain_with_time_bonus() * REWARD_H
                     if (REWARD_I):
                         r_i = env_model.reward_based_alived_root() * REWARD_I
-                    reward += (r_a + r_b + r_c + r_d + r_e + r_g + r_h + r_i)
+                    if (REWARD_J):
+                        r_j = env_model.reward_based_distance_from_all_agents() * REWARD_J
+                    reward += (r_a + r_b + r_c + r_d + r_e + r_g + r_h + r_i+r_j)
 
                     if(SCALE_CHECK):
                         print("reward_a : ", r_a)
@@ -712,6 +719,7 @@ if __name__ == "__main__":
                         print("reward g : ", r_g)
                         print("reward h : ", r_h)
                         print("reward i : ", r_i)
+                        print("reward j : ", r_j)
 
                     agent.store_transition(
                         buffered_state,

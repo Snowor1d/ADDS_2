@@ -610,6 +610,8 @@ class CrowdAgent(Agent):
         if(robot_d < robot_radius and self.model.robot_mode == "GUIDE" and self.not_tracking == 0):
             self.robot_tracked = 7
             self.type = 0
+            if(self.is_effected_by_robot == 0):
+                self.model.new_founded_agent_danger += self.danger
             self.is_effected_by_robot = 1
             if self.previous_type != 0:
                 if random.choices([0, 1], weights=[0.1, 0.9], k=1)[0] == 0:
