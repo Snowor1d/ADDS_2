@@ -564,9 +564,9 @@ if __name__ == "__main__":
 
 
     # hyperparams
-    max_episodes = 1500
-    max_steps = 1500
-    number_of_agents = 30
+    max_episodes = 9999999
+    max_steps = args.max_steps
+    number_of_agents = args.crowd_number
     start_episode = 0
     
     epsilon_path = os.path.join(log_dir, "start_epsilon.txt")
