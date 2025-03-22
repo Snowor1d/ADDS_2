@@ -1039,11 +1039,7 @@ class FightingModel(Model):
                 guided_num += 1
         if(guided_num == 0):
             if(self.robot.danger < 5):
-                return -0.2
-            elif(self.robot.danger < 10):
-                return -0.1
-            elif(self.robot.danger < 15):
-                return -0.05
+                return -1
         return 0
     
     def reward_based_distance_from_near_agent_gain(self):
@@ -1080,7 +1076,7 @@ class FightingModel(Model):
                     reward += agent.gain
 
         if (self.alived_agents()<self.total_agents*0.4):
-            reward = reward * 2
+            reward *= 2
 
         #print("tracked 되고 있는 수 : ", num)
         return reward
@@ -1167,6 +1163,8 @@ class FightingModel(Model):
         self.new_founded_agent_danger = 0
         return reward
 
+    def reward_time_penalty(self):
+        return -1
     
     def return_current_image(self):
 
