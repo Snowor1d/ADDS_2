@@ -983,7 +983,9 @@ class FightingModel(Model):
             return (3000-self.step_n)/3000
     
     def reward_based_evacuated_with_robot(self):
-        return (self.now_evacuated_with_robot - self.previous_evacuated_with_robot)
+        reward = 0
+        reward = self.now_evacuated_with_robot - self.previous_evacuated_with_robot
+        return reward
     
     def reward_distance_from_all_agents(self):
         reward = 0
@@ -1005,8 +1007,8 @@ class FightingModel(Model):
         reward = 0
         for agent in self.crowds:
             if(agent.type == 0 or agent.type == 1 or agent.type == 2) and (agent.dead == False):
-                reward += agent.danger
-        return -reward
+                reward -= agent.danger
+        return reward
     
     def reward_based_evacuated_confirmed(self):
         reward = 0
@@ -1029,6 +1031,7 @@ class FightingModel(Model):
         return reward
     
     def reward_penalty(self):
+        print("@@@@@@@ self.robot.danger : ", self.robot.danger)
         reward = 0
         guided_num = 0
         for agent in self.crowds:

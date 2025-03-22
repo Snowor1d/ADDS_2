@@ -3,7 +3,7 @@ import os
 import time
 import subprocess
 
-lr = 1e-4
+lr = 2e-4
 decay_value = 0.999 
 buffer_size = 100000
 batch_size = 128
@@ -14,7 +14,7 @@ start_epsilon = 1 #start epsilon
 long_epsilon_min = 0
 start_long_epsilon = 0.1
 
-log_dir = "learning_log_guide_game_sac18_mini"
+log_dir = "learning_log_guide_game_sac4_mini"
 log_std_max = 0.5
 log_std_min = -20
 alpha = 0.2 # in SAC
