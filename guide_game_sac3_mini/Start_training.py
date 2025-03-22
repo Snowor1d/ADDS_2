@@ -4,7 +4,7 @@ import time
 import subprocess
 
 lr = 1e-4
-decay_value = 0.999 
+decay_value = 0.995 
 buffer_size = 100000
 batch_size = 128
 
@@ -12,31 +12,31 @@ epsilon_min = 0.1 #min epsilon
 start_epsilon = 1 #start epsilon
 
 long_epsilon_min = 0
-start_long_epsilon = 0.1
+start_long_epsilon = 0
 
-log_dir = "learning_log_guide_game_sac18_mini"
+log_dir = "learning_log_guide_game_sac3_mini"
 log_std_max = 0.5
 log_std_min = -20
 alpha = 0.2 # in SAC
 device = "cpu" 
-start_batch_times = 1 #when start update?
-gamma = 0.99
+start_batch_times = 50 #when start update?
+gamma = 0.995
 port_num = 6007
 
-reward_A = 1 #reward_based_alived
-reward_B = 1 #reward_based_all_agents_danger
-reward_C = 1 #reward_based_gain
-reward_D = 1 #reward_based_penalty
-reward_E = 1 #reward_based_evacuated_with_robot
-reward_F = 1 #reward_based_distance_from_near_agents
-reward_G = 1 #reward_based_distance_from_near_agent_gain
-reward_H = 1 #reward_based_gain_with_time_bonus
-reward_I = 1 #reward_based_alived_root
-reward_J = 1 #reward_based_distance_from_all_agents_to_robot
+reward_A = 0 #reward_based_alived
+reward_B = 0.003 #reward_based_all_agents_danger
+reward_C = 0 #reward_based_gain
+reward_D = 0 #reward_based_penalty
+reward_E = 0 #reward_based_evacuated_with_robot
+reward_F = 0 #reward_based_distance_from_near_agents
+reward_G = 0 #reward_based_distance_from_near_agent_gain
+reward_H = 0 #reward_based_gain_with_time_bonus
+reward_I = 0 #reward_based_alived_root
+reward_J = 0.001 #reward_based_distance_from_all_agents_to_robot
 finished_bonus = 50
 scale_check = 1 # want to check reward scale?
 action_scale = 4
-max_steps = 2000
+max_steps = 3000
 crowd_number = 20
 
 

@@ -157,71 +157,68 @@ class ResidualBlock(nn.Module):
 class QNetwork(nn.Module):
     def __init__(self, input_shape=(50,50), action_dim=2):
         super(QNetwork, self).__init__()
-        # 새로운 Convolutional feature extractor with 1 채널 입력
-        self.conv1 = nn.Conv2d(1, 32, kernel_size=3, stride=2, padding=1)
+        # CNN feature extractor
+        # Conv1: kernel=5, stride=2, padding=2 → (예: 64x64 → 32x32)
+        self.conv1 = nn.Conv2d(1, 32, kernel_size=5, stride=2, padding=2)
         self.bn1   = nn.BatchNorm2d(32)
+        # Conv2: kernel=3, stride=2, padding=1 → (32x32 → 16x16)
         self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)
         self.bn2   = nn.BatchNorm2d(64)
-        # 마지막 conv layer는 stride=1로 공간 정보를 좀 더 유지
-        self.conv3 = nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1)
+        # Conv3: kernel=3, stride=2, padding=1 → (16x16 → 8x8)
+        self.conv3 = nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1)
         self.bn3   = nn.BatchNorm2d(128)
         
+        # conv_out_size 계산 (flatten 전 feature 크기)
         conv_out_size = self._get_conv_out(input_shape)
         
-        # Fully connected layers: conv feature와 행동을 concat하여 Q-value 예측
-        self.fc1 = nn.Linear(conv_out_size + action_dim, 256)
-        self.fc2 = nn.Linear(256, 128)
-        self.q_out = nn.Linear(128, 1)
+        # FC layers: 이미지 feature와 행동 정보를 결합
+        self.fc1 = nn.Linear(conv_out_size + action_dim, 512)
+        self.fc2 = nn.Linear(512, 256)
+        self.q_out = nn.Linear(256, 1)
 
     def _get_conv_out(self, shape):
         dummy = torch.zeros(1, 1, *shape)  # (batch, channel=1, H, W)
-        o = self.bn1(self.conv1(dummy))
-        o = F.relu(o)
-        o = self.bn2(self.conv2(o))
-        o = F.relu(o)
-        o = self.bn3(self.conv3(o))
-        o = F.relu(o)
-        return int(np.prod(o.size()[1:]))  # product over C, H, W
+        o = F.relu(self.bn1(self.conv1(dummy)))
+        o = F.relu(self.bn2(self.conv2(o)))
+        o = F.relu(self.bn3(self.conv3(o)))
+        return int(np.prod(o.size()[1:]))  # (C x H x W)
 
     def forward(self, state, action):
         x = F.relu(self.bn1(self.conv1(state)))
         x = F.relu(self.bn2(self.conv2(x)))
         x = F.relu(self.bn3(self.conv3(x)))
         x = x.view(x.size(0), -1)
-        # 행동과 상태 feature를 연결
+        # 행동 정보를 이미지 feature와 concat
         x = torch.cat([x, action], dim=1)
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         q_val = self.q_out(x)
         return q_val
+
     
 
 ##########################################################################
 # 4) Policy (Actor) Network
 ##########################################################################
-class PolicyNetwork(nn.Module):#행동을 샘플링하고 정책 학습, 주어진 상태 s에 대해 행동 a 결정, 연속적 & 이산적 행동 가능, 혼합 가능 (Actor)
-    """
-    Outputs distribution parameters for:
-      - continuous direction: mean, log_std (2D)
-      - discrete mode: logits (2D)
-    We combine these into an action = [dx, dy, mode0, mode1].
-    We'll do the reparam trick for direction, Gumbel-Softmax for mode.
-    """
+class PolicyNetwork(nn.Module):
     def __init__(self, input_shape=(50,50)):
         super(PolicyNetwork, self).__init__()
         self.log_std_min = args.log_std_min
-        self.log_std_max =  args.log_std_max
-
-        # 새로운 Convolutional feature extractor (1채널 입력)
-        self.conv1 = nn.Conv2d(1, 32, kernel_size=3, stride=2, padding=1)
-        self.bn1   = nn.BatchNorm2d(32)
-        self.res1 = ResidualBlock(32, 64)
-        self.res2 = ResidualBlock(64, 128)
-        self.res3 = ResidualBlock(128, 128) 
-
+        self.log_std_max = args.log_std_max
         
+        # CNN feature extractor (IMPALA/Atari 스타일)
+        # Conv1: kernel=5, stride=2, padding=2
+        self.conv1 = nn.Conv2d(1, 32, kernel_size=5, stride=2, padding=2)
+        self.bn1   = nn.BatchNorm2d(32)
+        # Conv2: kernel=3, stride=2, padding=1
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)
+        self.bn2   = nn.BatchNorm2d(64)
+        # Conv3: kernel=3, stride=2, padding=1
+        self.conv3 = nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1)
+        self.bn3   = nn.BatchNorm2d(128)
+        
+        # fc_backbone: Fully connected layers로 feature 추출 후 저차원 표현 (e.g. 512 → 256 → 64)
         conv_out_size = self._get_conv_out(input_shape)
-
         self.fc_backbone = nn.Sequential(
             nn.Linear(conv_out_size, 512),
             nn.ReLU(),
@@ -229,28 +226,24 @@ class PolicyNetwork(nn.Module):#행동을 샘플링하고 정책 학습, 주어�
             nn.ReLU(),
             nn.Linear(256, 64),
             nn.ReLU()
-
         )
-
-        #state feature만 받아서 direction의 mean, log_std 추론
+        
+        # 최종 출력: 연속적 행동 (dx, dy) 분포의 mean, log_std
         self.mean_head = nn.Linear(64, 2)
         self.log_std_head = nn.Linear(64, 2)
 
-        
     def _get_conv_out(self, shape):
         dummy = torch.zeros(1, 1, *shape)
         x = F.relu(self.bn1(self.conv1(dummy)))
-        x = self.res1(x)
-        x = self.res2(x)
-        x = self.res3(x)
+        x = F.relu(self.bn2(self.conv2(x)))
+        x = F.relu(self.bn3(self.conv3(x)))
         x = x.view(x.size(0), -1)
-        return int(np.prod(x.size()[1:]))  # (C*H*W)
+        return int(np.prod(x.size()[1:]))
 
     def backbone(self, state):
         x = F.relu(self.bn1(self.conv1(state)))
-        x = self.res1(x)
-        x = self.res2(x)
-        x = self.res3(x)
+        x = F.relu(self.bn2(self.conv2(x)))
+        x = F.relu(self.bn3(self.conv3(x)))
         x = x.view(x.size(0), -1)
         feat = self.fc_backbone(x)
         return feat
@@ -262,31 +255,21 @@ class PolicyNetwork(nn.Module):#행동을 샘플링하고 정책 학습, 주어�
         log_std = torch.clamp(log_std, self.log_std_min, self.log_std_max)
         return mean, log_std
 
-
     def sample_action(self, state, temperature=1.0):
-        """
-        returns: action=(B, 2+num_modes), log_prob=(B,)
-                 => [dx, dy, mode_onehot...], log pi(a|s)
-        """
-
         B = state.size(0)
         mean, log_std = self.forward(state)
         std = log_std.exp()
-
         eps = torch.randn_like(mean) * temperature
         u = mean + std * eps
+        # 예시에서는 sigmoid를 거쳐 [-2,2] 범위로 스케일 조정
         sigma = torch.sigmoid(u)
         action = 4 * sigma - 2
-        # log_prob 계산
-        # (dx, dy) => 2차원 Gaussian
-
-        # u에 대한 가우시안 로그 확률 계산 (각 차원별)
+        
+        # 가우시안 로그확률 계산 (각 차원별)
         log_prob_u = -0.5 * (((u - mean) / (std + 1e-8))**2 + 2 * log_std + np.log(2 * np.pi))
         log_prob_u = log_prob_u.sum(dim=1)
-
-        # Sigmoid의 야코비안 보정: 
-        #  dσ(u)/du = σ(u) * (1 - σ(u))
-        # 로그 보정항 = sum_i log(σ(u_i)*(1-σ(u_i)))
+        
+        # Sigmoid의 야코비안 보정
         jacobian = torch.log(4 * sigma * (1 - sigma) + 1e-8).sum(dim=1)
         log_prob = log_prob_u - jacobian
 
