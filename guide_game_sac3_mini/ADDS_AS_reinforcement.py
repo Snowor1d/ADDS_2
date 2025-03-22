@@ -606,6 +606,8 @@ if __name__ == "__main__":
             pass
 
     abnormal_reward = 0
+    number_of_agents = args.crowd_number
+    max_steps = args.max_steps
 
     for episode in range(max_episodes):
         print(f"Episode {start_episode+episode+1}")
