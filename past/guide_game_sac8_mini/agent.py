@@ -32,7 +32,7 @@ weight_changing = [1, 1, 1, 1] # 각 w1, w2, w3, w4에 해당하는 weight를 �
 # s.connect((host, port))
 
 num_remained_agent = 0
-NUMBER_OF_CELLS = 40
+NUMBER_OF_CELLS = 50
 
 
 one_foot = 1
@@ -253,6 +253,8 @@ class CrowdAgent(Agent):
 
         self.is_confirmed = 0
         self.is_confirmed_past = 0
+        
+        self.is_effected_by_robot = 0
 
 
 
@@ -444,12 +446,13 @@ class CrowdAgent(Agent):
             
             self.model.grid.move_agent(self, new_position_robot)
             self.pos = new_position_robot
-            
             return
+        
         if(self.type == 0 or self.type == 1 or self.type == 2):
+            self.pos = (int(round(self.xy[0])), int(round(self.xy[1])))
             new_position = self.agent_modeling()
+            print("new_position : ", new_position)
             new_position = (int(round(new_position[0])), int(round(new_position[1])))
-            self.pos = (int(round(self.pos[0])), int(round(self.pos[1])))
             self.model.grid.move_agent(self, new_position) ## 그 위치로 이동
 
     def choice_near_goal(self, pos):
@@ -553,14 +556,14 @@ class CrowdAgent(Agent):
 
                 elif(near_agent.type == 1 or near_agent.type==3 or near_agent.type==2 or near_agent.type==0): ## agents
                     if(near_agent.type==3):
-                        repulsive_force[0] += 1*np.exp(-(d/2))*(d_x/d) 
-                        repulsive_force[1] += 1*np.exp(-(d/2))*(d_y/d)
-                    repulsive_force[0] += 1*np.exp(-(d/2))*(d_x/d) #반발력.. 지수함수 -> 완전 밀착되기 직전에만 힘이 강하게 작용하는게 맞다고 생각해서
-                    repulsive_force[1] += 1*np.exp(-(d/2))*(d_y/d) 
+                        repulsive_force[0] += 4*np.exp(-(d/2))*(d_x/d) 
+                        repulsive_force[1] += 4*np.exp(-(d/2))*(d_y/d)
+                    repulsive_force[0] += 4*np.exp(-(d/2))*(d_x/d) #반발력.. 지수함수 -> 완전 밀착되기 직전에만 힘이 강하게 작용하는게 맞다고 생각해서
+                    repulsive_force[1] += 4*np.exp(-(d/2))*(d_y/d) 
 
                 elif(near_agent.type == 11 or near_agent.type == 9):## 검정벽 
-                    repulsive_force[0] += 2*np.exp(-(d/2))*(d_x/d)
-                    repulsive_force[1] += 2*np.exp(-(d/2))*(d_y/d)
+                    repulsive_force[0] += 8*np.exp(-(d/2))*(d_x/d)
+                    repulsive_force[1] += 8*np.exp(-(d/2))*(d_y/d)
             else :
                 if(random_disperse):
                     repulsive_force = [1, -1]
@@ -584,7 +587,7 @@ class CrowdAgent(Agent):
         
         self.which_goal_agent_want()
         if(self.robot_initialized == 1):
-            self.robot_initalized += 1
+            self.robot_initialized += 1
             self.now_goal = [self.xy[0], self.xy[1]]
         self.previous_type = self.type
         # for agent in self.model.agents:
@@ -670,6 +673,7 @@ class CrowdAgent(Agent):
         if(robot_d < robot_radius and self.model.robot_mode == "GUIDE" and self.not_tracking == 0):
             self.robot_tracked = 7
             self.type = 0
+            self.is_effected_by_robot = 1
             if self.previous_type != 0:
                 if random.choices([0, 1], weights=[0.1, 0.9], k=1)[0] == 0:
                     self.type = 1

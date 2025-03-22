@@ -306,8 +306,8 @@ class FightingModel(Model):
         self.mesh_list = list()
         #self.extract_map(self.map_num)     
         self.distance = {}  
-        self.schedule = RandomActivation(self)
         self.schedule_e = RandomActivation(self)
+        self.schedule = RandomActivation(self)
         self.running = (
             True
         )
@@ -334,6 +334,12 @@ class FightingModel(Model):
         self.robot_mode = "GUIDE"
         self.step_count = 0
 
+        self.now_evacuated = 0
+        self.now_evacuated_with_robot = 0
+
+        self.previous_evacuated = 0
+        self.previous_evacuated_with_robot = 0
+
         # for i in range(50):
         #     for j in range(50):
         #         print("(", i, j, ")", self.valid_space[(i, j)])
@@ -350,6 +356,13 @@ class FightingModel(Model):
             if((i.type==0 or i.type==1 or i.type==2) and i.dead == 1):
                 evacuated_agents += 1
         return evacuated_agents
+    
+    def evacuated_agents_with_robot(self):
+        evacuated_agents_with_robot = 0
+        for i in self.schedule.agents:
+            if((i.type==0 or i.type==1 or i.type==2) and i.dead == 1 and i.is_effected_by_robot == 1):
+                evacuated_agents_with_robot += 1
+        return evacuated_agents_with_robot
 
     
     def write_log(self):
@@ -556,11 +569,11 @@ class FightingModel(Model):
             for j in range(self.height):
                 self.valid_space[(i, j)] = 1
         for i in range(self.width):
-            self.valid_space[(i, 40)] = 0
-            self.valid_space[(i, 41)] = 0
+            self.valid_space[(i, 50)] = 0
+            self.valid_space[(i, 51)] = 0
         for j in range(self.height):
-            self.valid_space[(40, j)] = 0
-            self.valid_space[(41, j)] = 0
+            self.valid_space[(50, j)] = 0
+            self.valid_space[(51, j)] = 0
     def get_path(self, next_vertex_matrix, start, end): #start->end까지 최단 경로로 가려면 어떻게 가야하는지 알려줌 
 
         if next_vertex_matrix[start][end] is None:
@@ -573,8 +586,8 @@ class FightingModel(Model):
         return path
 
     def extract_map(self, map_num):
-        width = 40
-        height = 40 
+        width = 50
+        height = 50 
         #좌하단 #우하단 #우상단 #좌상단 순으로 입력해주기
         if map_num == 0:
             self.obstacles.append([[10, 10], [20, 20], [10, 20]])
@@ -952,10 +965,10 @@ class FightingModel(Model):
 
         state = self.return_current_image()
         if(self.using_model):
-            self.checking_reward += self.reward_based_evacuated_confirmed()
+            self.checking_reward += self.reward_based_evacuated_with_robot()
         if(self.using_model and self.step_n%3==0):
             if(np.random.rand() < 0.04):
-                self.robot.now_exploration = 1
+                self.robot.now_exploration = 0
             action, _ = self.sac_agent.select_action(state)
             dx, dy = action[0], action[1]
             self.robot.receive_action([dx, dy])
@@ -967,6 +980,13 @@ class FightingModel(Model):
         self.schedule.step()
         self.datacollector_currents.collect(self)  # passing the model
 
+        self.previous_evacuated = self.now_evacuated
+        self.now_evacuated = self.evacuated_agents()
+
+        self.previous_evacuated_with_robot = self.now_evacuated_with_robot
+        self.now_evacuated_with_robot = self.evacuated_agents_with_robot()
+
+
         
         
         
@@ -976,6 +996,13 @@ class FightingModel(Model):
             return self.evacuated_agents()-reference_reward[int(self.step_count/100)]
         else :
             return self.evacuated_agents()-self.total_agents
+        
+    def reward_based_evacuated_timestep_with_robot(self):
+        if (self.now_evacuated >= 10 and self.previous_evacuated < 10):
+            return (3000-self.step_n)/3000
+    
+    def reward_based_evacuated_with_robot(self):
+        return (self.now_evacuated_with_robot - self.previous_evacuated_with_robot)
     
     def reward_distance_from_all_agents(self):
         reward = 0
@@ -1054,7 +1081,7 @@ class FightingModel(Model):
         return None
     
     def use_model(self, file_path):
-        input_shape = (40, 40)
+        input_shape = (50, 50)
         num_actions = 4
 
         self.sac_agent = SACAgent(input_shape, num_actions, start_epsilon=0)
@@ -1070,13 +1097,14 @@ class FightingModel(Model):
         for agent in self.agents:
             if(agent.type==9):
                 image[agent.pos[0]][agent.pos[1]] = 20 # 벽
+        for agent in self.agents:
             if(agent.type==10):
                 image[agent.pos[0]][agent.pos[1]] = 60 # 출구
         for agent in self.agents:
-            if(agent.type == 1 or agent.type == 2):
+            if(agent.type == 1 or agent.type == 2) and agent.dead==False:
                 image[int(round(agent.xy[0]))][int(round(agent.xy[1]))] = 100 #agent
         for agent in self.agents:
-            if(agent.type == 0):
+            if(agent.type == 0) and agent.dead == False:
                 image[int(round(agent.xy[0]))][int(round(agent.xy[1]))] = 140
         for agent in self.agents:
             if(agent.type == 3):
