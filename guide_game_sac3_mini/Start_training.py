@@ -24,15 +24,16 @@ gamma = 0.995
 port_num = 6007
 
 reward_A = 0 #reward_based_alived
-reward_B = 0.003 #reward_based_all_agents_danger
+reward_B = 0 #reward_based_all_agents_danger
 reward_C = 0 #reward_based_gain
-reward_D = 0 #reward_based_penalty
+reward_D = 2 #reward_based_penalty
 reward_E = 0 #reward_based_evacuated_with_robot
 reward_F = 0 #reward_based_distance_from_near_agents
 reward_G = 0 #reward_based_distance_from_near_agent_gain
 reward_H = 0 #reward_based_gain_with_time_bonus
-reward_I = 0 #reward_based_alived_root
-reward_J = 0.001 #reward_based_distance_from_all_agents_to_robot
+reward_I = 2 #reward_based_alived_root
+reward_J = 0.5 #reward_based_all_agents_danger_log
+
 finished_bonus = 50
 scale_check = 1 # want to check reward scale?
 action_scale = 4
