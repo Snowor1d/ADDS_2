@@ -32,7 +32,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 from ADDS_AS_reinforcement import SACAgent, ReplayBuffer, PolicyNetwork, QNetwork, ACTION_SCALE
-from Start_training import reward_A, reward_B, reward_C, reward_D, reward_E, reward_F, reward_G, reward_H, reward_I, reward_J, finished_bonus, scale_check
+from Start_training import reward_A, reward_B, reward_C, reward_D, reward_E, reward_F, reward_G, reward_H, reward_I, reward_J, reward_K, finished_bonus, scale_check
 
 
 def are_meshes_adjacent(mesh1, mesh2):
@@ -958,6 +958,9 @@ class FightingModel(Model):
             print("reward_based_gain_with_time_bonus :", self.reward_based_gain_with_time_bonus() * reward_H)
             print("reward_based_alived_root : ", self.reward_based_alived_root() * reward_I)
             print("reward_based_all_agents_danger_log : ", self.reward_based_all_agents_danger_log() * reward_J)
+            print("reward_based_near_agents_exist : ", self.reward_based_near_agents_exist() * reward_K)        
+            
+
         self.schedule.step()
         self.datacollector_currents.collect(self)  # passing the model
 
@@ -1155,6 +1158,15 @@ class FightingModel(Model):
         reward = self.new_founded_agent_dagner
         self.new_founded_agent_danger = 0
         return reward
+    
+    def reward_based_near_agents_exist(self):
+        
+        for agent in self.crowds:
+            if(agent.dead == False):
+                distance = self.robot.point_to_point_distance(self.robot.xy, agent.xy)
+                if (distance<20):
+                    return 0
+        return -2
 
     
     def return_current_image(self):

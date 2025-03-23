@@ -3,8 +3,8 @@ import os
 import time
 import subprocess
 
-lr = 1e-4
-decay_value = 0.995 
+lr = 2e-4
+decay_value = 0.999 
 buffer_size = 100000
 batch_size = 128
 
@@ -33,11 +33,12 @@ reward_G = 0 #reward_based_distance_from_near_agent_gain
 reward_H = 0 #reward_based_gain_with_time_bonus
 reward_I = 2 #reward_based_alived_root
 reward_J = 0.5 #reward_based_all_agents_danger_log
+reward_K = 1 #reward_based_near_agents_exist
 
 finished_bonus = 50
 scale_check = 1 # want to check reward scale?
 action_scale = 4
-max_steps = 3000
+max_steps = 6000
 crowd_number = 20
 
 
