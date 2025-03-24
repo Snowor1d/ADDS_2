@@ -36,7 +36,7 @@ reward_J = 0 #reward_based_distance_from_all_agents_to_robot
 finished_bonus = 50
 scale_check = 1 # want to check reward scale?
 action_scale = 4
-max_steps = 2000
+max_steps = 6000
 crowd_number = 20
 
 
