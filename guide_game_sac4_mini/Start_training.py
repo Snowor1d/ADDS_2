@@ -12,7 +12,7 @@ epsilon_min = 0.1 #min epsilon
 start_epsilon = 1 #start epsilon
 
 long_epsilon_min = 0
-start_long_epsilon = 0.1
+start_long_epsilon = 0
 
 log_dir = "learning_log_guide_game_sac4_mini"
 log_std_max = 0.5
@@ -20,7 +20,7 @@ log_std_min = -20
 alpha = 0.2 # in SAC
 device = "cpu" 
 start_batch_times = 1 #when start update?
-gamma = 0.99
+gamma = 0.995
 port_num = 6007
 
 reward_A = 0 #reward_based_alived

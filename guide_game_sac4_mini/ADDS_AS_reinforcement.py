@@ -147,7 +147,8 @@ class QNetwork(nn.Module):
         
         # FC: conv 특징 + action_dim → Q-value
         self.fc1 = nn.Linear(conv_out_size + action_dim, 512)
-        self.q_out = nn.Linear(512, 1)
+        self.fc2 = nn.Linear(512, 256)
+        self.q_out = nn.Linear(256, 1)
 
     def _get_conv_out(self, shape):
         dummy = torch.zeros(1, 1, shape[0], shape[1])
