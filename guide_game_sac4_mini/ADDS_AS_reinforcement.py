@@ -167,6 +167,7 @@ class QNetwork(nn.Module):
         x = x.view(x.size(0), -1)  # flatten
         x = torch.cat([x, action], dim=1)
         x = self.leaky_relu(self.fc1(x))
+        x = self.leaky_relu(self.fc2(x))
         q_val = self.q_out(x)
         return q_val
 
@@ -189,7 +190,8 @@ class PolicyNetwork(nn.Module):
         conv_out_size = self._get_conv_out(input_shape)
         
         # FC
-        self.fc = nn.Linear(conv_out_size, 512)
+        self.fc1 = nn.Linear(conv_out_size, 512)
+        self.fc2 = nn.Linear(512, 256)
         
         # mean, log_std
         self.mean_head = nn.Linear(512, 2)
@@ -210,7 +212,8 @@ class PolicyNetwork(nn.Module):
         x = self.leaky_relu(self.conv2(x))
         x = self.leaky_relu(self.conv3(x))
         x = x.view(x.size(0), -1)
-        x = self.leaky_relu(self.fc(x))
+        x = self.leaky_relu(self.fc1(x))
+        x = self.leaky_relu(self.fc2(x))
         mean = self.mean_head(x)
         log_std = self.log_std_head(x)
         log_std = torch.clamp(log_std, self.log_std_min, self.log_std_max)
