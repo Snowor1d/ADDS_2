@@ -50,6 +50,7 @@ parser.add_argument("--reward_G", type=float, default=0)
 parser.add_argument("--reward_H", type=float, default=0)
 parser.add_argument("--reward_I", type=float, default=0)
 parser.add_argument("--reward_J", type=float, default=0)
+parser.add_argument("--reward_K", type=float, default=0)
 parser.add_argument("--finished_bonus", type=float, default=0)
 parser.add_argument("--scale_check", type=int, default=0)
 parser.add_argument("--action_scale", type=float, default=3)
@@ -79,6 +80,7 @@ REWARD_G = args.reward_G
 REWARD_H = args.reward_H
 REWARD_I = args.reward_I
 REWARD_J = args.reward_J
+REWARD_K = args.reward_K
 FINISHED_BONUS = args.finished_bonus
 SCALE_CHECK = args.scale_check
 START_BATCH_TIMES = args.start_batch_times
@@ -670,6 +672,7 @@ if __name__ == "__main__":
                     r_h = 0
                     r_i = 0
                     r_j = 0      
+                    r_k = 0
                     if (REWARD_A):
                         r_a = env_model.reward_based_alived() * REWARD_A
                     if (REWARD_B):
@@ -689,8 +692,11 @@ if __name__ == "__main__":
                     if (REWARD_I):
                         r_i = env_model.reward_based_alived_root() * REWARD_I
                     if (REWARD_J):
-                        r_j = env_model.reward_based_distance_from_all_agents() * REWARD_J
-                    reward += (r_a + r_b + r_c + r_d + r_e + r_g + r_h + r_i+r_j)
+                        r_j = env_model.reward_based_all_agents_danger_log() * REWARD_J
+                    if (REWARD_K):
+                        r_k = env_model.reward_based_near_agents_exits() * REWARD_K
+                    
+                    reward += (r_a + r_b + r_c + r_d + r_e + r_g + r_h + r_i+r_j + r_k)
 
                     if(SCALE_CHECK):
                         print("reward_a : ", r_a)
@@ -703,6 +709,7 @@ if __name__ == "__main__":
                         print("reward h : ", r_h)
                         print("reward i : ", r_i)
                         print("reward j : ", r_j)
+                        print("reward k : ", r_k)
 
                     agent.store_transition(
                         buffered_state,
