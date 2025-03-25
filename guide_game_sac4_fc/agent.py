@@ -730,8 +730,8 @@ class RobotAgent(CrowdAgent):
         for i in self.model.exit_point:
             self.danger = min(self.danger, self.point_to_point_distance([self.xy[0], self.xy[1]], i))
         
-        if(self.model.alived_agents()< 2):
-            self.is_game_finished =1 
+        if(self.model.alived_agents()< 1):
+            self.is_game_finished = 0
 
         time_step = 0.15
         robot_radius = 7
