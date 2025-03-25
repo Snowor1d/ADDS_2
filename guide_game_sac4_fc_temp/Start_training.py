@@ -17,7 +17,7 @@ LINEARLY_DECAY_STEP = 100
 long_epsilon_min = 0
 start_long_epsilon = 0
 
-log_dir = "learning_log_guide_game_sac4_mini"
+log_dir = "learning_log_guide_game_sac4_fc"
 log_std_max = 0.5
 log_std_min = -20
 alpha = 0.2 # in SAC

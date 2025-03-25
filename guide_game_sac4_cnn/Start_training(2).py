@@ -3,67 +3,73 @@ import os
 import time
 import subprocess
 
-lr = 2e-4
+lr = 1e-4
+decay_value = 0.999 
 buffer_size = 100000
 batch_size = 128
 
-EPSILON_MIN = 0.99 #min epsilon
-START_EPSILON = 1 #start epsilon
-START_DECAY_STEP = 0
-SCHEDULER_TYPE = "l" 
-DECAY_VALUE = 0.9
-LINEARLY_DECAY_STEP = 100
+epsilon_min = 0.1 #min epsilon
+start_epsilon = 1 #start epsilon
 
 long_epsilon_min = 0
-start_long_epsilon = 0
+start_long_epsilon = 0.1
 
-log_dir = "learning_log_guide_game_sac4_mini"
-log_std_max = 0.5
+log_dir = "learning_log_guide_game_sac15_mini"
+log_std_max = 1
 log_std_min = -20
 alpha = 0.2 # in SAC
 device = "cpu" 
 start_batch_times = 1 #when start update?
-gamma = 0.995
+gamma = 0.99
 port_num = 6007
 
-REWARD_A = 0 #reward_based_alived
-REWARD_B = 0 #reward_based_all_agents_danger
-REWARD_C = 0 #reward_based_gain
-REWARD_D = 2 #reward_based_penalty
-REWARD_E = 0 #reward_based_evacuated_with_robot
-REWARD_F = 0 #reward_based_distance_from_near_agents
-REWARD_G = 0 #reward_based_distance_from_near_agent_gain
-REWARD_H = 0 #reward_based_gain_with_time_bonus
-REWARD_I = 2 #reward_based_alived_root
-REWARD_J = 0.5 #reward_based_all_agents_danger_log
-REWARD_K = 1 #reward_based_near_agents_exist
-CROWD_NUMBER_MIN = 0
-CROWD_NUMBER_MAX = 20
-
-
+reward_A = 1 #reward_based_alived
+reward_B = 1 #reward_based_all_agents_danger
+reward_C = 1 #reward_based_gain
+reward_D = 1 #reward_based_penalty
+reward_E = 1 #reward_based_evacuated_with_robot
+reward_F = 1 #reward_based_distance_from_near_agents
+reward_G = 1 #reward_based_distance_from_near_agent_gain
+reward_H = 1 #reward_based_gain_with_time_bonus
+reward_I = 1 #reward_based_alived_root
+reward_J = 1 #reward_based_distance_from_all_agents
 finished_bonus = 50
-scale_check = 0 # want to check reward scale?
+scale_check = 1 # want to check reward scale?
 action_scale = 4
-max_steps = 6000
-
+max_steps = 2000
+crowd_number = 20
 
 
 def run_reinforcement_learning():
     subprocess.run([
         "python3", "ADDS_AS_reinforcement.py",
         "--lr", str(lr),
+        "--decay_value", str(decay_value),
         "--buffer_size", str(buffer_size),
         "--batch_size", str(batch_size),
+        "--start_epsilon", str(start_epsilon),
+        "--epsilon_min", str(epsilon_min),
         "--log_dir", str(log_dir),
         "--log_std_max", str(log_std_max),
         "--log_std_min", str(log_std_min),
         "--alpha", str(alpha),
         "--device", str(device),
+        "--reward_A", str(reward_A),
+        "--reward_B", str(reward_B),
+        "--reward_C", str(reward_C),
+        "--reward_D", str(reward_D),
+        "--reward_E", str(reward_E),
+        "--reward_F", str(reward_F),
+        "--reward_G", str(reward_G),
+        "--reward_H", str(reward_H),
+        "--reward_I", str(reward_I),
+        "--reward_J", str(reward_J),
         "--finished_bonus", str(finished_bonus),
         "--scale_check", str(scale_check),
         "--action_scale", str(action_scale),
         "--start_batch_times", str(start_batch_times),
         "--max_steps", str(max_steps),
+        "--crowd_number", str(crowd_number),
         "--gamma", str(gamma),
         "--port_num", str(port_num),
         "--long_epsilon_min", str(long_epsilon_min),

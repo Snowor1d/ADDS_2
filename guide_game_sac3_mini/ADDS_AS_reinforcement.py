@@ -16,7 +16,7 @@ import threading
 from torch.utils.tensorboard import SummaryWriter
 import subprocess
 import webbrowser
-from Start_training import log_dir
+from Start_training import log_dir, START_DECAY_STEP, START_EPSILON, EPSILON_MIN, SCHEDULER_TYPE, DECAY_VALUE, REWARD_A, REWARD_B, REWARD_C, REWARD_D, REWARD_E, REWARD_F, REWARD_G, REWARD_H, REWARD_I, REWARD_J, REWARD_K, CROWD_NUMBER_MIN, CROWD_NUMBER_MAX, LINEARLY_DECAY_STEP
 # Timer instances
 sim_timer = Timer() 
 learn_timer = Timer()
@@ -30,33 +30,18 @@ model_load = 3
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--lr", type=float, default=1e-4)
-parser.add_argument("--decay_value", type=float, default=0.99)
 parser.add_argument("--buffer_size", type=int, default=1e5)
 parser.add_argument("--batch_size", type=float, default=64)
-parser.add_argument("--start_epsilon", type=float, default=1.0)
-parser.add_argument("--epsilon_min", type=float, default=0.1)
 parser.add_argument("--log_dir", type=str, default=log_dir)
 parser.add_argument("--log_std_max", type=float, default=1)
 parser.add_argument("--log_std_min", type=float, default=-0.5)
 parser.add_argument("--alpha", type=float, default=0.2)
 parser.add_argument("--device", type=str, default="cpu")
-parser.add_argument("--reward_A", type=float, default=0)
-parser.add_argument("--reward_B", type=float, default=0)
-parser.add_argument("--reward_C", type=float, default=0)
-parser.add_argument("--reward_D", type=float, default=0)
-parser.add_argument("--reward_E", type=float, default=0)
-parser.add_argument("--reward_F", type=float, default=0)
-parser.add_argument("--reward_G", type=float, default=0)
-parser.add_argument("--reward_H", type=float, default=0)
-parser.add_argument("--reward_I", type=float, default=0)
-parser.add_argument("--reward_J", type=float, default=0)
-parser.add_argument("--reward_K", type=float, default=0)
 parser.add_argument("--finished_bonus", type=float, default=0)
 parser.add_argument("--scale_check", type=int, default=0)
 parser.add_argument("--action_scale", type=float, default=3)
 parser.add_argument("--start_batch_times", type=float, default=50)
 parser.add_argument("--max_steps", type=int, default=2000)
-parser.add_argument("--crowd_number", type=int, default=20)
 parser.add_argument("--gamma", type=float, default=0.999)
 parser.add_argument("--port_num", type=int, default=6006)
 parser.add_argument("--long_epsilon_min", type=float, default =0)
@@ -70,17 +55,6 @@ os.makedirs(log_dir, exist_ok=True)
 ACTION_SCALE = args.action_scale
 os.makedirs(log_dir, exist_ok=True)
 
-REWARD_A = args.reward_A
-REWARD_B = args.reward_B
-REWARD_C = args.reward_C
-REWARD_D = args.reward_D
-REWARD_E = args.reward_E
-REWARD_F = args.reward_F
-REWARD_G = args.reward_G
-REWARD_H = args.reward_H
-REWARD_I = args.reward_I
-REWARD_J = args.reward_J
-REWARD_K = args.reward_K
 FINISHED_BONUS = args.finished_bonus
 SCALE_CHECK = args.scale_check
 START_BATCH_TIMES = args.start_batch_times
@@ -151,7 +125,45 @@ class ResidualBlock(nn.Module):
         out = F.relu(self.bn1(self.conv1(x)))
         out = self.bn2(self.conv2(out))
         out = out + residual
-        return F.relu(out)
+        
+class EpsilonScheduler:
+    """
+    Epsilon Scheduler for epsilon-greedy exploration.
+    
+    Parameters:
+      - start_epsilon: 초기 ε 값.
+      - epsilon_min: 최소 ε 값.
+      - start_decay_step: ε 감소를 시작할 step(또는 에피소드) 번호.
+      - scheduler_type: "exponential" (지수적 감소) 또는 "linear" (선형 감소).
+      - decay_value: 지수적 감소 시 매 step마다 곱할 값 (예: 0.99).
+      - linear_decay_steps: 선형 감소 시 start_epsilon에서 epsilon_min까지 감소시키는 총 step 수.
+    """
+    def __init__(self, start_epsilon, epsilon_min, start_decay_step, scheduler_type="e",
+                 decay_value=0.99, linear_decay_steps=1000):
+        self.start_epsilon = start_epsilon
+        self.epsilon_min = epsilon_min
+        self.start_decay_step = start_decay_step
+        self.scheduler_type = scheduler_type
+        self.decay_value = decay_value
+        self.linear_decay_steps = linear_decay_steps
+
+    def get_epsilon(self, current_step):
+        # 아직 감소 시작 전이면 초기값 반환
+        if current_step < self.start_decay_step:
+            return self.start_epsilon
+
+        if self.scheduler_type == "e":
+            # 현재 step 이후부터 지수적으로 감소
+            epsilon = self.start_epsilon * (self.decay_value ** (current_step - self.start_decay_step))
+            return max(epsilon, self.epsilon_min)
+        elif self.scheduler_type == "l":
+            # 선형적으로 감소: 감쇠 시작부터 linear_decay_steps 동안 선형적으로 감소
+            steps_since_decay = current_step - self.start_decay_step
+            fraction = min(steps_since_decay / self.linear_decay_steps, 1.0)
+            epsilon = self.start_epsilon - fraction * (self.start_epsilon - self.epsilon_min)
+            return epsilon
+        else:
+            raise ValueError("scheduler_type must be either 'exponential' or 'linear'")
     
 ##########################################################################
 # 3) Critic (Q) Network
@@ -290,7 +302,6 @@ class SACAgent:
         self.epsilon = start_epsilon
         self.epsilon_long = start_epsilon_long
         self.epsilon_long_min = long_epsilon_min
-        self.epsilon_min = args.epsilon_min
 
         # Replay buffer
         self.replay_buffer = ReplayBuffer(capacity=int(replay_size))
@@ -328,20 +339,6 @@ class SACAgent:
                 self.tau * target_param.data + (1 - self.tau) * param.data
             )
 
-    # ------------------------------------------------- #
-    # Epsilon update (only if you want random exploration)
-    # ------------------------------------------------- #
-    def update_epsilon(self, is_down, decay_value):
-        if is_down:
-            self.epsilon = max(self.epsilon_min, self.epsilon * decay_value)
-        else:
-            self.epsilon = min(1.0, self.epsilon / decay_value)
-
-    def update_epsilon2(self, is_down, decay_value):
-        if is_down : 
-            self.epsilon_long = max(self.epsilon_long_min, self.epsilon_long * decay_value)
-        else:
-            self.epsilon_long = min(1.0, self.epsilon_long / decay_value)
     # ------------------------------------------------- #
     # Store experience
     # ------------------------------------------------- #
@@ -553,7 +550,7 @@ if __name__ == "__main__":
     start_episode = 0
     
     epsilon_path = os.path.join(log_dir, "start_epsilon.txt")
-    
+    start_epsilon = 0
     if os.path.exists(epsilon_path):
         with open(epsilon_path, "r") as f:
             try:
@@ -564,14 +561,14 @@ if __name__ == "__main__":
                     print(f"Loaded start_epsilon: {start_epsilon}, start_epsilon_long: {start_epsilon_long}")
                 else:
                     print("Not enough lines in start_epsilon.txt. Resetting values.")
-                    start_epsilon = args.start_epsilon
+                    start_epsilon = START_EPSILON
                     start_epsilon_long = args.start_long_epsilon  # 기본값 설정
             except ValueError:
                 print("Invalid value in start_epsilon.txt. Resetting to defaults.")
-                start_epsilon = args.start_epsilon
+                start_epsilon = START_EPSILON
                 start_epsilon_long = args.start_long_epsilon  # 기본값 설정
     else:
-        start_epsilon = args.start_epsilon
+        start_epsilon = START_EPSILON
         start_epsilon_long = args.start_long_epsilon  # 기본값 설정
         print("No start_epsilon.txt found. Initializing values to defaults.")
     
@@ -608,14 +605,21 @@ if __name__ == "__main__":
             pass
 
     abnormal_reward = 0
-    number_of_agents = args.crowd_number
     max_steps = args.max_steps
+
+    epsilon_scheduler = EpsilonScheduler(start_epsilon=start_epsilon, epsilon_min = EPSILON_MIN, start_decay_step = START_DECAY_STEP, scheduler_type=SCHEDULER_TYPE, decay_value=DECAY_VALUE, linear_decay_steps = LINEARLY_DECAY_STEP)
 
     for episode in range(max_episodes):
         print(f"Episode {start_episode+episode+1}")
         # Create environment
         while True:
             try:
+                number_of_agents = 0
+                if (CROWD_NUMBER_MIN == CROWD_NUMBER_MAX):
+                    number_of_agents = CROWD_NUMBER_MIN
+                else:
+                    number_of_agents = random.randint(CROWD_NUMBER_MIN, CROWD_NUMBER_MAX)
+                 
                 env_model = model.FightingModel(number_of_agents, 50, 50, 2, 'Q')
                 break
             except Exception as e:
@@ -693,10 +697,8 @@ if __name__ == "__main__":
                         r_i = env_model.reward_based_alived_root() * REWARD_I
                     if (REWARD_J):
                         r_j = env_model.reward_based_all_agents_danger_log() * REWARD_J
-                    if (REWARD_K):
-                        r_k = env_model.reward_based_near_agents_exits() * REWARD_K
                     
-                    reward += (r_a + r_b + r_c + r_d + r_e + r_g + r_h + r_i+r_j + r_k)
+                    reward += (r_a + r_b + r_c + r_d + r_e + r_g + r_h + r_i+r_j)
 
                     if(SCALE_CHECK):
                         print("reward_a : ", r_a)
@@ -738,10 +740,8 @@ if __name__ == "__main__":
             abnormal_reward = 1
 
         # Possibly update epsilon, or do other logging
-        decay_value = args.decay_value
-        if(len(agent.replay_buffer)>agent.batch_size*START_BATCH_TIMES):
-            agent.update_epsilon(True, decay_value)
-            agent.update_epsilon2(True, decay_value)
+
+        agent.epsilon = epsilon_scheduler.get_epsilon(episode)
         print("Total reward:", total_reward)
         print("now_epsilon : ", agent.epsilon)
         print("now_epsilon_long : ", agent.epsilon_long)

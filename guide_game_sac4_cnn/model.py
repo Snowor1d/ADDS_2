@@ -32,7 +32,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 from ADDS_AS_reinforcement import SACAgent, ReplayBuffer, PolicyNetwork, QNetwork, ACTION_SCALE
-from Start_training import reward_A, reward_B, reward_C, reward_D, reward_E, reward_F, reward_G, reward_H, reward_I, reward_J, reward_K, finished_bonus, scale_check
+from Start_training import REWARD_A, REWARD_B, REWARD_C, REWARD_D, REWARD_E, REWARD_F, REWARD_G, REWARD_H, REWARD_I, REWARD_J, REWARD_K, finished_bonus, scale_check
 
 
 def are_meshes_adjacent(mesh1, mesh2):
@@ -948,17 +948,17 @@ class FightingModel(Model):
             self.robot.receive_action([dx, dy])
 
         if(self.using_model and self.step_n%ACTION_SCALE==(ACTION_SCALE-1)):
-            print("reward_based_alived : ", self.reward_based_alived() * reward_A)
-            print("reward_based_all_agents_danger : ", self.reward_based_all_agents_danger() * reward_B)
-            print("reward_based_gain : ", self.reward_based_gain() * reward_C)
-            print("reward_penalty : ", self.reward_penalty() * reward_D)
-            print("reward_based_evacuated_with_robot : ", self.reward_based_evacuated_with_robot() * reward_E)
-            print("reward_based_distance_from_near_agents : ", self.reward_based_distance_from_near_agents() * reward_F)
-            print("reward_based_distance_from_near_agent_gain : ", self.reward_based_distance_from_near_agent_gain() * reward_G)
-            print("reward_based_gain_with_time_bonus :", self.reward_based_gain_with_time_bonus() * reward_H)
-            print("reward_based_alived_root : ", self.reward_based_alived_root() * reward_I)
-            print("reward_based_all_agents_danger_log : ", self.reward_based_all_agents_danger_log() * reward_J)
-            print("reward_based_near_agents_exist : ", self.reward_based_near_agents_exist() * reward_K)        
+            print("reward_based_alived : ", self.reward_based_alived() * REWARD_A)
+            print("reward_based_all_agents_danger : ", self.reward_based_all_agents_danger() * REWARD_B)
+            print("reward_based_gain : ", self.reward_based_gain() * REWARD_C)
+            print("reward_penalty : ", self.reward_penalty() * REWARD_D)
+            print("reward_based_evacuated_with_robot : ", self.reward_based_evacuated_with_robot() * REWARD_E)
+            print("reward_based_distance_from_near_agents : ", self.reward_based_distance_from_near_agents() * REWARD_F)
+            print("reward_based_distance_from_near_agent_gain : ", self.reward_based_distance_from_near_agent_gain() * REWARD_G)
+            print("reward_based_gain_with_time_bonus :", self.reward_based_gain_with_time_bonus() * REWARD_H)
+            print("reward_based_alived_root : ", self.reward_based_alived_root() * REWARD_I)
+            print("reward_based_all_agents_danger_log : ", self.reward_based_all_agents_danger_log() * REWARD_J)
+            print("reward_based_near_agents_exist : ", self.reward_based_near_agents_exist() * REWARD_K)        
             
 
         self.schedule.step()
@@ -1038,12 +1038,7 @@ class FightingModel(Model):
             if(agent.type == 0 and agent.dead == False):
                 guided_num += 1
         if(guided_num == 0):
-            if(self.robot.danger < 5):
-                return -0.2
-            elif(self.robot.danger < 10):
-                return -0.1
-            elif(self.robot.danger < 15):
-                return -0.05
+            return 10/(self.robot.danger+5)
         return 0
     
     def reward_based_distance_from_near_agent_gain(self):

@@ -10,7 +10,7 @@ import numpy as np
 # model.py, ADDS_AS_reinforcement.py (동일 폴더 or 경로 맞춰 수정)
 from model import FightingModel
 from ADDS_AS_reinforcement import ReplayBuffer
-
+from Start_training import reward_A, reward_B, reward_C, reward_D, reward_E, reward_F, reward_G, reward_H, reward_I, reward_J, reward_K
 ############################
 # 화면 및 조이스틱 설정
 ############################

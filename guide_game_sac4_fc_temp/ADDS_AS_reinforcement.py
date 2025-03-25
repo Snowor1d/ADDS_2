@@ -122,10 +122,9 @@ class ResidualBlock(nn.Module):
 
     def forward(self, x):
         residual = self.skip(x)
-        out = F.leaky_relu(self.bn1(self.conv1(x)), negative_slope=0.01)
+        out = F.relu(self.bn1(self.conv1(x)))
         out = self.bn2(self.conv2(out))
         out = out + residual
-        return F.leaky_relu(out, negative_slope=0.01)
         
 class EpsilonScheduler:
     """
@@ -165,14 +164,13 @@ class EpsilonScheduler:
             return epsilon
         else:
             raise ValueError("scheduler_type must be either 'exponential' or 'linear'")
-    
 ##########################################################################
-# 3) Critic (Q) Network
+# 3) Critic (Q) Network - Version 1: CNN 3개 + FC 3개
 ##########################################################################
 class QNetwork(nn.Module):
     def __init__(self, input_shape=(50,50), action_dim=2):
         super(QNetwork, self).__init__()
-        # CNN feature extractor
+        # 3개의 Convolutional layer
         self.conv1 = nn.Conv2d(1, 32, kernel_size=5, stride=2, padding=2)
         self.bn1   = nn.BatchNorm2d(32)
         self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)
@@ -180,16 +178,16 @@ class QNetwork(nn.Module):
         self.conv3 = nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1)
         self.bn3   = nn.BatchNorm2d(128)
         
-        # conv_out_size 계산 (flatten 전 feature 크기)
         conv_out_size = self._get_conv_out(input_shape)
         
-        # FC layers
-        self.fc1 = nn.Linear(conv_out_size + action_dim, 512)
-        self.fc2 = nn.Linear(512, 256)
-        self.q_out = nn.Linear(256, 1)
+        # FC layers: 2 -> 3
+        self.fc1 = nn.Linear(conv_out_size + action_dim, 256)
+        self.fc2 = nn.Linear(256, 128)
+        self.fc3 = nn.Linear(128, 64)
+        self.q_out = nn.Linear(64, 1)
 
     def _get_conv_out(self, shape):
-        dummy = torch.zeros(1, 1, *shape)  # (batch, channel=1, H, W)
+        dummy = torch.zeros(1, 1, *shape)
         o = F.leaky_relu(self.bn1(self.conv1(dummy)), negative_slope=0.01)
         o = F.leaky_relu(self.bn2(self.conv2(o)), negative_slope=0.01)
         o = F.leaky_relu(self.bn3(self.conv3(o)), negative_slope=0.01)
@@ -200,13 +198,14 @@ class QNetwork(nn.Module):
         x = F.leaky_relu(self.bn2(self.conv2(x)), negative_slope=0.01)
         x = F.leaky_relu(self.bn3(self.conv3(x)), negative_slope=0.01)
         x = x.view(x.size(0), -1)
-        # 행동 정보를 이미지 feature와 concat
         x = torch.cat([x, action], dim=1)
         x = F.leaky_relu(self.fc1(x), negative_slope=0.01)
         x = F.leaky_relu(self.fc2(x), negative_slope=0.01)
+        x = F.leaky_relu(self.fc3(x), negative_slope=0.01)
         q_val = self.q_out(x)
         return q_val
 
+    
 
 ##########################################################################
 # 4) Policy (Actor) Network
@@ -217,7 +216,7 @@ class PolicyNetwork(nn.Module):
         self.log_std_min = args.log_std_min
         self.log_std_max = args.log_std_max
         
-        # CNN feature extractor
+        # CNN feature extractor (3개)
         self.conv1 = nn.Conv2d(1, 32, kernel_size=5, stride=2, padding=2)
         self.bn1   = nn.BatchNorm2d(32)
         self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)
@@ -225,7 +224,6 @@ class PolicyNetwork(nn.Module):
         self.conv3 = nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1)
         self.bn3   = nn.BatchNorm2d(128)
         
-        # fc_backbone
         conv_out_size = self._get_conv_out(input_shape)
         self.fc_backbone = nn.Sequential(
             nn.Linear(conv_out_size, 512),
@@ -235,8 +233,6 @@ class PolicyNetwork(nn.Module):
             nn.Linear(256, 64),
             nn.LeakyReLU(0.01, inplace=True)
         )
-        
-        # 최종 출력: (dx, dy)의 mean, log_std
         self.mean_head = nn.Linear(64, 2)
         self.log_std_head = nn.Linear(64, 2)
 
@@ -270,18 +266,12 @@ class PolicyNetwork(nn.Module):
         eps = torch.randn_like(mean) * temperature
         u = mean + std * eps
         sigma = torch.sigmoid(u)
-        action = 4 * sigma - 2  # [-2,2] 범위 매핑
-        
-        # 가우시안 로그확률
+        action = 4 * sigma - 2
         log_prob_u = -0.5 * (((u - mean) / (std + 1e-8))**2 + 2*log_std + np.log(2*np.pi))
         log_prob_u = log_prob_u.sum(dim=1)
-        
-        # 시그모이드 야코비안 보정
         jacobian = torch.log(4*sigma*(1 - sigma) + 1e-8).sum(dim=1)
         log_prob = log_prob_u - jacobian
         return action, log_prob
-
-
 
 ##########################################################################
 # 5) SAC Agent for Action
