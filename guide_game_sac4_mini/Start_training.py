@@ -9,15 +9,17 @@ batch_size = 128
 
 EPSILON_MIN = 0.99 #min epsilon
 START_EPSILON = 1 #start epsilon
-START_DECAY_STEP = 0
+
 SCHEDULER_TYPE = "l" 
-DECAY_VALUE = 0.9
+DECAY_VALUE = 0.9 
 LINEARLY_DECAY_STEP = 100
+START_UPDATE_STEP = 1000
+START_DECAY_STEP = START_UPDATE_STEP
 
 long_epsilon_min = 0
 start_long_epsilon = 0
 
-log_dir = "learning_log_guide_game_sac4_mini"
+LOG_DIR = "learning_log_guide_game_sac4_mini"
 log_std_max = 0.5
 log_std_min = -20
 alpha = 0.2 # in SAC
@@ -54,7 +56,6 @@ def run_reinforcement_learning():
         "--lr", str(lr),
         "--buffer_size", str(buffer_size),
         "--batch_size", str(batch_size),
-        "--log_dir", str(log_dir),
         "--log_std_max", str(log_std_max),
         "--log_std_min", str(log_std_min),
         "--alpha", str(alpha),

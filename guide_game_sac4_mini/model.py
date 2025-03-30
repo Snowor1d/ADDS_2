@@ -1165,27 +1165,32 @@ class FightingModel(Model):
 
     
     def return_current_image(self):
+        # Create a 2D NumPy array with zeros of type uint8
+        # shape: (height, width)
+        image = np.zeros((self.height, self.width), dtype=np.uint8)
+        
+        # Fill in wall
+        for agent in self.agents:
+            if agent.type == 9:
+                image[agent.pos[0], agent.pos[1]] = 20  # 벽
+        
+        # Fill in exit
+        for agent in self.agents:
+            if agent.type == 10:
+                image[agent.pos[0], agent.pos[1]] = 60  # 출구
 
-        image = [[0 for _ in range(self.width)] for _ in range(self.height)]
-        for agent in self.agents:
-            if(agent.type==9):
-                image[agent.pos[0]][agent.pos[1]] = 20 # 벽
-        for agent in self.agents:
-            if(agent.type==10):
-                image[agent.pos[0]][agent.pos[1]] = 60 # 출구
+        # Fill crowd agents
         for agent in self.crowds:
-            if(agent.type == 1 or agent.type == 2) and agent.dead==False:
-                image[int(round(agent.xy[0]))][int(round(agent.xy[1]))] = 100 #agent
+            if (agent.type == 1 or agent.type == 2) and not agent.dead:
+                image[int(round(agent.xy[0])), int(round(agent.xy[1]))] = 100  # agent
         for agent in self.crowds:
-            if(agent.type == 0) and agent.dead == False:
-                image[int(round(agent.xy[0]))][int(round(agent.xy[1]))] = 140
+            if agent.type == 0 and not agent.dead:
+                image[int(round(agent.xy[0])), int(round(agent.xy[1]))] = 140
+        
+        # Fill robot
         for agent in self.agents:
-            if(agent.type == 3):
-                image[int(round(agent.xy[0]))][int(round(agent.xy[1]))] = 200 #robot
-
-        # for i in range(self.width):
-        #     for j in range(self.height):
-        #         print(f'{i}, {j} : {image[i][j]}')
+            if agent.type == 3:
+                image[int(round(agent.xy[0])), int(round(agent.xy[1]))] = 200  # robot
         
         return image
     

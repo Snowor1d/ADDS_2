@@ -16,7 +16,7 @@ import threading
 from torch.utils.tensorboard import SummaryWriter
 import subprocess
 import webbrowser
-from Start_training import log_dir, START_DECAY_STEP, START_EPSILON, EPSILON_MIN, SCHEDULER_TYPE, DECAY_VALUE, REWARD_A, REWARD_B, REWARD_C, REWARD_D, REWARD_E, REWARD_F, REWARD_G, REWARD_H, REWARD_I, REWARD_J, REWARD_K, CROWD_NUMBER_MIN, CROWD_NUMBER_MAX, LINEARLY_DECAY_STEP
+from Start_training import START_DECAY_STEP, START_EPSILON, EPSILON_MIN, SCHEDULER_TYPE, DECAY_VALUE, REWARD_A, REWARD_B, REWARD_C, REWARD_D, REWARD_E, REWARD_F, REWARD_G, REWARD_H, REWARD_I, REWARD_J, REWARD_K, CROWD_NUMBER_MIN, CROWD_NUMBER_MAX, LINEARLY_DECAY_STEP, START_UPDATE_STEP, LOG_DIR
 # Timer instances
 sim_timer = Timer() 
 learn_timer = Timer()
@@ -32,7 +32,6 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--lr", type=float, default=1e-4)
 parser.add_argument("--buffer_size", type=int, default=1e5)
 parser.add_argument("--batch_size", type=float, default=64)
-parser.add_argument("--log_dir", type=str, default=log_dir)
 parser.add_argument("--log_std_max", type=float, default=1)
 parser.add_argument("--log_std_min", type=float, default=-0.5)
 parser.add_argument("--alpha", type=float, default=0.2)
@@ -48,7 +47,7 @@ parser.add_argument("--long_epsilon_min", type=float, default =0)
 parser.add_argument("--start_long_epsilon", type=float, default=0)
 args = parser.parse_args()
 home_dir = os.path.expanduser("~")
-log_dir = os.path.join(home_dir, args.log_dir)
+log_dir = os.path.join(home_dir, LOG_DIR)
 os.makedirs(log_dir, exist_ok=True)
 
 
@@ -698,7 +697,7 @@ if __name__ == "__main__":
                     if (REWARD_J):
                         r_j = env_model.reward_based_all_agents_danger_log() * REWARD_J
                     
-                    reward += (r_a + r_b + r_c + r_d + r_e + r_g + r_h + r_i+r_j)
+                    reward += (r_a + r_b + r_c + r_d + r_e +r_f + r_g + r_h + r_i+r_j)
 
                     if(SCALE_CHECK):
                         print("reward_a : ", r_a)
@@ -725,7 +724,7 @@ if __name__ == "__main__":
                     reward = 0
 
                 # 7) Update agent
-                if(step%ACTION_SCALE==(ACTION_SCALE-1)):
+                if(step%ACTION_SCALE==(ACTION_SCALE-1) and episode>=START_UPDATE_STEP):
                     learn_timer.start()
                     agent.update()
                     learn_timer.stop()
