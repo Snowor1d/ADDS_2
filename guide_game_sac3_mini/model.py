@@ -943,7 +943,7 @@ class FightingModel(Model):
         if(self.using_model and self.step_n%ACTION_SCALE==0):
             if(np.random.rand() < 0.04):
                 self.robot.now_exploration = 0
-            action, _ = self.sac_agent.select_action(state)
+            action, _ = self.sac_agent.select_action(state, True)
             dx, dy = action[0], action[1]
             self.robot.receive_action([dx, dy])
 
