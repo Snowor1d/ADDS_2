@@ -1037,8 +1037,8 @@ class FightingModel(Model):
         for agent in self.crowds:
             if(agent.type == 0 and agent.dead == False):
                 guided_num += 1
-        if(guided_num == 0):
-            return -10/(self.robot.danger+5)
+        if(guided_num == 0 and self.robot.danger<5):
+            return -1
         return 0
     
     def reward_based_distance_from_near_agent_gain(self):

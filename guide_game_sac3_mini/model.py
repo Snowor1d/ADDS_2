@@ -936,7 +936,6 @@ class FightingModel(Model):
         #         if(max_id == agent.unique_id):
         #             agent.dead = True 
         self.step_count += 1
-
         state = self.return_current_image()
         # if(self.using_model):
         #     self.checking_reward += self.reward_based_evacuated_with_robot()
