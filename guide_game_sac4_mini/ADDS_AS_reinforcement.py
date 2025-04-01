@@ -73,6 +73,44 @@ def launch_tensorboard(tb_log_dir, port=6006):
     print(f"TensorBoard launched at {url}")
     return tb_process
 
+def monitor_metric(metric_file, metric_name, tb_log_dir):
+    """
+    metric_file에서 새로운 라인이 추가될 때마다 읽어서,
+    metric_name으로 TensorBoard에 기록합니다.
+    """
+    writer = SummaryWriter(log_dir=tb_log_dir)
+
+    # metric_file이 생성될 때까지 대기
+    while not os.path.exists(metric_file):
+        print(f"Waiting for {metric_file} to be created...")
+        time.sleep(2)
+
+    with open(metric_file, "r") as f:
+        # 파일 끝으로 이동 (기존 데이터 무시하고 새로 들어오는 라인부터 읽고 싶다면 아래 주석 제거)
+        # f.seek(0, os.SEEK_END)
+
+        episode = 0
+        print(f"Start monitoring {metric_file} for new data...")
+        try:
+            while True:
+                line = f.readline()
+                if line:
+                    line = line.strip()
+                    if line:
+                        try:
+                            value = float(line)
+                            writer.add_scalar(metric_name, value, episode)
+                            print(f"Episode {episode} - {metric_name} = {value}")
+                            episode += 1
+                        except ValueError:
+                            print(f"Invalid value in {metric_file}: {line}")
+                else:
+                    time.sleep(1)
+        except KeyboardInterrupt:
+            print(f"Monitoring for {metric_file} interrupted by user.")
+        finally:
+            writer.close()
+
 ##########################################################################
 # 1) Replay Buffer
 ##########################################################################
@@ -531,11 +569,28 @@ if __name__ == "__main__":
     # TensorBoard 로그 경로 및 total_reward.txt 경로 설정
     total_reward_file = os.path.join(log_dir, "total_reward.txt")
     tb_log_dir = os.path.join(log_dir, "tensorboard_logs")
+    evacuation_time_80_file = os.path.join(log_dir, "evacuation_80.txt")
+    evacuation_time_100_file = os.path.join(log_dir, "evacuation_100.txt")
 
     tb_process = launch_tensorboard(tb_log_dir, port=args.port_num)
     # 별도 스레드에서 total_reward.txt 모니터링 시작
     monitor_thread = threading.Thread(target=monitor_total_reward, args=(total_reward_file, tb_log_dir), daemon=True)
     monitor_thread.start()
+    # 추가: 새로운 지표(80%, 100% 대피시간) 모니터링 쓰레드
+    monitor_thread_80 = threading.Thread(
+        target=monitor_metric, 
+        args=(evacuation_time_80_file, "Evacuation Time 80", tb_log_dir),
+        daemon=True
+    )
+    monitor_thread_80.start()
+
+    monitor_thread_100 = threading.Thread(
+        target=monitor_metric, 
+        args=(evacuation_time_100_file, "Evacuation Time 100", tb_log_dir),
+        daemon=True
+    )
+    monitor_thread_100.start()
+
 
 
     # hyperparams
@@ -602,6 +657,7 @@ if __name__ == "__main__":
 
     epsilon_scheduler = EpsilonScheduler(start_epsilon=start_epsilon, epsilon_min = EPSILON_MIN, start_decay_step = START_DECAY_STEP, scheduler_type=SCHEDULER_TYPE, decay_value=DECAY_VALUE, linear_decay_steps = LINEARLY_DECAY_STEP)
 
+
     for episode in range(max_episodes):
         print(f"Episode {start_episode+episode+1}")
         # Create environment
@@ -621,6 +677,9 @@ if __name__ == "__main__":
         state = env_model.return_current_image()
         total_reward = 0
         reward = 0
+        evacuation_time_80 = max_steps
+        evacuation_time_100 = max_steps
+
         buffered_state = state
         buffered_action = None
         abnormal_reward = 0
@@ -724,6 +783,12 @@ if __name__ == "__main__":
                     learn_timer.stop()
 
                 state = next_state
+
+
+                if (env_model.alived_agents() < env_model.total_agents * 0.2 and evacuation_time_80 == max_steps):
+                    evacuation_time_80 = step
+                if (env_model.alived_agents() < 1 and evacuation_time_100 == max_steps):
+                    evacuation_time_100 = step
                 if done:
                     break
         except Exception as e:
@@ -737,13 +802,22 @@ if __name__ == "__main__":
         agent.epsilon = epsilon_scheduler.get_epsilon(episode)
         print("Total reward:", total_reward)
         print("now_epsilon : ", agent.epsilon)
-        print("now_epsilon_long : ", agent.epsilon_long)
+        print("evacuation_time_80 : ", evacuation_time_80)
+        print("evacuation_time_100 : ", evacuation_time_100)
+        
+        # print("now_epsilon_long : ", agent.epsilon_long)
         # Save model occasionally
 
         reward_file_path = os.path.join(log_dir, "total_reward.txt")
+        evacuation_time_80_file_path = os.path.join(log_dir, "evacuation_80.txt")
+        evacuation_time_100_file_path = os.path.join(log_dir, "evacuation_100.txt")
         if not os.path.exists(reward_file_path):
             # 파일이 없으면 빈 파일 생성
             open(reward_file_path, "w").close()
+        if not os.path.exists(evacuation_time_80_file_path):
+            open(evacuation_time_80_file_path, "w").close()
+        if not os.path.exists(evacuation_time_100_file_path):
+            open(evacuation_time_100_file_path, "w").close()
 
         if (episode+1) % 50 == 0:
             model_filename = os.path.join(log_dir, f"sac_checkpoint_ep_{start_episode + episode + 1}.pth")
@@ -755,6 +829,12 @@ if __name__ == "__main__":
         with open(reward_file_path, "a") as f:
             if(abnormal_reward != 1):
                 f.write(f"{total_reward}\n")
+
+        with open(evacuation_time_80_file_path, "a") as f:
+            if(abnormal_reward != 1):
+                f.write(f"{-evacuation_time_80}\n")
+        with open(evacuation_time_100_file_path, "a") as f:
+                f.write(f"{-evacuation_time_100}\n")
 
         with open(epsilon_path, "w") as f:
             f.write(str(agent.epsilon)+"\n")

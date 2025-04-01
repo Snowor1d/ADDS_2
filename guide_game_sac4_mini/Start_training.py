@@ -4,16 +4,16 @@ import time
 import subprocess
 
 lr = 2e-4
-buffer_size = 100000
+buffer_size = 1000000
 batch_size = 128
 
-EPSILON_MIN = 0.99 #min epsilon
+EPSILON_MIN = 0.1 #min epsilon
 START_EPSILON = 1 #start epsilon
 
 SCHEDULER_TYPE = "l" 
-DECAY_VALUE = 0.9 
-LINEARLY_DECAY_STEP = 100
-START_UPDATE_STEP = 1000
+DECAY_VALUE = 0
+LINEARLY_DECAY_STEP = 2000
+START_UPDATE_STEP = 150
 START_DECAY_STEP = START_UPDATE_STEP
 
 long_epsilon_min = 0
@@ -24,22 +24,22 @@ log_std_max = 0.5
 log_std_min = -20
 alpha = 0.2 # in SAC
 device = "cpu" 
-start_batch_times = 1 #when start update?
-gamma = 0.995
+start_batch_times = 0 #when start update?
+gamma = 0.99
 port_num = 6007
 
 REWARD_A = 0 #reward_based_alived
-REWARD_B = 0 #reward_based_all_agents_danger
+REWARD_B = 0.002 #reward_based_all_agents_danger
 REWARD_C = 0 #reward_based_gain
 REWARD_D = 2 #reward_based_penalty
 REWARD_E = 0 #reward_based_evacuated_with_robot
 REWARD_F = 0 #reward_based_distance_from_near_agents
 REWARD_G = 0 #reward_based_distance_from_near_agent_gain
 REWARD_H = 0 #reward_based_gain_with_time_bonus
-REWARD_I = 2 #reward_based_alived_root
-REWARD_J = 0.5 #reward_based_all_agents_danger_log
-REWARD_K = 1 #reward_based_near_agents_exist
-CROWD_NUMBER_MIN = 0
+REWARD_I = 1 #reward_based_alived_root
+REWARD_J = 0.2 #reward_based_all_agents_danger_log
+REWARD_K = 0 #reward_based_near_agents_exist
+CROWD_NUMBER_MIN = 20
 CROWD_NUMBER_MAX = 20
 
 

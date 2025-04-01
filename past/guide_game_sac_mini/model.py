@@ -31,45 +31,14 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 
-from ADDS_AS_reinforcement import SACAgent, ReplayBuffer, PolicyNetwork, QNetwork 
-
-##########################################################################
-# 1) Replay Buffer
-##########################################################################
-class ReplayBuffer:
-    def __init__(self, capacity=int(1e4)):
-        self.buffer = deque(maxlen=capacity)
-
-    def push(self, state, action, reward, next_state, done):
-        """
-        state: (H, W) or (C, H, W) as np array
-        action: np.array of shape (4,) 
-                e.g. [dx, dy, mode_onehot0, mode_onehot1]
-        reward: float
-        next_state: np.array
-        done: float(0 or 1)
-        """
-        self.buffer.append((state, action, reward, next_state, done))
-
-    def sample(self, batch_size):
-        batch = random.sample(self.buffer, int(batch_size))
-        states, actions, rewards, next_states, dones = zip(*batch)
-
-        states      = torch.FloatTensor(states).unsqueeze(1)  # (B,1,H,W) if grayscale
-        actions     = torch.FloatTensor(actions)               # (B,4)
-        rewards     = torch.FloatTensor(rewards)              # (B,)
-        next_states = torch.FloatTensor(next_states).unsqueeze(1)
-        dones       = torch.FloatTensor(dones)                # (B,)
-        return states, actions, rewards, next_states, dones
-
-    def __len__(self):
-        return len(self.buffer)
+from ADDS_AS_reinforcement import SACAgent, ReplayBuffer, PolicyNetwork, QNetwork, ACTION_SCALE
+from Start_training import reward_A, reward_B, reward_C, reward_D, reward_E, reward_F, reward_G, reward_H, reward_I, reward_J, finished_bonus, scale_check
 
 
 def are_meshes_adjacent(mesh1, mesh2):
     # 두 mesh의 공통 꼭짓점의 개수를 센다
     common_vertices = set(mesh1) & set(mesh2)
-    return len(common_vertices) >= 2  # 공통 꼭짓점이 두 개 이상일 때 인접하다고 판단
+    return len(common_vertices) >= 2  # 공통 꼭짓점이 두 개 이상일 때 인접하다고 판단R
 
 # goal_list = [[0,50], [49, 50]]
 hazard_id = 5000
@@ -252,12 +221,25 @@ def generate_segments_with_points(vertices, segments, D):
         new_segments.append([last_index, seg[1]])
     return new_vertices, new_segments
 
+def add_gaussian_blob(image, center, amplitude, kernel_size=5, sigma=1.0):
+    cx, cy = center
+    half_size = kernel_size // 2
+    x_start = max(0, cx - half_size)
+    y_start = max(cy - half_size, 0)
+    x_end = min(cx + half_size + 1, image.shape[0])
+    y_end = min(cy + half_size + 1, image.shape[1])
+
+    k_x_start = half_size - (cx - x_start)
+    k_y_start = half_size - (cy - y_start)
+
+    k_x_start = half_size - (cx - x_start)
+
  
 class FightingModel(Model):
     """A model with some number of agents."""
 
     def __init__(self, number_agents: int, width: int, height: int, model_num = -1, robot = 'Q'):
-        
+        self.crowds = []
         self.step_n = 0
         self.checking_reward = 0
         if (model_num == -1):
@@ -293,8 +275,8 @@ class FightingModel(Model):
         self.mesh_list = list()
         #self.extract_map(self.map_num)     
         self.distance = {}  
-        self.schedule = RandomActivation(self)
         self.schedule_e = RandomActivation(self)
+        self.schedule = RandomActivation(self)
         self.running = (
             True
         )
@@ -321,6 +303,16 @@ class FightingModel(Model):
         self.robot_mode = "GUIDE"
         self.step_count = 0
 
+        self.now_evacuated = 0
+        self.now_evacuated_with_robot = 0
+
+        self.previous_evacuated = 0
+        self.previous_evacuated_with_robot = 0
+
+        self.before_minimum_distance = 0
+        self.minimum_distance = 0
+        self.new_founded_agent_danger = 0
+
         # for i in range(50):
         #     for j in range(50):
         #         print("(", i, j, ")", self.valid_space[(i, j)])
@@ -337,6 +329,13 @@ class FightingModel(Model):
             if((i.type==0 or i.type==1 or i.type==2) and i.dead == 1):
                 evacuated_agents += 1
         return evacuated_agents
+    
+    def evacuated_agents_with_robot(self):
+        evacuated_agents_with_robot = 0
+        for i in self.schedule.agents:
+            if((i.type==0 or i.type==1 or i.type==2) and i.dead == 1 and i.is_effected_by_robot == 1):
+                evacuated_agents_with_robot += 1
+        return evacuated_agents_with_robot
 
     
     def write_log(self):
@@ -543,11 +542,11 @@ class FightingModel(Model):
             for j in range(self.height):
                 self.valid_space[(i, j)] = 1
         for i in range(self.width):
-            self.valid_space[(i, 40)] = 0
-            self.valid_space[(i, 41)] = 0
+            self.valid_space[(i, 50)] = 0
+            self.valid_space[(i, 51)] = 0
         for j in range(self.height):
-            self.valid_space[(40, j)] = 0
-            self.valid_space[(41, j)] = 0
+            self.valid_space[(50, j)] = 0
+            self.valid_space[(51, j)] = 0
     def get_path(self, next_vertex_matrix, start, end): #start->end까지 최단 경로로 가려면 어떻게 가야하는지 알려줌 
 
         if next_vertex_matrix[start][end] is None:
@@ -560,8 +559,8 @@ class FightingModel(Model):
         return path
 
     def extract_map(self, map_num):
-        width = 40
-        height = 40 
+        width = 50
+        height = 50 
         #좌하단 #우하단 #우상단 #좌상단 순으로 입력해주기
         if map_num == 0:
             self.obstacles.append([[10, 10], [20, 20], [10, 20]])
@@ -701,7 +700,7 @@ class FightingModel(Model):
 
     def reward_distance_sum(self):
         result = 0
-        for i in self.agents:
+        for i in self.crowds:
             if(i.dead == False and (i.type==0 or i.type==1)):
                 result += i.danger
         return result 
@@ -868,6 +867,7 @@ class FightingModel(Model):
             if not assigned in agent_location:
                 agent_location.append(assigned)
                 a = CrowdAgent(self.agent_num, self, assigned, 1)
+                self.crowds.append(a)
                 self.agent_num += 1
                 self.schedule.add(a)
                 self.grid.place_agent(a, assigned)
@@ -918,39 +918,55 @@ class FightingModel(Model):
         """Advance the model by one step."""
         global started
         max_id = 1
-        if(started):
-            for agent in self.agents:
-                if(agent.type==1 or agent.type==0):
-                    if(agent.unique_id > max_id):
-                        max_id = agent.unique_id
-            #self.difficulty_f()
-            for agent in self.agents:
-                if(max_id == agent.unique_id):
-                    agent.dead = True
-            started = 0
-            max_id = 1
-            for agent in self.agents:
-                if (agent.unique_id > max_id and (agent.type==0 or agent.type==1)):
-                    max_id = agent.unique_id
-            for agent in self.agents:
-                if(max_id == agent.unique_id):
-                    agent.dead = True 
+        # if(started):
+        #     for agent in self.agents:
+        #         if(agent.type==1 or agent.type==0):
+        #             if(agent.unique_id > max_id):
+        #                 max_id = agent.unique_id
+        #     #self.difficulty_f()
+        #     for agent in self.agents:
+        #         if(max_id == agent.unique_id):
+        #             agent.dead = True
+        #     started = 0
+        #     max_id = 1
+        #     for agent in self.agents:
+        #         if (agent.unique_id > max_id and (agent.type==0 or agent.type==1)):
+        #             max_id = agent.unique_id
+        #     for agent in self.agents:
+        #         if(max_id == agent.unique_id):
+        #             agent.dead = True 
         self.step_count += 1
 
         state = self.return_current_image()
-        if(self.using_model):
-            self.checking_reward += self.reward_based_alived()
-        if(self.using_model and self.step_n%3==0):
+        # if(self.using_model):
+        #     self.checking_reward += self.reward_based_evacuated_with_robot()
+        if(self.using_model and self.step_n%ACTION_SCALE==0):
+            if(np.random.rand() < 0.04):
+                self.robot.now_exploration = 0
             action, _ = self.sac_agent.select_action(state)
             dx, dy = action[0], action[1]
             self.robot.receive_action([dx, dy])
 
-        if(self.using_model and self.step_n%3==2):
-            print("reward : ", self.checking_reward)
-            self.checking_reward = 0
-
+        if(self.using_model and self.step_n%ACTION_SCALE==(ACTION_SCALE-1)):
+            print("reward_based_alived : ", self.reward_based_alived() * reward_A)
+            print("reward_based_all_agents_danger : ", self.reward_based_all_agents_danger() * reward_B)
+            print("reward_based_gain : ", self.reward_based_gain() * reward_C)
+            print("reward_penalty : ", self.reward_penalty() * reward_D)
+            print("reward_based_evacuated_with_robot : ", self.reward_based_evacuated_with_robot() * reward_E)
+            print("reward_based_distance_from_near_agents : ", self.reward_based_distance_from_near_agents() * reward_F)
+            print("reward_based_distance_from_near_agent_gain : ", self.reward_based_distance_from_near_agent_gain() * reward_G)
+            print("reward_based_gain_with_time_bonus :", self.reward_based_gain_with_time_bonus() * reward_H)
+            print("reward_based_alived_root : ", self.reward_based_alived_root() * reward_I)
+            print("reward_based_distance_from_all_agents : ", self.reward_based_distance_from_all_agents() * reward_J)
         self.schedule.step()
         self.datacollector_currents.collect(self)  # passing the model
+
+        self.previous_evacuated = self.now_evacuated
+        self.now_evacuated = self.evacuated_agents()
+
+        self.previous_evacuated_with_robot = self.now_evacuated_with_robot
+        self.now_evacuated_with_robot = self.evacuated_agents_with_robot()
+
 
         
         
@@ -961,44 +977,53 @@ class FightingModel(Model):
             return self.evacuated_agents()-reference_reward[int(self.step_count/100)]
         else :
             return self.evacuated_agents()-self.total_agents
+        
+    def reward_based_evacuated_timestep_with_robot(self):
+        if (self.now_evacuated >= 10 and self.previous_evacuated < 10):
+            return (3000-self.step_n)/3000
+    
+    def reward_based_evacuated_with_robot(self):
+        return (self.now_evacuated_with_robot - self.previous_evacuated_with_robot)
     
     def reward_distance_from_all_agents(self):
         reward = 0
-        for agent in self.agents:
+        for agent in self.crowds:
             if(agent.type == 0 or agent.type == 1 or agent.type == 2) and (agent.dead == False):
                 reward += self.robot.point_to_point_distance(agent.xy, self.robot.xy)
-        return -reward/30000
+                print(self.robot.point_to_point_distance(agent.xy, self.robot.xy))
+        return -reward
 
     def reward_based_alived(self):
         reward = 0
         num = 0
         
         reward = -self.alived_agents()/self.total_agents
-        return reward/3
+        return reward
     
     def reward_based_all_agents_danger(self):
         
         reward = 0
-        for agent in self.agents:
+        for agent in self.crowds:
             if(agent.type == 0 or agent.type == 1 or agent.type == 2) and (agent.dead == False):
                 reward += agent.danger
-        return -reward/10000
+        return -reward
+    
+    def reward_based_evacuated_confirmed(self):
+        reward = 0
+        for agent in self.crowds:
+            if(agent.type == 0 and agent.is_confirmed == 1 and agent.is_confirmed_past == 0):
+                reward += 1
 
+        return reward
     def reward_based_gain(self):
         
         reward=0
         #robot이 agent를 끌어당기면 +reward
-        for agent in self.agents:
+        for agent in self.crowds:
             if(agent.type == 0 or agent.type == 1 or agent.type == 2 ) and (agent.dead == False):
                 if(agent.robot_tracked>0):
                     reward += agent.gain
-        #reward -= self.robot.detect_abnormal_order
 
-        reward = reward/150
-
-        if(reward<-100):
-            reward = -100
-        
 
         #print("tracked 되고 있는 수 : ", num)
         return reward
@@ -1006,7 +1031,7 @@ class FightingModel(Model):
     def reward_penalty(self):
         reward = 0
         guided_num = 0
-        for agent in self.agents:
+        for agent in self.crowds:
             if(agent.type == 0 and agent.dead == False):
                 guided_num += 1
         if(guided_num == 0):
@@ -1017,6 +1042,61 @@ class FightingModel(Model):
             elif(self.robot.danger < 15):
                 return -0.05
         return 0
+    
+    def reward_based_distance_from_near_agent_gain(self):
+        guided_num = 0
+        for agent in self.crowds:
+            if(agent.type == 0 and agent.dead == False):
+                guided_num += 1
+        
+        if (guided_num > 0):
+            self.before_minimum_distance = 0
+            return 0 
+        
+        minimum_distance = 999999
+        for agent in self.crowds:
+            if(agent.type == 0 or agent.type ==1 or agent.type == 2) and (agent.dead == False):
+                distance = self.robot.point_to_point_distance(self.robot.xy, agent.xy)
+                if(distance < minimum_distance):
+                    minimum_distance = distance
+        
+        self.before_minimum_distance = self.minimum_distance
+        self.minimum_distance = minimum_distance
+
+        if(self.before_minimum_distance == 0 or self.minimum_distance == 0):
+            return 0
+        
+        return (self.before_minimum_distance - self.minimum_distance)
+        
+    def reward_based_gain_with_time_bonus(self):
+        reward=0
+        #robot이 agent를 끌어당기면 +reward
+        for agent in self.crowds:
+            if(agent.type == 0 or agent.type == 1 or agent.type == 2 ) and (agent.dead == False):
+                if(agent.robot_tracked>0):
+                    reward += agent.gain
+
+        if (self.alived_agents()<self.total_agents*0.4):
+            reward = reward * 2
+
+        #print("tracked 되고 있는 수 : ", num)
+        return reward
+    
+    def reward_based_alived(self):
+        reward = 0
+        num = 0
+        
+        reward = -self.alived_agents()/self.total_agents
+        return reward
+    
+    def reward_based_alived_root(self):
+        reward = 0
+        num = 0
+        reward = -math.sqrt(self.alived_agents()/self.total_agents)
+
+        return reward
+    
+
 
 
     def reward_evacuation(self):
@@ -1032,14 +1112,57 @@ class FightingModel(Model):
         return None
     
     def use_model(self, file_path):
-        input_shape = (40, 40)
+        from ADDS_AS import USING_TRAINED_MODEL
+        input_shape = (50, 50)
         num_actions = 4
 
         self.sac_agent = SACAgent(input_shape, num_actions, start_epsilon=0)
-        self.sac_agent.load_model(file_path)
-
+        if (USING_TRAINED_MODEL):
+            self.sac_agent.load_model(file_path)
         self.using_model = True
 
+    
+    def reward_based_distance_from_near_agents(self):
+        guided_num = 0
+        for agent in self.crowds:
+            if(agent.type == 0 and agent.dead == False):
+                guided_num += 1
+        
+        if (guided_num > 0):
+            return 0 
+        
+        minimum_distance = 999999
+        for agent in self.crowds:
+            if(agent.type == 0 or agent.type ==1 or agent.type == 2) and (agent.dead == False):
+                distance = self.robot.point_to_point_distance(self.robot.xy, agent.xy)
+                if(distance < minimum_distance):
+                    minimum_distance = distance
+        if(minimum_distance == 999999):
+            return 0
+        if(minimum_distance < 8):
+            return 0
+        return -minimum_distance
+    
+    def reward_based_distance_from_all_agents(self):
+        guided_num = 0
+        for agent in self.crowds:
+            if(agent.type == 0 and agent.dead == False):
+                guided_num += 1
+
+        if (guided_num > 0):
+            return 0 
+        reward = 0
+        for agent in self.crowds:
+            if(agent.dead == False):
+                distance = self.robot.point_to_point_distance(self.robot.xy, agent.xy)
+                reward -= distance
+        return reward
+
+
+    def reward_based_new_founded_agent_danger(self):
+        reward = self.new_founded_agent_dagner
+        self.new_founded_agent_danger = 0
+        return reward
 
     
     def return_current_image(self):
@@ -1048,13 +1171,14 @@ class FightingModel(Model):
         for agent in self.agents:
             if(agent.type==9):
                 image[agent.pos[0]][agent.pos[1]] = 20 # 벽
+        for agent in self.agents:
             if(agent.type==10):
                 image[agent.pos[0]][agent.pos[1]] = 60 # 출구
-        for agent in self.agents:
-            if(agent.type == 1 or agent.type == 2):
+        for agent in self.crowds:
+            if(agent.type == 1 or agent.type == 2) and agent.dead==False:
                 image[int(round(agent.xy[0]))][int(round(agent.xy[1]))] = 100 #agent
-        for agent in self.agents:
-            if(agent.type == 0):
+        for agent in self.crowds:
+            if(agent.type == 0) and agent.dead == False:
                 image[int(round(agent.xy[0]))][int(round(agent.xy[1]))] = 140
         for agent in self.agents:
             if(agent.type == 3):
@@ -1065,6 +1189,9 @@ class FightingModel(Model):
         #         print(f'{i}, {j} : {image[i][j]}')
         
         return image
+    
+    def choice_random_waypoint(self):
+        return [random.randint(0, self.width-1), random.randint(0, self.height-1)]
 
     
     def return_robot(self):

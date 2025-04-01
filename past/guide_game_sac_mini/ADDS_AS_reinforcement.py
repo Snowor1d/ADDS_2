@@ -16,25 +16,72 @@ import threading
 from torch.utils.tensorboard import SummaryWriter
 import subprocess
 import webbrowser
-
+from Start_training import log_dir
 # Timer instances
 sim_timer = Timer() 
 learn_timer = Timer()
 home_dir = os.path.expanduser("~")
-log_dir = os.path.join(home_dir, "learning_log_guide_game_mini_sac")
-os.makedirs(log_dir, exist_ok=True)
 
 model_load = 3
 # start_fresh : 1
 # load specified model : 2
 # load latest model : 3
 
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--lr", type=float, default=1e-4)
 parser.add_argument("--decay_value", type=float, default=0.99)
 parser.add_argument("--buffer_size", type=int, default=1e5)
 parser.add_argument("--batch_size", type=float, default=64)
+parser.add_argument("--start_epsilon", type=float, default=1.0)
+parser.add_argument("--epsilon_min", type=float, default=0.1)
+parser.add_argument("--log_dir", type=str, default=log_dir)
+parser.add_argument("--log_std_max", type=float, default=1)
+parser.add_argument("--log_std_min", type=float, default=-0.5)
+parser.add_argument("--alpha", type=float, default=0.2)
+parser.add_argument("--device", type=str, default="cpu")
+parser.add_argument("--reward_A", type=float, default=0)
+parser.add_argument("--reward_B", type=float, default=0)
+parser.add_argument("--reward_C", type=float, default=0)
+parser.add_argument("--reward_D", type=float, default=0)
+parser.add_argument("--reward_E", type=float, default=0)
+parser.add_argument("--reward_F", type=float, default=0)
+parser.add_argument("--reward_G", type=float, default=0)
+parser.add_argument("--reward_H", type=float, default=0)
+parser.add_argument("--reward_I", type=float, default=0)
+parser.add_argument("--reward_J", type=float, default=0)
+parser.add_argument("--finished_bonus", type=float, default=0)
+parser.add_argument("--scale_check", type=int, default=0)
+parser.add_argument("--action_scale", type=float, default=3)
+parser.add_argument("--start_batch_times", type=float, default=50)
+parser.add_argument("--max_steps", type=int, default=2000)
+parser.add_argument("--crowd_number", type=int, default=20)
+parser.add_argument("--gamma", type=float, default=0.999)
+parser.add_argument("--port_num", type=int, default=6006)
+parser.add_argument("--long_epsilon_min", type=float, default =0)
+parser.add_argument("--start_long_epsilon", type=float, default=0)
 args = parser.parse_args()
+home_dir = os.path.expanduser("~")
+log_dir = os.path.join(home_dir, args.log_dir)
+os.makedirs(log_dir, exist_ok=True)
+
+
+ACTION_SCALE = args.action_scale
+os.makedirs(log_dir, exist_ok=True)
+
+REWARD_A = args.reward_A
+REWARD_B = args.reward_B
+REWARD_C = args.reward_C
+REWARD_D = args.reward_D
+REWARD_E = args.reward_E
+REWARD_F = args.reward_F
+REWARD_G = args.reward_G
+REWARD_H = args.reward_H
+REWARD_I = args.reward_I
+REWARD_J = args.reward_J
+FINISHED_BONUS = args.finished_bonus
+SCALE_CHECK = args.scale_check
+START_BATCH_TIMES = args.start_batch_times
 
 def launch_tensorboard(tb_log_dir, port=6006):
     """
@@ -82,44 +129,72 @@ class ReplayBuffer:
         with open(filepath, "rb") as f:
             self.buffer = pickle.load(f)
 
+class ResidualBlock(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super(ResidualBlock, self).__init__()
+        # stride=1로만 운영 (downsample하지 않음)
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
+        self.bn1 = nn.BatchNorm2d(out_channels)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1)
+        self.bn2 = nn.BatchNorm2d(out_channels)
+
+        # in/out 채널 다르면 skip 연결에 1×1 Conv
+        if in_channels != out_channels:
+            self.skip = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1)
+        else:
+            self.skip = nn.Identity()
+
+    def forward(self, x):
+        residual = self.skip(x)
+        out = F.relu(self.bn1(self.conv1(x)))
+        out = self.bn2(self.conv2(out))
+        out = out + residual
+        return F.relu(out)
+    
 ##########################################################################
 # 3) Critic (Q) Network
 ##########################################################################
 class QNetwork(nn.Module):
-    def __init__(self, input_shape=(40,40), action_dim=4):
+    def __init__(self, input_shape=(50,50), action_dim=2):
         super(QNetwork, self).__init__()
-
-        # Feature extractor (conv) for state:
-        self.conv1 = nn.Conv2d(1, 16, kernel_size=5, stride=2)
-        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=2)
-        self.conv3 = nn.Conv2d(32, 64, kernel_size=3, stride=2)
+        # 새로운 Convolutional feature extractor with 1 채널 입력
+        self.conv1 = nn.Conv2d(1, 32, kernel_size=3, stride=2, padding=1)
+        self.bn1   = nn.BatchNorm2d(32)
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)
+        self.bn2   = nn.BatchNorm2d(64)
+        # 마지막 conv layer는 stride=1로 공간 정보를 좀 더 유지
+        self.conv3 = nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1)
+        self.bn3   = nn.BatchNorm2d(128)
         
         conv_out_size = self._get_conv_out(input_shape)
-
-        # Fully connected layers
+        
+        # Fully connected layers: conv feature와 행동을 concat하여 Q-value 예측
         self.fc1 = nn.Linear(conv_out_size + action_dim, 256)
         self.fc2 = nn.Linear(256, 128)
-        self.q_out = nn.Linear(128, 1)  # final Q-value
+        self.q_out = nn.Linear(128, 1)
 
     def _get_conv_out(self, shape):
-        dummy = torch.zeros(1, 1, *shape)  # (B, C, H, W) = (1,1,H,W)
-        o = self.conv1(dummy)
-        o = self.conv2(o)
-        o = self.conv3(o)
-        return int(np.prod(o.size()))
+        dummy = torch.zeros(1, 1, *shape)  # (batch, channel=1, H, W)
+        o = self.bn1(self.conv1(dummy))
+        o = F.relu(o)
+        o = self.bn2(self.conv2(o))
+        o = F.relu(o)
+        o = self.bn3(self.conv3(o))
+        o = F.relu(o)
+        return int(np.prod(o.size()[1:]))  # product over C, H, W
 
     def forward(self, state, action):
-        x = F.relu(self.conv1(state))
-        x = F.relu(self.conv2(x))
-        x = F.relu(self.conv3(x))
+        x = F.relu(self.bn1(self.conv1(state)))
+        x = F.relu(self.bn2(self.conv2(x)))
+        x = F.relu(self.bn3(self.conv3(x)))
         x = x.view(x.size(0), -1)
-
-        # Concatenate state and action
-        x = torch.cat([x, action], dim=1)  # (B, conv_out_size + 4)
+        # 행동과 상태 feature를 연결
+        x = torch.cat([x, action], dim=1)
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         q_val = self.q_out(x)
         return q_val
+    
 
 ##########################################################################
 # 4) Policy (Actor) Network
@@ -132,52 +207,58 @@ class PolicyNetwork(nn.Module):#행동을 샘플링하고 정책 학습, 주어�
     We combine these into an action = [dx, dy, mode0, mode1].
     We'll do the reparam trick for direction, Gumbel-Softmax for mode.
     """
-    def __init__(self, input_shape=(40,40)):
+    def __init__(self, input_shape=(50,50)):
         super(PolicyNetwork, self).__init__()
-        self.log_std_min = -10
-        self.log_std_max =  -0.5
+        self.log_std_min = args.log_std_min
+        self.log_std_max =  args.log_std_max
 
-        # Feature extractor (conv)
-        self.conv1 = nn.Conv2d(1, 16, kernel_size=5, stride=2)
-        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=2)
-        self.conv3 = nn.Conv2d(32, 64, kernel_size=3, stride=2)
+        # 새로운 Convolutional feature extractor (1채널 입력)
+        self.conv1 = nn.Conv2d(1, 32, kernel_size=3, stride=2, padding=1)
+        self.bn1   = nn.BatchNorm2d(32)
+        self.res1 = ResidualBlock(32, 64)
+        self.res2 = ResidualBlock(64, 128)
+        self.res3 = ResidualBlock(128, 128) 
+
         
         conv_out_size = self._get_conv_out(input_shape)
 
         self.fc_backbone = nn.Sequential(
-            nn.Linear(conv_out_size, 256),
+            nn.Linear(conv_out_size, 512),
             nn.ReLU(),
-            nn.Linear(256, 128),
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Linear(256, 64),
             nn.ReLU()
+
         )
 
         #state feature만 받아서 direction의 mean, log_std 추론
-        self.mean_head = nn.Linear(128, 2)
-        self.log_std_head = nn.Linear(128, 2)
+        self.mean_head = nn.Linear(64, 2)
+        self.log_std_head = nn.Linear(64, 2)
 
         
-
     def _get_conv_out(self, shape):
         dummy = torch.zeros(1, 1, *shape)
-        o = self.conv1(dummy)
-        o = self.conv2(o)
-        o = self.conv3(o)
-        return int(np.prod(o.size()))
+        x = F.relu(self.bn1(self.conv1(dummy)))
+        x = self.res1(x)
+        x = self.res2(x)
+        x = self.res3(x)
+        x = x.view(x.size(0), -1)
+        return int(np.prod(x.size()[1:]))  # (C*H*W)
 
     def backbone(self, state):
-        x = F.relu(self.conv1(state))
-        x = F.relu(self.conv2(x))
-        x = F.relu(self.conv3(x))
-        x = x.view(x.size(0), -1)        
-        feat = self.fc_backbone(x)       
+        x = F.relu(self.bn1(self.conv1(state)))
+        x = self.res1(x)
+        x = self.res2(x)
+        x = self.res3(x)
+        x = x.view(x.size(0), -1)
+        feat = self.fc_backbone(x)
         return feat
 
     def forward(self, state):
-
         feat = self.backbone(state)
         mean = self.mean_head(feat)
         log_std = self.log_std_head(feat)
-        
         log_std = torch.clamp(log_std, self.log_std_min, self.log_std_max)
         return mean, log_std
 
@@ -192,32 +273,39 @@ class PolicyNetwork(nn.Module):#행동을 샘플링하고 정책 학습, 주어�
         mean, log_std = self.forward(state)
         std = log_std.exp()
 
-        eps = torch.randn_like(mean)
-        action = mean + std * eps
-        action = 2*torch.tanh(action)
-
+        eps = torch.randn_like(mean) * temperature
+        u = mean + std * eps
+        sigma = torch.sigmoid(u)
+        action = 4 * sigma - 2
         # log_prob 계산
         # (dx, dy) => 2차원 Gaussian
-        # log_prob = -1/2 * [((a-mean)/std)^2 + 2*log_std + log(2*pi)] 의 합
-        log_prob = -0.5 * (((action - mean) / (std + 1e-8))**2 + 2*log_std + np.log(2*np.pi))
-        # (B, 2)에 대해 차원별로 합 -> (B,)
-        log_prob = log_prob.sum(dim=1)
+
+        # u에 대한 가우시안 로그 확률 계산 (각 차원별)
+        log_prob_u = -0.5 * (((u - mean) / (std + 1e-8))**2 + 2 * log_std + np.log(2 * np.pi))
+        log_prob_u = log_prob_u.sum(dim=1)
+
+        # Sigmoid의 야코비안 보정: 
+        #  dσ(u)/du = σ(u) * (1 - σ(u))
+        # 로그 보정항 = sum_i log(σ(u_i)*(1-σ(u_i)))
+        jacobian = torch.log(4 * sigma * (1 - sigma) + 1e-8).sum(dim=1)
+        log_prob = log_prob_u - jacobian
 
         return action, log_prob
 
-    
 ##########################################################################
 # 5) SAC Agent for Action
 ##########################################################################
 class SACAgent:
-    def __init__(self, input_shape=(40,40), gamma=0.99, alpha=0.2, tau=0.995, lr=1e-4, batch_size=64, replay_size=int(1e5), device="cpu", start_epsilon = 1.0):
+    def __init__(self, input_shape=(50,50), gamma=args.gamma, alpha=0.2, tau=0.995, lr=1e-4, batch_size=64, replay_size=int(1e5), device="cpu", start_epsilon = 1.0, start_epsilon_long = 0.1, long_epsilon_min=0):
         self.gamma = gamma
         self.alpha = alpha
         self.tau = tau
         self.batch_size = batch_size
         self.device = torch.device(device)
         self.epsilon = start_epsilon
-        self.epsilon_min = 0.1
+        self.epsilon_long = start_epsilon_long
+        self.epsilon_long_min = long_epsilon_min
+        self.epsilon_min = args.epsilon_min
 
         # Replay buffer
         self.replay_buffer = ReplayBuffer(capacity=int(replay_size))
@@ -260,10 +348,15 @@ class SACAgent:
     # ------------------------------------------------- #
     def update_epsilon(self, is_down, decay_value):
         if is_down:
-            self.epsilon = max(self.epsilon_min, self.epsilon - decay_value)
+            self.epsilon = max(self.epsilon_min, self.epsilon * decay_value)
         else:
-            self.epsilon = min(1.0, self.epsilon + decay_value)
+            self.epsilon = min(1.0, self.epsilon / decay_value)
 
+    def update_epsilon2(self, is_down, decay_value):
+        if is_down : 
+            self.epsilon_long = max(self.epsilon_long_min, self.epsilon_long * decay_value)
+        else:
+            self.epsilon_long = min(1.0, self.epsilon_long / decay_value)
     # ------------------------------------------------- #
     # Store experience
     # ------------------------------------------------- #
@@ -293,15 +386,13 @@ class SACAgent:
         # state_np는 2D 배열인데, 차원을 추가하여 모델 입력에 적합한 차원으로 만들려는 것
 
         with torch.no_grad():
-            mean, log_std = self.policy.sample_action(state_t)
-            std = log_std.exp()
-            
             if deterministic:
-                action_t = mean
+                # 결정적 행동 선택: mean에 대해 바로 sigmoid 변환.
+                mean, _ = self.policy.forward(state_t)
+                action_t = 4*torch.sigmoid(mean)-2
             else:
-                eps = torch.randn_like(mean)
-                action_t = mean + std * eps
-        
+                # 비결정적 선택: sample_action에서 샘플링 (자코비안 보정 포함)
+                action_t, log_prob = self.policy.sample_action(state_t)
         action_np = action_t.cpu().numpy()[0]
         print(action_np)
 
@@ -313,7 +404,7 @@ class SACAgent:
     # Update (one gradient step)
     # ------------------------------------------------- #
     def update(self):
-        if len(self.replay_buffer) < self.batch_size*50:
+        if len(self.replay_buffer) < self.batch_size*START_BATCH_TIMES:
             return
         
         # sample = self.replay_buffer.sample(self.batch_size)
@@ -466,16 +557,14 @@ if __name__ == "__main__":
     total_reward_file = os.path.join(log_dir, "total_reward.txt")
     tb_log_dir = os.path.join(log_dir, "tensorboard_logs")
 
-    tb_process = launch_tensorboard(tb_log_dir, port=6006)
+    tb_process = launch_tensorboard(tb_log_dir, port=args.port_num)
     # 별도 스레드에서 total_reward.txt 모니터링 시작
     monitor_thread = threading.Thread(target=monitor_total_reward, args=(total_reward_file, tb_log_dir), daemon=True)
     monitor_thread.start()
 
 
     # hyperparams
-    max_episodes = 1500
-    max_steps = 1500
-    number_of_agents = 30
+    max_episodes = 9999999
     start_episode = 0
     
     epsilon_path = os.path.join(log_dir, "start_epsilon.txt")
@@ -483,16 +572,25 @@ if __name__ == "__main__":
     if os.path.exists(epsilon_path):
         with open(epsilon_path, "r") as f:
             try:
-                start_epsilon = float(f.read().strip())
-                print(f"Loaded start_epsilon: {start_epsilon}")
+                lines = f.readlines()
+                if len(lines) >= 2:
+                    start_epsilon = float(lines[0].strip())
+                    start_epsilon_long = float(lines[1].strip())
+                    print(f"Loaded start_epsilon: {start_epsilon}, start_epsilon_long: {start_epsilon_long}")
+                else:
+                    print("Not enough lines in start_epsilon.txt. Resetting values.")
+                    start_epsilon = args.start_epsilon
+                    start_epsilon_long = args.start_long_epsilon  # 기본값 설정
             except ValueError:
-                print("Invalid value in start_epsilon.txt. Resetting to 1.0")
-                start_epsilon = 1.0
+                print("Invalid value in start_epsilon.txt. Resetting to defaults.")
+                start_epsilon = args.start_epsilon
+                start_epsilon_long = args.start_long_epsilon  # 기본값 설정
     else:
-        start_epsilon = 1.0
-        print("No start_epsilon.txt found. Initializing start_epsilon to 1.0")
+        start_epsilon = args.start_epsilon
+        start_epsilon_long = args.start_long_epsilon  # 기본값 설정
+        print("No start_epsilon.txt found. Initializing values to defaults.")
     
-    agent = SACAgent(input_shape=(40,40), alpha=0.2, lr=float(args.lr), start_epsilon=float(start_epsilon), batch_size=int(args.batch_size), replay_size=float(args.buffer_size))
+    agent = SACAgent(input_shape=(50,50), alpha=args.alpha, lr=float(args.lr), start_epsilon=start_epsilon, start_epsilon_long = float(args.start_long_epsilon), long_epsilon_min=float(args.long_epsilon_min), batch_size=int(args.batch_size), replay_size=float(args.buffer_size), device=args.device)
     print(f"Agent initialized, lr={args.lr}, alpha={agent.alpha}, batch_size={args.batch_size}, replay_size={args.buffer_size}")
     replay_buffer_path = os.path.join(log_dir, "replay_buffer.pkl")
 
@@ -501,7 +599,7 @@ if __name__ == "__main__":
         pass
     elif model_load == 2:
         print("load specified model")
-        model_name = "sac_mini_checkpoint_ep_200.pth"
+        model_name = "sac_checkpoint_ep_200.pth"
         model_path = os.path.join(log_dir, model_name)
 
         if(os.path.exists(model_path)):
@@ -511,7 +609,7 @@ if __name__ == "__main__":
                 agent.load_replay_buffer("replay_buffer.pkl")
     elif model_load == 3:
         print("Mode 3: Loading the latest model from log_dir.")
-        model_files = [f for f in os.listdir(log_dir) if f.startswith("sac_mini_checkpoint") and f.endswith(".pth")]
+        model_files = [f for f in os.listdir(log_dir) if f.startswith("sac_checkpoint") and f.endswith(".pth")]
         if model_files:
             latest_model = max(model_files, key=lambda f: int(f.split("_")[-1].split(".")[0]))
             latest_model_path = os.path.join(log_dir, latest_model)
@@ -531,7 +629,7 @@ if __name__ == "__main__":
         # Create environment
         while True:
             try:
-                env_model = model.FightingModel(number_of_agents, 40, 40, 2, 'Q')
+                env_model = model.FightingModel(number_of_agents, 50, 50, 2, 'Q')
                 break
             except Exception as e:
                 print(e, "Retrying environment creation...")
@@ -546,10 +644,16 @@ if __name__ == "__main__":
             for step in range(max_steps):
                 # 1) Select action
 
-                if(step%3==0):
+                if(step%ACTION_SCALE==0):
+                    
+                    if(np.random.rand() < agent.epsilon_long):
+                        env_model.robot.now_exploration = 1
+                    
                     action_np, _ = agent.select_action(state)
                     dx, dy = action_np[0], action_np[1]
                     real_action = env_model.robot.receive_action([dx, dy])
+                    action_np[0] = real_action[0]
+                    action_np[1] = real_action[1]
                     buffered_state = state
                     buffered_action = action_np
                 
@@ -559,18 +663,7 @@ if __name__ == "__main__":
                 # 2) Step environment
                 env_model.step()
                 sim_timer.stop()
-
-                # 3) Reward
-                r_a = env_model.reward_based_alived() 
-                #r_d = env_model.reward_based_all_agents_danger()
-                #r_da = env_model.reward_distance_from_all_agents()
-                #r_g = env_model.reward_based_gain()
-                r_p = env_model.reward_penalty()
-                reward += (r_a + r_p)
-                #print("alived reward : ", r_a)
-                #print("danger reward : ", r_d)
-                #print("distance reward : ", r_da)
-                #print("gain reward : ", r_g)
+                reward = 0
 
                 # 4) Next state
                 next_state = env_model.return_current_image()
@@ -578,10 +671,54 @@ if __name__ == "__main__":
                 # 5) Done?
                 done = (step >= max_steps-1) or (env_model.robot.is_game_finished)
                 if(env_model.robot.is_game_finished):
-                    reward += 10
+                    reward += FINISHED_BONUS
 
                 # 6) Store transition
-                if(step%3==2 and step>5):
+                if((step%ACTION_SCALE==(ACTION_SCALE-1) and step>ACTION_SCALE) or (env_model.robot.is_game_finished)):
+                    r_a = 0
+                    r_b = 0
+                    r_c = 0
+                    r_d = 0
+                    r_e = 0
+                    r_f = 0              
+                    r_g = 0
+                    r_h = 0
+                    r_i = 0
+                    r_j = 0      
+                    if (REWARD_A):
+                        r_a = env_model.reward_based_alived() * REWARD_A
+                    if (REWARD_B):
+                        r_b = env_model.reward_based_all_agents_danger() * REWARD_B
+                    if (REWARD_C):
+                        r_c = env_model.reward_based_gain() * REWARD_C
+                    if (REWARD_D):
+                        r_d = env_model.reward_penalty() * REWARD_D
+                    if (REWARD_E):
+                        r_e = env_model.reward_based_evacuated_with_robot() * REWARD_E
+                    if (REWARD_F):
+                        r_f = env_model.reward_based_distance_from_near_agents() * REWARD_F
+                    if (REWARD_G):
+                        r_g = env_model.reward_based_distance_from_near_agent_gain() * REWARD_G
+                    if (REWARD_H):
+                        r_h = env_model.reward_based_gain_with_time_bonus() * REWARD_H
+                    if (REWARD_I):
+                        r_i = env_model.reward_based_alived_root() * REWARD_I
+                    if (REWARD_J):
+                        r_j = env_model.reward_based_distance_from_all_agents() * REWARD_J
+                    reward += (r_a + r_b + r_c + r_d + r_e + r_g + r_h + r_i+r_j)
+
+                    if(SCALE_CHECK):
+                        print("reward_a : ", r_a)
+                        print("reward_b : ", r_b)
+                        print("reward_c : ", r_c)
+                        print("reward_d : ", r_d)
+                        print("reward_e : ", r_e)
+                        print("reward f : ", r_f)
+                        print("reward g : ", r_g)
+                        print("reward h : ", r_h)
+                        print("reward i : ", r_i)
+                        print("reward j : ", r_j)
+
                     agent.store_transition(
                         buffered_state,
                         buffered_action,
@@ -590,11 +727,11 @@ if __name__ == "__main__":
                         float(done)
                     )
                     total_reward += reward
-                    print("reward : ", reward)
+
                     reward = 0
 
                 # 7) Update agent
-                if(step%3==2):
+                if(step%ACTION_SCALE==(ACTION_SCALE-1)):
                     learn_timer.start()
                     agent.update()
                     learn_timer.stop()
@@ -605,16 +742,17 @@ if __name__ == "__main__":
         except Exception as e:
             print(e)
             print("error occured. retry.")
-            env_model = model.FightingModel(number_of_agents, 40, 40, 2, 'Q')
+            env_model = model.FightingModel(number_of_agents, 50, 50, 2, 'Q')
             abnormal_reward = 1
 
         # Possibly update epsilon, or do other logging
         decay_value = args.decay_value
-        if(agent.epsilon < 0.1):
-            deacy_value = 1
-        agent.update_epsilon(True, decay_value)
+        if(len(agent.replay_buffer)>agent.batch_size*START_BATCH_TIMES):
+            agent.update_epsilon(True, decay_value)
+            agent.update_epsilon2(True, decay_value)
         print("Total reward:", total_reward)
         print("now_epsilon : ", agent.epsilon)
+        print("now_epsilon_long : ", agent.epsilon_long)
         # Save model occasionally
 
         reward_file_path = os.path.join(log_dir, "total_reward.txt")
@@ -622,8 +760,8 @@ if __name__ == "__main__":
             # 파일이 없으면 빈 파일 생성
             open(reward_file_path, "w").close()
 
-        if (episode+1) % 10 == 0:
-            model_filename = os.path.join(log_dir, f"sac_mini_checkpoint_ep_{start_episode + episode + 1}.pth")
+        if (episode+1) % 50 == 0:
+            model_filename = os.path.join(log_dir, f"sac_checkpoint_ep_{start_episode + episode + 1}.pth")
             agent.save_model(model_filename)
             replay_buffer_filename = "replay_buffer.pkl"
             agent.save_replay_buffer(replay_buffer_filename)
@@ -634,7 +772,8 @@ if __name__ == "__main__":
                 f.write(f"{total_reward}\n")
 
         with open(epsilon_path, "w") as f:
-            f.write(str(agent.epsilon))
+            f.write(str(agent.epsilon)+"\n")
+            f.write(str(agent.epsilon_long))
 
 
         # each episode time print

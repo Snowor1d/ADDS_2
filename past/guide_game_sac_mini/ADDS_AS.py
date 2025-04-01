@@ -19,12 +19,13 @@ import agent
 import model
 import time
 import sys
+USING_TRAINED_MODEL = False
 
 
 #-------------------------#
 visualization_mode = 'on' # choose your visualization mode 'on / off
 run_iteration = 1500
-number_of_agents = 30 # agents 수
+number_of_agents = 20 # agents 수
 #-------------------------#
 
 
@@ -50,15 +51,16 @@ import tornado.websocket
 from PIL import Image      
 from mesa_viz_tornado.UserParam import UserParam
 import cv2
+
 most_danger = 0
-width = 40
-height = 40
+width = 50
+height = 50
 model_num = 2
 if visualization_mode == 'on':
     Width = width
     Height =height
-    s_model_r = model.FightingModel(30,width,height,model_num)
-    s_model_r.use_model('sac_mini_checkpoint_ep_90.pth')  
+    s_model_r = model.FightingModel(number_of_agents,width,height,model_num)
+    s_model_r.use_model('sac_checkpoint_ep_0.pth')  
     ran_num = random.randint(10000,20000)
     most_danger_mesh = None
     for agent in s_model_r.schedule_e.agents:
