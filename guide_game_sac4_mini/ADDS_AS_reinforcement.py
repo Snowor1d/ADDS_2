@@ -777,7 +777,7 @@ if __name__ == "__main__":
                     reward = 0
 
                 # 7) Update agent
-                if(step%ACTION_SCALE==(ACTION_SCALE-1) and episode>=START_UPDATE_STEP):
+                if(step%ACTION_SCALE==(ACTION_SCALE-1) and start_episode+episode>=START_UPDATE_STEP):
                     learn_timer.start()
                     agent.update()
                     learn_timer.stop()
@@ -800,6 +800,7 @@ if __name__ == "__main__":
         # Possibly update epsilon, or do other logging
 
         agent.epsilon = epsilon_scheduler.get_epsilon(episode)
+        print("writing.. ", args.port_num)
         print("Total reward:", total_reward)
         print("now_epsilon : ", agent.epsilon)
         print("evacuation_time_80 : ", evacuation_time_80)

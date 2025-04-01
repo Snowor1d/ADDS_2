@@ -708,7 +708,7 @@ if __name__ == "__main__":
                     reward = 0
 
                 # 7) Update agent
-                if(step%ACTION_SCALE==(ACTION_SCALE-1) and episode>=START_UPDATE_STEP):
+                if(step%ACTION_SCALE==(ACTION_SCALE-1) and start_episode+episode>=START_UPDATE_STEP):
                     learn_timer.start()
                     agent.update()
                     learn_timer.stop()
