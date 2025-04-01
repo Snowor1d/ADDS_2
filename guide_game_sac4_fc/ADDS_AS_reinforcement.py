@@ -145,21 +145,20 @@ class EpsilonScheduler:
         self.scheduler_type = scheduler_type
         self.decay_value = decay_value
         self.linear_decay_steps = linear_decay_steps
-
-    def get_epsilon(self, current_step):
+        
+    def get_epsilon(self, now_epsilon, episode):
         # 아직 감소 시작 전이면 초기값 반환
-        if current_step < self.start_decay_step:
-            return self.start_epsilon
+        if episode < self.start_decay_step:
+            return now_epsilon
 
         if self.scheduler_type == "e":
             # 현재 step 이후부터 지수적으로 감소
-            epsilon = self.start_epsilon * (self.decay_value ** (current_step - self.start_decay_step))
+            epsilon = now_epsilon * self.decay_value
             return max(epsilon, self.epsilon_min)
         elif self.scheduler_type == "l":
             # 선형적으로 감소: 감쇠 시작부터 linear_decay_steps 동안 선형적으로 감소
-            steps_since_decay = current_step - self.start_decay_step
-            fraction = min(steps_since_decay / self.linear_decay_steps, 1.0)
-            epsilon = self.start_epsilon - fraction * (self.start_epsilon - self.epsilon_min)
+            fraction = min(1 / self.linear_decay_steps, 1.0)
+            epsilon = now_epsilon-fraction
             return epsilon
         else:
             raise ValueError("scheduler_type must be either 'exponential' or 'linear'")
@@ -724,7 +723,7 @@ if __name__ == "__main__":
 
         # Possibly update epsilon, or do other logging
 
-        agent.epsilon = epsilon_scheduler.get_epsilon(episode)
+        agent.epsilon = epsilon_scheduler.get_epsilon(agent.epsilon, episode+start_episode)
         print("Total reward:", total_reward)
         print("now_epsilon : ", agent.epsilon)
         print("now_epsilon_long : ", agent.epsilon_long)
