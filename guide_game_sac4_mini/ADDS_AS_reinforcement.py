@@ -16,7 +16,7 @@ import threading
 from torch.utils.tensorboard import SummaryWriter
 import subprocess
 import webbrowser
-from Start_training import START_DECAY_STEP, START_EPSILON, EPSILON_MIN, SCHEDULER_TYPE, DECAY_VALUE, REWARD_A, REWARD_B, REWARD_C, REWARD_D, REWARD_E, REWARD_F, REWARD_G, REWARD_H, REWARD_I, REWARD_J, REWARD_K, CROWD_NUMBER_MIN, CROWD_NUMBER_MAX, LINEARLY_DECAY_STEP, START_UPDATE_STEP, LOG_DIR
+from Start_training import START_DECAY_STEP, START_EPSILON, EPSILON_MIN, SCHEDULER_TYPE, DECAY_VALUE, REWARD_A, REWARD_B, REWARD_C, REWARD_D, REWARD_E, REWARD_F, REWARD_G, REWARD_H, REWARD_I, REWARD_J, REWARD_K, CROWD_NUMBER_MIN, CROWD_NUMBER_MAX, LINEARLY_DECAY_STEP, START_UPDATE_STEP, LOG_DIR, FINISHED_BONUS, REWARD_FIXED
 # Timer instances
 sim_timer = Timer() 
 learn_timer = Timer()
@@ -36,7 +36,6 @@ parser.add_argument("--log_std_max", type=float, default=1)
 parser.add_argument("--log_std_min", type=float, default=-0.5)
 parser.add_argument("--alpha", type=float, default=0.2)
 parser.add_argument("--device", type=str, default="cpu")
-parser.add_argument("--finished_bonus", type=float, default=0)
 parser.add_argument("--scale_check", type=int, default=0)
 parser.add_argument("--action_scale", type=float, default=3)
 parser.add_argument("--start_batch_times", type=float, default=50)
@@ -54,7 +53,6 @@ os.makedirs(log_dir, exist_ok=True)
 ACTION_SCALE = args.action_scale
 os.makedirs(log_dir, exist_ok=True)
 
-FINISHED_BONUS = args.finished_bonus
 SCALE_CHECK = args.scale_check
 START_BATCH_TIMES = args.start_batch_times
 
@@ -713,10 +711,10 @@ if __name__ == "__main__":
                 # 5) Done?
                 done = (step >= max_steps-1) or (env_model.robot.is_game_finished)
                 if(env_model.robot.is_game_finished):
-                    reward += FINISHED_BONUS
+                    reward += FINISHED_BONUS * (1-step/max_steps)
 
                 # 6) Store transition
-                if((step%ACTION_SCALE==(ACTION_SCALE-1) and step>ACTION_SCALE) or (env_model.robot.is_game_finished)):
+                if((step%ACTION_SCALE==(ACTION_SCALE-1) and step>ACTION_SCALE) or (env_model.robot.is_game_finished and step>ACTION_SCALE)):
                     r_a = 0
                     r_b = 0
                     r_c = 0
@@ -749,7 +747,7 @@ if __name__ == "__main__":
                     if (REWARD_J):
                         r_j = env_model.reward_based_all_agents_danger_log() * REWARD_J
                     
-                    reward += (r_a + r_b + r_c + r_d + r_e + r_g + r_h + r_i+r_j)
+                    reward += (r_a + r_b + r_c + r_d + r_e + r_g + r_h + r_i+r_j+REWARD_FIXED)
 
                     if(SCALE_CHECK):
                         print("reward_a : ", r_a)

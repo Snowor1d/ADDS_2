@@ -39,11 +39,12 @@ REWARD_H = 0 #reward_based_gain_with_time_bonus
 REWARD_I = 1 #reward_based_alived_root
 REWARD_J = 0.2 #reward_based_all_agents_danger_log
 REWARD_K = 0 #reward_based_near_agents_exist
+REWARD_FIXED = 0
 CROWD_NUMBER_MIN = 20
 CROWD_NUMBER_MAX = 20
 
 
-finished_bonus = 50
+FINISHED_BONUS = 200
 scale_check = 0 # want to check reward scale?
 action_scale = 4
 max_steps = 6000
@@ -60,7 +61,6 @@ def run_reinforcement_learning():
         "--log_std_min", str(log_std_min),
         "--alpha", str(alpha),
         "--device", str(device),
-        "--finished_bonus", str(finished_bonus),
         "--scale_check", str(scale_check),
         "--action_scale", str(action_scale),
         "--start_batch_times", str(start_batch_times),
