@@ -97,7 +97,7 @@ def monitor_metric(metric_file, metric_name, tb_log_dir):
                     if line:
                         try:
                             value = float(line)
-                            writer.add_scalar(metric_name, value, episode)
+                            writer.add_scalar(f"{metric_name}", value, episode)
                             print(f"Episode {episode} - {metric_name} = {value}")
                             episode += 1
                         except ValueError:
@@ -830,9 +830,9 @@ if __name__ == "__main__":
 
         with open(evacuation_time_80_file_path, "a") as f:
             if(abnormal_reward != 1):
-                f.write(f"{-evacuation_time_80}\n")
+                f.write(f"{evacuation_time_80}\n")
         with open(evacuation_time_100_file_path, "a") as f:
-                f.write(f"{-evacuation_time_100}\n")
+                f.write(f"{evacuation_time_100}\n")
 
         with open(epsilon_path, "w") as f:
             f.write(str(agent.epsilon)+"\n")
