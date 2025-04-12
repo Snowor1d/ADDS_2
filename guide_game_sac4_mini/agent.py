@@ -828,7 +828,7 @@ class RobotAgent(CrowdAgent):
         vel = [0,0]
         vel[0] = F_x/self.mass
         vel[1] = F_y/self.mass
-
+        vel = [-2, 0]
         future_xy = self.xy.copy()
         future_xy[0] += vel[0] * time_step
         future_xy[1] += vel[1] * time_step

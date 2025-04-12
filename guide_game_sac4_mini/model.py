@@ -955,8 +955,14 @@ class FightingModel(Model):
         for i in range(agent_num):
             assign_mesh_num = random.randint(0, space_num-1)
             assigned_mesh = self.pure_mesh[assign_mesh_num]
-            assigned_coordinates = self.match_mesh_to_grid[assigned_mesh]
-
+            
+            while(1):
+                assigned_coordinates = self.match_mesh_to_grid[assigned_mesh]
+                if (len(assigned_coordinates) !=0):
+                    break
+                else :
+                    assign_mesh_num = random.randint(0, space_num-1)
+                    assigned_mesh = self.pure_mesh[assign_mesh_num]
             assigned = assigned_coordinates[random.randint(0, len(assigned_coordinates)-1)]
             assigned = [int(assigned[0]), int(assigned[1])]
             if not assigned in agent_location:
@@ -966,6 +972,9 @@ class FightingModel(Model):
                 self.agent_num += 1
                 self.schedule.add(a)
                 self.grid.place_agent(a, assigned)
+
+
+
 
 
 

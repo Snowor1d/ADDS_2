@@ -666,7 +666,7 @@ if __name__ == "__main__":
                 else:
                     number_of_agents = random.randint(CROWD_NUMBER_MIN, CROWD_NUMBER_MAX)
                  
-                env_model = model.FightingModel(number_of_agents, 50, 50, 2, 'Q')
+                env_model = model.FightingModel(number_of_agents, 50, 50, model_num = 1, robot = 'Q')
                 break
             except Exception as e:
                 print(e, "Retrying environment creation...")
@@ -712,7 +712,9 @@ if __name__ == "__main__":
                 done = (step >= max_steps-1) or (env_model.robot.is_game_finished)
                 if(env_model.robot.is_game_finished):
                     reward += FINISHED_BONUS * (1-step/max_steps)
-
+                r_k = 0
+                if (REWARD_K):
+                    r_k += env_model.reward_penalty_collision() * REWARD_K
                 # 6) Store transition
                 if((step%ACTION_SCALE==(ACTION_SCALE-1) and step>ACTION_SCALE) or (env_model.robot.is_game_finished and step>ACTION_SCALE)):
                     r_a = 0
@@ -725,7 +727,7 @@ if __name__ == "__main__":
                     r_h = 0
                     r_i = 0
                     r_j = 0      
-                    r_k = 0
+
                     if (REWARD_A):
                         r_a = env_model.reward_based_alived() * REWARD_A
                     if (REWARD_B):
@@ -746,11 +748,9 @@ if __name__ == "__main__":
                         r_i = env_model.reward_based_alived_root() * REWARD_I
                     if (REWARD_J):
                         r_j = env_model.reward_based_all_agents_danger_log() * REWARD_J
-                    if (REWARD_K):
-                        r_k = env_model.penalty_collision() * REWARD_K
                     
                     reward += (r_a + r_b + r_c + r_d + r_e + r_g + r_h + r_i+r_j+r_k+REWARD_FIXED)
-
+                    
                     if(SCALE_CHECK):
                         print("reward_a : ", r_a)
                         print("reward_b : ", r_b)
@@ -764,7 +764,9 @@ if __name__ == "__main__":
                         print("reward j : ", r_j)
                         print("reward k : ", r_k)
 
-                    agent.store_transition(
+                    r_k = 0
+
+                    agent.store_transition(    
                         buffered_state,
                         buffered_action,
                         reward, 
