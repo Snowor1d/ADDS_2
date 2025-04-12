@@ -1251,7 +1251,6 @@ class FightingModel(Model):
         if self.robot.collision_check :
             return -1
         else :
-            print("...")
             return 0
     
     def return_current_image(self):
