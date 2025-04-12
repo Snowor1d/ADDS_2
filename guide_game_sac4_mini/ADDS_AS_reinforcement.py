@@ -11,7 +11,6 @@ from timer_utils import Timer
 from config import ENABLE_TIMER
 import pickle
 import argparse
-
 import threading
 from torch.utils.tensorboard import SummaryWriter
 import subprocess
@@ -356,6 +355,7 @@ class SACAgent:
         self.q1_optimizer = optim.Adam(self.q1.parameters(), lr=lr) #parameter optimizaing
         self.q2_optimizer = optim.Adam(self.q2.parameters(), lr=lr)
         self.policy_optimizer = optim.Adam(self.policy.parameters(), lr=lr)
+
 
 
 # ------------------------------------------------- #
@@ -746,8 +746,10 @@ if __name__ == "__main__":
                         r_i = env_model.reward_based_alived_root() * REWARD_I
                     if (REWARD_J):
                         r_j = env_model.reward_based_all_agents_danger_log() * REWARD_J
+                    if (REWARD_K):
+                        r_k = env_model.penalty_collision() * REWARD_K
                     
-                    reward += (r_a + r_b + r_c + r_d + r_e + r_g + r_h + r_i+r_j+REWARD_FIXED)
+                    reward += (r_a + r_b + r_c + r_d + r_e + r_g + r_h + r_i+r_j+r_k+REWARD_FIXED)
 
                     if(SCALE_CHECK):
                         print("reward_a : ", r_a)

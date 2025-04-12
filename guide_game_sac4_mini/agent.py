@@ -235,6 +235,7 @@ class CrowdAgent(Agent):
         self.is_confirmed_past = 0
         
         self.is_effected_by_robot = 0
+        self.blocked = False
 
 
 
@@ -522,8 +523,12 @@ class CrowdAgent(Agent):
             self.is_near_robot = 1
         else:
             self.is_near_robot = 0
-        
-        self.which_goal_agent_want()
+
+        if (self.blocked == False):
+            self.which_goal_agent_want()
+        else :
+            self.which_goal_agent_want(find_another = True)
+
         if(self.robot_initialized == 1):
             self.robot_initialized += 1
             self.now_goal = [self.xy[0], self.xy[1]]
@@ -550,8 +555,15 @@ class CrowdAgent(Agent):
         #self.xy = [self.xy[0], self.xy[1]]
         self.direction = [self.vel[0], self.vel[1]]
 
-        self.xy[0] += self.vel[0] * time_step
-        self.xy[1] += self.vel[1] * time_step
+        future_xy = self.xy.copy()
+        future_xy[0] += self.vel[0] * time_step
+        future_xy[1] += self.vel[1] * time_step
+
+        if (self.model.valid_space[(int(round(future_xy[0])), int(round(future_xy[1])))]):
+            self.xy = future_xy.copy()
+            self.blocked = False
+        else :
+            self.blocked = True
 
         if(self.xy[0] < 1):
             self.xy[0] = 1
@@ -569,7 +581,7 @@ class CrowdAgent(Agent):
         return (next_x, next_y)
 
  
-    def which_goal_agent_want(self):
+    def which_goal_agent_want(self, find_another = False):
         global robot_prev_xy
         robot_radius = 7
         agent_radius = 7
@@ -637,7 +649,7 @@ class CrowdAgent(Agent):
             else :
                 self.type = 1
 
-        if(math.sqrt((pow(self.xy[0]-self.now_goal[0],2)+pow(self.xy[1]-self.now_goal[1],2))<2 and self.type==1) or self.agent_pos_initialized == 0): #로봇에 의해 가이드되고 있을때는 골에 근접하더라도 골 초기화 x
+        if(math.sqrt((pow(self.xy[0]-self.now_goal[0],2)+pow(self.xy[1]-self.now_goal[1],2))<2 and self.type==1) or self.agent_pos_initialized == 0 or find_another): #로봇에 의해 가이드되고 있을때는 골에 근접하더라도 골 초기화 x
             ## agent가 가고 있는 골에 도착했을 때, 처음 agent가 생성되었을 때 
             self.type = 1
             self.previous_mesh = now_mesh
@@ -775,7 +787,7 @@ class RobotAgent(CrowdAgent):
         obstacle_force = [0, 0]
 
         k=4
-
+        self.collision_check = 0
         for near_agent in near_agents_list:
             n_x = near_agent.xy[0]
             n_y = near_agent.xy[1]
@@ -797,6 +809,7 @@ class RobotAgent(CrowdAgent):
                     repulsive_force[1] += 0/4*np.exp(-(d/2))*(d_y/d) 
 
                 elif(near_agent.type == 11 or near_agent.type == 9):## 검정벽 
+                    self.collision_check = 1
                     repulsive_force[0] += 8*np.exp(-(d/2))*(d_x/d)
                     repulsive_force[1] += 8*np.exp(-(d/2))*(d_y/d)
                     #print("repulsive_force : ", repulsive_force)
@@ -815,8 +828,17 @@ class RobotAgent(CrowdAgent):
         vel = [0,0]
         vel[0] = F_x/self.mass
         vel[1] = F_y/self.mass
-        self.xy[0] += vel[0] * time_step
-        self.xy[1] += vel[1] * time_step
+
+        future_xy = self.xy.copy()
+        future_xy[0] += vel[0] * time_step
+        future_xy[1] += vel[1] * time_step
+
+        if (self.model.valid_space[(int(round(future_xy[0])), int(round(future_xy[1])))]):
+            self.xy = future_xy.copy()
+            self.blocked = False 
+        else :
+            self.blocked = True
+
         if(self.xy[0]<1):
             self.xy[0] = 1
         if(self.xy[1]<1):

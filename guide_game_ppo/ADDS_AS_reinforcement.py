@@ -151,7 +151,7 @@ class EpsilonScheduler:
         elif self.scheduler_type == "l":
             fraction = min(1 / self.linear_decay_steps, 1.0)
             epsilon = now_epsilon - fraction
-            return epsilon
+            return max(epsilon, self.epsilon_min)
         else:
             raise ValueError("scheduler_type must be either 'exponential' or 'linear'")
 

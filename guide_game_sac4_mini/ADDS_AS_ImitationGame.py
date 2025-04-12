@@ -10,7 +10,7 @@ import numpy as np
 # model.py, ADDS_AS_reinforcement.py (동일 폴더 or 경로 맞춰 수정)
 from model import FightingModel
 from ADDS_AS_reinforcement import ReplayBuffer
-from Start_training import reward_A, reward_B, reward_C, reward_D, reward_E, reward_F, reward_G, reward_H, reward_I, reward_J, reward_K
+from Start_training import REWARD_A, REWARD_B, REWARD_C, REWARD_D, REWARD_E, REWARD_F, REWARD_G, REWARD_H, REWARD_I, REWARD_J, REWARD_K
 ############################
 # 화면 및 조이스틱 설정
 ############################
@@ -20,8 +20,8 @@ SCREEN_HEIGHT = 800
 # 맵 70x70을 그릴 때의 셀 크기
 CELL_SIZE = 10
 # 맵을 화면 중간에 배치하기 위한 오프셋
-MAP_OFFSET_X = (SCREEN_WIDTH - 70*CELL_SIZE) // 2
-MAP_OFFSET_Y = (SCREEN_HEIGHT - 70*CELL_SIZE) // 2
+MAP_OFFSET_X = (SCREEN_WIDTH - 50*CELL_SIZE) // 2
+MAP_OFFSET_Y = (SCREEN_HEIGHT - 50*CELL_SIZE) // 2
 
 # 조이스틱 UI
 JOYSTICK_CENTER = (120, 700)  # 화면 아래쪽 근처
@@ -256,6 +256,7 @@ def main():
             reward = 0.0
             reward += env_model.reward_based_alived()
             reward += env_model.reward_penalty()
+            reward += env_model.reward_penalty_collision()
 
             if env_model.alived_agents() <= 0:
                 done = True

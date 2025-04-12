@@ -1042,7 +1042,7 @@ class FightingModel(Model):
             print("reward_based_gain_with_time_bonus :", self.reward_based_gain_with_time_bonus() * REWARD_H)
             print("reward_based_alived_root : ", self.reward_based_alived_root() * REWARD_I)
             print("reward_based_all_agents_danger_log : ", self.reward_based_all_agents_danger_log() * REWARD_J)
-            print("reward_based_near_agents_exist : ", self.reward_based_near_agents_exist() * REWARD_K)        
+            print("reward_penalty_collision : ", self.reward_penalty_collision() * REWARD_K)        
             
 
         self.schedule.step()
@@ -1234,7 +1234,7 @@ class FightingModel(Model):
         
 
     def reward_based_new_founded_agent_danger(self):
-        reward = self.new_founded_agent_dagner
+        reward = self.new_founded_agent_danger
         self.new_founded_agent_danger = 0
         return reward
     
@@ -1247,6 +1247,12 @@ class FightingModel(Model):
                     return 0
         return -2
 
+    def reward_penalty_collision(self):
+        if self.robot.collision_check :
+            return -1
+        else :
+            print("...")
+            return 0
     
     def return_current_image(self):
         # Create a 2D NumPy array with zeros of type uint8
