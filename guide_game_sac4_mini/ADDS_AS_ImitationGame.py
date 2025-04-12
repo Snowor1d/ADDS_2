@@ -157,10 +157,10 @@ def main():
     while running:
         # 새로운 episode 시작
         env_model = FightingModel(
-            number_agents=30,
-            width=70,
-            height=70,
-            model_num=2,   # 원하는 맵 번호
+            number_agents=20,
+            width=50,
+            height=50,
+            model_num=0,   # 원하는 맵 번호
             robot='Q'
         )
         state = np.array(env_model.return_current_image(), dtype=np.float32)

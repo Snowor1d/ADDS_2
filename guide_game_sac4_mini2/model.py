@@ -954,10 +954,10 @@ class FightingModel(Model):
         # self.grid.place_agent(self.robot, (get_point[0], get_point[1]))
 
         self.agent_id = self.agent_id + 10
-        self.robot = RobotAgent(self.agent_id, self, [20, 35], 3)
+        self.robot = RobotAgent(self.agent_id, self, [20, 25], 3)
         self.agent_id = self.agent_id + 10
         self.schedule.add(self.robot)
-        self.grid.place_agent(self.robot, (20, 35))
+        self.grid.place_agent(self.robot, (20, 25))
     
 
     
