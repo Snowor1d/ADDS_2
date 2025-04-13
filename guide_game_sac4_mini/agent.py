@@ -559,7 +559,8 @@ class CrowdAgent(Agent):
         future_xy[0] += self.vel[0] * time_step
         future_xy[1] += self.vel[1] * time_step
 
-        if (self.model.valid_space[(int(round(future_xy[0])), int(round(future_xy[1])))]):
+        #if (self.model.valid_space[(int(round(future_xy[0])), int(round(future_xy[1])))]):
+        if True:
             self.xy = future_xy.copy()
             self.blocked = False
         else :
@@ -828,7 +829,6 @@ class RobotAgent(CrowdAgent):
         vel = [0,0]
         vel[0] = F_x/self.mass
         vel[1] = F_y/self.mass
-        vel = [-2, 0]
         future_xy = self.xy.copy()
         future_xy[0] += vel[0] * time_step
         future_xy[1] += vel[1] * time_step

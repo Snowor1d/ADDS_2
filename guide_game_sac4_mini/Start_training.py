@@ -26,7 +26,8 @@ device = "cpu"
 start_batch_times = 0 #when start update?
 gamma = 0.99
 port_num = 6007
-    
+
+REWARD_A = 1 #reward_based_alived
 REWARD_B = 0.003 #reward_based_all_agents_danger
 REWARD_D = 2 #reward_based_penalty
 REWARD_K = 0.5 #reward_penalty_collsion
@@ -34,7 +35,6 @@ REWARD_FIXED = -0.5
 
 REWARD_J = 0 #reward_based_all_agents_danger_log
 REWARD_I = 0 #reward_based_alived_root
-REWARD_A = 0 #reward_based_alived
 REWARD_C = 0 #reward_based_gain
 REWARD_E = 0 #reward_based_evacuated_with_robot
 REWARD_F = 0 #reward_based_distance_from_near_agents

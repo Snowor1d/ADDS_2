@@ -680,10 +680,11 @@ if __name__ == "__main__":
         buffered_state = state
         buffered_action = None
         abnormal_reward = 0
+        r_k = 0
         try:
             for step in range(max_steps):
                 # 1) Select action
-
+            
                 if(step%ACTION_SCALE==0):
                     
                     if(np.random.rand() < agent.epsilon_long):
@@ -712,7 +713,7 @@ if __name__ == "__main__":
                 done = (step >= max_steps-1) or (env_model.robot.is_game_finished)
                 if(env_model.robot.is_game_finished):
                     reward += FINISHED_BONUS * (1-step/max_steps)
-                r_k = 0
+
                 if (REWARD_K):
                     r_k += env_model.reward_penalty_collision() * REWARD_K
                 # 6) Store transition
@@ -754,14 +755,14 @@ if __name__ == "__main__":
                     if(SCALE_CHECK):
                         print("reward_a : ", r_a)
                         print("reward_b : ", r_b)
-                        print("reward_c : ", r_c)
+                        #print("reward_c : ", r_c)
                         print("reward_d : ", r_d)
-                        print("reward_e : ", r_e)
-                        print("reward f : ", r_f)
-                        print("reward g : ", r_g)
-                        print("reward h : ", r_h)
-                        print("reward i : ", r_i)
-                        print("reward j : ", r_j)
+                        #print("reward_e : ", r_e)
+                        #print("reward f : ", r_f)
+                        #print("reward g : ", r_g)
+                        #print("reward h : ", r_h)
+                        #print("reward i : ", r_i)
+                        #print("reward j : ", r_j)
                         print("reward k : ", r_k)
 
                     r_k = 0
