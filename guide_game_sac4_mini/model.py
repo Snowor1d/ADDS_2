@@ -319,8 +319,8 @@ class FightingModel(Model):
         #         print("(", i, j, ")", self.valid_space[(i, j)])
     def alived_agents(self):
         alived_agents = self.total_agents
-        for i in self.schedule.agents:
-            if((i.type==0 or i.type==1 or i.type==2) and i.dead == 1):
+        for i in self.crowds:
+            if(i.dead == 1):
                 alived_agents -= 1
         return alived_agents 
 
