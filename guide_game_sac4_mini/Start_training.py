@@ -9,7 +9,7 @@ batch_size = 128
 
 EPSILON_MIN = 0.1 #min epsilon
 START_EPSILON = 1 #start epsilon
-MAP_NUM = 10 #if not used, -2
+MAP_NUM = 21 #if not used, -2
 SCHEDULER_TYPE = "l" 
 DECAY_VALUE = 0
 LINEARLY_DECAY_STEP = 2000
