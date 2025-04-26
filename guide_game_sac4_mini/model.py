@@ -654,16 +654,35 @@ class FightingModel(Model):
             self.obstacles.append([[20 * scale, 40 * scale], [50 * scale, 40 * scale], [50 * scale, 50 * scale], [20 * scale, 50 * scale]])
             self.obstacles.append([[40 * scale, 10 * scale], [60 * scale, 20 * scale], [40 * scale, 20 * scale]])
 
-        elif map_num == 11:
+        elif map_num == 10:
             self.obstacles.append([[10, 10], [20, 10], [20, 30], [10, 30]])
             self.obstacles.append([[21, 25], [37, 25], [37, 30], [20, 30]])
             self.obstacles.append([[32, 30], [37, 30], [37, 40], [32, 40]])
             self.obstacles.append([[35, 10], [40, 10], [40, 20], [35, 20]])
 
-        elif map_num == 10:
-            self.obstacles.append([[10, 20], [18, 10], [18, 30], [10, 30]])
+        elif map_num == 11:
+            self.obstacles.append([[10, 20], [18, 11], [18, 30], [10, 30]])
             self.obstacles.append([[30, 20], [40, 20], [40, 30], [30, 30]])
             self.obstacles.append([[25, 30], [40, 30], [40, 37], [25, 37]])
+
+        elif map_num == 12:
+            self.obstacles.append([[13, 13], [17, 20], [16, 25], [8, 20]]) 
+            self.obstacles.append([[15, 20], [20, 20], [30, 22], [16, 24]])
+            self.obstacles.append([[20, 7], [29, 7], [30, 22], [20, 22]])
+            self.obstacles.append([[16, 22], [31, 22], [31, 30], [17, 30]])
+            #self.obstacles.append([[16, 27], [30, 27], [30, 42], [16, 42]])
+            self.obstacles.append([[36, 21], [43, 21], [43, 35], [36, 35]])
+
+        elif map_num == 13:
+            self.obstacles.append([[11, 35], [35, 35], [35, 40], [11, 40]])
+            self.obstacles.append([[11, 15], [15, 15], [15, 35], [11, 35]])
+            self.obstacles.append([[11, 8], [35, 8], [35, 15], [11, 15]])
+            #self.obstacles.append([[25, 25], [30, 25], [30, 30], [25, 30]])
+            #self.obstacles.append([[35, 16], [40, 16], [40, 20], [36, 20]])
+            #self.obstacles.append([[30, 25], [35, 25], [35, 30], [30, 30]]) 
+        
+
+
 
         # elif map_num == 1:  # 산학협력관 + 잔디밭
         #     self.obstacles.append([[15 * scale, 15 * scale], [25 * scale, 15 * scale], [25 * scale, 35 * scale], [15 * scale, 35 * scale]])
@@ -677,7 +696,7 @@ class FightingModel(Model):
         #         [[55, 15], [70, 35]], [[0, 0], [15, 20]], [[15, 0], [35, 20]], [[35, 0], [55, 15]], [[55, 0], [70, 15]]
         #     ]
 
-        # elif map_num == 2:  # 제 1공학관
+        # elif map_num = 2:  # 제 1공학관
         #     # 윗 건물
         #     self.obstacles.append([[10 * scale, 52 * scale], [60 * scale, 52 * scale], [60 * scale, 60 * scale], [10 * scale, 60 * scale]])
         #     # 정원
@@ -946,11 +965,34 @@ class FightingModel(Model):
         # self.schedule.add(self.robot)
         # self.grid.place_agent(self.robot, (get_point[0], get_point[1]))
 
-        self.agent_id = self.agent_id + 10
-        self.robot = RobotAgent(self.agent_id, self, [5, 5], 3)
-        self.agent_id = self.agent_id + 10
-        self.schedule.add(self.robot)
-        self.grid.place_agent(self.robot, (20, 25))
+        # self.agent_id = self.agent_id + 10
+        # self.robot = RobotAgent(self.agent_id, self, [5, 5], 3)
+        # self.agent_id = self.agent_id + 10
+        # self.schedule.add(self.robot)
+        # self.grid.place_agent(self.robot, (20, 25))
+        space_num = len(self.pure_mesh)
+        
+        agent_location = []
+
+        for i in range(1):
+            assign_mesh_num = random.randint(0, space_num-1)
+            assigned_mesh = self.pure_mesh[assign_mesh_num]
+            
+            while(1):
+                assigned_coordinates = self.match_mesh_to_grid[assigned_mesh]
+                if (len(assigned_coordinates) !=0):
+                    break
+                else :
+                    assign_mesh_num = random.randint(0, space_num-1)
+                    assigned_mesh = self.pure_mesh[assign_mesh_num]
+            assigned = assigned_coordinates[random.randint(0, len(assigned_coordinates)-1)]
+            assigned = [int(assigned[0]), int(assigned[1])]
+            if not assigned in agent_location:
+                agent_location.append(assigned)
+                self.robot = RobotAgent(self.agent_id, self, assigned, 3)
+                self.agent_id = self.agent_id + 10
+                self.schedule.add(self.robot)
+                self.grid.place_agent(self.robot, assigned)
     
 
     
