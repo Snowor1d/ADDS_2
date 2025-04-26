@@ -32,7 +32,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 from ADDS_AS_reinforcement import SACAgent, ReplayBuffer, PolicyNetwork, QNetwork, ACTION_SCALE
-from Start_training import REWARD_A, REWARD_B, REWARD_C, REWARD_D, REWARD_E, REWARD_F, REWARD_G, REWARD_H, REWARD_I, REWARD_J, REWARD_K, FINISHED_BONUS, MAP_NUM
+from Start_training import REWARD_A, REWARD_B, REWARD_C, REWARD_D, REWARD_E, REWARD_F, REWARD_G, REWARD_H, REWARD_I, REWARD_J, REWARD_K, FINISHED_BONUS, MAP_NUM, MAP_NUM_RANDOM
 
 
 def are_meshes_adjacent(mesh1, mesh2):
@@ -273,8 +273,12 @@ class FightingModel(Model):
         self.obstacles = list()
         self.mesh = list()
         self.mesh_list = list()
-        if(MAP_NUM != -2):
-            self.extract_map_50(self.map_num)     
+        if(MAP_NUM != -2 and MAP_NUM != -1):
+            self.extract_map_50(self.map_num)
+        if (MAP_NUM == -1):
+            map_num_candidates = MAP_NUM_RANDOM
+            self.map_num = random.choice(map_num_candidates)
+            self.extract_map_50(self.map_num)    
         self.distance = {}  
         self.schedule_e = RandomActivation(self)
         self.schedule = RandomActivation(self)
