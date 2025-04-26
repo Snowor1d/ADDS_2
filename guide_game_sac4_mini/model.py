@@ -654,98 +654,109 @@ class FightingModel(Model):
             self.obstacles.append([[20 * scale, 40 * scale], [50 * scale, 40 * scale], [50 * scale, 50 * scale], [20 * scale, 50 * scale]])
             self.obstacles.append([[40 * scale, 10 * scale], [60 * scale, 20 * scale], [40 * scale, 20 * scale]])
 
-        elif map_num == 1:  # 산학협력관 + 잔디밭
-            self.obstacles.append([[15 * scale, 15 * scale], [25 * scale, 15 * scale], [25 * scale, 35 * scale], [15 * scale, 35 * scale]])
-            self.obstacles.append([[15 * scale, 45 * scale], [55 * scale, 45 * scale], [55 * scale, 55 * scale], [15 * scale, 55 * scale]])
-            self.obstacles.append([[35 * scale, 15 * scale], [55 * scale, 15 * scale], [55 * scale, 35 * scale]])
+        elif map_num == 11:
+            self.obstacles.append([[10, 10], [20, 10], [20, 30], [10, 30]])
+            self.obstacles.append([[21, 25], [37, 25], [37, 30], [20, 30]])
+            self.obstacles.append([[32, 30], [37, 30], [37, 40], [32, 40]])
+            self.obstacles.append([[35, 10], [40, 10], [40, 20], [35, 20]])
 
-            self.spaces_of_map = [
-                [[0, 55], [15, 70]], [[15, 55], [35, 70]], [[35, 55], [55, 70]], [[55, 55], [70, 70]],
-                [[0, 40], [15, 55]], [[15, 40], [35, 45]], [[35, 35], [55, 45]], [[55, 45], [70, 55]],
-                [[55, 35], [70, 45]], [[0, 20], [15, 40]], [[25, 20], [35, 40]], [[35, 15], [55, 35]],
-                [[55, 15], [70, 35]], [[0, 0], [15, 20]], [[15, 0], [35, 20]], [[35, 0], [55, 15]], [[55, 0], [70, 15]]
-            ]
+        elif map_num == 10:
+            self.obstacles.append([[10, 20], [18, 10], [18, 30], [10, 30]])
+            self.obstacles.append([[30, 20], [40, 20], [40, 30], [30, 30]])
+            self.obstacles.append([[25, 30], [40, 30], [40, 37], [25, 37]])
 
-        elif map_num == 2:  # 제 1공학관
-            # 윗 건물
-            self.obstacles.append([[10 * scale, 52 * scale], [60 * scale, 52 * scale], [60 * scale, 60 * scale], [10 * scale, 60 * scale]])
-            # 정원
-            self.obstacles.append([[32 * scale, 26 * scale], [44 * scale, 26 * scale], [44 * scale, 40 * scale], [32 * scale, 40 * scale]])
-            # 아래 건물
-            self.obstacles.append([[10 * scale, 8 * scale], [44 * scale, 8 * scale], [44 * scale, 16 * scale], [10 * scale, 16 * scale]])
-            # 오른쪽 건물
-            self.obstacles.append([[50 * scale, 8 * scale], [56 * scale, 8 * scale], [56 * scale, 14 * scale], [50 * scale, 14 * scale]])
-            self.obstacles.append([[50 * scale, 14 * scale], [60 * scale, 14 * scale], [60 * scale, 46 * scale], [50 * scale, 46 * scale]])
+        # elif map_num == 1:  # 산학협력관 + 잔디밭
+        #     self.obstacles.append([[15 * scale, 15 * scale], [25 * scale, 15 * scale], [25 * scale, 35 * scale], [15 * scale, 35 * scale]])
+        #     self.obstacles.append([[15 * scale, 45 * scale], [55 * scale, 45 * scale], [55 * scale, 55 * scale], [15 * scale, 55 * scale]])
+        #     self.obstacles.append([[35 * scale, 15 * scale], [55 * scale, 15 * scale], [55 * scale, 35 * scale]])
 
-            self.spaces_of_map = [
-                [[0, 60], [10, 70]], [[10, 60], [35, 70]], [[35, 60], [60, 70]], [[60, 60], [70, 70]],
-                [[0, 52], [10, 60]], [[0, 40], [16, 52]], [[16, 40], [32, 52]], [[32, 40], [44, 52]],
-                [[44, 46], [60, 52]], [[60, 46], [70, 60]], [[0, 26], [16, 40]], [[16, 26], [32, 40]],
-                [[44, 26], [50, 46]], [[60, 30], [70, 46]], [[0, 16], [16, 26]], [[16, 16], [32, 26]],
-                [[32, 16], [44, 26]], [[44, 8], [50, 26]], [[60, 14], [70, 30]], [[0, 0], [10, 16]],
-                [[10, 0], [27, 8]], [[27, 0], [44, 8]], [[44, 0], [56, 8]], [[56, 0], [70, 14]]
-            ]
+        #     self.spaces_of_map = [
+        #         [[0, 55], [15, 70]], [[15, 55], [35, 70]], [[35, 55], [55, 70]], [[55, 55], [70, 70]],
+        #         [[0, 40], [15, 55]], [[15, 40], [35, 45]], [[35, 35], [55, 45]], [[55, 45], [70, 55]],
+        #         [[55, 35], [70, 45]], [[0, 20], [15, 40]], [[25, 20], [35, 40]], [[35, 15], [55, 35]],
+        #         [[55, 15], [70, 35]], [[0, 0], [15, 20]], [[15, 0], [35, 20]], [[35, 0], [55, 15]], [[55, 0], [70, 15]]
+        #     ]
 
-        elif map_num == 3:  # 공학실습동 + 제 2 종합 연구동
-            # 왼쪽 건물
-            self.obstacles.append([[12 * scale, 12 * scale], [18 * scale, 12 * scale], [18 * scale, 33 * scale], [12 * scale, 33 * scale]])
-            self.obstacles.append([[12 * scale, 37 * scale], [18 * scale, 37 * scale], [18 * scale, 58 * scale], [12 * scale, 58 * scale]])
-            # 중간 건물
-            self.obstacles.append([[26 * scale, 12 * scale], [32 * scale, 12 * scale], [32 * scale, 33 * scale], [26 * scale, 33 * scale]])
-            self.obstacles.append([[26 * scale, 37 * scale], [32 * scale, 37 * scale], [32 * scale, 58 * scale], [26 * scale, 58 * scale]])
-            # 오른쪽 건물
-            self.obstacles.append([[38 * scale, 12 * scale], [48 * scale, 12 * scale], [48 * scale, 22 * scale], [38 * scale, 22 * scale]])
-            self.obstacles.append([[38 * scale, 26 * scale], [48 * scale, 26 * scale], [48 * scale, 44 * scale], [38 * scale, 44 * scale]])
-            self.obstacles.append([[38 * scale, 48 * scale], [48 * scale, 48 * scale], [48 * scale, 58 * scale], [38 * scale, 58 * scale]])
-            self.obstacles.append([[48 * scale, 12 * scale], [62 * scale, 12 * scale], [62 * scale, 18 * scale], [48 * scale, 18 * scale]])
-            self.obstacles.append([[48 * scale, 30 * scale], [62 * scale, 30 * scale], [62 * scale, 40 * scale], [48 * scale, 40 * scale]])
-            self.obstacles.append([[48 * scale, 52 * scale], [62 * scale, 52 * scale], [62 * scale, 58 * scale], [48 * scale, 58 * scale]])
+        # elif map_num == 2:  # 제 1공학관
+        #     # 윗 건물
+        #     self.obstacles.append([[10 * scale, 52 * scale], [60 * scale, 52 * scale], [60 * scale, 60 * scale], [10 * scale, 60 * scale]])
+        #     # 정원
+        #     self.obstacles.append([[32 * scale, 26 * scale], [44 * scale, 26 * scale], [44 * scale, 40 * scale], [32 * scale, 40 * scale]])
+        #     # 아래 건물
+        #     self.obstacles.append([[10 * scale, 8 * scale], [44 * scale, 8 * scale], [44 * scale, 16 * scale], [10 * scale, 16 * scale]])
+        #     # 오른쪽 건물
+        #     self.obstacles.append([[50 * scale, 8 * scale], [56 * scale, 8 * scale], [56 * scale, 14 * scale], [50 * scale, 14 * scale]])
+        #     self.obstacles.append([[50 * scale, 14 * scale], [60 * scale, 14 * scale], [60 * scale, 46 * scale], [50 * scale, 46 * scale]])
 
-            self.spaces_of_map = [
-                [[0, 58], [12, 70]], [[12, 58], [26, 70]], [[26, 58], [38, 70]], [[38, 58], [62, 70]], [[62, 52], [70, 70]],
-                [[0, 37], [12, 58]], [[18, 37], [26, 58]], [[32, 37], [38, 58]], [[38, 44], [48, 48]], [[48, 40], [62, 52]],
-                [[62, 30], [70, 50]], [[0, 33], [12, 37]], [[12, 33], [26, 37]], [[26, 33], [38, 37]],
-                [[0, 12], [12, 33]], [[18, 12], [26, 33]], [[32, 12], [38, 33]], [[38, 22], [48, 26]], [[48, 18], [62, 30]],
-                [[62, 12], [70, 30]], [[0, 0], [12, 12]], [[12, 0], [26, 12]], [[26, 0], [38, 12]], [[38, 0], [62, 12]], [[62, 0], [70, 12]]
-            ]
+        #     self.spaces_of_map = [
+        #         [[0, 60], [10, 70]], [[10, 60], [35, 70]], [[35, 60], [60, 70]], [[60, 60], [70, 70]],
+        #         [[0, 52], [10, 60]], [[0, 40], [16, 52]], [[16, 40], [32, 52]], [[32, 40], [44, 52]],
+        #         [[44, 46], [60, 52]], [[60, 46], [70, 60]], [[0, 26], [16, 40]], [[16, 26], [32, 40]],
+        #         [[44, 26], [50, 46]], [[60, 30], [70, 46]], [[0, 16], [16, 26]], [[16, 16], [32, 26]],
+        #         [[32, 16], [44, 26]], [[44, 8], [50, 26]], [[60, 14], [70, 30]], [[0, 0], [10, 16]],
+        #         [[10, 0], [27, 8]], [[27, 0], [44, 8]], [[44, 0], [56, 8]], [[56, 0], [70, 14]]
+        #     ]
 
-        elif map_num == 4:  # 벤젠고리관
-            # 아래 건물
-            self.obstacles.append([[48 * scale, 10 * scale], [58 * scale, 20 * scale], [58 * scale, 32 * scale], [44 * scale, 18 * scale]])
-            self.obstacles.append([[26 * scale, 10 * scale], [44 * scale, 10 * scale], [40 * scale, 18 * scale], [26 * scale, 18 * scale]])
-            # 중간 건물
-            self.obstacles.append([[32 * scale, 24 * scale], [50 * scale, 42 * scale], [44 * scale, 48 * scale], [26 * scale, 30 * scale]])
-            # 윗 건물
-            self.obstacles.append([[12 * scale, 28 * scale], [20 * scale, 28 * scale], [20 * scale, 42 * scale], [12 * scale, 46 * scale]])
-            self.obstacles.append([[12 * scale, 50 * scale], [20 * scale, 46 * scale], [32 * scale, 58 * scale], [26 * scale, 64 * scale]])
+        # elif map_num == 3:  # 공학실습동 + 제 2 종합 연구동
+        #     # 왼쪽 건물
+        #     self.obstacles.append([[12 * scale, 12 * scale], [18 * scale, 12 * scale], [18 * scale, 33 * scale], [12 * scale, 33 * scale]])
+        #     self.obstacles.append([[12 * scale, 37 * scale], [18 * scale, 37 * scale], [18 * scale, 58 * scale], [12 * scale, 58 * scale]])
+        #     # 중간 건물
+        #     self.obstacles.append([[26 * scale, 12 * scale], [32 * scale, 12 * scale], [32 * scale, 33 * scale], [26 * scale, 33 * scale]])
+        #     self.obstacles.append([[26 * scale, 37 * scale], [32 * scale, 37 * scale], [32 * scale, 58 * scale], [26 * scale, 58 * scale]])
+        #     # 오른쪽 건물
+        #     self.obstacles.append([[38 * scale, 12 * scale], [48 * scale, 12 * scale], [48 * scale, 22 * scale], [38 * scale, 22 * scale]])
+        #     self.obstacles.append([[38 * scale, 26 * scale], [48 * scale, 26 * scale], [48 * scale, 44 * scale], [38 * scale, 44 * scale]])
+        #     self.obstacles.append([[38 * scale, 48 * scale], [48 * scale, 48 * scale], [48 * scale, 58 * scale], [38 * scale, 58 * scale]])
+        #     self.obstacles.append([[48 * scale, 12 * scale], [62 * scale, 12 * scale], [62 * scale, 18 * scale], [48 * scale, 18 * scale]])
+        #     self.obstacles.append([[48 * scale, 30 * scale], [62 * scale, 30 * scale], [62 * scale, 40 * scale], [48 * scale, 40 * scale]])
+        #     self.obstacles.append([[48 * scale, 52 * scale], [62 * scale, 52 * scale], [62 * scale, 58 * scale], [48 * scale, 58 * scale]])
 
-            self.spaces_of_map = [
-                [[0, 50], [20, 70]], [[20, 58], [32, 70]], [[32, 58], [44, 70]], [[44, 42], [70, 70]],
-                [[0, 18], [12, 50]], [[12, 42], [20, 50]], [[20, 30], [32, 58]], [[32, 36], [44, 58]],
-                [[12, 18], [32, 30]], [[32, 18], [44, 36]], [[44, 18], [58, 42]], [[58, 20], [70, 42]],
-                [[0, 0], [12, 18]], [[12, 0], [32, 18]], [[40, 10], [48, 18]], [[32, 0], [48, 10]], [[48, 0], [70, 20]]
-            ]
+        #     self.spaces_of_map = [
+        #         [[0, 58], [12, 70]], [[12, 58], [26, 70]], [[26, 58], [38, 70]], [[38, 58], [62, 70]], [[62, 52], [70, 70]],
+        #         [[0, 37], [12, 58]], [[18, 37], [26, 58]], [[32, 37], [38, 58]], [[38, 44], [48, 48]], [[48, 40], [62, 52]],
+        #         [[62, 30], [70, 50]], [[0, 33], [12, 37]], [[12, 33], [26, 37]], [[26, 33], [38, 37]],
+        #         [[0, 12], [12, 33]], [[18, 12], [26, 33]], [[32, 12], [38, 33]], [[38, 22], [48, 26]], [[48, 18], [62, 30]],
+        #         [[62, 12], [70, 30]], [[0, 0], [12, 12]], [[12, 0], [26, 12]], [[26, 0], [38, 12]], [[38, 0], [62, 12]], [[62, 0], [70, 12]]
+        #     ]
 
-        elif map_num == 5:  # 경영관 + 퇴계 인문관
-            # 왼쪽 건물
-            self.obstacles.append([[18 * scale, 10 * scale], [24 * scale, 10 * scale], [24 * scale, 28 * scale], [18 * scale, 28 * scale]])
-            self.obstacles.append([[12 * scale, 20 * scale], [18 * scale, 20 * scale], [18 * scale, 26 * scale], [12 * scale, 26 * scale]])
-            # 오른쪽 건물
-            self.obstacles.append([[34 * scale, 10 * scale], [46 * scale, 10 * scale], [46 * scale, 16 * scale], [34 * scale, 16 * scale]])
-            self.obstacles.append([[46 * scale, 10 * scale], [56 * scale, 10 * scale], [56 * scale, 28 * scale], [46 * scale, 28 * scale]])
-            # 윗 건물
-            self.obstacles.append([[18 * scale, 34 * scale], [24 * scale, 34 * scale], [24 * scale, 60 * scale], [18 * scale, 60 * scale]])
-            self.obstacles.append([[24 * scale, 54 * scale], [38 * scale, 54 * scale], [38 * scale, 60 * scale], [24 * scale, 60 * scale]])
-            self.obstacles.append([[46 * scale, 40 * scale], [52 * scale, 40 * scale], [52 * scale, 48 * scale], [46 * scale, 48 * scale]])
-            self.obstacles.append([[24 * scale, 34 * scale], [56 * scale, 34 * scale], [56 * scale, 40 * scale], [24 * scale, 40 * scale]])
+        # elif map_num == 4:  # 벤젠고리관
+        #     # 아래 건물
+        #     self.obstacles.append([[48 * scale, 10 * scale], [58 * scale, 20 * scale], [58 * scale, 32 * scale], [44 * scale, 18 * scale]])
+        #     self.obstacles.append([[26 * scale, 10 * scale], [44 * scale, 10 * scale], [40 * scale, 18 * scale], [26 * scale, 18 * scale]])
+        #     # 중간 건물
+        #     self.obstacles.append([[32 * scale, 24 * scale], [50 * scale, 42 * scale], [44 * scale, 48 * scale], [26 * scale, 30 * scale]])
+        #     # 윗 건물
+        #     self.obstacles.append([[12 * scale, 28 * scale], [20 * scale, 28 * scale], [20 * scale, 42 * scale], [12 * scale, 46 * scale]])
+        #     self.obstacles.append([[12 * scale, 50 * scale], [20 * scale, 46 * scale], [32 * scale, 58 * scale], [26 * scale, 64 * scale]])
 
-            self.spaces_of_map = [
-                [[0, 47], [18, 70]], [[18, 60], [38, 70]], [[38, 54], [70, 70]],
-                [[0, 34], [18, 47]], [[24, 40], [46, 54]], [[46, 40], [70, 54]],
-                [[0, 20], [18, 34]], [[18, 28], [34, 34]], [[34, 28], [56, 34]],
-                [[0, 0], [18, 20]], [[24, 10], [34, 28]], [[34, 16], [46, 28]], [[56, 10], [70, 34]],
-                [[18, 0], [34, 10]], [[34, 0], [56, 10]], [[56, 0], [70, 10]]
-            ]
+        #     self.spaces_of_map = [
+        #         [[0, 50], [20, 70]], [[20, 58], [32, 70]], [[32, 58], [44, 70]], [[44, 42], [70, 70]],
+        #         [[0, 18], [12, 50]], [[12, 42], [20, 50]], [[20, 30], [32, 58]], [[32, 36], [44, 58]],
+        #         [[12, 18], [32, 30]], [[32, 18], [44, 36]], [[44, 18], [58, 42]], [[58, 20], [70, 42]],
+        #         [[0, 0], [12, 18]], [[12, 0], [32, 18]], [[40, 10], [48, 18]], [[32, 0], [48, 10]], [[48, 0], [70, 20]]
+        #     ]
+
+        # elif map_num == 5:  # 경영관 + 퇴계 인문관
+        #     # 왼쪽 건물
+        #     self.obstacles.append([[18 * scale, 10 * scale], [24 * scale, 10 * scale], [24 * scale, 28 * scale], [18 * scale, 28 * scale]])
+        #     self.obstacles.append([[12 * scale, 20 * scale], [18 * scale, 20 * scale], [18 * scale, 26 * scale], [12 * scale, 26 * scale]])
+        #     # 오른쪽 건물
+        #     self.obstacles.append([[34 * scale, 10 * scale], [46 * scale, 10 * scale], [46 * scale, 16 * scale], [34 * scale, 16 * scale]])
+        #     self.obstacles.append([[46 * scale, 10 * scale], [56 * scale, 10 * scale], [56 * scale, 28 * scale], [46 * scale, 28 * scale]])
+        #     # 윗 건물
+        #     self.obstacles.append([[18 * scale, 34 * scale], [24 * scale, 34 * scale], [24 * scale, 60 * scale], [18 * scale, 60 * scale]])
+        #     self.obstacles.append([[24 * scale, 54 * scale], [38 * scale, 54 * scale], [38 * scale, 60 * scale], [24 * scale, 60 * scale]])
+        #     self.obstacles.append([[46 * scale, 40 * scale], [52 * scale, 40 * scale], [52 * scale, 48 * scale], [46 * scale, 48 * scale]])
+        #     self.obstacles.append([[24 * scale, 34 * scale], [56 * scale, 34 * scale], [56 * scale, 40 * scale], [24 * scale, 40 * scale]])
+
+        #     self.spaces_of_map = [
+        #         [[0, 47], [18, 70]], [[18, 60], [38, 70]], [[38, 54], [70, 70]],
+        #         [[0, 34], [18, 47]], [[24, 40], [46, 54]], [[46, 40], [70, 54]],
+        #         [[0, 20], [18, 34]], [[18, 28], [34, 34]], [[34, 28], [56, 34]],
+        #         [[0, 0], [18, 20]], [[24, 10], [34, 28]], [[34, 16], [46, 28]], [[56, 10], [70, 34]],
+        #         [[18, 0], [34, 10]], [[34, 0], [56, 10]], [[56, 0], [70, 10]]
+        #     ]
 
 
 # --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -936,7 +947,7 @@ class FightingModel(Model):
         # self.grid.place_agent(self.robot, (get_point[0], get_point[1]))
 
         self.agent_id = self.agent_id + 10
-        self.robot = RobotAgent(self.agent_id, self, [20, 25], 3)
+        self.robot = RobotAgent(self.agent_id, self, [5, 5], 3)
         self.agent_id = self.agent_id + 10
         self.schedule.add(self.robot)
         self.grid.place_agent(self.robot, (20, 25))
