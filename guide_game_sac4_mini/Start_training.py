@@ -9,8 +9,12 @@ batch_size = 128
 
 EPSILON_MIN = 0.1 #min epsilon
 START_EPSILON = 1 #start epsilon
+<<<<<<< HEAD
 MAP_NUM = -1 #if not used, -2, if random, -1
 MAP_NUM_RANDOM = [10, 11]
+=======
+MAP_NUM = 21 #if not used, -2
+>>>>>>> origin/main
 SCHEDULER_TYPE = "l" 
 DECAY_VALUE = 0
 LINEARLY_DECAY_STEP = 2000

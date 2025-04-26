@@ -669,6 +669,7 @@ class FightingModel(Model):
             self.obstacles.append([[30, 20], [40, 20], [40, 30], [30, 30]])
             self.obstacles.append([[25, 30], [40, 30], [40, 37], [25, 37]])
 
+<<<<<<< HEAD
         elif map_num == 12:
             self.obstacles.append([[13, 13], [17, 20], [16, 25], [8, 20]]) 
             self.obstacles.append([[15, 20], [20, 20], [30, 22], [16, 24]])
@@ -687,6 +688,44 @@ class FightingModel(Model):
         
 
 
+=======
+
+
+        elif map_num == 21:
+            self.obstacles.append([[10, 10], [20, 10], [20, 20], [10, 20]])
+            self.obstacles.append([[10, 30], [40, 30], [40, 40], [10, 40]])
+
+        elif map_num == 22:
+            self.obstacles.append([[10, 10], [40, 10], [40, 18], [10, 18]])
+            self.obstacles.append([[32, 18], [40, 18], [40, 40], [32, 40]])
+            self.obstacles.append([[10, 32], [18, 32], [18, 40], [10, 40]])
+
+        elif map_num == 23:
+            self.obstacles.append([[10, 10], [15, 10], [15, 15], [10, 15]])
+            self.obstacles.append([[10, 15], [40, 15], [40, 20], [10, 20]])
+            self.obstacles.append([[10, 28], [25, 28], [10, 40]])
+            self.obstacles.append([[40, 28], [40, 40], [28, 40]])
+
+        elif map_num == 24:
+            self.obstacles.append([[10, 30], [20, 30], [28, 40], [10, 40]])
+            self.obstacles.append([[30, 10], [35, 10], [35, 30], [30, 30]])
+            self.obstacles.append([[10, 10], [15, 10], [15, 15], [10, 15]])
+            self.obstacles.append([[15, 20], [22, 20], [22, 25], [15, 25]])
+            self.obstacles.append([[35, 35], [40, 35], [40, 40], [35, 40]])
+            # self.obstacles.append([[30, 30], [35, 30], [35, 35]]) ## ?? 이 줄만 추가하면 세그멘테이션 오류 (코어 덤프됨) 뜸 왤까?
+
+        
+        elif map_num == 25:
+            self.obstacles.append([[10, 15], [25, 15], [10, 40]])
+            self.obstacles.append([[30, 20], [40, 20], [40, 35], [30, 35]])
+
+        elif map_num == 26:
+            self.obstacles.append([[10, 10], [15, 10], [15, 18], [10, 18]])
+            self.obstacles.append([[23, 10], [40, 10], [40, 18], [23, 18]])
+            self.obstacles.append([[33, 15], [40, 15], [40, 40], [33, 40]])
+            self.obstacles.append([[10, 32], [32, 32], [32, 40], [10, 40]])
+            
+>>>>>>> origin/main
 
         # elif map_num == 1:  # 산학협력관 + 잔디밭
         #     self.obstacles.append([[15 * scale, 15 * scale], [25 * scale, 15 * scale], [25 * scale, 35 * scale], [15 * scale, 35 * scale]])
