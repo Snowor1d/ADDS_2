@@ -669,7 +669,6 @@ class FightingModel(Model):
             self.obstacles.append([[30, 20], [40, 20], [40, 30], [30, 30]])
             self.obstacles.append([[25, 30], [40, 30], [40, 37], [25, 37]])
 
-<<<<<<< HEAD
         elif map_num == 12:
             self.obstacles.append([[13, 13], [17, 20], [16, 25], [8, 20]]) 
             self.obstacles.append([[15, 20], [20, 20], [30, 22], [16, 24]])
@@ -688,7 +687,6 @@ class FightingModel(Model):
         
 
 
-=======
 
 
         elif map_num == 21:
@@ -725,7 +723,6 @@ class FightingModel(Model):
             self.obstacles.append([[33, 15], [40, 15], [40, 40], [33, 40]])
             self.obstacles.append([[10, 32], [32, 32], [32, 40], [10, 40]])
             
->>>>>>> origin/main
 
         # elif map_num == 1:  # 산학협력관 + 잔디밭
         #     self.obstacles.append([[15 * scale, 15 * scale], [25 * scale, 15 * scale], [25 * scale, 35 * scale], [15 * scale, 35 * scale]])

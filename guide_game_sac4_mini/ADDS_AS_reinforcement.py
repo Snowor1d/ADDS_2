@@ -15,7 +15,7 @@ import threading
 from torch.utils.tensorboard import SummaryWriter
 import subprocess
 import webbrowser
-from Start_training import START_DECAY_STEP, START_EPSILON, EPSILON_MIN, SCHEDULER_TYPE, DECAY_VALUE, REWARD_A, REWARD_B, REWARD_C, REWARD_D, REWARD_E, REWARD_F, REWARD_G, REWARD_H, REWARD_I, REWARD_J, REWARD_K, CROWD_NUMBER_MIN, CROWD_NUMBER_MAX, LINEARLY_DECAY_STEP, START_UPDATE_STEP, LOG_DIR, FINISHED_BONUS, REWARD_FIXED, MAP_NUM
+from Start_training import START_DECAY_STEP, START_EPSILON, EPSILON_MIN, SCHEDULER_TYPE, DECAY_VALUE, REWARD_A, REWARD_B, REWARD_C, REWARD_D, REWARD_E, REWARD_F, REWARD_G, REWARD_H, REWARD_I, REWARD_J, REWARD_K, CROWD_NUMBER_MIN, CROWD_NUMBER_MAX, LINEARLY_DECAY_STEP, START_UPDATE_STEP, LOG_DIR, FINISHED_BONUS, REWARD_FIXED, MAP_NUM, EXPLORATION_TYPE
 # Timer instances
 sim_timer = Timer() 
 learn_timer = Timer()
@@ -384,12 +384,27 @@ class SACAgent:
         If using epsilon > 0.0 for random exploration, 
         we can do random direction + random mode sometimes.
         """
-        # Epsilon check
-        if np.random.rand() < self.epsilon:
-            # random direction in [-1,1], random mode
-            dx = np.random.uniform(-2,2)
-            dy = np.random.uniform(-2,2)
-            return np.array([dx, dy]), True
+
+        if(EXPLORATION_TYPE == 0):
+            # Epsilon check
+            if np.random.rand() < self.epsilon:
+                # random direction in [-1,1], random mode
+                dx = np.random.uniform(-2,2)
+                dy = np.random.uniform(-2,2)
+                return np.array([dx, dy]), True
+        elif(EXPLORATION_TYPE == 1):
+                #dx, dy = intrinsic_curiosity()
+                return np.array([dx, dy]), True
+        elif(EXPLORATION_TYPE == 2):
+                #dx, dy = random_network_distillation
+                return np.array([dx, dy]), True
+        elif(EXPLORATION_TYPE == 3):
+            if np.random.rand() < self.epsilon:
+                # random direction in [-1,1], random mode
+                # dx, dy = go_explore()
+                dx = np.random.uniform(-2,2)
+                dy = np.random.uniform(-2,2)
+                return np.array([dx, dy]), True
 
         # Otherwise use the policy
         state_t = torch.FloatTensor(state_np).unsqueeze(0).unsqueeze(0).to(self.device)  # (1,1,H,W)

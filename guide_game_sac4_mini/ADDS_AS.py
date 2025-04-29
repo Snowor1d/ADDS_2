@@ -55,11 +55,7 @@ import cv2
 most_danger = 0
 width = 50
 height = 50
-<<<<<<< HEAD
 model_num = 13
-=======
-model_num = 26
->>>>>>> origin/main
 if visualization_mode == 'on':
     Width = width
     Height =height
