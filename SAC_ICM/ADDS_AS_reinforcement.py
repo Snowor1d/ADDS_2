@@ -221,8 +221,10 @@ class QNetwork(nn.Module):
         self.fc2 = nn.Linear(512, 256)
         self.q_out = nn.Linear(256, 1)
 
-    def _get_conv_out(self, shape):
-        dummy = torch.zeros(1, 1, *shape)  # (batch, channel=1, H, W)
+    def _get_conv_out(self, shape, device=None):
+        if device is None:
+            device = next(self.parameters()).device
+        dummy = torch.zeros(1, 1, *shape, device=device)  # (batch, channel=1, H, W)
         o = F.leaky_relu(self.bn1(self.conv1(dummy)), negative_slope=0.01)
         o = F.leaky_relu(self.bn2(self.conv2(o)), negative_slope=0.01)
         o = F.leaky_relu(self.bn3(self.conv3(o)), negative_slope=0.01)
@@ -280,8 +282,10 @@ class PolicyNetwork(nn.Module):
         self.mean_head = nn.Linear(64, 2)
         self.log_std_head = nn.Linear(64, 2)
 
-    def _get_conv_out(self, shape):
-        dummy = torch.zeros(1, 1, *shape)
+    def _get_conv_out(self, shape, device=None):
+        if device is None:
+            device = next(self.parameters()).device
+        dummy = torch.zeros(1, 1, *shape, device=device)
         x = F.leaky_relu(self.bn1(self.conv1(dummy)), negative_slope=0.01)
         x = F.leaky_relu(self.bn2(self.conv2(x)), negative_slope=0.01)
         x = F.leaky_relu(self.bn3(self.conv3(x)), negative_slope=0.01)
