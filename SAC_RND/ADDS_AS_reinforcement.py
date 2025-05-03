@@ -498,16 +498,13 @@ class SACAgent:
             )
 
     # ------------------------------------------------- #
-    # Store experience
+    # Store transition
     # ------------------------------------------------- #
     def store_transition(self, s, a, r, s_next, done):
-        if EXPLORATION_TYPE == 1:
-            i_r = self.rnd.compute_intrinsic_reward(s_next)
-            total_r = r + self.rnd.beta * i_r           # extrinsic + intrinsic
-            self.replay_buffer.push(s, a, total_r, s_next, done)
-        else:
-            # if -20 <= a[0] <= 20 and -20 <= a[1] <= 20:
-            self.replay_buffer.push(s, a, r, s_next, done)
+        i_r = self.rnd.compute_intrinsic_reward(s_next)
+        total_r = r + self.rnd.beta * i_r           # extrinsic + intrinsic
+        self.replay_buffer.push(s, a, total_r, s_next, done)
+
 
     # ------------------------------------------------- #
     # Select action
@@ -515,31 +512,29 @@ class SACAgent:
     def select_action(self, state_np, deterministic=False):
         """
         state_np: shape (H, W) or (1, H, W)
-        returns action_np shape (4,) = [dx, dy, mode0, mode1]
-        If using epsilon > 0.0 for random exploration, 
-        we can do random direction + random mode sometimes.
+        returns (action_np: [dx, dy], exploratory: bool)
         """
 
-        if(EXPLORATION_TYPE == 0):
-            # Epsilon check
+        # --- 0: ε-greedy 탐사 ---
+        if EXPLORATION_TYPE == 0:
             if np.random.rand() < self.epsilon:
-                # random direction in [-1,1], random mode
-                dx = np.random.uniform(-2,2)
-                dy = np.random.uniform(-2,2)
+                dx = np.random.uniform(-2, 2)
+                dy = np.random.uniform(-2, 2)
                 return np.array([dx, dy]), True
-        elif(EXPLORATION_TYPE == 1):
-                dx, dy = self.rnd_exploration_action(state_np)
-                return np.array([dx, dy]), True
-        elif(EXPLORATION_TYPE == 2):
-                #dx, dy = random_network_distillation
-                return np.array([dx, dy]), True
-        elif(EXPLORATION_TYPE == 3):
-            if np.random.rand() < self.epsilon:
-                # random direction in [-1,1], random mode
-                # dx, dy = go_explore()
-                dx = np.random.uniform(-2,2)
-                dy = np.random.uniform(-2,2)
-                return np.array([dx, dy]), True
+            
+        # --- 1: RND  ---
+        elif EXPLORATION_TYPE == 1:
+            # policy 네트워크로부터 행동 선택
+            state_t = torch.FloatTensor(state_np).unsqueeze(0).unsqueeze(0).to(self.device)
+            with torch.no_grad():
+                if deterministic:
+                    mean, _ = self.policy(state_t)
+                    action_t = 4 * torch.sigmoid(mean) - 2
+                else:
+                    action_t, _ = self.policy.sample_action(state_t)
+            return action_t.cpu().numpy()[0], False
+
+        
 
         # Otherwise use the policy
         state_t = torch.FloatTensor(state_np).unsqueeze(0).unsqueeze(0).to(self.device)  # (1,1,H,W)
@@ -549,14 +544,11 @@ class SACAgent:
             if deterministic:
                 # 결정적 행동 선택: mean에 대해 바로 sigmoid 변환.
                 mean, _ = self.policy.forward(state_t)
-                action_t = 4*torch.sigmoid(mean)-2
+                action_t = 4 * torch.sigmoid(mean) - 2
             else:
                 # 비결정적 선택: sample_action에서 샘플링 (자코비안 보정 포함)
-                action_t, log_prob = self.policy.sample_action(state_t)
-        action_np = action_t.cpu().numpy()[0]
-        print(action_np)
-
-        return action_np, False
+                action_t, _ = self.policy.sample_action(state_t)
+        return action_t.cpu().numpy()[0], False
 
 
 
@@ -626,6 +618,9 @@ class SACAgent:
         # soft update
         self.soft_update(self.q1, self.q1_target)
         self.soft_update(self.q2, self.q2_target)
+
+        # RND predictor update
+        self.rnd.update(next_states)
 
     # ------------------------------------------------- #
     # Save / Load
