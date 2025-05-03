@@ -11,12 +11,11 @@ from timer_utils import Timer
 from config import ENABLE_TIMER
 import pickle
 import argparse
-
 import threading
 from torch.utils.tensorboard import SummaryWriter
 import subprocess
 import webbrowser
-from Start_training import START_DECAY_STEP, START_EPSILON, EPSILON_MIN, SCHEDULER_TYPE, DECAY_VALUE, REWARD_A, REWARD_B, REWARD_C, REWARD_D, REWARD_E, REWARD_F, REWARD_G, REWARD_H, REWARD_I, REWARD_J, REWARD_K, CROWD_NUMBER_MIN, CROWD_NUMBER_MAX, LINEARLY_DECAY_STEP, START_UPDATE_STEP, LOG_DIR, FINISHED_BONUS, REWARD_FIXED
+from Start_training import START_DECAY_STEP, START_EPSILON, EPSILON_MIN, SCHEDULER_TYPE, DECAY_VALUE, REWARD_A, REWARD_B, REWARD_C, REWARD_D, REWARD_E, REWARD_F, REWARD_G, REWARD_H, REWARD_I, REWARD_J, REWARD_K, CROWD_NUMBER_MIN, CROWD_NUMBER_MAX, LINEARLY_DECAY_STEP, START_UPDATE_STEP, LOG_DIR, FINISHED_BONUS, REWARD_FIXED, MAP_NUM, EXPLORATION_TYPE
 # Timer instances
 sim_timer = Timer() 
 learn_timer = Timer()
@@ -358,6 +357,7 @@ class SACAgent:
         self.policy_optimizer = optim.Adam(self.policy.parameters(), lr=lr)
 
 
+
 # ------------------------------------------------- #
     # Soft update
     # ------------------------------------------------- #
@@ -384,12 +384,27 @@ class SACAgent:
         If using epsilon > 0.0 for random exploration, 
         we can do random direction + random mode sometimes.
         """
-        # Epsilon check
-        if np.random.rand() < self.epsilon:
-            # random direction in [-1,1], random mode
-            dx = np.random.uniform(-2,2)
-            dy = np.random.uniform(-2,2)
-            return np.array([dx, dy]), True
+
+        if(EXPLORATION_TYPE == 0):
+            # Epsilon check
+            if np.random.rand() < self.epsilon:
+                # random direction in [-1,1], random mode
+                dx = np.random.uniform(-2,2)
+                dy = np.random.uniform(-2,2)
+                return np.array([dx, dy]), True
+        elif(EXPLORATION_TYPE == 1):
+                #dx, dy = intrinsic_curiosity()
+                return np.array([dx, dy]), True
+        elif(EXPLORATION_TYPE == 2):
+                #dx, dy = random_network_distillation
+                return np.array([dx, dy]), True
+        elif(EXPLORATION_TYPE == 3):
+            if np.random.rand() < self.epsilon:
+                # random direction in [-1,1], random mode
+                # dx, dy = go_explore()
+                dx = np.random.uniform(-2,2)
+                dy = np.random.uniform(-2,2)
+                return np.array([dx, dy]), True
 
         # Otherwise use the policy
         state_t = torch.FloatTensor(state_np).unsqueeze(0).unsqueeze(0).to(self.device)  # (1,1,H,W)
@@ -666,7 +681,7 @@ if __name__ == "__main__":
                 else:
                     number_of_agents = random.randint(CROWD_NUMBER_MIN, CROWD_NUMBER_MAX)
                  
-                env_model = model.FightingModel(number_of_agents, 50, 50, 2, 'Q')
+                env_model = model.FightingModel(number_of_agents, 50, 50, model_num = MAP_NUM, robot = 'Q')
                 break
             except Exception as e:
                 print(e, "Retrying environment creation...")
@@ -680,10 +695,11 @@ if __name__ == "__main__":
         buffered_state = state
         buffered_action = None
         abnormal_reward = 0
+        r_k = 0
         try:
             for step in range(max_steps):
                 # 1) Select action
-
+            
                 if(step%ACTION_SCALE==0):
                     
                     if(np.random.rand() < agent.epsilon_long):
@@ -713,6 +729,8 @@ if __name__ == "__main__":
                 if(env_model.robot.is_game_finished):
                     reward += FINISHED_BONUS * (1-step/max_steps)
 
+                if (REWARD_K):
+                    r_k += env_model.reward_penalty_collision() * REWARD_K
                 # 6) Store transition
                 if((step%ACTION_SCALE==(ACTION_SCALE-1) and step>ACTION_SCALE) or (env_model.robot.is_game_finished and step>ACTION_SCALE)):
                     r_a = 0
@@ -725,7 +743,7 @@ if __name__ == "__main__":
                     r_h = 0
                     r_i = 0
                     r_j = 0      
-                    r_k = 0
+
                     if (REWARD_A):
                         r_a = env_model.reward_based_alived() * REWARD_A
                     if (REWARD_B):
@@ -747,22 +765,24 @@ if __name__ == "__main__":
                     if (REWARD_J):
                         r_j = env_model.reward_based_all_agents_danger_log() * REWARD_J
                     
-                    reward += (r_a + r_b + r_c + r_d + r_e + r_g + r_h + r_i+r_j+REWARD_FIXED)
-
+                    reward += (r_a + r_b + r_c + r_d + r_e + r_g + r_h + r_i+r_j+r_k+REWARD_FIXED)
+                    
                     if(SCALE_CHECK):
                         print("reward_a : ", r_a)
                         print("reward_b : ", r_b)
-                        print("reward_c : ", r_c)
+                        #print("reward_c : ", r_c)
                         print("reward_d : ", r_d)
-                        print("reward_e : ", r_e)
-                        print("reward f : ", r_f)
-                        print("reward g : ", r_g)
-                        print("reward h : ", r_h)
-                        print("reward i : ", r_i)
-                        print("reward j : ", r_j)
+                        #print("reward_e : ", r_e)
+                        #print("reward f : ", r_f)
+                        #print("reward g : ", r_g)
+                        #print("reward h : ", r_h)
+                        #print("reward i : ", r_i)
+                        #print("reward j : ", r_j)
                         print("reward k : ", r_k)
 
-                    agent.store_transition(
+                    r_k = 0
+
+                    agent.store_transition(    
                         buffered_state,
                         buffered_action,
                         reward, 
