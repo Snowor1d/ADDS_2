@@ -515,39 +515,20 @@ class SACAgent:
         returns (action_np: [dx, dy], exploratory: bool)
         """
 
-        # --- 0: ε-greedy 탐사 ---
-        if EXPLORATION_TYPE == 0:
-            if np.random.rand() < self.epsilon:
-                dx = np.random.uniform(-2, 2)
-                dy = np.random.uniform(-2, 2)
-                return np.array([dx, dy]), True
-            
-        # --- 1: RND  ---
-        elif EXPLORATION_TYPE == 1:
-            # policy 네트워크로부터 행동 선택
-            state_t = torch.FloatTensor(state_np).unsqueeze(0).unsqueeze(0).to(self.device)
-            with torch.no_grad():
-                if deterministic:
-                    mean, _ = self.policy(state_t)
-                    action_t = 4 * torch.sigmoid(mean) - 2
-                else:
-                    action_t, _ = self.policy.sample_action(state_t)
-            return action_t.cpu().numpy()[0], False
+        # ε-greedy + RND 
+        if EXPLORATION_TYPE == 1 and np.random.rand() < self.epsilon:
+            # RND 모듈을 이용해 탐사 액션 생성
+            dx, dy = self.rnd_exploration_action(state_np)
+            return np.array([dx, dy]), True
 
-        
-
-        # Otherwise use the policy
-        state_t = torch.FloatTensor(state_np).unsqueeze(0).unsqueeze(0).to(self.device)  # (1,1,H,W)
-        # state_np는 2D 배열인데, 차원을 추가하여 모델 입력에 적합한 차원으로 만들려는 것
-
+        state_t = torch.FloatTensor(state_np).unsqueeze(0).unsqueeze(0).to(self.device)
         with torch.no_grad():
             if deterministic:
-                # 결정적 행동 선택: mean에 대해 바로 sigmoid 변환.
-                mean, _ = self.policy.forward(state_t)
+                mean, _ = self.policy(state_t)
                 action_t = 4 * torch.sigmoid(mean) - 2
             else:
-                # 비결정적 선택: sample_action에서 샘플링 (자코비안 보정 포함)
                 action_t, _ = self.policy.sample_action(state_t)
+
         return action_t.cpu().numpy()[0], False
 
 

@@ -20,7 +20,7 @@ EXPLORATION_TYPE = 1 #RND
 long_epsilon_min = 0
 start_long_epsilon = 0
 
-LOG_DIR = "learning_log_guide_game_sac4_mini"
+LOG_DIR = "learning_log_SAC_RND"
 log_std_max = 0.5
 log_std_min = -20
 alpha = 0.2 # in SAC
