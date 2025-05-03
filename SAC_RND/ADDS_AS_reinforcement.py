@@ -454,39 +454,6 @@ class SACAgent:
         # RND 연결
         self.rnd = RNDModule(input_shape=input_shape, device=device, lr=lr, beta=1.0)
 
-# ------------------------------------------------------------------ #
-    #  RND 기반 탐사 액션 선택
-    # ------------------------------------------------------------------ #
-    def rnd_exploration_action(self, state_np):
-        """
-        ① 8개의 (-2~2) 무작위 (dx,dy) 후보
-        ② 각 후보를 env.step 1회 → intrinsic reward 측정
-           (step-rollback 불가능하다면 random choice)
-        ③ 가장 큰 intrinsic reward action 반환
-        ※ env rollback 불가한 엔진이면 ②블록을 주석 처리해도 학습은 진행.
-        """
-        # ----- (1) 후보 생성 -----
-        cand_actions = np.random.uniform(-2, 2, size=(8, 2))
-        best_idx = 0
-        best_score = -1
-
-        # ----- (2) 평가 – 단일 프레임 시뮬레이트 -----
-        #   주: FightingModel 이 reset-to-prevFrame 기능이 없으면
-        #       이 부분을 주석 처리하고 random pick 으로 대체
-        # from copy import deepcopy
-        # env_backup = deepcopy(self.temp_env)   # ← 사용중인 env 핸들
-        # for i, a in enumerate(cand_actions):
-        #     ns, _, _, _ = self.temp_env.step_preview(a)  # (가상의 1step)
-        #     score = self.rnd.compute_intrinsic_reward(ns)
-        #     if score > best_score:
-        #         best_score, best_idx = score, i
-        # self.temp_env.restore(env_backup)
-        # --------------------------------------------------------------- #
-        # Rollback 불가할 땐 “무작위 후보 중 하나”를 반환
-        best_idx = random.randint(0, 7)
-        # --------------------------------------------------------------- #
-        dx, dy = cand_actions[best_idx]
-        return dx, dy
 
 # ------------------------------------------------- #
     # Soft update
@@ -515,10 +482,10 @@ class SACAgent:
         returns (action_np: [dx, dy], exploratory: bool)
         """
 
-        # ε-greedy + RND 
-        if EXPLORATION_TYPE == 1 and np.random.rand() < self.epsilon:
-            # RND 모듈을 이용해 탐사 액션 생성
-            dx, dy = self.rnd_exploration_action(state_np)
+        # ε-greedy
+        if np.random.rand() < self.epsilon:
+            dx = np.random.uniform(-2, 2)
+            dy = np.random.uniform(-2, 2)
             return np.array([dx, dy]), True
 
         state_t = torch.FloatTensor(state_np).unsqueeze(0).unsqueeze(0).to(self.device)
