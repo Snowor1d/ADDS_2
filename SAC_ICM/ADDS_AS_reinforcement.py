@@ -15,7 +15,7 @@ import threading
 from torch.utils.tensorboard import SummaryWriter
 import subprocess
 import webbrowser
-from Start_training import START_DECAY_STEP, START_EPSILON, EPSILON_MIN, SCHEDULER_TYPE, DECAY_VALUE, REWARD_A, REWARD_B, REWARD_C, REWARD_D, REWARD_E, REWARD_F, REWARD_G, REWARD_H, REWARD_I, REWARD_J, REWARD_K, CROWD_NUMBER_MIN, CROWD_NUMBER_MAX, LINEARLY_DECAY_STEP, START_UPDATE_STEP, LOG_DIR, FINISHED_BONUS, REWARD_FIXED, MAP_NUM, EXPLORATION_TYPE
+from Start_training import START_DECAY_STEP, START_EPSILON, EPSILON_MIN, SCHEDULER_TYPE, DECAY_VALUE, REWARD_A, REWARD_B, REWARD_C, REWARD_D, REWARD_E, REWARD_F, REWARD_G, REWARD_H, REWARD_I, REWARD_J, REWARD_K, CROWD_NUMBER_MIN, CROWD_NUMBER_MAX, LINEARLY_DECAY_STEP, START_UPDATE_STEP, LOG_DIR, FINISHED_BONUS, REWARD_FIXED, INTRINSIC_ETA, MAP_NUM, EXPLORATION_TYPE
 # Timer instances
 sim_timer = Timer() 
 learn_timer = Timer()
@@ -239,6 +239,13 @@ class QNetwork(nn.Module):
         x = F.leaky_relu(self.fc2(x), negative_slope=0.01)
         q_val = self.q_out(x)
         return q_val
+    
+    @torch.no_grad()
+    def extract_phi(self, s):
+        x = F.leaky_relu(self.bn1(self.conv1(s)), .01)
+        x = F.leaky_relu(self.bn2(self.conv2(x)), .01)
+        x = F.leaky_relu(self.bn3(self.conv3(x)), .01)
+        return x.view(x.size(0), -1)
 
 
 ##########################################################################
@@ -315,6 +322,48 @@ class PolicyNetwork(nn.Module):
         return action, log_prob
 
 
+# -----------------------------------------------------------------------------
+# ICM Module -------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+class ICM(nn.Module):
+    """Intrinsic Curiosity Module (feature extractor, inverse & forward models)."""
+
+    def __init__(self, feature_dim: int, action_dim: int, hidden_dim: int = 256):
+        super().__init__()
+        # φ extractor: simple MLP (conv output → hidden)
+        self.phi = nn.Sequential(
+            nn.Linear(feature_dim, hidden_dim), nn.LeakyReLU(0.01)
+        )
+        # Inverse model
+        self.inverse = nn.Sequential(
+            nn.Linear(2 * hidden_dim, hidden_dim), nn.LeakyReLU(0.01),
+            nn.Linear(hidden_dim, action_dim)
+        )
+        # Forward model
+        self.fwd_model = nn.Sequential(
+            nn.Linear(hidden_dim + action_dim, hidden_dim), nn.LeakyReLU(0.01),
+            nn.Linear(hidden_dim, hidden_dim)
+        )
+        self.hidden_dim = hidden_dim
+
+    # ---------------------------------------------------------------------
+    def forward(self, phi_s, phi_next, action):
+        # Inverse -----------------------------------------------------------------
+
+        h = self.phi(phi_s)
+        h_next = self.phi(phi_next)
+
+        inv_pred = self.inverse(torch.cat([h, h_next], dim=1))
+        loss_inv = F.mse_loss(inv_pred, action)
+        
+        pred_next = self.fwd_model(torch.cat([h, action], 1))
+        err = 0.5 * (pred_next - h_next).pow(2).sum(1) 
+        loss_fwd = err.mean()
+        
+        r_int = err.detach()
+        return loss_inv, loss_fwd, r_int
+
+
 
 ##########################################################################
 # 5) SAC Agent for Action
@@ -329,6 +378,8 @@ class SACAgent:
         self.epsilon = start_epsilon
         self.epsilon_long = start_epsilon_long
         self.epsilon_long_min = long_epsilon_min
+
+
 
         # Replay buffer
         self.replay_buffer = ReplayBuffer(capacity=int(replay_size))
@@ -351,10 +402,20 @@ class SACAgent:
         # Policy network
         self.policy = PolicyNetwork(input_shape).to(self.device)
 
+        # ICM
+        conv_out = self.q1._get_conv_out(input_shape)
+        self.icm = ICM(feature_dim = conv_out, action_dim = 2).to(self.device)
+        self.eta = INTRINSIC_ETA
+
+
+
         # Optimizers
         self.q1_optimizer = optim.Adam(self.q1.parameters(), lr=lr) #parameter optimizaing
         self.q2_optimizer = optim.Adam(self.q2.parameters(), lr=lr)
         self.policy_optimizer = optim.Adam(self.policy.parameters(), lr=lr)
+        self.icm_optimizer = optim.Adam(self.icm.parameters(), lr=lr)
+        self.icm_eta = INTRINSIC_ETA
+        self.icm_beta = 0.2
 
 
 
@@ -419,7 +480,7 @@ class SACAgent:
                 # 비결정적 선택: sample_action에서 샘플링 (자코비안 보정 포함)
                 action_t, log_prob = self.policy.sample_action(state_t)
         action_np = action_t.cpu().numpy()[0]
-        print(action_np)
+        #print(action_np)
 
         return action_np, False
 
@@ -437,9 +498,13 @@ class SACAgent:
 
         # 1. Replay Buffer에서 샘플 가져오기
         states, actions, rewards, next_states, dones = self.replay_buffer.sample(self.batch_size, self.device)
+        actions = actions.to(self.device)
+        
+        phi = self.q1.extract_phi(states)
+        phi_next = self.q1.extract_phi(next_states)
+        inv_l, fwd_l, r_int = self.icm(phi, phi_next, actions)
+        r_total = rewards + self.icm_eta * r_int
 
-
-        # (B,1,H,W), (B,4), (B,), (B,1,H,W), (B,)
         # Q target:
         with torch.no_grad():
             # next action, next log prob
@@ -449,7 +514,9 @@ class SACAgent:
             q2_next = self.q2_target(next_states, next_action)
             q_next = torch.min(q1_next, q2_next).squeeze(-1)  # (B,)
             # soft state value
-            q_target = rewards + self.gamma * (1 - dones) * (q_next - self.alpha * next_log_prob)
+            q_target = r_total + self.gamma * (1 - dones) * (q_next - self.alpha * next_log_prob)
+
+    
 
         # ----- Update Q1, Q2 -----
         q1_val = self.q1(states, actions).squeeze(-1)  # (B,) #q value를 scalar 값으로
@@ -488,6 +555,11 @@ class SACAgent:
         self.policy_optimizer.step()
         # optimizer가 저장된 기울기(.grad)를 사용하여 네트워크의 파라미터 업데이트
 
+        self.icm_optimizer.zero_grad()
+        ( (1-self.icm_beta)*inv_l + self.icm_beta*fwd_l ).backward()
+        torch.nn.utils.clip_grad_norm_(self.icm.parameters(),1.0)
+        self.icm_optimizer.step()
+
         # soft update
         self.soft_update(self.q1, self.q1_target)
         self.soft_update(self.q2, self.q2_target)
@@ -497,29 +569,29 @@ class SACAgent:
     # ------------------------------------------------- #
     def save_model(self, filepath):
         torch.save({
-            'q1': self.q1.state_dict(),
-            'q2': self.q2.state_dict(),
-            'q1_target': self.q1_target.state_dict(),
-            'q2_target': self.q2_target.state_dict(),
-            'policy': self.policy.state_dict(),
-            'q1_opt': self.q1_optimizer.state_dict(),
-            'q2_opt': self.q2_optimizer.state_dict(),
-            'policy_opt': self.policy_optimizer.state_dict()
-        }, filepath)
+            'q1':self.q1.state_dict(),
+            'q2':self.q2.state_dict(),
+            'q1_target':self.q1_target.state_dict(),
+            'q2_target':self.q2_target.state_dict(),
+            'policy':self.policy.state_dict(),
+            'icm':self.icm.state_dict(),
+            'q1_opt':self.q1_optimizer.state_dict(),
+            'q2_opt':self.q2_optimizer.state_dict(),'policy_opt':self.policy_optimizer.state_dict(),'icm_opt':self.icm_optimizer.state_dict()}, filepath)
+
         print(f"Model saved to {filepath}")
 
     def load_model(self, filepath):
-        filepath = os.path.join(log_dir, filepath)
-        ckpt = torch.load(filepath)
+        ckpt=torch.load(filepath,map_location=self.device)
         self.q1.load_state_dict(ckpt['q1'])
         self.q2.load_state_dict(ckpt['q2'])
         self.q1_target.load_state_dict(ckpt['q1_target'])
         self.q2_target.load_state_dict(ckpt['q2_target'])
         self.policy.load_state_dict(ckpt['policy'])
+        self.icm.load_state_dict(ckpt['icm'])
         self.q1_optimizer.load_state_dict(ckpt['q1_opt'])
         self.q2_optimizer.load_state_dict(ckpt['q2_opt'])
         self.policy_optimizer.load_state_dict(ckpt['policy_opt'])
-        print(f"Model loaded from {filepath}")
+        self.icm_optimizer.load_state_dict(ckpt['icm_opt'])
 
     def reset(self):
         pass

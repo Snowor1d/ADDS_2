@@ -9,47 +9,48 @@ batch_size = 128
 
 EPSILON_MIN = 0.1 #min epsilon
 START_EPSILON = 1 #start epsilon
-
+MAP_NUM = -1 #if not used, -2, if random, -1
+MAP_NUM_RANDOM = [21, 24, 25, 26]
+INTRINSIC_ETA = 0.1 #intrinsic reward
 SCHEDULER_TYPE = "l" 
 DECAY_VALUE = 0
 LINEARLY_DECAY_STEP = 2000
-START_UPDATE_STEP = 150
-START_DECAY_STEP = 0
-
+START_UPDATE_STEP = 0
+START_DECAY_STEP = 150
+EXPLORATION_TYPE = 0
 long_epsilon_min = 0
 start_long_epsilon = 0
 
-LOG_DIR = "learning_log_guide_game_sac4_mini"
+LOG_DIR = "log_sac_icm"
 log_std_max = 0.5
 log_std_min = -20
 alpha = 0.2 # in SAC
 device = "cpu" 
-start_batch_times = 0 #when start update?
+start_batch_times = 1 #when start update?
 gamma = 0.99
 port_num = 6007
 
-REWARD_A = 0 #reward_based_alived
-REWARD_B = 0.002 #reward_based_all_agents_danger
-REWARD_D = 2 #reward_penalty
-REWARD_I = 1 #reward_based_alived_root
-REWARD_J = 0.2 #reward_based_all_agents_danger_log
-REWARD_FIXED = 0
+REWARD_A = 1 #reward_based_alived
+REWARD_B = 0.003 #reward_based_all_agents_danger
+REWARD_D = 2 #reward_based_penalty
+REWARD_K = 0.5 #reward_penalty_collsion
+REWARD_FIXED = -0.5
 
+REWARD_J = 0 #reward_based_all_agents_danger_log
+REWARD_I = 0 #reward_based_alived_root
 REWARD_C = 0 #reward_based_gain
 REWARD_E = 0 #reward_based_evacuated_with_robot
 REWARD_F = 0 #reward_based_distance_from_near_agents
 REWARD_G = 0 #reward_based_distance_from_near_agent_gain
 REWARD_H = 0 #reward_based_gain_with_time_bonus
-REWARD_K = 0 #reward_based_near_agents_exist
-
-CROWD_NUMBER_MIN = 20
-CROWD_NUMBER_MAX = 20
+CROWD_NUMBER_MIN = 25
+CROWD_NUMBER_MAX = 25
 
 
 FINISHED_BONUS = 200
-scale_check = 0 # want to check reward scale?
+scale_check = 1 # want to check reward scale?
 action_scale = 4
-max_steps = 6000
+max_steps = 4000
 
 
 
