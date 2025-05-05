@@ -13,6 +13,7 @@ MAP_NUM = -1 #if not used, -2, if random, -1
 MAP_NUM_RANDOM = [21, 24, 25, 26]
 SCHEDULER_TYPE = "l" 
 DECAY_VALUE = 0
+RND_BETA = 0.5
 LINEARLY_DECAY_STEP = 2000
 START_UPDATE_STEP = 150
 START_DECAY_STEP = 150
@@ -20,12 +21,12 @@ EXPLORATION_TYPE = 1 #RND
 long_epsilon_min = 0
 start_long_epsilon = 0
 
-LOG_DIR = "learning_log_SAC_RND"
+LOG_DIR = "log_SAC_RND"
 log_std_max = 0.5
 log_std_min = -20
 alpha = 0.2 # in SAC
 device = "cpu" 
-start_batch_times = 0 #when start update?
+start_batch_times = 1 #when start update?
 gamma = 0.99
 port_num = 6007
 
@@ -42,14 +43,14 @@ REWARD_E = 0 #reward_based_evacuated_with_robot
 REWARD_F = 0 #reward_based_distance_from_near_agents
 REWARD_G = 0 #reward_based_distance_from_near_agent_gain
 REWARD_H = 0 #reward_based_gain_with_time_bonus
-CROWD_NUMBER_MIN = 25
-CROWD_NUMBER_MAX = 25
+CROWD_NUMBER_MIN = 20
+CROWD_NUMBER_MAX = 20
 
 
-FINISHED_BONUS = 200
+FINISHED_BONUS = 50
 scale_check = 1 # want to check reward scale?
 action_scale = 4
-max_steps = 4000
+max_steps = 6000
 
 
 

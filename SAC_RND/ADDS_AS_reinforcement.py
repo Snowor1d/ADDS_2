@@ -15,7 +15,7 @@ import threading
 from torch.utils.tensorboard import SummaryWriter
 import subprocess
 import webbrowser
-from Start_training import START_DECAY_STEP, START_EPSILON, EPSILON_MIN, SCHEDULER_TYPE, DECAY_VALUE, REWARD_A, REWARD_B, REWARD_C, REWARD_D, REWARD_E, REWARD_F, REWARD_G, REWARD_H, REWARD_I, REWARD_J, REWARD_K, CROWD_NUMBER_MIN, CROWD_NUMBER_MAX, LINEARLY_DECAY_STEP, START_UPDATE_STEP, LOG_DIR, FINISHED_BONUS, REWARD_FIXED, MAP_NUM, EXPLORATION_TYPE
+from Start_training import START_DECAY_STEP, START_EPSILON, EPSILON_MIN, SCHEDULER_TYPE, DECAY_VALUE, REWARD_A, REWARD_B, REWARD_C, REWARD_D, REWARD_E, REWARD_F, REWARD_G, REWARD_H, REWARD_I, REWARD_J, REWARD_K, CROWD_NUMBER_MIN, CROWD_NUMBER_MAX, LINEARLY_DECAY_STEP, START_UPDATE_STEP, LOG_DIR, FINISHED_BONUS, REWARD_FIXED, MAP_NUM, EXPLORATION_TYPE, RND_BETA
 # Timer instances
 sim_timer = Timer() 
 learn_timer = Timer()
@@ -335,15 +335,31 @@ class RNDTarget(nn.Module):
     def forward(self, x):
         x = self.net(x)
         return self.fc(x)
-
 class RNDPredictor(nn.Module):
-    """학습되는 CNN – Target과 동일 구조"""
     def __init__(self, input_shape=(50, 50)):
         super().__init__()
-        self.net = RNDTarget(input_shape)
+        C, H, W = 1, *input_shape
+        self.cnn = nn.Sequential(
+            nn.Conv2d(C, 32, 5, 2, 2), nn.LeakyReLU(0.01),
+            nn.Conv2d(32, 64, 3, 2, 1), nn.LeakyReLU(0.01),
+            nn.Conv2d(64, 64, 3, 2, 1), nn.LeakyReLU(0.01),
+            nn.Flatten()
+        )
+        flat = self.cnn(torch.zeros(1, C, H, W)).shape[1]
+        self.mlp = nn.Sequential(
+            nn.Linear(flat, 512), nn.LeakyReLU(0.01),
+            nn.Linear(512, 128)
+        )
+
+        # --- 명시적 초기화(Orthogonal) ---
+        for m in self.modules():
+            if isinstance(m, (nn.Conv2d, nn.Linear)):
+                nn.init.orthogonal_(m.weight)
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
 
     def forward(self, x):
-        return self.net(x)
+        return self.mlp(self.cnn(x))
 
 class RNDModule:
     """
@@ -397,20 +413,27 @@ class RNDModule:
         return mse.item()
 
     def update(self, state_batch):
-        """
-        Predictor 한 step 학습
-        state_batch: (B,1,H,W) torch – 이미 norm 통과 전 원본
-        """
-        self._update_obs_stats(state_batch)
-        s = self._norm(state_batch)
-        with torch.no_grad():
-            tgt = self.target(s)
-        pred = self.predictor(s)
-        loss = F.mse_loss(pred, tgt.detach())
-        self.optim.zero_grad()
-        loss.backward()
-        self.optim.step()
+        """Predictor 한 step 학습 (state_batch: (B,1,H,W) CPU or GPU)"""
+        # 0) 디바이스 통일
+        state_batch = state_batch.to(self.device)
 
+        # 1) 러닝 통계 갱신
+        self._update_obs_stats(state_batch)
+
+        # 2) 화이트닝
+        s_norm = self._norm(state_batch)
+
+        with torch.no_grad():
+            tgt = self.target(s_norm)
+
+        pred  = self.predictor(s_norm)
+        loss  = F.mse_loss(pred, tgt)
+
+        # 3) 학습
+        self.optim.zero_grad(set_to_none=True)
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.predictor.parameters(), 1.0)
+        self.optim.step()
 ##########################################################################
 # 5) SAC Agent for Action
 ##########################################################################
@@ -452,7 +475,7 @@ class SACAgent:
         self.policy_optimizer = optim.Adam(self.policy.parameters(), lr=lr)
 
         # RND 연결
-        self.rnd = RNDModule(input_shape=input_shape, device=device, lr=lr, beta=1.0)
+        self.rnd = RNDModule(input_shape=input_shape, device=device, lr=lr, beta=RND_BETA)
 
 
 # ------------------------------------------------- #
