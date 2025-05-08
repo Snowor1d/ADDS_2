@@ -1,45 +1,3 @@
-#######################################################################
-# ★  SumTree 구현  (sum-tree.py 라는 별도 파일로 두면 깔끔)
-#######################################################################
-class SumTree:
-    def __init__(self, capacity:int):
-        self.capacity = capacity                # 최대 transition 수
-        self.tree = np.zeros(2*capacity)        # 1-indexed binary tree
-        self.data = np.empty(capacity, dtype=object)
-        self.write = 0
-        self.size  = 0
-
-    # leaf 갱신
-    def _update(self, idx:int, p:float):
-        change = p - self.tree[idx]
-        while idx >= 1:
-            self.tree[idx] += change
-            idx //= 2
-
-    def add(self, p:float, data):
-        idx = self.write + self.capacity
-        self.data[self.write] = data
-        self._update(idx, p)
-        self.write = (self.write + 1) % self.capacity
-        self.size  = min(self.size+1, self.capacity)
-
-    def total(self):
-        return self.tree[1]
-
-    # 비선형 검색(모든 구간의 sum이 균등)
-    def get(self, s:float):
-        idx = 1
-        while idx < self.capacity:      # 내려가며 leaf 찾기
-            left = idx*2
-            if s <= self.tree[left]:
-                idx = left
-            else:
-                s -= self.tree[left]
-                idx = left + 1
-        data_idx = idx - self.capacity
-        return idx, self.tree[idx], self.data[data_idx]
-
-
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -150,65 +108,29 @@ def monitor_metric(metric_file, metric_name, tb_log_dir):
         finally:
             writer.close()
 
-#######################################################################
-# ★  Prioritized ReplayBuffer
-#######################################################################
-class ReplayBufferPER:
-    def __init__(self, capacity=int(1e5), alpha_per=0.6, beta0=0.4,
-                 beta_anneal_steps=1e6, device=None, eps=1e-6):
+##########################################################################
+# 1) Replay Buffer
+##########################################################################
+class ReplayBuffer:
+    def __init__(self, capacity=int(1e4), device=None):
         self.buffer = deque(maxlen=capacity)
-        self.tree  = SumTree(capacity)
-        self.alpha = alpha_per
-        self.beta0 = beta0
-        self.beta_steps = beta_anneal_steps
-        self.step  = 0
-        self.max_p = 1.0     # 새 경험은 항상 max priority 부여
         self.device = device
-        self.eps = eps
-
-    def _priority(self, td_error):
-        return (np.abs(td_error)+self.eps) ** self.alpha
-
-    # 저장
     def push(self, state, action, reward, next_state, done):
-        data = (state, action, reward, next_state, done)
-        self.tree.add(self.max_p, data)
+        self.buffer.append((state, action, reward, next_state, done))
 
-    # 샘플 & IS weight 계산
-    def sample(self, batch_size):
-        seg = self.tree.total() / batch_size
-        batch, idxs, priorities = [], [], []
-        for i in range(batch_size):
-            s = random.uniform(seg*i, seg*(i+1))
-            idx, p, data = self.tree.get(s)
-            batch.append(data)
-            idxs.append(idx)
-            priorities.append(p)
-        # mini‑batch 준비
+    def sample(self, batch_size, device):
+        batch = random.sample(self.buffer, batch_size)
         states, actions, rewards, next_states, dones = zip(*batch)
-        states      = torch.FloatTensor(states).unsqueeze(1).to(self.device)
-        actions     = torch.FloatTensor(actions).to(self.device)
-        rewards     = torch.FloatTensor(rewards).to(self.device)
-        next_states = torch.FloatTensor(next_states).unsqueeze(1).to(self.device)
-        dones       = torch.FloatTensor(dones).to(self.device)
 
-        # IS weights
-        self.step += 1
-        beta = min(1.0, self.beta0 + (1.0-self.beta0)*self.step/self.beta_steps)
-        probs = np.array(priorities) / self.tree.total()
-        weights = (self.tree.size * probs) ** (-beta)
-        weights /= weights.max()           # 안정화
-        weights = torch.FloatTensor(weights).to(self.device)
+        states      = torch.FloatTensor(states).unsqueeze(1).to(device)  # (B,1,H,W) if grayscale
+        actions     = torch.FloatTensor(actions).to(device)             # (B,4)
+        rewards     = torch.FloatTensor(rewards).to(device)             # (B,)
+        next_states = torch.FloatTensor(next_states).unsqueeze(1).to(device)
+        dones       = torch.FloatTensor(dones).to(device)               # (B,)
+        return states, actions, rewards, next_states, dones
 
-        return (states, actions, rewards, next_states, dones, idxs, weights)
-
-    # TD‑error로 priority 업데이트
-    def update_priorities(self, idxs, td_errors):
-        td_errors = td_errors.detach().cpu().numpy()
-        for idx, err in zip(idxs, td_errors):
-            p = self._priority(err)
-            self.tree._update(idx, p)
-            self.max_p = max(self.max_p, p)
+    def __len__(self):
+        return len(self.buffer)
 
     def save(self, filepath):
         with open(filepath, "wb") as f:
@@ -216,9 +138,6 @@ class ReplayBufferPER:
     def load(self, filepath):
         with open(filepath, "rb") as f:
             self.buffer = pickle.load(f)
-
-    def __len__(self):
-        return self.tree.size
 
 class ResidualBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
@@ -412,7 +331,7 @@ class SACAgent:
         self.epsilon_long_min = long_epsilon_min
 
         # Replay buffer
-        self.replay_buffer = ReplayBufferPER(capacity=int(replay_size), alpha_per = 0.6, beta0=0.5, beta_anneal_steps=1e6, device=self.device)
+        self.replay_buffer = ReplayBuffer(capacity=int(replay_size))
         
 
         # Critic networks
@@ -473,19 +392,6 @@ class SACAgent:
                 dx = np.random.uniform(-2,2)
                 dy = np.random.uniform(-2,2)
                 return np.array([dx, dy]), True
-        elif(EXPLORATION_TYPE == 1):
-                #dx, dy = intrinsic_curiosity()
-                return np.array([dx, dy]), True
-        elif(EXPLORATION_TYPE == 2):
-                #dx, dy = random_network_distillation
-                return np.array([dx, dy]), True
-        elif(EXPLORATION_TYPE == 3):
-            if np.random.rand() < self.epsilon:
-                # random direction in [-1,1], random mode
-                # dx, dy = go_explore()
-                dx = np.random.uniform(-2,2)
-                dy = np.random.uniform(-2,2)
-                return np.array([dx, dy]), True
 
         # Otherwise use the policy
         state_t = torch.FloatTensor(state_np).unsqueeze(0).unsqueeze(0).to(self.device)  # (1,1,H,W)
@@ -517,7 +423,7 @@ class SACAgent:
         #states, actions, rewards, next_states, dones = self.replay_buffer.sample(self.batch_size)
 
         # 1. Replay Buffer에서 샘플 가져오기
-        (states, actions, rewards, next_states, dones, idxs, is_weights) = self.replay_buffer.sample(self.batch_size)
+        states, actions, rewards, next_states, dones = self.replay_buffer.sample(self.batch_size, self.device)
 
 
         # (B,1,H,W), (B,4), (B,), (B,1,H,W), (B,)
@@ -535,10 +441,8 @@ class SACAgent:
         # ----- Update Q1, Q2 -----
         q1_val = self.q1(states, actions).squeeze(-1)  # (B,) #q value를 scalar 값으로
         q2_val = self.q2(states, actions).squeeze(-1)
-        td_err1 = q1_val - q_target
-        td_err2 = q2_val - q_target
-        loss_q1 = (is_weights * td_err1.pow(2)).mean()
-        loss_q2 = (is_weights * td_err2.pow(2)).mean()
+        loss_q1 = F.mse_loss(q1_val, q_target) # q의 실제와 예측 차이 계산
+        loss_q2 = F.mse_loss(q2_val, q_target)
         max_grad_norm = 1.0
 
         self.q1_optimizer.zero_grad() #이전 단계의 기울기 초기화, optimizer.step()이 호출 될때 기울기가 누적되지 않도록 함 
@@ -570,9 +474,6 @@ class SACAgent:
         torch.nn.utils.clip_grad_norm_(self.policy.parameters(), max_grad_norm)
         self.policy_optimizer.step()
         # optimizer가 저장된 기울기(.grad)를 사용하여 네트워크의 파라미터 업데이트
-
-        td_errors = torch.max(td_err1.abs(), td_err2.abs()).detach()
-        self.replay_buffer.update_priorities(idxs, td_errors)
 
         # soft update
         self.soft_update(self.q1, self.q1_target)
