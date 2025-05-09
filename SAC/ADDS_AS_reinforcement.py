@@ -15,7 +15,9 @@ import threading
 from torch.utils.tensorboard import SummaryWriter
 import subprocess
 import webbrowser
-from Start_training import START_DECAY_STEP, START_EPSILON, EPSILON_MIN, SCHEDULER_TYPE, DECAY_VALUE, REWARD_A, REWARD_B, REWARD_C, REWARD_D, REWARD_E, REWARD_F, REWARD_G, REWARD_H, REWARD_I, REWARD_J, REWARD_K, CROWD_NUMBER_MIN, CROWD_NUMBER_MAX, LINEARLY_DECAY_STEP, START_UPDATE_STEP, LOG_DIR, FINISHED_BONUS, REWARD_FIXED, MAP_NUM, EXPLORATION_TYPE
+from Start_training import START_DECAY_STEP, START_EPSILON, EPSILON_MIN, SCHEDULER_TYPE, DECAY_VALUE, REWARD_A, REWARD_B, REWARD_C, REWARD_D, REWARD_E, REWARD_F, REWARD_G, REWARD_H, REWARD_I, REWARD_J, REWARD_K, CROWD_NUMBER_MIN, CROWD_NUMBER_MAX, LINEARLY_DECAY_STEP, START_UPDATE_STEP, LOG_DIR, FINISHED_BONUS, REWARD_FIXED, MAP_NUM, EXPLORATION_TYPE, \
+                            LR, BUFFER_SIZE, BATCH_SIZE, LOG_STD_MAX, LOG_STD_MIN, ALPHA_START, ALPHA_END, ALPHA_DECAY_STEPS, DEVICE, SCALE_CHECK, ACTION_SCALE, START_BATCH_TIMES, MAX_STEPS, PORT_NUM, LONG_EPSILON_MIN, START_LONG_EPSILON, \
+                            GAMMA_START, GAMMA_SCHEDULE_STEP, GAMMA_END
 # Timer instances
 sim_timer = Timer() 
 learn_timer = Timer()
@@ -26,34 +28,12 @@ model_load = 3
 # load specified model : 2
 # load latest model : 3
 
-
-parser = argparse.ArgumentParser()
-parser.add_argument("--lr", type=float, default=1e-4)
-parser.add_argument("--buffer_size", type=int, default=1e5)
-parser.add_argument("--batch_size", type=float, default=64)
-parser.add_argument("--log_std_max", type=float, default=1)
-parser.add_argument("--log_std_min", type=float, default=-0.5)
-parser.add_argument("--alpha", type=float, default=0.2)
-parser.add_argument("--device", type=str, default="cpu")
-parser.add_argument("--scale_check", type=int, default=0)
-parser.add_argument("--action_scale", type=float, default=3)
-parser.add_argument("--start_batch_times", type=float, default=50)
-parser.add_argument("--max_steps", type=int, default=2000)
-parser.add_argument("--gamma", type=float, default=0.999)
-parser.add_argument("--port_num", type=int, default=6006)
-parser.add_argument("--long_epsilon_min", type=float, default =0)
-parser.add_argument("--start_long_epsilon", type=float, default=0)
-args = parser.parse_args()
 home_dir = os.path.expanduser("~")
 log_dir = os.path.join(home_dir, LOG_DIR)
 os.makedirs(log_dir, exist_ok=True)
-
-
-ACTION_SCALE = args.action_scale
 os.makedirs(log_dir, exist_ok=True)
 
-SCALE_CHECK = args.scale_check
-START_BATCH_TIMES = args.start_batch_times
+
 
 def launch_tensorboard(tb_log_dir, port=6006):
     """
@@ -97,7 +77,7 @@ def monitor_metric(metric_file, metric_name, tb_log_dir):
                         try:
                             value = float(line)
                             writer.add_scalar(f"{metric_name}", value, episode)
-                            print(f"Episode {episode} - {metric_name} = {value}")
+                            #print(f"Episode {episode} - {metric_name} = {value}")
                             episode += 1
                         except ValueError:
                             print(f"Invalid value in {metric_file}: {line}")
@@ -107,6 +87,37 @@ def monitor_metric(metric_file, metric_name, tb_log_dir):
             print(f"Monitoring for {metric_file} interrupted by user.")
         finally:
             writer.close()
+
+def alpha_decay_schedule(parameter_start: float,
+                   parameter_end: float,
+                   decay_steps: int,
+                   episode_num: int) -> float:
+
+    # 감쇠가 끝났으면 최종값 고정
+    if episode_num >= decay_steps:
+        return parameter_end
+
+    # 선형 보간
+    progress = episode_num / float(decay_steps)
+    return parameter_start + (parameter_end - parameter_start) * progress
+
+
+def gamma_ascent_schedule(parameter_start: float,
+                          parameter_end : float,
+                          decay_steps : int,
+                          episode_num : int) -> float:
+    if episode_num >= decay_steps:
+        return parameter_end
+
+    # 음수 에피소드 처리: 초기값 반환
+    if episode_num <= 0:
+        return parameter_start
+
+    # 선형 보간으로 값 계산
+    progress = episode_num / float(decay_steps)
+    return parameter_start + (parameter_end - parameter_start) * progress
+    
+    
 
 ##########################################################################
 # 1) Replay Buffer
@@ -198,6 +209,7 @@ class EpsilonScheduler:
             return epsilon
         else:
             raise ValueError("scheduler_type must be either 'exponential' or 'linear'")
+        
     
 ##########################################################################
 # 3) Critic (Q) Network
@@ -247,10 +259,10 @@ class QNetwork(nn.Module):
 class PolicyNetwork(nn.Module):
     def __init__(self, input_shape=(50,50)):
         super(PolicyNetwork, self).__init__()
-        self.log_std_min = args.log_std_min
-        self.log_std_max = args.log_std_max
-        
-        # CNN feature extractor
+        self.log_std_min = LOG_STD_MIN
+        self.log_std_max = LOG_STD_MAX
+
+        # --- 여기서 conv1, bn1 선언 ---
         self.conv1 = nn.Conv2d(1, 32, kernel_size=5, stride=2, padding=2)
         self.bn1   = nn.BatchNorm2d(32)
         self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)
@@ -320,7 +332,7 @@ class PolicyNetwork(nn.Module):
 # 5) SAC Agent for Action
 ##########################################################################
 class SACAgent:
-    def __init__(self, input_shape=(50,50), gamma=args.gamma, alpha=0.2, tau=0.995, lr=1e-4, batch_size=64, replay_size=int(1e5), device="cpu", start_epsilon = 1.0, start_epsilon_long = 0.1, long_epsilon_min=0):
+    def __init__(self, input_shape=(50,50), gamma=GAMMA_START, alpha=0.2, tau=0.995, lr=1e-4, batch_size=64, replay_size=int(1e5), device="cpu", start_epsilon = 1.0, start_epsilon_long = 0.1, long_epsilon_min=0):
         self.gamma = gamma
         self.alpha = alpha
         self.tau = tau
@@ -409,6 +421,12 @@ class SACAgent:
         print(action_np)
 
         return action_np, False
+
+    def update_gamma(self, start_gamma, end_gamma, ascent_steps, now_episode):
+        self.gamma = gamma_ascent_schedule(start_gamma, end_gamma, ascent_steps, now_episode)
+    
+    def update_alpha(self, start_alpha, end_alpha, decay_steps, now_episode):
+        self.alpha = alpha_decay_schedule(start_alpha, end_alpha, decay_steps, now_episode)
 
 
 
@@ -571,7 +589,7 @@ if __name__ == "__main__":
     evacuation_time_80_file = os.path.join(log_dir, "evacuation_80.txt")
     evacuation_time_100_file = os.path.join(log_dir, "evacuation_100.txt")
 
-    tb_process = launch_tensorboard(tb_log_dir, port=args.port_num)
+    tb_process = launch_tensorboard(tb_log_dir, port=PORT_NUM)
     # 별도 스레드에서 total_reward.txt 모니터링 시작
     monitor_thread = threading.Thread(target=monitor_total_reward, args=(total_reward_file, tb_log_dir), daemon=True)
     monitor_thread.start()
@@ -609,18 +627,18 @@ if __name__ == "__main__":
                 else:
                     print("Not enough lines in start_epsilon.txt. Resetting values.")
                     start_epsilon = START_EPSILON
-                    start_epsilon_long = args.start_long_epsilon  # 기본값 설정
+                    start_epsilon_long = START_LONG_EPSILON  # 기본값 설정
             except ValueError:
                 print("Invalid value in start_epsilon.txt. Resetting to defaults.")
                 start_epsilon = START_EPSILON
-                start_epsilon_long = args.start_long_epsilon  # 기본값 설정
+                start_epsilon_long = START_LONG_EPSILON  # 기본값 설정
     else:
         start_epsilon = START_EPSILON
-        start_epsilon_long = args.start_long_epsilon  # 기본값 설정
+        start_epsilon_long = START_LONG_EPSILON  # 기본값 설정
         print("No start_epsilon.txt found. Initializing values to defaults.")
     
-    agent = SACAgent(input_shape=(50,50), alpha=args.alpha, lr=float(args.lr), start_epsilon=start_epsilon, start_epsilon_long = float(args.start_long_epsilon), long_epsilon_min=float(args.long_epsilon_min), batch_size=int(args.batch_size), replay_size=float(args.buffer_size), device=args.device)
-    print(f"Agent initialized, lr={args.lr}, alpha={agent.alpha}, batch_size={args.batch_size}, replay_size={args.buffer_size}")
+    agent = SACAgent(input_shape=(50,50), alpha=ALPHA_START, lr=float(LR), start_epsilon=start_epsilon, start_epsilon_long = float(START_LONG_EPSILON), long_epsilon_min=float(LONG_EPSILON_MIN), batch_size=int(BATCH_SIZE), replay_size=float(BUFFER_SIZE), device=DEVICE)
+    print(f"Agent initialized, lr={LR}, alpha={agent.alpha}, batch_size={BATCH_SIZE}, replay_size={BUFFER_SIZE}")
     replay_buffer_path = os.path.join(log_dir, "replay_buffer.pkl")
 
         
@@ -652,13 +670,13 @@ if __name__ == "__main__":
             pass
 
     abnormal_reward = 0
-    max_steps = args.max_steps
+    max_steps = MAX_STEPS
 
     epsilon_scheduler = EpsilonScheduler(start_epsilon=start_epsilon, epsilon_min = EPSILON_MIN, start_decay_step = START_DECAY_STEP, scheduler_type=SCHEDULER_TYPE, decay_value=DECAY_VALUE, linear_decay_steps = LINEARLY_DECAY_STEP)
 
-
     for episode in range(max_episodes):
-        print(f"Episode {start_episode+episode+1}")
+        episode_num = start_episode+episode
+        print(f"Episode {episode_num}")
         # Create environment
         while True:
             try:
@@ -682,7 +700,8 @@ if __name__ == "__main__":
         buffered_state = state
         buffered_action = None
         abnormal_reward = 0
-        r_k = 0
+        agent.update_alpha(ALPHA_START, ALPHA_END, ALPHA_DECAY_STEPS, episode_num)
+        agent.update_gamma(GAMMA_START, GAMMA_END, GAMMA_SCHEDULE_STEP, episode_num)
         try:
             for step in range(max_steps):
                 # 1) Select action
@@ -707,7 +726,7 @@ if __name__ == "__main__":
                 env_model.step()
                 sim_timer.stop()
                 reward = 0
-
+                r_k = 0
                 # 4) Next state
                 next_state = env_model.return_current_image()
 
@@ -781,7 +800,7 @@ if __name__ == "__main__":
                     reward = 0
 
                 # 7) Update agent
-                if(step%ACTION_SCALE==(ACTION_SCALE-1) and start_episode+episode>=START_UPDATE_STEP):
+                if(step%ACTION_SCALE==(ACTION_SCALE-1) and episode_num>=START_UPDATE_STEP):
                     learn_timer.start()
                     agent.update()
                     learn_timer.stop()
@@ -803,12 +822,17 @@ if __name__ == "__main__":
 
         # Possibly update epsilon, or do other logging
 
-        agent.epsilon = epsilon_scheduler.get_epsilon(agent.epsilon, episode+start_episode)
-        print("writing.. ", args.port_num)
+        agent.epsilon = epsilon_scheduler.get_epsilon(agent.epsilon, episode_num)
+        #print("writing.. ", PORT_NUM)
+        print("-----------------------------------------------")
         print("Total reward:", total_reward)
         print("now_epsilon : ", agent.epsilon)
+        print("now_alpha : ", agent.alpha)
+        print("now_gamma : ", agent.gamma)
         print("evacuation_time_80 : ", evacuation_time_80)
         print("evacuation_time_100 : ", evacuation_time_100)
+        
+        print("-----------------------------------------------")
         
         # print("now_epsilon_long : ", agent.epsilon_long)
         # Save model occasionally
@@ -825,7 +849,7 @@ if __name__ == "__main__":
             open(evacuation_time_100_file_path, "w").close()
 
         if (episode+1) % 50 == 0:
-            model_filename = os.path.join(log_dir, f"sac_checkpoint_ep_{start_episode + episode + 1}.pth")
+            model_filename = os.path.join(log_dir, f"sac_checkpoint_ep_{episode_num}.pth")
             agent.save_model(model_filename)
             replay_buffer_filename = "replay_buffer.pkl"
             agent.save_replay_buffer(replay_buffer_filename)
@@ -848,7 +872,7 @@ if __name__ == "__main__":
 
         # each episode time print
         if ENABLE_TIMER:
-            print(f"episode {start_episode+episode+1} - Total Simulation Time: {sim_timer.get_time():.6f} 초")
-            print(f"episode {start_episode+episode+1} - Total Learning Time: {learn_timer.get_time():.6f} 초")
+            print(f"episode {episode_num} - Total Simulation Time: {sim_timer.get_time():.6f} 초")
+            print(f"episode {episode_num} - Total Learning Time: {learn_timer.get_time():.6f} 초")
             sim_timer.reset()
             learn_timer.reset()
