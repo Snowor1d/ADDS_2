@@ -17,7 +17,8 @@ import subprocess
 import webbrowser
 from Start_training import START_DECAY_STEP, START_EPSILON, EPSILON_MIN, SCHEDULER_TYPE, DECAY_VALUE, REWARD_A, REWARD_B, REWARD_C, REWARD_D, REWARD_E, REWARD_F, REWARD_G, REWARD_H, REWARD_I, REWARD_J, REWARD_K, CROWD_NUMBER_MIN, CROWD_NUMBER_MAX, LINEARLY_DECAY_STEP, START_UPDATE_STEP, LOG_DIR, FINISHED_BONUS, REWARD_FIXED, MAP_NUM, EXPLORATION_TYPE, \
                             LR, BUFFER_SIZE, BATCH_SIZE, LOG_STD_MAX, LOG_STD_MIN, ALPHA_START, ALPHA_END, ALPHA_DECAY_STEPS, DEVICE, SCALE_CHECK, ACTION_SCALE, START_BATCH_TIMES, MAX_STEPS, PORT_NUM, LONG_EPSILON_MIN, START_LONG_EPSILON, \
-                            GAMMA_START, GAMMA_SCHEDULE_STEP, GAMMA_END
+                            GAMMA_START, GAMMA_SCHEDULE_STEP, GAMMA_END, MAP_NUM_RANDOM
+from heat_map import HeatMapLogger #@for heat_map
 # Timer instances
 sim_timer = Timer() 
 learn_timer = Timer()
@@ -33,7 +34,11 @@ log_dir = os.path.join(home_dir, LOG_DIR)
 os.makedirs(log_dir, exist_ok=True)
 os.makedirs(log_dir, exist_ok=True)
 
-
+heat_logger = HeatMapLogger(   #@for heat_map
+    save_root = os.path.join(log_dir, "heat_maps"),
+    map_size = (50, 50),
+    known_maps = MAP_NUM_RANDOM
+)
 
 def launch_tensorboard(tb_log_dir, port=6006):
     """
@@ -750,6 +755,11 @@ if __name__ == "__main__":
                 sim_timer.start()
                 # 2) Step environment
                 env_model.step()
+
+                if step % ACTION_SCALE == 0: #@ for heatmap
+                    hx, hy = map(int, np.round(env_model.robot.xy)) 
+                    heat_logger.update(env_model.map_num, hx, hy) 
+
                 
                 curr_frame = env_model.return_current_image()
                 sim_timer.stop()
@@ -851,6 +861,8 @@ if __name__ == "__main__":
             print("error occured. retry.")
             env_model = model.FightingModel(number_of_agents, 50, 50, 2, 'Q')
             abnormal_reward = 1
+
+        heat_logger.flush_episode() #@for heatmap
 
         # Possibly update epsilon, or do other logging
 
