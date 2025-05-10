@@ -58,7 +58,7 @@ ALPHA_START = 0.3 # in SAC
 ALPHA_END = 0
 ALPHA_DECAY_STEPS = 3000
 
-# --------------- REWARD SHPAING -----------------
+# --------------- REWARD SHAPING -----------------
 
 REWARD_A = 1 #reward_based_alived
 REWARD_B = 0.003 #reward_based_all_agents_danger
