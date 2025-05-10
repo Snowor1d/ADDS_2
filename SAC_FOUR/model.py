@@ -902,14 +902,23 @@ class FightingModel(Model):
         ]
         
         all_exit_points = [
-            [(exit_width)/2, (exit_height)/2],  # 왼쪽 위
-            [(self.width-exit_width-1+self.width-1)/2, (exit_height)/2],  # 오른쪽 위
-            [(exit_width)/2, (self.height-exit_height-1+self.height-1)/2],  # 왼쪽 아래
-            [(self.width-exit_width-1+self.width-1)/2, (self.height-exit_height-1+self.height-1)/2]  # 오른쪽 아래
+            [(exit_width)/2, (exit_height)/2],  # 왼쪽 아래
+            [(self.width-exit_width-1+self.width-1)/2, (exit_height)/2],  # 오른쪽 아래
+            [(exit_width)/2, (self.height-exit_height-1+self.height-1)/2],  # 왼쪽 위
+            [(self.width-exit_width-1+self.width-1)/2, (self.height-exit_height-1+self.height-1)/2]  # 오른쪽 위
         ]
         
         # 랜덤하게 출구 선택
         index = random.randint(0, len(all_exits) - 1)
+        print(self.map_num)
+        if (self.map_num == 21): #우하단
+            index = 1
+        elif (self.map_num == 24): #좌하단
+            index = 0
+        elif (self.map_num == 25) : #우하단
+            index = 1
+        elif (self.map_num == 26): #좌하단
+            index = 0
         self.exit_list = [all_exits[index]]
         self.exit_point = [all_exit_points[index]]
         

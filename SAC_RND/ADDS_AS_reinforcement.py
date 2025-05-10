@@ -127,16 +127,25 @@ class ReplayBuffer:
         self.buffer.append((state, action, reward, next_state, done))
 
     def sample(self, batch_size, device):
+        # 1) 무작위로 batch_size만큼 샘플 추출
         batch = random.sample(self.buffer, batch_size)
         states, actions, rewards, next_states, dones = zip(*batch)
 
-        states      = torch.FloatTensor(states).unsqueeze(1).to(device)  # (B,1,H,W) if grayscale
-        actions     = torch.FloatTensor(actions).to(device)             # (B,4)
-        rewards     = torch.FloatTensor(rewards).to(device)             # (B,)
-        next_states = torch.FloatTensor(next_states).unsqueeze(1).to(device)
-        dones       = torch.FloatTensor(dones).to(device)               # (B,)
-        return states, actions, rewards, next_states, dones
+        # 2) numpy array로 묶기 (zero-copy에 가깝게)
+        states_np      = np.stack(states, axis=0).astype(np.float32)       # (B, H, W)
+        next_states_np = np.stack(next_states, axis=0).astype(np.float32)  # (B, H, W)
+        actions_np     = np.stack(actions, axis=0).astype(np.float32)      # (B, action_dim)
+        rewards_np     = np.array(rewards, dtype=np.float32)               # (B,)
+        dones_np       = np.array(dones,   dtype=np.float32)               # (B,)
 
+        # 3) torch tensor로 변환 & 차원 맞추기
+        states_t       = torch.from_numpy(states_np).unsqueeze(1).to(device)       # (B,1,H,W)
+        next_states_t  = torch.from_numpy(next_states_np).unsqueeze(1).to(device)  # (B,1,H,W)
+        actions_t      = torch.from_numpy(actions_np).to(device)                   # (B,action_dim)
+        rewards_t      = torch.from_numpy(rewards_np).to(device)                   # (B,)
+        dones_t        = torch.from_numpy(dones_np).to(device)                     # (B,)
+
+        return states_t, actions_t, rewards_t, next_states_t, dones_t
     def __len__(self):
         return len(self.buffer)
 

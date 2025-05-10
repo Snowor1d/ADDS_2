@@ -130,14 +130,16 @@ class ReplayBuffer:
         self.buffer.append((state, action, reward, next_state, done))
 
     def sample(self, batch_size, device):
-        batch = random.sample(self.buffer, batch_size)
+        batch      = random.sample(self.buffer, batch_size)
         states, actions, rewards, next_states, dones = zip(*batch)
 
-        states      = torch.FloatTensor(states).to(device)  # (B,4,H,W) if grayscale
-        actions     = torch.FloatTensor(actions).to(device)             # (B,4)
-        rewards     = torch.FloatTensor(rewards).to(device)             # (B,)
-        next_states = torch.FloatTensor(next_states).to(device)
-        dones       = torch.FloatTensor(dones).to(device)               # (B,)
+        # ───────── 빠른 변환 ─────────
+        states      = torch.from_numpy(np.stack(states, axis=0)).float().to(device)
+        next_states = torch.from_numpy(np.stack(next_states, 0)).float().to(device)
+        # ────────────────────────────
+        actions  = torch.as_tensor(actions,  dtype=torch.float32, device=device)
+        rewards  = torch.as_tensor(rewards, dtype=torch.float32, device=device)
+        dones    = torch.as_tensor(dones,   dtype=torch.float32, device=device)
         return states, actions, rewards, next_states, dones
 
     def __len__(self):
