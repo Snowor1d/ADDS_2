@@ -15,7 +15,9 @@ import threading
 from torch.utils.tensorboard import SummaryWriter
 import subprocess
 import webbrowser
-from Start_training import START_DECAY_STEP, START_EPSILON, EPSILON_MIN, SCHEDULER_TYPE, DECAY_VALUE, REWARD_A, REWARD_B, REWARD_C, REWARD_D, REWARD_E, REWARD_F, REWARD_G, REWARD_H, REWARD_I, REWARD_J, REWARD_K, CROWD_NUMBER_MIN, CROWD_NUMBER_MAX, LINEARLY_DECAY_STEP, START_UPDATE_STEP, LOG_DIR, FINISHED_BONUS, REWARD_FIXED, MAP_NUM, EXPLORATION_TYPE, RND_BETA
+from Start_training import START_DECAY_STEP, START_EPSILON, EPSILON_MIN, SCHEDULER_TYPE, DECAY_VALUE, REWARD_A, REWARD_B, REWARD_C, REWARD_D, REWARD_E, REWARD_F, REWARD_G, REWARD_H, REWARD_I, REWARD_J, REWARD_K, CROWD_NUMBER_MIN, CROWD_NUMBER_MAX, LINEARLY_DECAY_STEP, START_UPDATE_STEP, LOG_DIR, FINISHED_BONUS, REWARD_FIXED, MAP_NUM, MAP_NUM_RANDOM, EXPLORATION_TYPE, RND_BETA
+from heat_map import HeatMapLogger #@for heat_map
+
 # Timer instances
 sim_timer = Timer() 
 learn_timer = Timer()
@@ -54,6 +56,12 @@ os.makedirs(log_dir, exist_ok=True)
 
 SCALE_CHECK = args.scale_check
 START_BATCH_TIMES = args.start_batch_times
+
+heat_logger = HeatMapLogger(   #@for heat_map
+    save_root = os.path.join(log_dir, "heat_maps"),
+    map_size = (50, 50),
+    known_maps = MAP_NUM_RANDOM
+)
 
 def launch_tensorboard(tb_log_dir, port=6006):
     """
@@ -819,6 +827,11 @@ if __name__ == "__main__":
                 sim_timer.start()
                 # 2) Step environment
                 env_model.step()
+                
+                if step % ACTION_SCALE == 0: #@ for heatmap
+                    hx, hy = map(int, np.round(env_model.robot.xy)) 
+                    heat_logger.update(env_model.map_num, hx, hy) 
+
                 sim_timer.stop()
                 reward = 0
 
@@ -909,12 +922,17 @@ if __name__ == "__main__":
                     evacuation_time_100 = step
                 if done:
                     break
+
+
         except Exception as e:
             print(e)
             print("error occured. retry.")
             env_model = model.FightingModel(number_of_agents, 50, 50, 2, 'Q')
             abnormal_reward = 1
 
+
+        heat_logger.flush_episode() #@for heatmap
+        
         # Possibly update epsilon, or do other logging
 
         agent.epsilon = epsilon_scheduler.get_epsilon(agent.epsilon, episode+start_episode)
