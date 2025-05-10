@@ -31,7 +31,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 
-from ADDS_AS_reinforcement import SACAgent, ReplayBuffer, PolicyNetwork, QNetwork, ACTION_SCALE
+from ADDS_AS_reinforcement import SACAgent, ReplayBuffer, PolicyNetwork, QNetwork, ACTION_SCALE, FrameStack
 from Start_training import REWARD_A, REWARD_B, REWARD_C, REWARD_D, REWARD_E, REWARD_F, REWARD_G, REWARD_H, REWARD_I, REWARD_J, REWARD_K, FINISHED_BONUS, MAP_NUM, MAP_NUM_RANDOM
 
 
@@ -239,6 +239,9 @@ class FightingModel(Model):
     """A model with some number of agents."""
 
     def __init__(self, number_agents: int, width: int, height: int, model_num = -1, robot = 'Q'):
+        self.frame_stack = FrameStack(stack_len=4)
+        self._first_step = True
+        
         self.crowds = []
         self.step_n = 0
         self.checking_reward = 0
@@ -1144,7 +1147,22 @@ class FightingModel(Model):
         #             agent.dead = True 
         self.step_count += 1
 
-        state = self.return_current_image()
+        #state = self.return_current_image()
+
+        frame = self.return_current_image()
+        if self._first_step:
+            state = self.frame_stack.reset(frame)
+            self._first_step = False
+        else:
+            state = self.frame_stack.append(frame)
+        
+        if self.step_n % ACTION_SCALE == 0:
+            if self._first_step:
+                state = self.frame_stack.reset(frame)
+                self._first_step = False
+            else:
+                state = self.frame_stack.append(frame)
+                
         # if(self.using_model):
         #     self.checking_reward += self.reward_based_evacuated_with_robot()
         if(self.using_model and self.step_n%ACTION_SCALE==0):
