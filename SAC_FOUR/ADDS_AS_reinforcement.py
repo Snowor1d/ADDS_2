@@ -762,6 +762,7 @@ if __name__ == "__main__":
 
                 
                 curr_frame = env_model.return_current_image()
+                next_state = frame_stack.peek_with(curr_frame)
                 sim_timer.stop()
                 reward = 0
                 r_k = 0
@@ -779,7 +780,7 @@ if __name__ == "__main__":
                 # 6) Store transition
                 if((step%ACTION_SCALE==(ACTION_SCALE-1) and step>ACTION_SCALE) or (env_model.robot.is_game_finished and step>ACTION_SCALE)):
                     
-                    next_state = frame_stack.peek_with(curr_frame)
+                    #next_state = frame_stack.peek_with(curr_frame)
 
                     r_a = 0
                     r_b = 0
