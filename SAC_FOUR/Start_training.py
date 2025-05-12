@@ -5,11 +5,12 @@ import subprocess
 
 def print_banner():
     print("""
-   ###     ####    ####   #####  
-  #   #   #   #   #   #  #      
- #####    #   #   #   #   ####  
- #   #    #   #   #   #      #  
- #   #    ####    ####    ####   
+ █████╗ ██████╗ ██████╗ ███████╗
+██╔══██╗██╔══██╗██╔══██╗██╔════╝
+███████║██║  ██║██║  ██║███████╗
+██╔══██║██║  ██║██║  ██║╚════██║
+██║  ██║██████╔╝██████╔╝███████║
+╚═╝  ╚═╝╚═════╝ ╚═════╝ ╚══════╝
 """)
 
 
@@ -19,18 +20,18 @@ BUFFER_SIZE = 1000000
 BATCH_SIZE = 128
 INTRINSIC_ETA = 0.1 #intrinsic reward
 START_BATCH_TIMES = 1
-START_UPDATE_STEP = 1
+START_UPDATE_STEP = 150
 DEVICE = "cpu"
 
-GAMMA_START = 0.95
-GAMMA_END = 0.995
+GAMMA_START = 0.99
+GAMMA_END = 0.99
 GAMMA_SCHEDULE_STEP = 1000
 
 # ---------------- SIMULATION ENVIRONMENT ---------------------
 CROWD_NUMBER_MIN = 20
 CROWD_NUMBER_MAX = 20
 MAP_NUM = -1 #if not used, -2, if random, -1
-MAP_NUM_RANDOM = [21, 24, 25, 26]
+MAP_NUM_RANDOM = [21, 24, 25]
 SCALE_CHECK = 0 # want to check reward scale?
 ACTION_SCALE = 4
 MAX_STEPS = 6000
@@ -54,17 +55,17 @@ PORT_NUM = 6007
 LOG_STD_MAX = 0.5
 LOG_STD_MIN = -20
 
-ALPHA_START = 0.3 # in SAC
-ALPHA_END = 0
+ALPHA_START = 0.2 # in SAC
+ALPHA_END = 0.2
 ALPHA_DECAY_STEPS = 3000
 
 # --------------- REWARD SHAPING -----------------
 
-REWARD_A = 1 #reward_based_alived
-REWARD_B = 0.003 #reward_based_all_agents_danger
-REWARD_D = 2 #reward_based_penalty
-REWARD_K = 0.5 #reward_penalty_collsion
-REWARD_FIXED = -0.5
+REWARD_A = 2 #reward_based_alived
+REWARD_B = 0.006 #reward_based_all_agents_danger
+REWARD_D = 4 #reward_based_penalty
+REWARD_K = 1 #reward_penalty_collsion
+REWARD_FIXED = -1
 
 REWARD_J = 0 #reward_based_all_agents_danger_log
 REWARD_I = 0 #reward_based_alived_root
@@ -73,7 +74,7 @@ REWARD_E = 0 #reward_based_evacuated_with_robot
 REWARD_F = 0 #reward_based_distance_from_near_agents
 REWARD_G = 0 #reward_based_distance_from_near_agent_gain
 REWARD_H = 0 #reward_based_gain_with_time_bonus
-FINISHED_BONUS = 50
+FINISHED_BONUS = 100
 
 
 def main():
