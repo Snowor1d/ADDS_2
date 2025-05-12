@@ -15,6 +15,7 @@ import threading
 from torch.utils.tensorboard import SummaryWriter
 import subprocess
 import webbrowser
+from typing import Tuple, Any, Union
 from Start_training import START_DECAY_STEP, START_EPSILON, EPSILON_MIN, SCHEDULER_TYPE, DECAY_VALUE, REWARD_A, REWARD_B, REWARD_C, REWARD_D, REWARD_E, REWARD_F, REWARD_G, REWARD_H, REWARD_I, REWARD_J, REWARD_K, CROWD_NUMBER_MIN, CROWD_NUMBER_MAX, LINEARLY_DECAY_STEP, START_UPDATE_STEP, LOG_DIR, FINISHED_BONUS, REWARD_FIXED, MAP_NUM, EXPLORATION_TYPE, \
                             LR, BUFFER_SIZE, BATCH_SIZE, LOG_STD_MAX, LOG_STD_MIN, ALPHA_START, ALPHA_END, ALPHA_DECAY_STEPS, DEVICE, SCALE_CHECK, ACTION_SCALE, START_BATCH_TIMES, MAX_STEPS, PORT_NUM, LONG_EPSILON_MIN, START_LONG_EPSILON, \
                             GAMMA_START, GAMMA_SCHEDULE_STEP, GAMMA_END, MAP_NUM_RANDOM
@@ -128,34 +129,113 @@ def gamma_ascent_schedule(parameter_start: float,
 # 1) Replay Buffer
 ##########################################################################
 class ReplayBuffer:
-    def __init__(self, capacity=int(1e4), device=None):
-        self.buffer = deque(maxlen=capacity)
+    """
+    NumPy 기반 고정 크기 링 버퍼 + dtype 축소로 메모리 사용 최소화
+
+    Parameters
+    ----------
+    capacity : int
+        최대 저장 가능한 transition 개수
+    state_shape : tuple of int
+        상태(state) 배열의 shape, 예: (C, H, W)
+    action_dim : int
+        액션 벡터 차원
+    device : torch.device or str, optional
+        샘플을 Tensor로 변환할 때 사용할 디바이스
+    state_dtype : np.dtype, optional
+        상태 저장 dtype (이미지라면 np.uint8 권장)
+    """
+    def __init__(
+        self,
+        capacity: int,
+        state_shape = (4, 50, 50),
+        action_dim = 2,
+        device=None,
+        state_dtype: np.dtype = np.uint8,
+    ) -> None:
+        self.capacity = capacity
         self.device = device
-    def push(self, state, action, reward, next_state, done):
-        self.buffer.append((state, action, reward, next_state, done))
+        self.state_dtype = np.uint8
 
-    def sample(self, batch_size, device):
-        batch      = random.sample(self.buffer, batch_size)
-        states, actions, rewards, next_states, dones = zip(*batch)
+        # 고정 크기 NumPy 배열 할당
+        self.states = np.zeros((capacity, *state_shape), dtype=state_dtype)
+        self.next_states = np.zeros((capacity, *state_shape), dtype=state_dtype)
+        self.actions = np.zeros((capacity, action_dim), dtype=np.float32)
+        self.rewards = np.zeros((capacity,), dtype=np.float32)
+        self.dones = np.zeros((capacity,), dtype=bool)
 
-        # ───────── 빠른 변환 ─────────
-        states      = torch.from_numpy(np.stack(states, axis=0)).float().to(device)
-        next_states = torch.from_numpy(np.stack(next_states, 0)).float().to(device)
-        # ────────────────────────────
-        actions  = torch.as_tensor(actions,  dtype=torch.float32, device=device)
-        rewards  = torch.as_tensor(rewards, dtype=torch.float32, device=device)
-        dones    = torch.as_tensor(dones,   dtype=torch.float32, device=device)
-        return states, actions, rewards, next_states, dones
+        self.ptr = 0
+        self.size = 0
 
-    def __len__(self):
-        return len(self.buffer)
+    def push(
+        self,
+        state: np.ndarray,
+        action: np.ndarray,
+        reward: float,
+        next_state: np.ndarray,
+        done: bool,
+    ) -> None:
+        i = self.ptr
+        # dtype 변환 및 저장
+        self.states[i] = state.astype(self.state_dtype, copy=False)
+        self.next_states[i] = next_state.astype(self.state_dtype, copy=False)
+        self.actions[i] = action
+        self.rewards[i] = reward
+        self.dones[i] = done
 
-    def save(self, filepath):
-        with open(filepath, "wb") as f:
-            pickle.dump(self.buffer, f)
-    def load(self, filepath):
-        with open(filepath, "rb") as f:
-            self.buffer = pickle.load(f)
+        # 포인터 업데이트
+        self.ptr = (i + 1) % self.capacity
+        self.size = min(self.size + 1, self.capacity)
+
+    def sample(self, batch_size: int):
+        idx = np.random.choice(self.size, batch_size, replace=False)
+        # NumPy -> torch.Tensor 변환 (float32)
+        batch_states = torch.from_numpy(self.states[idx].astype(np.float32)).to(self.device)
+        batch_next_states = torch.from_numpy(self.next_states[idx].astype(np.float32)).to(self.device)
+        batch_actions = torch.from_numpy(self.actions[idx]).to(self.device)
+        batch_rewards = torch.from_numpy(self.rewards[idx]).to(self.device)
+        batch_dones = torch.from_numpy(self.dones[idx].astype(np.float32)).to(self.device)
+
+        return batch_states, batch_actions, batch_rewards, batch_next_states, batch_dones
+
+    def __len__(self) -> int:
+        return self.size
+    
+    def save(self, filepath: Union[str, bytes, os.PathLike]) -> None:
+        """압축된 npz 파일로 버퍼를 저장 (현재 size 만큼만 포함)."""
+        np.savez_compressed(
+            filepath,
+            states=self.states[: self.size],
+            next_states=self.next_states[: self.size],
+            actions=self.actions[: self.size],
+            rewards=self.rewards[: self.size],
+            dones=self.dones[: self.size],
+            size=self.size,
+            ptr=self.ptr,
+            capacity=self.capacity,
+            state_dtype=np.dtype(self.state_dtype).name
+        )
+
+    def load(self, filepath: Union[str, bytes, os.PathLike]) -> None:
+        """저장된 npz 파일을 읽어 버퍼 상태를 복원."""
+        data = np.load(filepath, allow_pickle=False)
+        cap = int(data.get("capacity", self.capacity))
+        if cap != self.capacity:
+            # 새 capacity 에 맞춰 새로운 배열 할당 후 복사
+            prev_dtype = np.dtype(data["state_dtype"])
+            prev_shape = self.states.shape[1:]
+            prev_action_dim = self.actions.shape[1]
+            self.__init__(cap, prev_shape, prev_action_dim, self.device, prev_dtype)
+        self.size = int(data["size"])
+        self.ptr = int(data["ptr"])
+
+        # 데이터 복사
+        self.states[: self.size] = data["states"]
+        self.next_states[: self.size] = data["next_states"]
+        self.actions[: self.size] = data["actions"]
+        self.rewards[: self.size] = data["rewards"]
+        self.dones[: self.size] = data["dones"]
+
 
 class ResidualBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
@@ -371,7 +451,7 @@ class SACAgent:
         self.epsilon_long_min = long_epsilon_min
 
         # Replay buffer
-        self.replay_buffer = ReplayBuffer(capacity=int(replay_size))
+        self.replay_buffer = ReplayBuffer(capacity=int(replay_size), device =self.device)
         
 
         # Critic networks
@@ -469,7 +549,7 @@ class SACAgent:
         #states, actions, rewards, next_states, dones = self.replay_buffer.sample(self.batch_size)
 
         # 1. Replay Buffer에서 샘플 가져오기
-        states, actions, rewards, next_states, dones = self.replay_buffer.sample(self.batch_size, self.device)
+        states, actions, rewards, next_states, dones = self.replay_buffer.sample(self.batch_size)
 
 
         # (B,1,H,W), (B,4), (B,), (B,1,H,W), (B,)
@@ -665,9 +745,9 @@ if __name__ == "__main__":
         start_epsilon_long = START_LONG_EPSILON  # 기본값 설정
         print("No start_epsilon.txt found. Initializing values to defaults.")
     
-    agent = SACAgent(input_shape=(50,50), alpha=ALPHA_START, lr=float(LR), start_epsilon=start_epsilon, start_epsilon_long = float(START_LONG_EPSILON), long_epsilon_min=float(LONG_EPSILON_MIN), batch_size=int(BATCH_SIZE), replay_size=float(BUFFER_SIZE), device=DEVICE)
+    agent = SACAgent(input_shape=(50,50), alpha=ALPHA_START, lr=float(LR), start_epsilon=start_epsilon, start_epsilon_long = float(START_LONG_EPSILON), long_epsilon_min=float(LONG_EPSILON_MIN), batch_size=int(BATCH_SIZE), replay_size=int(BUFFER_SIZE), device=DEVICE)
     print(f"Agent initialized, lr={LR}, alpha={agent.alpha}, batch_size={BATCH_SIZE}, replay_size={BUFFER_SIZE}")
-    replay_buffer_path = os.path.join(log_dir, "replay_buffer.pkl")
+    replay_buffer_path = os.path.join(log_dir, "replay_buffer.npz")
 
         
     if model_load == 1:
@@ -681,7 +761,7 @@ if __name__ == "__main__":
             start_episode = int(model_name.split("_")[-1].split(".")[0])
             agent.load_model(model_name)
             if os.path.exists(replay_buffer_path):
-                agent.load_replay_buffer("replay_buffer.pkl")
+                agent.load_replay_buffer("replay_buffer.npz")
     elif model_load == 3:
         print("Mode 3: Loading the latest model from log_dir.")
         model_files = [f for f in os.listdir(log_dir) if f.startswith("sac_checkpoint") and f.endswith(".pth")]
@@ -895,7 +975,7 @@ if __name__ == "__main__":
         if (episode_num) % 50 == 0:
             model_filename = os.path.join(log_dir, f"sac_checkpoint_ep_{episode_num}.pth")
             agent.save_model(model_filename)
-            replay_buffer_filename = "replay_buffer.pkl"
+            replay_buffer_filename = "replay_buffer.npz"
             agent.save_replay_buffer(replay_buffer_filename)
 
         reward_file_path = os.path.join(log_dir, "total_reward.txt")

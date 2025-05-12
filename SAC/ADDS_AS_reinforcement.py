@@ -870,7 +870,7 @@ if __name__ == "__main__":
         if not os.path.exists(evacuation_time_100_file_path):
             open(evacuation_time_100_file_path, "w").close()
 
-        if (episode+1) % 50 == 0:
+        if (episode_num) % 50 == 0:
             model_filename = os.path.join(log_dir, f"sac_checkpoint_ep_{episode_num}.pth")
             agent.save_model(model_filename)
             replay_buffer_filename = "replay_buffer.pkl"
