@@ -31,7 +31,7 @@ GAMMA_SCHEDULE_STEP = 1000
 CROWD_NUMBER_MIN = 20
 CROWD_NUMBER_MAX = 20
 MAP_NUM = -1 #if not used, -2, if random, -1
-MAP_NUM_RANDOM = [14]
+MAP_NUM_RANDOM = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
 SCALE_CHECK = 0 # want to check reward scale?
 ACTION_SCALE = 4
 MAX_STEPS = 6000
@@ -48,15 +48,15 @@ LONG_EPSILON_MIN = 0
 START_LONG_EPSILON = 0
 
 # -------------- PATH -------------------
-LOG_DIR = "Log_SAC_FOUR_TEMP"
+LOG_DIR = "Log_SAC_FOUR_NORM"
 PORT_NUM = 6007
 
 # --------------- SAC ALGORITHM PARAMETER ---------------
 LOG_STD_MAX = 0.5
 LOG_STD_MIN = -20
 
-ALPHA_START = 0.3 # in SAC
-ALPHA_END = 0
+ALPHA_START = 0.2 # in SAC
+ALPHA_END = 0.2
 ALPHA_DECAY_STEPS = 3000
 
 # --------------- REWARD SHAPING -----------------

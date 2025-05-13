@@ -655,59 +655,43 @@ class FightingModel(Model):
         #좌하단 #우하단 #우상단 #좌상단 순으로 입력해주기
         scale = 5/7
 
-        if map_num == 0:
-            self.obstacles.append([[10 * scale, 10 * scale], [20 * scale, 20 * scale], [10 * scale, 20 * scale]])
-            self.obstacles.append([[10 * scale, 20 * scale], [20 * scale, 20 * scale], [20 * scale, 50 * scale], [10 * scale, 50 * scale]])
-            self.obstacles.append([[20 * scale, 40 * scale], [50 * scale, 40 * scale], [50 * scale, 50 * scale], [20 * scale, 50 * scale]])
-            self.obstacles.append([[40 * scale, 10 * scale], [60 * scale, 20 * scale], [40 * scale, 20 * scale]])
-
-        elif map_num == 10:
-            self.obstacles.append([[10, 10], [20, 10], [20, 30], [10, 30]])
-            self.obstacles.append([[21, 25], [37, 25], [37, 30], [20, 30]])
-            self.obstacles.append([[32, 30], [37, 30], [37, 40], [32, 40]])
-            self.obstacles.append([[35, 10], [40, 10], [40, 20], [35, 20]])
-
-        elif map_num == 11:
-            self.obstacles.append([[10, 20], [18, 11], [18, 30], [10, 30]])
-            self.obstacles.append([[30, 20], [40, 20], [40, 30], [30, 30]])
-            self.obstacles.append([[25, 30], [40, 30], [40, 37], [25, 37]])
-
-        elif map_num == 12:
-            self.obstacles.append([[13, 13], [17, 20], [16, 25], [8, 20]]) 
-            self.obstacles.append([[15, 20], [20, 20], [30, 22], [16, 24]])
-            self.obstacles.append([[20, 7], [29, 7], [30, 22], [20, 22]])
-            self.obstacles.append([[16, 22], [31, 22], [31, 30], [17, 30]])
-            #self.obstacles.append([[16, 27], [30, 27], [30, 42], [16, 42]])
-            self.obstacles.append([[36, 21], [43, 21], [43, 35], [36, 35]])
-
-        elif map_num == 13:
-            self.obstacles.append([[11, 35], [35, 35], [35, 40], [11, 40]])
-            self.obstacles.append([[11, 15], [15, 15], [15, 35], [11, 35]])
-            self.obstacles.append([[11, 8], [35, 8], [35, 15], [11, 15]])
-            #self.obstacles.append([[25, 25], [30, 25], [30, 30], [25, 30]])
-            #self.obstacles.append([[35, 16], [40, 16], [40, 20], [36, 20]])
-            #self.obstacles.append([[30, 25], [35, 25], [35, 30], [30, 30]]) 
+        if map_num == 1: # 왼쪽 상단
+            self.obstacles.append([[10, 10], [16, 10], [10, 16]])
+            self.obstacles.append([[34, 10], [40, 10], [40, 16]])
+            self.obstacles.append([[10, 34], [16, 40], [10, 40]])
+            self.obstacles.append([[40, 34], [40, 40], [34, 40]])
         
+        elif map_num == 2: #오른쪽 하단
+            self.obstacles.append([[8, 8], [25, 8], [25, 13], [8, 13]])
+            self.obstacles.append([[8, 16], [14, 16], [14, 25], [8, 25]])
+            self.obstacles.append([[20, 16], [25, 16], [25, 34], [20, 34]])
+            self.obstacles.append([[33, 16], [40, 16], [40, 34], [33, 34]])
+            self.obstacles.append([[8, 40], [13, 40], [13, 45], [8, 45]])
+            self.obstacles.append([[18, 40], [35, 40], [35, 45], [18, 45]])
+        
+        elif map_num == 3: #왼쪽 하단
+            self.obstacles.append([[15, 8], [20, 8], [20, 15], [15, 20]])
+            self.obstacles.append([[20, 21], [20, 28], [15, 28]])
+            self.obstacles.append([[35, 8], [43, 8], [43, 15], [35, 15]])
+            self.obstacles.append([[35, 21], [43, 21], [43, 28], [35, 28]])
+            self.obstacles.append([[7, 40], [40, 40], [40, 45], [7, 45]])
+
+        elif map_num == 4: #오른쪽 상단
+            self.obstacles.append([[12, 12], [18, 12], [18, 25], [12, 25]])
+            self.obstacles.append([[25, 12], [40, 12], [40, 20], [25, 20]])
+            self.obstacles.append([[12, 38], [30, 38], [30, 45], [17, 45]])
+        
+        elif map_num == 5: #오른쪽 상단
+            self.obstacles.append([[10, 10], [15, 10], [15, 35], [10, 35]])
+            self.obstacles.append([[20, 10], [25, 10], [25, 35], [20, 35]])
 
 
-
-
-        elif map_num == 21:
+        elif map_num == 6:
             self.obstacles.append([[10, 10], [20, 10], [20, 20], [10, 20]])
             self.obstacles.append([[10, 30], [40, 30], [40, 40], [10, 40]])
 
-        elif map_num == 22:
-            self.obstacles.append([[10, 10], [40, 10], [40, 18], [10, 18]])
-            self.obstacles.append([[32, 18], [40, 18], [40, 40], [32, 40]])
-            self.obstacles.append([[10, 32], [18, 32], [18, 40], [10, 40]])
 
-        elif map_num == 23:
-            self.obstacles.append([[10, 10], [15, 10], [15, 15], [10, 15]])
-            self.obstacles.append([[10, 15], [40, 15], [40, 20], [10, 20]])
-            self.obstacles.append([[10, 28], [25, 28], [10, 40]])
-            self.obstacles.append([[40, 28], [40, 40], [28, 40]])
-
-        elif map_num == 24:
+        elif map_num == 7:
             self.obstacles.append([[10, 30], [20, 30], [28, 40], [10, 40]])
             self.obstacles.append([[30, 10], [35, 10], [35, 30], [30, 30]])
             self.obstacles.append([[10, 10], [15, 10], [15, 15], [10, 15]])
@@ -716,15 +700,42 @@ class FightingModel(Model):
             # self.obstacles.append([[30, 30], [35, 30], [35, 35]]) ## ?? 이 줄만 추가하면 세그멘테이션 오류 (코어 덤프됨) 뜸 왤까?
 
         
-        elif map_num == 25:
+        elif map_num == 8:
             self.obstacles.append([[10, 15], [25, 15], [10, 40]])
             self.obstacles.append([[30, 20], [40, 20], [40, 35], [30, 35]])
 
-        elif map_num == 26:
-            self.obstacles.append([[10, 10], [15, 10], [15, 18], [10, 18]])
-            self.obstacles.append([[23, 10], [40, 10], [40, 18], [23, 18]])
-            self.obstacles.append([[33, 15], [40, 15], [40, 40], [33, 40]])
-            self.obstacles.append([[10, 32], [32, 32], [32, 40], [10, 40]])
+            
+        elif map_num == 9:
+            self.obstacles.append([[10, 15], [35, 15], [35, 25], [10, 25]])
+            self.obstacles.append([[0, 35], [20, 35], [20, 40], [0, 40]])
+            self.obstacles.append([[30, 40], [40, 30], [40, 40]])
+        
+        elif map_num == 10:
+            self.obstacles.append([[5, 10], [15, 10], [15, 20]])
+            self.obstacles.append([[15, 25], [20, 25], [20, 49], [15, 49]])
+            self.obstacles.append([[28, 15], [35, 15], [35, 35], [28, 35]])
+
+        elif map_num == 11:
+            self.obstacles.append([[10, 30], [15, 30], [15, 40], [10, 40]])
+            self.obstacles.append([[30, 20], [40, 20], [40, 35], [30, 35]])
+            self.obstacles.append([[41, 10], [45, 10], [45, 25], [41, 25]])
+
+        elif map_num == 12:
+            self.obstacles.append([[10, 5], [40, 5], [40, 20]])
+            self.obstacles.append([[6, 25], [10, 25], [10, 40], [6, 40]])
+            self.obstacles.append([[11, 32], [40, 32], [40, 40], [11, 40]])
+
+        elif map_num == 13:
+            self.obstacles.append([[10, 35], [15, 35], [15, 49], [10, 49]])
+            self.obstacles.append([[25, 0], [30, 0], [30, 20], [25, 20]]) 
+            self.obstacles.append([[25, 30], [49, 30], [49, 40], [25, 40]])
+
+        elif map_num == 14:
+            self.obstacles.append([[15, 10], [40, 35], [35, 40], [10, 15]])
+            self.obstacles.append([[20, 0], [35, 0], [35, 15]])
+            self.obstacles.append([[10, 40], [20, 49], [10, 49]])
+
+        
             
 
         # elif map_num == 1:  # 산학협력관 + 잔디밭
@@ -898,30 +909,53 @@ class FightingModel(Model):
 
         # 모든 출구 목록 정의
         all_exits = [
-            [(0, 0), (exit_width, 0), (exit_width, exit_height), (0, exit_height)],  # 왼쪽 위
-            [(self.width-exit_width-1, 0), (self.width-1, 0), (self.width-1, exit_height), (self.width-exit_width-1, exit_height)],  # 오른쪽 위
-            [(0, self.height-exit_height-2), (exit_width, self.height-exit_height-2), (exit_width, self.height-1), (0, self.height-1)],  # 왼쪽 아래
-            [(self.width-exit_width-1, self.height-exit_height-2), (self.width-1, self.height-exit_height-2), (self.width-1, self.height-1), (self.width-exit_width-1, self.height-1)]  # 오른쪽 아래
+            [(0, 0), (exit_width, 0), (exit_width, exit_height), (0, exit_height)],  # 왼아
+            [(self.width-exit_width-1, 0), (self.width-1, 0), (self.width-1, exit_height), (self.width-exit_width-1, exit_height)],  # 오아
+            [(self.width-exit_width-1, self.height-exit_height-2), (self.width-1, self.height-exit_height-2), (self.width-1, self.height-1), (self.width-exit_width-1, self.height-1)],  # 오위
+            [(0, self.height-exit_height-2), (exit_width, self.height-exit_height-2), (exit_width, self.height-1), (0, self.height-1)],  #  왼위
+          
         ]
         
         all_exit_points = [
-            [(exit_width)/2, (exit_height)/2],  # 왼쪽 아래
-            [(self.width-exit_width-1+self.width-1)/2, (exit_height)/2],  # 오른쪽 아래
-            [(exit_width)/2, (self.height-exit_height-1+self.height-1)/2],  # 왼쪽 위
-            [(self.width-exit_width-1+self.width-1)/2, (self.height-exit_height-1+self.height-1)/2]  # 오른쪽 위
-        ]
+                    [(exit_width)/2, (exit_height)/2],  # 왼쪽 아래
+                    [(self.width-exit_width-1+self.width-1)/2, (exit_height)/2],  # 오른쪽 아래
+                    [(self.width-exit_width-1+self.width-1)/2, (self.height-exit_height-1+self.height-1)/2],  # 오른쪽 위
+                    [(exit_width)/2, (self.height-exit_height-1+self.height-1)/2]  # 왼쪽 위
+                ]
         
         # 랜덤하게 출구 선택
         index = random.randint(0, len(all_exits) - 1)
-        print(self.map_num)
-        if (self.map_num == 21): #우하단
+        #print(self.map_num)
+        if (self.map_num == 6): #우하단
             index = 1
-        elif (self.map_num == 24): #좌하단
+        elif (self.map_num == 7): #좌하단
             index = 0
-        elif (self.map_num == 25) : #우하단
+        elif (self.map_num == 8) : #우하단
             index = 1
-        elif (self.map_num == 26): #좌하단
+        elif (self.map_num == 1):
             index = 0
+        elif (self.map_num == 2):
+            index = 1
+        elif (self.map_num == 3):
+            index = 0
+        elif (self.map_num == 4):
+            index = 3
+        elif (self.map_num == 5):
+            index = 2
+        elif (self.map_num == 9):
+            index = 2
+        elif (self.map_num == 10):
+            index = 1
+        elif (self.map_num == 11):
+            index = 0
+        elif (self.map_num == 12):
+            index = 0
+        elif (self.map_num == 13):
+            index = 1
+        elif (self.map_num == 14):
+            index = 1
+        
+        
         self.exit_list = [all_exits[index]]
         self.exit_point = [all_exit_points[index]]
         

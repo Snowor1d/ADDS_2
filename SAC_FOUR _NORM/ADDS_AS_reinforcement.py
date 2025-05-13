@@ -190,8 +190,8 @@ class ReplayBuffer:
     def sample(self, batch_size: int):
         idx = np.random.choice(self.size, batch_size, replace=False)
         # NumPy -> torch.Tensor 변환 (float32)
-        batch_states = torch.from_numpy(self.states[idx].astype(np.float32)).to(self.device)
-        batch_next_states = torch.from_numpy(self.next_states[idx].astype(np.float32)).to(self.device)
+        batch_states      = torch.from_numpy(self.states[idx]).float().div(255).to(self.device)
+        batch_next_states = torch.from_numpy(self.next_states[idx]).float().div(255).to(self.device)
         batch_actions = torch.from_numpy(self.actions[idx]).to(self.device)
         batch_rewards = torch.from_numpy(self.rewards[idx]).to(self.device)
         batch_dones = torch.from_numpy(self.dones[idx].astype(np.float32)).to(self.device)
