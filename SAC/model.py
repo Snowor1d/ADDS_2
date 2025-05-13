@@ -652,40 +652,35 @@ class FightingModel(Model):
         #좌하단 #우하단 #우상단 #좌상단 순으로 입력해주기
         scale = 5/7
 
-        if map_num == 0:
-            self.obstacles.append([[10 * scale, 10 * scale], [20 * scale, 20 * scale], [10 * scale, 20 * scale]])
-            self.obstacles.append([[10 * scale, 20 * scale], [20 * scale, 20 * scale], [20 * scale, 50 * scale], [10 * scale, 50 * scale]])
-            self.obstacles.append([[20 * scale, 40 * scale], [50 * scale, 40 * scale], [50 * scale, 50 * scale], [20 * scale, 50 * scale]])
-            self.obstacles.append([[40 * scale, 10 * scale], [60 * scale, 20 * scale], [40 * scale, 20 * scale]])
-
-        elif map_num == 10:
-            self.obstacles.append([[10, 10], [20, 10], [20, 30], [10, 30]])
-            self.obstacles.append([[21, 25], [37, 25], [37, 30], [20, 30]])
-            self.obstacles.append([[32, 30], [37, 30], [37, 40], [32, 40]])
-            self.obstacles.append([[35, 10], [40, 10], [40, 20], [35, 20]])
-
-        elif map_num == 11:
-            self.obstacles.append([[10, 20], [18, 11], [18, 30], [10, 30]])
-            self.obstacles.append([[30, 20], [40, 20], [40, 30], [30, 30]])
-            self.obstacles.append([[25, 30], [40, 30], [40, 37], [25, 37]])
-
-        elif map_num == 12:
-            self.obstacles.append([[13, 13], [17, 20], [16, 25], [8, 20]]) 
-            self.obstacles.append([[15, 20], [20, 20], [30, 22], [16, 24]])
-            self.obstacles.append([[20, 7], [29, 7], [30, 22], [20, 22]])
-            self.obstacles.append([[16, 22], [31, 22], [31, 30], [17, 30]])
-            #self.obstacles.append([[16, 27], [30, 27], [30, 42], [16, 42]])
-            self.obstacles.append([[36, 21], [43, 21], [43, 35], [36, 35]])
-
-        elif map_num == 13:
-            self.obstacles.append([[11, 35], [35, 35], [35, 40], [11, 40]])
-            self.obstacles.append([[11, 15], [15, 15], [15, 35], [11, 35]])
-            self.obstacles.append([[11, 8], [35, 8], [35, 15], [11, 15]])
-            #self.obstacles.append([[25, 25], [30, 25], [30, 30], [25, 30]])
-            #self.obstacles.append([[35, 16], [40, 16], [40, 20], [36, 20]])
-            #self.obstacles.append([[30, 25], [35, 25], [35, 30], [30, 30]]) 
+        if map_num == 10: # 왼쪽 상단
+            self.obstacles.append([[10, 10], [16, 10], [10, 16]])
+            self.obstacles.append([[34, 10], [40, 10], [40, 16]])
+            self.obstacles.append([[10, 34], [16, 40], [10, 40]])
+            self.obstacles.append([[40, 34], [40, 40], [34, 40]])
         
+        elif map_num == 11: #오른쪽 하단
+            self.obstacles.append([[8, 8], [25, 8], [25, 13], [8, 13]])
+            self.obstacles.append([[8, 16], [14, 16], [14, 25], [8, 25]])
+            self.obstacles.append([[20, 16], [25, 16], [25, 34], [20, 34]])
+            self.obstacles.append([[33, 16], [40, 16], [40, 34], [33, 34]])
+            self.obstacles.append([[8, 40], [13, 40], [13, 45], [8, 45]])
+            self.obstacles.append([[18, 40], [35, 40], [35, 45], [18, 45]])
+        
+        elif map_num == 12: #왼쪽 하단
+            self.obstacles.append([[15, 8], [20, 8], [20, 15], [15, 20]])
+            self.obstacles.append([[20, 21], [20, 28], [15, 28]])
+            self.obstacles.append([[35, 8], [43, 8], [43, 15], [35, 15]])
+            self.obstacles.append([[35, 21], [43, 21], [43, 28], [35, 28]])
+            self.obstacles.append([[7, 40], [40, 40], [40, 45], [7, 45]])
 
+        elif map_num == 13: #오른쪽 상단
+            self.obstacles.append([[12, 12], [18, 12], [18, 25], [12, 25]])
+            self.obstacles.append([[25, 12], [40, 12], [40, 20], [25, 20]])
+            self.obstacles.append([[12, 38], [30, 38], [30, 45], [17, 45]])
+        
+        elif map_num == 14: #오른쪽 상단
+            self.obstacles.append([[10, 10], [15, 10], [15, 35], [10, 35]])
+            self.obstacles.append([[20, 10], [25, 10], [25, 35], [20, 35]])
 
 
 
@@ -723,11 +718,6 @@ class FightingModel(Model):
             self.obstacles.append([[33, 15], [40, 15], [40, 40], [33, 40]])
             self.obstacles.append([[10, 32], [32, 32], [32, 40], [10, 40]])
 
-        # elif map_num == 30:
-        #     self.obstacles.append([[10, 20], [20, 20], [20, 49], [10, 49]])
-        #     self.obstacles.append([[30, 0], [40, 0], [40, 25], [30, 25]])
-        #     self.obstacles.append([[30, 35], [40, 35], [40, 40], [30, 40]])
-        
         elif map_num == 31:
             self.obstacles.append([[10, 15], [35, 15], [35, 25], [10, 25]])
             self.obstacles.append([[0, 35], [20, 35], [20, 40], [0, 40]])
@@ -748,11 +738,6 @@ class FightingModel(Model):
             self.obstacles.append([[30, 25], [40, 25], [40, 40], [30, 40]])
             self.obstacles.append([[6, 35], [15, 35], [15, 40], [6, 40]])    
 
-        # elif map_num == 35:
-        #     self.obstacles.append([[15, 15], [49, 15], [49, 25], [15, 25]])
-        #     self.obstacles.append([[0, 35], [20, 35], [20, 40], [0, 40]])
-        #     self.obstacles.append([[30, 35], [35, 35], [35, 49], [30, 49]])
-
         elif map_num == 36:
             self.obstacles.append([[10, 5], [40, 5], [40, 20]])
             self.obstacles.append([[6, 25], [10, 25], [10, 40], [6, 40]])
@@ -762,11 +747,6 @@ class FightingModel(Model):
             self.obstacles.append([[10, 35], [15, 35], [15, 49], [10, 49]])
             self.obstacles.append([[25, 0], [30, 0], [30, 20], [25, 20]]) 
             self.obstacles.append([[25, 30], [49, 30], [49, 40], [25, 40]])
-
-        # elif map_num == 38:
-        #     self.obstacles.append([[20, 0], [30, 20], [20, 20]])
-        #     self.obstacles.append([[35, 15], [48, 15], [48, 40]])
-        #     self.obstacles.append([[7, 40], [30, 40], [30, 48], [7, 48]])
 
         elif map_num == 39:
             self.obstacles.append([[15, 10], [40, 35], [35, 40], [10, 15]])
@@ -968,6 +948,16 @@ class FightingModel(Model):
             index = 1
         elif (self.map_num == 26): #좌하단
             index = 0
+        elif (self.map_num == 10):
+            index = 0
+        elif (self.map_num == 11):
+            index = 1
+        elif (self.map_num == 12):
+            index = 0
+        elif (self.map_num == 13):
+            index = 3
+        elif (self.map_num == 14):
+            index = 2
         elif (self.map_num == 30):
             index = 0
         elif (self.map_num == 31):
