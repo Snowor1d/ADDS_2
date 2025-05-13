@@ -24,6 +24,7 @@ from matplotlib.path import Path
 import triangle as tr
 import os
 from collections import deque
+from typing import List, Tuple
 #import cv2
 
 import torch
@@ -34,6 +35,68 @@ import torch.nn.functional as F
 from ADDS_AS_reinforcement import SACAgent, ReplayBuffer, PolicyNetwork, QNetwork, ACTION_SCALE, FrameStack
 from Start_training import REWARD_A, REWARD_B, REWARD_C, REWARD_D, REWARD_E, REWARD_F, REWARD_G, REWARD_H, REWARD_I, REWARD_J, REWARD_K, FINISHED_BONUS, MAP_NUM, MAP_NUM_RANDOM
 
+def _point_on_segment(p: Tuple[int, int],
+                      a: Tuple[int, int],
+                      b: Tuple[int, int]) -> bool:
+    """점 p가 선분 ab 위에 있으면 True (벽 위 스폰 방지)."""
+    (px, py), (ax, ay), (bx, by) = p, a, b
+    cross  = (bx - ax) * (py - ay) - (by - ay) * (px - ax)
+    if cross != 0:
+        return False
+    dot = (px - ax) * (px - bx) + (py - ay) * (py - by)
+    return dot <= 0  # 가운데 있으면 0보다 작거나 같음
+
+def _point_in_polygon(p: Tuple[int, int],
+                      poly: List[Tuple[int, int]]) -> bool:
+    """
+    홀수-짝수(레이캐스팅) 규칙.
+    경계 위에 있으면 True를 즉시 반환해 ‘안전하지 않은’ 좌표로 취급.
+    """
+    x, y = p
+    inside = False
+    n = len(poly)
+    for i in range(n):
+        a = poly[i]
+        b = poly[(i + 1) % n]
+
+        # ① 경계 위 체크
+        if _point_on_segment(p, a, b):
+            return True
+
+        # ② 내부 여부 토글
+        xi, yi = a
+        xj, yj = b
+        intersect = ((yi > y) != (yj > y)) and \
+                    (x < (xj - xi) * (y - yi) / (yj - yi + 1e-12) + xi)
+        if intersect:
+            inside = not inside
+    return inside
+
+def _sample_safe_cell(self,
+                      padding: int = 5,
+                      max_attempts: int = 2000) -> Tuple[int, int]:
+    """
+    패딩을 둔 영역([padding, width-padding), [padding, height-padding))
+    안에서 장애물·기존 로봇과 충돌하지 않는 좌표를 무작위로 찾는다.
+    찾지 못하면 ValueError.
+    """
+    for _ in range(max_attempts):
+        x = random.randint(padding, self.width  - padding - 1)
+        y = random.randint(padding, self.height - padding - 1)
+        p = (x, y)
+
+        # ─ 장애물 충돌 검사
+        collision = any(_point_in_polygon(p, poly)
+                        for poly in self.obstacles)
+        if collision:
+            continue
+
+        # ─ 이미 사용된 위치인지 검사
+        if p in self._occupied_cells:   # ← robot_placement에서 관리
+            continue
+
+        return p
+    raise ValueError("안전 스폰 위치를 찾지 못했습니다 ‑ padding 값·장애물 배치를 확인하세요.")
 
 def are_meshes_adjacent(mesh1, mesh2):
     # 두 mesh의 공통 꼭짓점의 개수를 센다
@@ -1028,46 +1091,28 @@ class FightingModel(Model):
             self.recur_exit(x - 1, y - 1, visible_distance - 2, "d")
 
 
+    def robot_placement(self,
+                        n_robots: int = 1,
+                        padding: int = 5):
+        """
+        장애물(삼각형·사각형)과 경계를 피하고,
+        맵 외곽에서 padding 만큼 떨어진 안전 영역 안에
+        n_robots 개의 로봇을 랜덤 배치한다.
+        """
+        # 이미 있는 로봇 좌표도 피하도록 집합 유지
+        self._occupied_cells = {tuple(a.pos) for a in getattr(self, "robots", [])}
 
-    def robot_placement(self): # 야외 공간에 무작위로 로봇 배치 
-        # get_point = self.exit_point[random.randint(0, len(self.exit_point)-1)]
-        # get_point = (int(round(get_point[0])), int(round(get_point[1])))
-        # self.agent_id = self.agent_id + 10
-        # self.robot = RobotAgent(self.agent_id, self, [get_point[0],get_point[1]], 3)
-        # self.agent_id = self.agent_id + 10
-        # self.schedule.add(self.robot)
-        # self.grid.place_agent(self.robot, (get_point[0], get_point[1]))
+        self.robots = []  # 새로 배치할 로봇 보관
+        for _ in range(n_robots):
+            spawn = _sample_safe_cell(self, padding)
+            self._occupied_cells.add(spawn)
 
-        # self.agent_id = self.agent_id + 10
-        # self.robot = RobotAgent(self.agent_id, self, [5, 5], 3)
-        # self.agent_id = self.agent_id + 10
-        # self.schedule.add(self.robot)
-        # self.grid.place_agent(self.robot, (20, 25))
-        space_num = len(self.pure_mesh)
-        
-        agent_location = []
+            self.robot = RobotAgent(self.agent_id, self, list(spawn), 3)
+            self.agent_id += 10
 
-        for i in range(1):
-            assign_mesh_num = random.randint(0, space_num-1)
-            assigned_mesh = self.pure_mesh[assign_mesh_num]
-            
-            while(1):
-                assigned_coordinates = self.match_mesh_to_grid[assigned_mesh]
-                if (len(assigned_coordinates) !=0):
-                    break
-                else :
-                    assign_mesh_num = random.randint(0, space_num-1)
-                    assigned_mesh = self.pure_mesh[assign_mesh_num]
-            assigned = assigned_coordinates[random.randint(0, len(assigned_coordinates)-1)]
-            assigned = [int(assigned[0]), int(assigned[1])]
-            if not assigned in agent_location:
-                agent_location.append(assigned)
-                self.robot = RobotAgent(self.agent_id, self, assigned, 3)
-                self.agent_id = self.agent_id + 10
-                self.schedule.add(self.robot)
-                self.grid.place_agent(self.robot, assigned)
-    
-
+            self.robots.append(self.robot)
+            self.schedule.add(self.robot)
+            self.grid.place_agent(self.robot, spawn)
     
     
     def random_agent_distribute_outdoor(self, agent_num, ran):

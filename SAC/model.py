@@ -1107,12 +1107,12 @@ class FightingModel(Model):
             spawn = _sample_safe_cell(self, padding)
             self._occupied_cells.add(spawn)
 
-            robot = RobotAgent(self.agent_id, self, list(spawn), 3)
+            self.robot = RobotAgent(self.agent_id, self, list(spawn), 3)
             self.agent_id += 10
 
-            self.robots.append(robot)
-            self.schedule.add(robot)
-            self.grid.place_agent(robot, spawn)
+            self.robots.append(self.robot)
+            self.schedule.add(self.robot)
+            self.grid.place_agent(self.robot, spawn)
 
     
     
