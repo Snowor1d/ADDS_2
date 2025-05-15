@@ -86,6 +86,14 @@ class HeatMapLogger:
             tmp_path.replace(self._file_path(m))
             epi_mat.fill(0) ## 에피소드 카운트 초기화
 
+    def snapshot(self, episode: int) -> None:
+        """current aggregate → heat_<map>_ep_<episode>.npy (copy)"""
+        for m, mat in self._aggregate.items():
+            if mat.sum() == 0:
+                continue
+            file = self.save_root / f"heat_{m}_ep_{episode}.npy"
+            np.save(file, mat)
+
     # ------------------------------------------------------------------
     # Visualisation helpers (can be called from a separate process)
     # ------------------------------------------------------------------
@@ -129,7 +137,7 @@ class HeatMapLogger:
             im = ax.imshow( ## 전치
                 data.T, origin="lower", cmap=cmap, interpolation="nearest"
             )
-            ax.set_title(f"map {m}")
+            ax.set_title(f"map {m}")
             ax.set_xticks([]), ax.set_yticks([])
             fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04) ## 컬러바
 
@@ -174,6 +182,23 @@ class HeatMapLogger:
                 self._episode_buf[map_id] = np.zeros((self.w, self.h), dtype=np.int64)
 
 
+    
+def plot_compare(a_file: str, b_file: str, *, cmap="seismic") -> None:
+        a, b = np.load(a_file), np.load(b_file)
+        diff = b.astype(float) - a.astype(float)
+        vmax = np.abs(diff).max() or 1
+        fig, axes = plt.subplots(1, 3, figsize=(12,4))
+        for ax, data, title in zip(axes, [a, b, diff],
+            ["A", "B", "B - A"]):
+            im = ax.imshow(data.T if title!="B - A" else diff.T,
+                            origin="lower",
+                            cmap=cmap if title=="B - A" else "jet",
+                            vmin=-vmax if title=="B - A" else 0,
+                            vmax=vmax if title=="B - A" else None)
+            ax.set_title(title); ax.set_xticks([]); ax.set_yticks([])
+            fig.colorbar(im, ax=ax, fraction=.046, pad=.04)
+        fig.tight_layout(); plt.show()
+
 # ---------------------------------------------------------------------------
 # CLI utility – inspect heat-maps while training is running
 # ---------------------------------------------------------------------------
@@ -184,9 +209,14 @@ def _cli():
     p.add_argument("--map", type=int, default=None, help="Single map-id to display.  Omit to show all.")
     p.add_argument("--watch", action="store_true", help="Refresh the plot every --interval seconds.")
     p.add_argument("--interval", type=float, default=5.0, help="Seconds between refresh when --watch is set.")
-    p.add_argument("--cmap", default="jet", help="Matplotlib colour-map name.")
+    p.add_argument("--snapshot-every", type=int, help="save snapshot every N epi")
+    p.add_argument("--compare", nargs=2, metavar=("A.npy","B.npy"),
+                    help="compare two snapshot npy files")
     args = p.parse_args()
 
+    if args.compare:
+        plot_compare(args.compare[0], args.compare[1]); return
+    
     logger = HeatMapLogger(args.root, resume=True) ## HeatMapLogger 생성
 
     fig = logger.visualise(args.map, cmap=args.cmap, blocking=not args.watch)
@@ -197,12 +227,13 @@ def _cli():
             while plt.fignum_exists(fig.number):
                 time.sleep(args.interval)
                 fig = logger.visualise(
-                    args.map, cmap=args.cmap, blocking=False, fig=fig
-                )
+                    [args.map] if args.map else None,
+                                        fig=fig, blocking=False)
         except KeyboardInterrupt:
             pass
-        finally:
-            plt.close("all")
+
+    else:
+        plt.close("all")
 
 
 if __name__ == "__main__":
