@@ -792,7 +792,6 @@ class FightingModel(Model):
 
         
             
-            
 
         # elif map_num == 1:  # 산학협력관 + 잔디밭
         #     self.obstacles.append([[15 * scale, 15 * scale], [25 * scale, 15 * scale], [25 * scale, 35 * scale], [15 * scale, 35 * scale]])
@@ -889,7 +888,6 @@ class FightingModel(Model):
 
 
 # --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-
 
     def construct_map(self):
         for i in range(len(self.walls)):
@@ -1013,7 +1011,6 @@ class FightingModel(Model):
         return 0
 
 
-
     def check_bridge(self, space1, space2):
         visited = {}
         for i in self.space_graph.keys():
@@ -1093,6 +1090,7 @@ class FightingModel(Model):
             self.recur_exit(x - 1, y - 1, visible_distance - 2, "d")
 
 
+
     def robot_placement(self,
                         n_robots: int = 1,
                         padding: int = 5):
@@ -1115,8 +1113,6 @@ class FightingModel(Model):
             self.robots.append(self.robot)
             self.schedule.add(self.robot)
             self.grid.place_agent(self.robot, spawn)
-
-    
 
     
     

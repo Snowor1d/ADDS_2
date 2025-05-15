@@ -49,7 +49,7 @@ LONG_EPSILON_MIN = 0
 START_LONG_EPSILON = 0
 
 # -------------- PATH -------------------
-LOG_DIR = "Log_SAC"
+LOG_DIR = "Log_SAC_HEAT"
 PORT_NUM = 6007
 
 # --------------- SAC ALGORITHM PARAMETER ---------------
@@ -59,9 +59,6 @@ LOG_STD_MIN = -20
 ALPHA_START = 0.2 # in SAC
 ALPHA_END = 0.2
 ALPHA_DECAY_STEPS = 3000
-
-# --------------- OTHERS ----------------
-RND_BETA = 0.5
 
 # --------------- REWARD SHPAING -----------------
 

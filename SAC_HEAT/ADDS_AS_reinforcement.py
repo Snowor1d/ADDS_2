@@ -15,11 +15,11 @@ import threading
 from torch.utils.tensorboard import SummaryWriter
 import subprocess
 import webbrowser
+from typing import Tuple
 from Start_training import START_DECAY_STEP, START_EPSILON, EPSILON_MIN, SCHEDULER_TYPE, DECAY_VALUE, REWARD_A, REWARD_B, REWARD_C, REWARD_D, REWARD_E, REWARD_F, REWARD_G, REWARD_H, REWARD_I, REWARD_J, REWARD_K, CROWD_NUMBER_MIN, CROWD_NUMBER_MAX, LINEARLY_DECAY_STEP, START_UPDATE_STEP, LOG_DIR, FINISHED_BONUS, REWARD_FIXED, MAP_NUM, EXPLORATION_TYPE, \
                             LR, BUFFER_SIZE, BATCH_SIZE, LOG_STD_MAX, LOG_STD_MIN, ALPHA_START, ALPHA_END, ALPHA_DECAY_STEPS, DEVICE, SCALE_CHECK, ACTION_SCALE, START_BATCH_TIMES, MAX_STEPS, PORT_NUM, LONG_EPSILON_MIN, START_LONG_EPSILON, \
-                            GAMMA_START, GAMMA_SCHEDULE_STEP, GAMMA_END, MAP_NUM_RANDOM, RND_BETA
+                            GAMMA_START, GAMMA_SCHEDULE_STEP, GAMMA_END, MAP_NUM_RANDOM
 from heat_map import HeatMapLogger #@for heat_map
-
 # Timer instances
 sim_timer = Timer() 
 learn_timer = Timer()
@@ -30,15 +30,10 @@ model_load = 3
 # load specified model : 2
 # load latest model : 3
 
-
 home_dir = os.path.expanduser("~")
 log_dir = os.path.join(home_dir, LOG_DIR)
 os.makedirs(log_dir, exist_ok=True)
-
-
-ACTION_SCALE = ACTION_SCALE
 os.makedirs(log_dir, exist_ok=True)
-
 
 heat_logger = HeatMapLogger(   #@for heat_map
     save_root = os.path.join(log_dir, "heat_maps"),
@@ -88,7 +83,7 @@ def monitor_metric(metric_file, metric_name, tb_log_dir):
                         try:
                             value = float(line)
                             writer.add_scalar(f"{metric_name}", value, episode)
-                            print(f"Episode {episode} - {metric_name} = {value}")
+                            #print(f"Episode {episode} - {metric_name} = {value}")
                             episode += 1
                         except ValueError:
                             print(f"Invalid value in {metric_file}: {line}")
@@ -98,6 +93,37 @@ def monitor_metric(metric_file, metric_name, tb_log_dir):
             print(f"Monitoring for {metric_file} interrupted by user.")
         finally:
             writer.close()
+
+def alpha_decay_schedule(parameter_start: float,
+                   parameter_end: float,
+                   decay_steps: int,
+                   episode_num: int) -> float:
+
+    # 감쇠가 끝났으면 최종값 고정
+    if episode_num >= decay_steps:
+        return parameter_end
+
+    # 선형 보간
+    progress = episode_num / float(decay_steps)
+    return parameter_start + (parameter_end - parameter_start) * progress
+
+
+def gamma_ascent_schedule(parameter_start: float,
+                          parameter_end : float,
+                          decay_steps : int,
+                          episode_num : int) -> float:
+    if episode_num >= decay_steps:
+        return parameter_end
+
+    # 음수 에피소드 처리: 초기값 반환
+    if episode_num <= 0:
+        return parameter_start
+
+    # 선형 보간으로 값 계산
+    progress = episode_num / float(decay_steps)
+    return parameter_start + (parameter_end - parameter_start) * progress
+    
+    
 
 ##########################################################################
 # 1) Replay Buffer
@@ -129,6 +155,7 @@ class ReplayBuffer:
         dones_t        = torch.from_numpy(dones_np).to(device)                     # (B,)
 
         return states_t, actions_t, rewards_t, next_states_t, dones_t
+
     def __len__(self):
         return len(self.buffer)
 
@@ -198,6 +225,7 @@ class EpsilonScheduler:
             return epsilon
         else:
             raise ValueError("scheduler_type must be either 'exponential' or 'linear'")
+        
     
 ##########################################################################
 # 3) Critic (Q) Network
@@ -249,8 +277,8 @@ class PolicyNetwork(nn.Module):
         super(PolicyNetwork, self).__init__()
         self.log_std_min = LOG_STD_MIN
         self.log_std_max = LOG_STD_MAX
-        
-        # CNN feature extractor
+
+        # --- 여기서 conv1, bn1 선언 ---
         self.conv1 = nn.Conv2d(1, 32, kernel_size=5, stride=2, padding=2)
         self.bn1   = nn.BatchNorm2d(32)
         self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)
@@ -314,131 +342,13 @@ class PolicyNetwork(nn.Module):
         log_prob = log_prob_u - jacobian
         return action, log_prob
 
-###############################################################################
-#  Random Network Distillation 모듈
-###############################################################################
-class RNDTarget(nn.Module):
-    """Frozen, randomly initialised CNN → 128-D embedding"""
-    def __init__(self, input_shape=(50, 50)):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Conv2d(1, 32, 5, 2, 2), nn.LeakyReLU(0.01),
-            nn.Conv2d(32, 64, 3, 2, 1), nn.LeakyReLU(0.01),
-            nn.Conv2d(64, 64, 3, 2, 1), nn.LeakyReLU(0.01),
-            nn.Flatten(),
-        )
-        dummy = torch.zeros(1, 1, *input_shape)
-        flat = self.net(dummy).shape[1]
-        self.fc = nn.Sequential(nn.Linear(flat, 512), nn.LeakyReLU(0.01),
-                                nn.Linear(512, 128))
 
-    def forward(self, x):
-        x = self.net(x)
-        return self.fc(x)
-class RNDPredictor(nn.Module):
-    def __init__(self, input_shape=(50, 50)):
-        super().__init__()
-        C, H, W = 1, *input_shape
-        self.cnn = nn.Sequential(
-            nn.Conv2d(C, 32, 5, 2, 2), nn.LeakyReLU(0.01),
-            nn.Conv2d(32, 64, 3, 2, 1), nn.LeakyReLU(0.01),
-            nn.Conv2d(64, 64, 3, 2, 1), nn.LeakyReLU(0.01),
-            nn.Flatten()
-        )
-        flat = self.cnn(torch.zeros(1, C, H, W)).shape[1]
-        self.mlp = nn.Sequential(
-            nn.Linear(flat, 512), nn.LeakyReLU(0.01),
-            nn.Linear(512, 128)
-        )
 
-        # --- 명시적 초기화(Orthogonal) ---
-        for m in self.modules():
-            if isinstance(m, (nn.Conv2d, nn.Linear)):
-                nn.init.orthogonal_(m.weight)
-                if m.bias is not None:
-                    nn.init.zeros_(m.bias)
-
-    def forward(self, x):
-        return self.mlp(self.cnn(x))
-
-class RNDModule:
-    """
-    • 정규화(µ,σ) 유지  • intrinsic reward 계산  • predictor 학습
-    """
-    def __init__(self, input_shape=(50, 50), device="cpu",
-                 lr=1e-4, beta=1.0):
-        self.device = torch.device(device)
-        self.beta   = beta
-        self.target     = RNDTarget(input_shape).to(self.device)
-        for p in self.target.parameters():
-            p.requires_grad = False
-        self.predictor  = RNDPredictor(input_shape).to(self.device)
-        self.optim      = optim.Adam(self.predictor.parameters(), lr=lr)
-
-        # running mean/var for whitening
-        self.obs_cnt = 1e-4
-        self.obs_mean = torch.zeros(1, 1, *input_shape, device=self.device)
-        self.obs_var  = torch.ones (1, 1, *input_shape, device=self.device)
-
-    # ---------- observation whitening ---------- #
-    def _update_obs_stats(self, obs_batch):
-        batch_mean = obs_batch.mean(dim=0, keepdim=True)
-        batch_var  = obs_batch.var (dim=0, keepdim=True, unbiased=False)
-        m = obs_batch.size(0)
-        total_cnt = self.obs_cnt + m
-        new_mean = (self.obs_cnt * self.obs_mean + m * batch_mean) / total_cnt
-        new_var  = (self.obs_cnt * self.obs_var  + m * batch_var +
-                    self.obs_cnt * m / total_cnt *
-                    (self.obs_mean - batch_mean) ** 2) / total_cnt
-        self.obs_mean, self.obs_var, self.obs_cnt = new_mean, new_var, total_cnt
-
-    def _norm(self, x):
-        x = (x - self.obs_mean) / torch.sqrt(self.obs_var + 1e-8)
-        return torch.clamp(x, -5.0, 5.0)
-
-    # ---------- public API ---------- #
-    @torch.no_grad()
-    def compute_intrinsic_reward(self, next_state):
-        """
-        next_state: numpy (H,W)  ⇒ torch (1,1,H,W)
-        returns scalar float reward
-        """
-        s = torch.FloatTensor(next_state).unsqueeze(0).unsqueeze(0).to(self.device)
-        self._update_obs_stats(s)
-        s = self._norm(s)
-        with torch.no_grad():
-            target_feat = self.target(s)
-        pred_feat = self.predictor(s)
-        mse = F.mse_loss(pred_feat, target_feat, reduction="none").mean()
-        return mse.item()
-
-    def update(self, state_batch):
-        """Predictor 한 step 학습 (state_batch: (B,1,H,W) CPU or GPU)"""
-        # 0) 디바이스 통일
-        state_batch = state_batch.to(self.device)
-
-        # 1) 러닝 통계 갱신
-        self._update_obs_stats(state_batch)
-
-        # 2) 화이트닝
-        s_norm = self._norm(state_batch)
-
-        with torch.no_grad():
-            tgt = self.target(s_norm)
-
-        pred  = self.predictor(s_norm)
-        loss  = F.mse_loss(pred, tgt)
-
-        # 3) 학습
-        self.optim.zero_grad(set_to_none=True)
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.predictor.parameters(), 1.0)
-        self.optim.step()
 ##########################################################################
 # 5) SAC Agent for Action
 ##########################################################################
 class SACAgent:
-    def __init__(self, input_shape=(50,50), gamma=GAMMA_START, alpha=0.2, tau=0.995, lr=1e-4, batch_size=64, replay_size=int(1e5), device="cpu", start_epsilon = 1.0, start_epsilon_long = 0.1, long_epsilon_min=0):
+    def __init__(self, input_shape=(50,50), gamma=GAMMA_START, alpha=0.2, tau=0.995, lr=1e-4, batch_size=64, replay_size=int(1e5), device="cpu", start_epsilon = 1.0, start_epsilon_long = 0.1, long_epsilon_min=0, heat_logger=None):
         self.gamma = gamma
         self.alpha = alpha
         self.tau = tau
@@ -447,6 +357,11 @@ class SACAgent:
         self.epsilon = start_epsilon
         self.epsilon_long = start_epsilon_long
         self.epsilon_long_min = long_epsilon_min
+
+        self.heat_logger = heat_logger
+        self.current_map_id = None
+        self.current_heat = None
+        self.step_size = 2.0
 
         # Replay buffer
         self.replay_buffer = ReplayBuffer(capacity=int(replay_size))
@@ -474,8 +389,6 @@ class SACAgent:
         self.q2_optimizer = optim.Adam(self.q2.parameters(), lr=lr)
         self.policy_optimizer = optim.Adam(self.policy.parameters(), lr=lr)
 
-        # RND 연결
-        self.rnd = RNDModule(input_shape=input_shape, device=device, lr=lr, beta=RND_BETA)
 
 
 # ------------------------------------------------- #
@@ -488,13 +401,11 @@ class SACAgent:
             )
 
     # ------------------------------------------------- #
-    # Store transition
+    # Store experience
     # ------------------------------------------------- #
     def store_transition(self, s, a, r, s_next, done):
-        i_r = self.rnd.compute_intrinsic_reward(s_next)
-        total_r = r + self.rnd.beta * i_r           # extrinsic + intrinsic
-        self.replay_buffer.push(s, a, total_r, s_next, done)
-
+        # if -20 <= a[0] <= 20 and -20 <= a[1] <= 20:
+        self.replay_buffer.push(s, a, r, s_next, done)
 
     # ------------------------------------------------- #
     # Select action
@@ -502,24 +413,41 @@ class SACAgent:
     def select_action(self, state_np, deterministic=False):
         """
         state_np: shape (H, W) or (1, H, W)
-        returns (action_np: [dx, dy], exploratory: bool)
+        returns action_np shape (4,) = [dx, dy, mode0, mode1]
+        If using epsilon > 0.0 for random exploration, 
+        we can do random direction + random mode sometimes.
         """
 
-        # ε-greedy
-        if np.random.rand() < self.epsilon:
-            dx = np.random.uniform(-2, 2)
-            dy = np.random.uniform(-2, 2)
-            return np.array([dx, dy]), True
+        if(EXPLORATION_TYPE == 0):
+            # Epsilon check
+            if np.random.rand() < self.epsilon:
+                # random direction in [-1,1], random mode
+                dx = np.random.uniform(-2,2)
+                dy = np.random.uniform(-2,2)
+                return np.array([dx, dy]), True
 
-        state_t = torch.FloatTensor(state_np).unsqueeze(0).unsqueeze(0).to(self.device)
+        # Otherwise use the policy
+        state_t = torch.FloatTensor(state_np).unsqueeze(0).unsqueeze(0).to(self.device)  # (1,1,H,W)
+        # state_np는 2D 배열인데, 차원을 추가하여 모델 입력에 적합한 차원으로 만들려는 것
+
         with torch.no_grad():
             if deterministic:
-                mean, _ = self.policy(state_t)
-                action_t = 4 * torch.sigmoid(mean) - 2
+                # 결정적 행동 선택: mean에 대해 바로 sigmoid 변환.
+                mean, _ = self.policy.forward(state_t)
+                action_t = 4*torch.sigmoid(mean)-2
             else:
-                action_t, _ = self.policy.sample_action(state_t)
+                # 비결정적 선택: sample_action에서 샘플링 (자코비안 보정 포함)
+                action_t, log_prob = self.policy.sample_action(state_t)
+        action_np = action_t.cpu().numpy()[0]
+        print(action_np)
 
-        return action_t.cpu().numpy()[0], False
+        return action_np, False
+
+    def update_gamma(self, start_gamma, end_gamma, ascent_steps, now_episode):
+        self.gamma = gamma_ascent_schedule(start_gamma, end_gamma, ascent_steps, now_episode)
+    
+    def update_alpha(self, start_alpha, end_alpha, decay_steps, now_episode):
+        self.alpha = alpha_decay_schedule(start_alpha, end_alpha, decay_steps, now_episode)
 
 
 
@@ -590,8 +518,12 @@ class SACAgent:
         self.soft_update(self.q1, self.q1_target)
         self.soft_update(self.q2, self.q2_target)
 
-        # RND predictor update
-        self.rnd.update(next_states)
+    def heat_loaded(self, map_id : int):
+        self.current_map_id = map_id
+        self.current_heat = self.heat_logger._load(map_id)
+    
+    def heatmap_explore(self, map_id:int, robot_pos:Tuple[float, float]) -> np.ndarray:
+        heat = self.heat_logger._load(map_id)
 
     # ------------------------------------------------- #
     # Save / Load
@@ -669,6 +601,8 @@ def monitor_total_reward(total_reward_file, tb_log_dir):
         finally:
             writer.close()
 
+        
+
 ##########################################################################
 # Example usage in your training loop
 ##########################################################################
@@ -723,14 +657,14 @@ if __name__ == "__main__":
                 else:
                     print("Not enough lines in start_epsilon.txt. Resetting values.")
                     start_epsilon = START_EPSILON
-                    start_epsilon_long = START_LONG_EPSILON # 기본값 설정
+                    start_epsilon_long = START_LONG_EPSILON  # 기본값 설정
             except ValueError:
                 print("Invalid value in start_epsilon.txt. Resetting to defaults.")
                 start_epsilon = START_EPSILON
                 start_epsilon_long = START_LONG_EPSILON  # 기본값 설정
     else:
         start_epsilon = START_EPSILON
-        start_epsilon_long = START_LONG_EPSILON # 기본값 설정
+        start_epsilon_long = START_LONG_EPSILON  # 기본값 설정
         print("No start_epsilon.txt found. Initializing values to defaults.")
     
     agent = SACAgent(input_shape=(50,50), alpha=ALPHA_START, lr=float(LR), start_epsilon=start_epsilon, start_epsilon_long = float(START_LONG_EPSILON), long_epsilon_min=float(LONG_EPSILON_MIN), batch_size=int(BATCH_SIZE), replay_size=float(BUFFER_SIZE), device=DEVICE)
@@ -770,9 +704,9 @@ if __name__ == "__main__":
 
     epsilon_scheduler = EpsilonScheduler(start_epsilon=start_epsilon, epsilon_min = EPSILON_MIN, start_decay_step = START_DECAY_STEP, scheduler_type=SCHEDULER_TYPE, decay_value=DECAY_VALUE, linear_decay_steps = LINEARLY_DECAY_STEP)
 
-
     for episode in range(max_episodes):
-        print(f"Episode {start_episode+episode+1}")
+        episode_num = start_episode+episode
+        print(f"Episode {episode_num}")
         # Create environment
         while True:
             try:
@@ -796,7 +730,8 @@ if __name__ == "__main__":
         buffered_state = state
         buffered_action = None
         abnormal_reward = 0
-        r_k = 0
+        agent.update_alpha(ALPHA_START, ALPHA_END, ALPHA_DECAY_STEPS, episode_num)
+        agent.update_gamma(GAMMA_START, GAMMA_END, GAMMA_SCHEDULE_STEP, episode_num)
         try:
             for step in range(max_steps):
                 # 1) Select action
@@ -819,14 +754,14 @@ if __name__ == "__main__":
                 sim_timer.start()
                 # 2) Step environment
                 env_model.step()
-                
+
                 if step % ACTION_SCALE == 0: #@ for heatmap
                     hx, hy = map(int, np.round(env_model.robot.xy)) 
                     heat_logger.update(env_model.map_num, hx, hy) 
 
                 sim_timer.stop()
                 reward = 0
-
+                r_k = 0
                 # 4) Next state
                 next_state = env_model.return_current_image()
 
@@ -900,7 +835,7 @@ if __name__ == "__main__":
                     reward = 0
 
                 # 7) Update agent
-                if(step%ACTION_SCALE==(ACTION_SCALE-1) and start_episode+episode>=START_UPDATE_STEP):
+                if(step%ACTION_SCALE==(ACTION_SCALE-1) and episode_num>=START_UPDATE_STEP):
                     learn_timer.start()
                     agent.update()
                     learn_timer.stop()
@@ -914,25 +849,27 @@ if __name__ == "__main__":
                     evacuation_time_100 = step
                 if done:
                     break
-
-
         except Exception as e:
             print(e)
             print("error occured. retry.")
             env_model = model.FightingModel(number_of_agents, 50, 50, 2, 'Q')
             abnormal_reward = 1
 
-
         heat_logger.flush_episode() #@for heatmap
-        
+
         # Possibly update epsilon, or do other logging
 
-        agent.epsilon = epsilon_scheduler.get_epsilon(agent.epsilon, episode+start_episode)
-        print("writing.. ", PORT_NUM)
+        agent.epsilon = epsilon_scheduler.get_epsilon(agent.epsilon, episode_num)
+        #print("writing.. ", PORT_NUM)
+        print("-----------------------------------------------")
         print("Total reward:", total_reward)
         print("now_epsilon : ", agent.epsilon)
+        print("now_alpha : ", agent.alpha)
+        print("now_gamma : ", agent.gamma)
         print("evacuation_time_80 : ", evacuation_time_80)
         print("evacuation_time_100 : ", evacuation_time_100)
+        
+        print("-----------------------------------------------")
         
         # print("now_epsilon_long : ", agent.epsilon_long)
         # Save model occasionally
@@ -948,8 +885,8 @@ if __name__ == "__main__":
         if not os.path.exists(evacuation_time_100_file_path):
             open(evacuation_time_100_file_path, "w").close()
 
-        if (episode+1) % 50 == 0:
-            model_filename = os.path.join(log_dir, f"sac_checkpoint_ep_{start_episode + episode + 1}.pth")
+        if (episode_num) % 50 == 0:
+            model_filename = os.path.join(log_dir, f"sac_checkpoint_ep_{episode_num}.pth")
             agent.save_model(model_filename)
             replay_buffer_filename = "replay_buffer.pkl"
             agent.save_replay_buffer(replay_buffer_filename)
@@ -972,8 +909,7 @@ if __name__ == "__main__":
 
         # each episode time print
         if ENABLE_TIMER:
-            print(f"episode {start_episode+episode+1} - Total Simulation Time: {sim_timer.get_time():.6f} 초")
-            print(f"episode {start_episode+episode+1} - Total Learning Time: {learn_timer.get_time():.6f} 초")
+            print(f"episode {episode_num} - Total Simulation Time: {sim_timer.get_time():.6f} 초")
+            print(f"episode {episode_num} - Total Learning Time: {learn_timer.get_time():.6f} 초")
             sim_timer.reset()
             learn_timer.reset()
-
