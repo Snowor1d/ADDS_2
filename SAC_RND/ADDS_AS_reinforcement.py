@@ -941,7 +941,9 @@ if __name__ == "__main__":
 
 
         heat_logger.flush_episode() #@for heatmap
-        
+        if (episode + 1) % 10 == 0:
+            heat_logger.snapshot(episode + 1)
+
         # Possibly update epsilon, or do other logging
 
         agent.epsilon = epsilon_scheduler.get_epsilon(agent.epsilon, episode+start_episode)
