@@ -841,6 +841,8 @@ if __name__ == "__main__":
             abnormal_reward = 1
 
         heat_logger.flush_episode() #@for heatmap
+        if (episode + 1) % 10 == 0:
+            heat_logger.snapshot(episode + 1)
 
         # Possibly update epsilon, or do other logging
 
