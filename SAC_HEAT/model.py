@@ -384,9 +384,20 @@ class FightingModel(Model):
         self.minimum_distance = 0
         self.new_founded_agent_danger = 0
 
+        self.obstacle_mask = self.build_obstacle_mask()
+        self.wall_mask = self.obstacle_mask
+
         # for i in range(50):
         #     for j in range(50):
         #         print("(", i, j, ")", self.valid_space[(i, j)])
+
+    def build_obstacle_mask(self):
+        mask = np.zeros((self.height, self.width), dtype=np.uint8)
+        for (x, y), is_free in self.valid_space.items():
+            if is_free == 0:
+                if(0<=y<self.width and 0<=x<self.height):
+                    mask[y, x] = 1
+        return mask
     def alived_agents(self):
         alived_agents = self.total_agents
         for i in self.crowds:
