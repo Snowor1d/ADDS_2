@@ -126,23 +126,46 @@ def gamma_ascent_schedule(parameter_start: float,
     return parameter_start + (parameter_end - parameter_start) * progress
     
     
-def interest_direction(heat: np.ndarray, wall: np.ndarray, pos_xy: Tuple[float, float]) -> float:
-    """가장 방문 빈도가 낮은 셀을 확률적으로 뽑아 그 방향(라디안)을 반환."""
+def interest_direction(
+    heat: np.ndarray,
+    wall: np.ndarray,
+    pos_xy: Tuple[float, float],
+    radius: int = 2
+) -> float:
+    """
+    로봇 위치 pos_xy를 중심으로 반경 radius 내의 셀만 보고,
+    방문 빈도가 가장 낮은 셀을 확률적으로 뽑아 그 방향(라디안)을 반환.
+    """
     x0, y0 = map(int, np.round(pos_xy))
     H, W = heat.shape
 
-    # (1) 방문 횟수 → 관심도(작을수록 ↑)
-    interest = np.log(heat.max() + 1) - np.log(heat + 1)
-    interest[wall == 1] = 0.0           # 장애물은 제외
+    # 1) 로컬 윈도우 경계 계산 (클리핑)
+    y_min = max(0, y0 - radius)
+    y_max = min(H, y0 + radius + 1)
+    x_min = max(0, x0 - radius)
+    x_max = min(W, x0 + radius + 1)
+
+    sub_heat = heat[y_min:y_max, x_min:x_max]
+    sub_wall = wall[y_min:y_max, x_min:x_max]
+
+    # 2) 로컬 interest 계산
+    interest = np.log(sub_heat.max() + 1) - np.log(sub_heat + 1)
+    interest[sub_wall == 1] = 0.0
+
+    # 3) 예외 처리: 윈도우 내 방문 가능한 셀이 없으면 랜덤
     if interest.sum() == 0:
         return np.random.uniform(-np.pi, np.pi)
 
-    # (2) 확률화 후 목표 셀 샘플
+    # 4) 확률 분포로 셀 선택
     prob = interest.ravel() / interest.sum()
-    tgt_idx = np.random.choice(H * W, p=prob)
-    ty, tx = divmod(tgt_idx, W)
+    local_idx = np.random.choice(interest.size, p=prob)
+    dy, dx = divmod(local_idx, interest.shape[1])
 
-    # (3) 현재 위치 → 목표 셀 벡터 각도
+    # 5) 전역 좌표로 복원
+    ty = y_min + dy
+    tx = x_min + dx
+
+    # 6) 방향 계산
     return np.arctan2(ty - y0, tx - x0)
 
 
@@ -154,7 +177,7 @@ def guided_random_action(agent, env_model):
         return np.random.uniform(-2, 2), np.random.uniform(-2, 2)
 
     x0, y0 = env_model.robot.xy
-    step = agent.step_size
+    step = 2
 
     for _ in range(30):                       # 30회까지 재시도
         theta_c = interest_direction(heat, wall, (x0, y0))
@@ -163,13 +186,16 @@ def guided_random_action(agent, env_model):
 
         nx, ny = int(round(x0 + dx)), int(round(y0 + dy))
         if nx < 0 or nx >= wall.shape[1] or ny < 0 or ny >= wall.shape[0]:
+            #print("재시도")
             continue
         if wall[ny, nx] == 1:                 # 충돌
+            #print("재시도")
             continue
+        #print("heat 기반 exploration 성공")
         return dx, dy
 
     # fallback : 모든 재시도 실패
-    print("heat 기반 exploration 실패!")
+    #print("heat 기반 exploration 실패!")
     return np.random.uniform(-2, 2), np.random.uniform(-2, 2)
 
 
@@ -461,10 +487,12 @@ class SACAgent:
 
         try:
             self.current_heat = self.heat_logger._load(map_id)
-            print("heat_map load 성공")
+            #print("heat_map load 성공")
         except FileNotFoundError:
+            #print("아직 heat map이 없음")
             H, W = self.heat_logger.map_size
             self.current_heat = np.zeros((H, W), dtype=np.float32)
+            
 
         self.obstacle_mask = obstacle_mask
 
@@ -482,7 +510,7 @@ class SACAgent:
         if(EXPLORATION_TYPE == 0):
             # Epsilon check
             if np.random.rand() < self.epsilon:
-                if self.current_heat == None :
+                if self.current_heat is None :
                     # random direction in [-1,1], random mode
                     dx = np.random.uniform(-2,2)
                     dy = np.random.uniform(-2,2)
@@ -734,7 +762,7 @@ if __name__ == "__main__":
         start_epsilon_long = START_LONG_EPSILON  # 기본값 설정
         print("No start_epsilon.txt found. Initializing values to defaults.")
     
-    agent = SACAgent(input_shape=(50,50), alpha=ALPHA_START, lr=float(LR), start_epsilon=start_epsilon, start_epsilon_long = float(START_LONG_EPSILON), long_epsilon_min=float(LONG_EPSILON_MIN), batch_size=int(BATCH_SIZE), replay_size=float(BUFFER_SIZE), device=DEVICE)
+    agent = SACAgent(input_shape=(50,50), alpha=ALPHA_START, lr=float(LR), start_epsilon=start_epsilon, start_epsilon_long = float(START_LONG_EPSILON), long_epsilon_min=float(LONG_EPSILON_MIN), batch_size=int(BATCH_SIZE), replay_size=float(BUFFER_SIZE), device=DEVICE, heat_logger=heat_logger)
     print(f"Agent initialized, lr={LR}, alpha={agent.alpha}, batch_size={BATCH_SIZE}, replay_size={BUFFER_SIZE}")
     replay_buffer_path = os.path.join(log_dir, "replay_buffer.pkl")
 
@@ -788,7 +816,7 @@ if __name__ == "__main__":
             except Exception as e:
                 print(e, "Retrying environment creation...")
             
-        if(episode_num>500):
+        if(episode_num>1):
             agent.heat_loaded(env_model.map_num, env_model.wall_mask)
 
         state = env_model.return_current_image()
