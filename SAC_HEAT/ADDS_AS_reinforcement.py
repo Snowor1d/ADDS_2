@@ -514,7 +514,7 @@ class SACAgent:
         self.policy_optimizer.step()
         # optimizer가 저장된 기울기(.grad)를 사용하여 네트워크의 파라미터 업데이트
 
-        # soft update
+        # soft updatel
         self.soft_update(self.q1, self.q1_target)
         self.soft_update(self.q2, self.q2_target)
 
@@ -522,9 +522,25 @@ class SACAgent:
         self.current_map_id = map_id
         self.current_heat = self.heat_logger._load(map_id)
     
-    def heatmap_explore(self, map_id:int, robot_pos:Tuple[float, float]) -> np.ndarray:
+    def heatmap_explore(self, map_id:int, robot_pos:Tuple[float, float], wall_mask) -> np.ndarray:
         heat = self.heat_logger._load(map_id)
+    
+    def interest_direction(heat, wall, pos_xy):
+        x0, y0 = map(int, np.round(pos_xy))
+        H, W = heat.shape
+        interest = np.log(heat.max()+1) - np.log(heat+1)
 
+        interest[wall == 1] = 0.0
+        if interest.sum() == 0:
+            return np.random.uniform(-np.pi, np.pi)
+        
+        prob = interest.ravel() / interest.sum()
+        tgt_idx = np.rnadom.choice(H * W, p= prob)
+        ty, tx = divmod(tgt_idx, W)
+
+        theta_center = np.arctan2(ty - y0, tx - x0)
+        return theta_center
+    
     # ------------------------------------------------- #
     # Save / Load
     # ------------------------------------------------- #
