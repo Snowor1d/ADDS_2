@@ -159,7 +159,7 @@ def interest_direction(
     # 4) 확률 분포로 셀 선택
     prob = interest.ravel() / interest.sum()
     local_idx = np.random.choice(interest.size, p=prob)
-    dy, dx = divmod(local_idx, interest.shape[1])
+    dx, dy = divmod(local_idx, interest.shape[1])
 
     # 5) 전역 좌표로 복원
     ty = y_min + dy
@@ -185,10 +185,10 @@ def guided_random_action(agent, env_model):
         dx, dy = step * np.cos(theta), step * np.sin(theta)
 
         nx, ny = int(round(x0 + dx)), int(round(y0 + dy))
-        if nx < 0 or nx >= wall.shape[1] or ny < 0 or ny >= wall.shape[0]:
+        if nx < 0 or nx >= wall.shape[0] or ny < 0 or ny >= wall.shape[1]:
             #print("재시도")
             continue
-        if wall[ny, nx] == 1:                 # 충돌
+        if wall[nx, ny] == 1:                 # 충돌
             #print("재시도")
             continue
         #print("heat 기반 exploration 성공")
