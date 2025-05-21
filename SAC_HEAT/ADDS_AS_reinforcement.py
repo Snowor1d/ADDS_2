@@ -145,8 +145,8 @@ def interest_direction(
     x_min = max(0, x0 - radius)
     x_max = min(W, x0 + radius + 1)
 
-    sub_heat = heat[y_min:y_max, x_min:x_max]
-    sub_wall = wall[y_min:y_max, x_min:x_max]
+    sub_heat = heat[x_min:x_max, y_min:y_max]
+    sub_wall = wall[x_min:x_max, y_min:y_max]
 
     # 2) 로컬 interest 계산
     interest = np.log(sub_heat.max() + 1) - np.log(sub_heat + 1)
