@@ -352,7 +352,7 @@ class FightingModel(Model):
             True
         )
         self.next_vertex_matrix = {}
-        self.exit_grid = np.zeros((self.height, self.width))
+        self.exit_grid = np.zeros((self.width, self.height))
         self.pure_mesh = []
         self.mesh_complexity = {}
         self.mesh_danger = {}
@@ -911,7 +911,7 @@ class FightingModel(Model):
         for e in self.exit_list:
             exit_grid.append(get_points_within_polygon(e, 1))
             for each_point in get_points_within_polygon(e, 1):
-                self.exit_grid[each_point[1]][each_point[0]] = 1
+                self.exit_grid[each_point[0]][each_point[1]] = 1
         for i in range(len(exit_grid)):
             for each_point in exit_grid[i]:
                 a = WallAgent(self.agent_num, self, self.exit_list[i][0], 10)
@@ -1454,25 +1454,25 @@ class FightingModel(Model):
         # Fill in wall
         for agent in self.agents:
             if agent.type == 9:
-                image[agent.pos[1], agent.pos[0]] = 20  # 벽
+                image[agent.pos[0], agent.pos[1]] = 20  # 벽
         
         # Fill in exit
         for agent in self.agents:
             if agent.type == 10:
-                image[agent.pos[1], agent.pos[0]] = 60  # 출구
+                image[agent.pos[0], agent.pos[1]] = 60  # 출구
 
         # Fill crowd agents
         for agent in self.crowds:
             if (agent.type == 1 or agent.type == 2) and not agent.dead:
-                image[int(round(agent.xy[1])), int(round(agent.xy[0]))] = 100  # agent
+                image[int(round(agent.xy[0])), int(round(agent.xy[1]))] = 100  # agent
         for agent in self.crowds:
             if agent.type == 0 and not agent.dead:
-                image[int(round(agent.xy[1])), int(round(agent.xy[0]))] = 140
+                image[int(round(agent.xy[0])), int(round(agent.xy[1]))] = 140
         
         # Fill robot
         for agent in self.agents:
             if agent.type == 3:
-                image[int(round(agent.xy[1])), int(round(agent.xy[0]))] = 200  # robot
+                image[int(round(agent.xy[0])), int(round(agent.xy[1]))] = 200  # robot
         
         return image
     
