@@ -16,7 +16,7 @@ def print_banner():
 
 
 # ------------- BASIC PARAMETERS ------------------
-LR = 2e-4
+LR = 1e-4
 BUFFER_SIZE = 1000000
 BATCH_SIZE = 128
 INTRINSIC_ETA = 0.1 #intrinsic reward

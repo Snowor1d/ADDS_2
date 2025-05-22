@@ -16,7 +16,7 @@ def print_banner():
 
 
 # ------------- BASIC PARAMETERS ------------------
-LR = 2e-4
+LR = 1e-4
 BUFFER_SIZE = 1000000
 BATCH_SIZE = 128
 INTRINSIC_ETA = 0.1 #intrinsic reward
@@ -32,9 +32,9 @@ GAMMA_SCHEDULE_STEP = 1000
 CROWD_NUMBER_MIN = 20
 CROWD_NUMBER_MAX = 20
 MAP_NUM = -1 #if not used, -2, if random, -1
-#MAP_NUM_RANDOM = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
-MAP_NUM_RANDOM = [5]
-SCALE_CHECK = 1 # want to check reward scale?
+MAP_NUM_RANDOM = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+#MAP_NUM_RANDOM = [5]
+SCALE_CHECK = 0 # want to check reward scale?
 ACTION_SCALE = 4
 MAX_STEPS = 6000
 
