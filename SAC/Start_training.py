@@ -34,7 +34,7 @@ CROWD_NUMBER_MAX = 20
 MAP_NUM = -1 #if not used, -2, if random, -1
 #MAP_NUM_RANDOM = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
 MAP_NUM_RANDOM = [5]
-SCALE_CHECK = 0 # want to check reward scale?
+SCALE_CHECK = 1 # want to check reward scale?
 ACTION_SCALE = 4
 MAX_STEPS = 6000
 
@@ -69,6 +69,8 @@ REWARD_D = 3 #reward_based_penalty
 REWARD_K = 1 #reward_penalty_collsion
 REWARD_E = 10 #reward_based_evacuated_with_robot
 REWARD_F = 0.01 #reward_based_distance_from_near_agents
+REWARD_L = 1 #reward_based_heatmap
+
 REWARD_FIXED = -0.1
 FINISHED_BONUS = 100
 

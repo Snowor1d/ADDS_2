@@ -32,8 +32,8 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 
-from ADDS_AS_reinforcement import SACAgent, ReplayBuffer, PolicyNetwork, QNetwork, ACTION_SCALE
-from Start_training import REWARD_A, REWARD_B, REWARD_C, REWARD_D, REWARD_E, REWARD_F, REWARD_G, REWARD_H, REWARD_I, REWARD_J, REWARD_K, FINISHED_BONUS, MAP_NUM, MAP_NUM_RANDOM
+from ADDS_AS_reinforcement import SACAgent, ReplayBuffer, PolicyNetwork, QNetwork, ACTION_SCALE, heat_logger
+from Start_training import REWARD_A, REWARD_B, REWARD_C, REWARD_D, REWARD_E, REWARD_F, REWARD_G, REWARD_H, REWARD_I, REWARD_J, REWARD_K, REWARD_L, FINISHED_BONUS, MAP_NUM, MAP_NUM_RANDOM, LOG_DIR
 
 def _point_on_segment(p: Tuple[int, int],
                       a: Tuple[int, int],
@@ -1235,7 +1235,8 @@ class FightingModel(Model):
             print("reward_based_gain_with_time_bonus :", self.reward_based_gain_with_time_bonus() * REWARD_H)
             print("reward_based_alived_root : ", self.reward_based_alived_root() * REWARD_I)
             print("reward_based_all_agents_danger_log : ", self.reward_based_all_agents_danger_log() * REWARD_J)
-            print("reward_penalty_collision : ", self.reward_penalty_collision() * REWARD_K)        
+            print("reward_penalty_collision : ", self.reward_penalty_collision() * REWARD_K)
+            print("reward_based_heatmap : ", self.reward_based_heatmap() * REWARD_L)      
             
 
         self.schedule.step()
@@ -1372,8 +1373,6 @@ class FightingModel(Model):
         return reward
     
 
-
-
     def reward_evacuation(self):
         if(self.step_n<3):
             return 0
@@ -1418,6 +1417,7 @@ class FightingModel(Model):
             return 0
         return -minimum_distance
     
+
     def reward_based_all_agents_danger_log(self):
         reward = 0
         for agent in self.crowds:
@@ -1431,6 +1431,7 @@ class FightingModel(Model):
         self.new_founded_agent_danger = 0
         return reward
     
+
     def reward_based_near_agents_exist(self):
         
         for agent in self.crowds:
@@ -1439,12 +1440,33 @@ class FightingModel(Model):
                 if (distance<20):
                     return 0
         return -2
+    
 
     def reward_penalty_collision(self):
         if self.robot.collision_check :
             return -1
         else :
             return 0
+        
+    
+    def reward_based_heatmap(self) -> float:
+
+        heatmap = heat_logger._aggregate.get(self.map_num)
+        if heatmap is None:
+            return 0.0
+
+
+        x = int(round(self.robot.xy[0]))
+        y = int(round(self.robot.xy[1]))
+        if x < 0 or x >= self.width or y < 0 or y >= self.height:
+            return 0.0
+
+        visits = heatmap[x, y]
+        max_visits = heatmap.max()
+        diff       = max_visits - visits
+        reward     = (diff / (max_visits + 1e-6)) * REWARD_L
+
+        return float(reward)
     
     def return_current_image(self):
         # Create a 2D NumPy array with zeros of type uint8
