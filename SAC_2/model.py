@@ -485,7 +485,7 @@ class FightingModel(Model):
     def mesh_map(self):
 
         D = 20
-        map_boundary = [[0, 0], [self.width, 0], [self.width-1, self.height-1], [0, self.height-1]]
+        map_boundary = [[0, 0], [self.width-1, 0], [self.width-1, self.height-1], [0, self.height-1]]
         obstacle_hulls = []
 
         for obstacle in self.obstacles:
@@ -575,7 +575,7 @@ class FightingModel(Model):
                     #     print("mesh2가 obstacle_mesh에 있음")
                     self.distance[mesh1][mesh2] = math.inf
                     path[mesh1][mesh2] = None
-                elif vertices_adjacent_with_tol(mesh1, mesh2):  # 인접한 경우에만 거리 계산 
+                elif vertices_adjacent_with_tol(mesh1, mesh2, tol=1e-6):  # 인접한 경우에만 거리 계산 
                     # print("인접함!")
                     mesh1_center = ((mesh1[0][0] + mesh1[1][0] + mesh1[2][0])/3, (mesh1[0][1]+mesh1[1][1]+mesh1[2][1])/3)
                     mesh2_center = ((mesh2[0][0] + mesh2[1][0] + mesh2[2][0])/3, (mesh2[0][1]+mesh2[1][1]+mesh2[2][1])/3)        
