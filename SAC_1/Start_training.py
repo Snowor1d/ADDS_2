@@ -33,6 +33,7 @@ CROWD_NUMBER_MIN = 20
 CROWD_NUMBER_MAX = 20
 MAP_NUM = -1 #if not used, -2, if random, -1
 MAP_NUM_RANDOM = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+#MAP_NUM_RANDOM = [-1]
 #MAP_NUM_RANDOM = [5]
 SCALE_CHECK = 0 # want to check reward scale?
 ACTION_SCALE = 4

@@ -52,7 +52,7 @@ from PIL import Image
 from mesa_viz_tornado.UserParam import UserParam
 import cv2
 
-most_danger = 0
+most_danger = 1
 width = 50
 height = 50
 model_num = 21
@@ -222,7 +222,7 @@ if visualization_mode == 'on':
             return portrayal
         
         if agent.type == 99: #this for danger visualization
-            red_value = int(agent.danger/most_danger*255)
+            red_value = int(agent.danger/(most_danger*255+1))
             portrayal["Color"] = f"rgb(255,{(1-(agent.danger/most_danger)/3)*255},{(1-(agent.danger/most_danger)/3)*255})"
             portrayal["Layer"] = 0
             return portrayal

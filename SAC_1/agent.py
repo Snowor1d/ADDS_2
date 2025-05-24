@@ -296,20 +296,40 @@ class CrowdAgent(Agent):
 
         self.move()
 
-    def choice_safe_mesh(self, point):
-        point_grid = (int(round(point[0])), int(round(point[1])))
-        x = point_grid[0]
-        y = point_grid[1]
-        while_checking = 0
+    def choice_safe_mesh(self, point, max_radius: int = 20):
+        """
+        주어진 좌표 주변에서 pure_mesh 를 찾아 반환한다.
+        1) 현재 셀 확인
+        2) 반지름 1 → max_radius 로 확장하며 첫 pure_mesh 발견 즉시 반환
+        3) 그래도 없으면 임의의 pure_mesh 반환 (이론상 도달 불가)
+        """
+        gx, gy = int(round(point[0])), int(round(point[1]))
 
-        candidates = [(x+1,y+1), (x+1, y), (x, y+1), (x-1, y-1), (x-1, y), (x, y-1), (x+1, y-1), (x-1, y+1)]
-        while (point_grid not in self.model.match_grid_to_mesh.keys()) or (self.model.match_grid_to_mesh[point_grid] not in self.model.pure_mesh):
-            while_checking += 1
-            if(while_checking == 50):
-                raise Exception("safe mesh를 찾지 못하였습니다.")
-            point_grid = candidates[random.randint(0, len(candidates)-1)]
-        return self.model.match_grid_to_mesh[point_grid]
+        def valid_tri(x, y):
+            tri = self.model.match_grid_to_mesh.get((x, y))
+            return tri if tri in self.model.pure_mesh else None
 
+        tri = valid_tri(gx, gy)
+        if tri:
+            return tri
+
+        # ── 주변을 나선형(맨해튼 원) 으로 확장 탐색
+        for r in range(1, max_radius + 1):
+            # 위·아래 변
+            for dx in range(-r, r + 1):
+                for dy in (-r, r):
+                    tri = valid_tri(gx + dx, gy + dy)
+                    if tri:
+                        return tri
+            # 좌·우 변(모서리는 이미 검사)
+            for dy in range(-r + 1, r):
+                for dx in (-r, r):
+                    tri = valid_tri(gx + dx, gy + dy)
+                    if tri:
+                        return tri
+
+        # ── 이론상 도달 불가하지만, 혹시 모를 경우 대비
+        return random.choice(self.model.pure_mesh)
 
     def mesh_to_mesh_distance(self, point1, point2):
         point1_mesh = self.choice_safe_mesh(point1)
@@ -395,16 +415,14 @@ class CrowdAgent(Agent):
             self.model.grid.move_agent(self, new_position) ## 그 위치로 이동
 
     def choice_near_goal(self, pos):
-        shortest_distance = 9999999999
-        near_goal = None
-        for i in self.model.exit_point:
-            if (self.mesh_to_mesh_distance(i, pos) < distance):
-                near_goal = i
-                distance = self.mesh_to_mesh_distance(i, pos)
-                if (distance < shortest_distance):
-                    shortest_distance = distance
-                    near_goal = i
-        return near_goal  
+        min_d = float('inf')
+        near   = None
+        for g in self.model.exit_point:
+            d = self.mesh_to_mesh_distance(g, pos)
+            if d < min_d:
+                min_d  = d
+                near   = g
+        return near
 
     def choice_near_exit(self):
         shortest_distance = 9999999999
@@ -471,7 +489,7 @@ class CrowdAgent(Agent):
         self.danger = 99999
         for i in self.model.exit_point:
             self.danger = min(self.danger, self.point_to_point_distance([self.xy[0], self.xy[1]], i))
-        
+        print("danger :", self.danger)
         self.gain = (self.previous_danger - self.danger) ## ??? 왜
         if(self.danger<5):
             self.gain = 0
@@ -560,7 +578,7 @@ class CrowdAgent(Agent):
         future_xy[1] += self.vel[1] * time_step
 
         #if (self.model.valid_space[(int(round(future_xy[0])), int(round(future_xy[1])))]):
-        if True:
+        if self.model.valid_space[int(future_xy[0]), int(future_xy[1])]:
             self.xy = future_xy.copy()
             self.blocked = False
         else :
@@ -671,10 +689,17 @@ class CrowdAgent(Agent):
                 mesh_index = random.randint(0, len(self.model.pure_mesh)-1)
                 random_mesh_choice = self.model.pure_mesh[mesh_index]
 
+                next_mesh = self.model.next_vertex_matrix[now_mesh][self.model.pure_mesh[mesh_index]] ## agent가 가고 있는 골에서 다음으로 가야할 골
+
+
                 while (random_mesh_choice == now_mesh or random_mesh_choice == self.past_mesh):
                     random_mesh_choice = self.model.pure_mesh[random.randint(0, len(self.model.pure_mesh)-1)]
                     #print("무한루프 걸림")
-                next_mesh = self.model.next_vertex_matrix[now_mesh][self.model.pure_mesh[mesh_index]] ## agent가 가고 있는 골에서 다음으로 가야할 골
+                # print("now_mesh : ")
+                # print("next_mesh : ")
+                    next_mesh = self.model.next_vertex_matrix[now_mesh][self.model.pure_mesh[mesh_index]] ## agent가 가고 있는 골에서 다음으로 가야할 골
+                    if next_mesh is None:
+                        continue
                 self.now_goal =  [(next_mesh[0][0]+next_mesh[1][0]+next_mesh[2][0])/3, (next_mesh[0][1]+next_mesh[1][1]+next_mesh[2][1])/3] ## 다음으로 가야할 골의 중심
             self.agent_pos_initialized = 1
         
