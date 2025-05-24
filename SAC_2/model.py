@@ -98,13 +98,22 @@ def _sample_safe_cell(self,
         return p
     raise ValueError("안전 스폰 위치를 찾지 못했습니다 ‑ padding 값·장애물 배치를 확인하세요.")
 
+def vertices_adjacent_with_tol(mesh1, mesh2, tol=1e-6):
+    # mesh1, mesh2는 [(x,y),...] 형태의 리스트
+    common = 0
+    for v1 in mesh1:
+        for v2 in mesh2:
+            if math.hypot(v1[0]-v2[0], v1[1]-v2[1]) < tol:
+                common += 1
+                break
+    return common >= 2
 
 
 
 def are_meshes_adjacent(mesh1, mesh2):
     # 두 mesh의 공통 꼭짓점의 개수를 센다
     common_vertices = set(mesh1) & set(mesh2)
-    return len(common_vertices) >= 2  # 공통 꼭짓점이 두 개 이상일 때 인접하다고 판단R
+    return len(common_vertices) >= 2  # 공통 꼭짓점이 두 개 이상일 때 인접하다고 판단
 
 # goal_list = [[0,50], [49, 50]]
 hazard_id = 5000
@@ -275,8 +284,8 @@ def generate_segments_with_points(vertices, segments, D):
     new_vertices = vertices.copy()
     new_segments = []
     for seg in segments:
-        p1 = vertices[seg[0]]
-        p2 = vertices[seg[1]]
+        p1 = new_vertices[seg[0]]
+        p2 = new_vertices[seg[1]]
         new_points = add_intermediate_points(p1, p2, D)
         last_index = seg[0]
         for point in new_points:
@@ -369,7 +378,7 @@ class FightingModel(Model):
         self.exit_list = []
         self.random_agent_distribute_outdoor(number_agents, 1)
         self.make_robot()
-        #self.visualize_danger()
+        # self.visualize_danger()
         self.robot_xy = [0, 0]
         self.robot_mode = "GUIDE"
         self.step_count = 0
@@ -430,6 +439,7 @@ class FightingModel(Model):
         for j in range(h):
             self.walls.append((0, j))
             self.walls.append((w-1, j))
+
     def choice_safe_mesh_visualize(self, point):
         point_grid = (int(point[0]), int(point[1]))
         x = point_grid[0]
@@ -475,7 +485,7 @@ class FightingModel(Model):
     def mesh_map(self):
 
         D = 20
-        map_boundary = [[0, 0], [self.width, 0], [self.width, self.height], [0, self.height]]
+        map_boundary = [[0, 0], [self.width, 0], [self.width-1, self.height-1], [0, self.height-1]]
         obstacle_hulls = []
 
         for obstacle in self.obstacles:
@@ -499,11 +509,22 @@ class FightingModel(Model):
             segments.extend([[i + offset, (i + 1) % n + offset] for i in range(n)])
             offset += n
 
+        holes = []
+        for obstacle in self.obstacles:
+            poly = Polygon(obstacle)
+            pt = poly.representative_point()
+            holes.append((pt.x, pt.y))
+        
+
         # 세그먼트 및 포인트로 메쉬화
         vertices_with_points, segments_with_points = generate_segments_with_points(vertices, segments, D)
 
+
+
         # 삼각형화를 위한 데이터 생성
-        triangulation_data = {'vertices': np.array(vertices_with_points), 'segments': np.array(segments_with_points)}
+        triangulation_data = {'vertices': np.array(vertices_with_points), 
+                              'segments': np.array(segments_with_points),
+                              'holes': np.array(holes),}
 
         # 삼각형화
         t = tr.triangulate(triangulation_data, 'p')
@@ -554,7 +575,7 @@ class FightingModel(Model):
                     #     print("mesh2가 obstacle_mesh에 있음")
                     self.distance[mesh1][mesh2] = math.inf
                     path[mesh1][mesh2] = None
-                elif are_meshes_adjacent(mesh1, mesh2):  # 인접한 경우에만 거리 계산
+                elif vertices_adjacent_with_tol(mesh1, mesh2):  # 인접한 경우에만 거리 계산 
                     # print("인접함!")
                     mesh1_center = ((mesh1[0][0] + mesh1[1][0] + mesh1[2][0])/3, (mesh1[0][1]+mesh1[1][1]+mesh1[2][1])/3)
                     mesh2_center = ((mesh2[0][0] + mesh2[1][0] + mesh2[2][0])/3, (mesh2[0][1]+mesh2[1][1]+mesh2[2][1])/3)        
@@ -569,7 +590,6 @@ class FightingModel(Model):
                     self.distance[mesh1][mesh2] = math.inf
                     self.next_vertex_matrix[mesh1][mesh2] = None
         
-        n = len(mesh)
         
 
         for mesh1 in self.mesh_list:
