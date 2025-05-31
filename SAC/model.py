@@ -1470,32 +1470,29 @@ class FightingModel(Model):
     
 
     def reward_based_agent_heatmap(self, radius: int = 6) -> float:
-        """
-        에이전트 근방(반경 `radius`)의 평균 방문도가 낮을수록
-        높은 값을 반환한다. (0.0 ~ 1.0 범위)
-        """
+        '''
+        agent 위치 기준 r=6 사각형 내에서, max heat 대비 로봇 위치 heat 에 대한 역수 보상
+        (로봇이 위치한 곳의 heat 값이 작을 수록 큰 보상)
+        '''
         heat = heat_logger._aggregate.get(self.map_num)
         if heat is None:
             return 0.0
-
         max_v = heat.max() + 1e-6
-        if max_v == 0:
-            return 0.0
 
-        score = 0.0
-        alive = 0
-        for ag in self.crowds:
-            if not ag.dead:
-                alive += 1
-                ax, ay = map(int, map(round, ag.xy))
-                xs = slice(max(0, ax - radius), min(self.width,  ax + radius + 1))
-                ys = slice(max(0, ay - radius), min(self.height, ay + radius + 1))
-                local_mean = heat[xs, ys].mean()
-                score += (max_v - local_mean) / max_v   # 0~1
+        rx, ry = map(int, map(round, self.robot.xy))
 
-        if alive == 0:
-            return 0.0
-        return score / alive                            # 0~1, crowd-수로 정규화
+        # 로봇이 agent-버퍼 안에 있을 때만 계산
+        in_buffer = any(
+            not ag.dead and
+            abs(ag.xy[0]-rx) <= radius and
+            abs(ag.xy[1]-ry) <= radius
+            for ag in self.crowds
+        )
+        if not in_buffer:
+            return 0.0         # 버퍼 밖이면 0
+
+        return (max_v - heat[rx, ry]) / max_v    # 0~1
+
     
     def return_current_image(self):
         # Create a 2D NumPy array with zeros of type uint8
