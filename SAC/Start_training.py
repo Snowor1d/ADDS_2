@@ -69,7 +69,8 @@ REWARD_D = 4 #reward_based_penalty
 REWARD_K = 1 #reward_penalty_collsion
 REWARD_E = 0 #reward_based_evacuated_with_robot
 REWARD_F = 0 #reward_based_distance_from_near_agents
-REWARD_L = 3 #reward_based_heatmap
+REWARD_L = 0 #reward_based_heatmap
+REWARD_M = 4
 
 REWARD_FIXED = -1
 FINISHED_BONUS = 100

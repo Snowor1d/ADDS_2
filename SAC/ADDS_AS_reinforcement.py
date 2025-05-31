@@ -15,7 +15,7 @@ import threading
 from torch.utils.tensorboard import SummaryWriter
 import subprocess
 import webbrowser
-from Start_training import START_DECAY_STEP, START_EPSILON, EPSILON_MIN, SCHEDULER_TYPE, DECAY_VALUE, REWARD_A, REWARD_B, REWARD_C, REWARD_D, REWARD_E, REWARD_F, REWARD_G, REWARD_H, REWARD_I, REWARD_J, REWARD_K, REWARD_L, CROWD_NUMBER_MIN, CROWD_NUMBER_MAX, LINEARLY_DECAY_STEP, START_UPDATE_STEP, LOG_DIR, FINISHED_BONUS, REWARD_FIXED, MAP_NUM, EXPLORATION_TYPE, \
+from Start_training import START_DECAY_STEP, START_EPSILON, EPSILON_MIN, SCHEDULER_TYPE, DECAY_VALUE, REWARD_A, REWARD_B, REWARD_C, REWARD_D, REWARD_E, REWARD_F, REWARD_G, REWARD_H, REWARD_I, REWARD_J, REWARD_K, REWARD_L, REWARD_M, CROWD_NUMBER_MIN, CROWD_NUMBER_MAX, LINEARLY_DECAY_STEP, START_UPDATE_STEP, LOG_DIR, FINISHED_BONUS, REWARD_FIXED, MAP_NUM, EXPLORATION_TYPE, \
                             LR, BUFFER_SIZE, BATCH_SIZE, LOG_STD_MAX, LOG_STD_MIN, ALPHA_START, ALPHA_END, ALPHA_DECAY_STEPS, DEVICE, SCALE_CHECK, ACTION_SCALE, START_BATCH_TIMES, MAX_STEPS, PORT_NUM, LONG_EPSILON_MIN, START_LONG_EPSILON, \
                             GAMMA_START, GAMMA_SCHEDULE_STEP, GAMMA_END, MAP_NUM_RANDOM
 from heat_map import HeatMapLogger #@for heat_map
@@ -770,6 +770,7 @@ if __name__ == "__main__":
                     r_i = 0
                     r_j = 0      
                     r_l = 0
+                    r_m = 0
 
                     if (REWARD_A):
                         r_a = env_model.reward_based_alived() * REWARD_A
@@ -793,8 +794,10 @@ if __name__ == "__main__":
                         r_j = env_model.reward_based_all_agents_danger_log() * REWARD_J
                     if (REWARD_L):
                         r_l = env_model.reward_based_heatmap() * REWARD_L
+                    if (REWARD_M):
+                        r_m = env_model.reward_based_agent_heatmap() * REWARD_M
                     
-                    reward += (r_a + r_b + r_c + r_d + r_e + r_g + r_h + r_i+r_j+r_k+r_l+REWARD_FIXED)
+                    reward += (r_a + r_b + r_c + r_d + r_e + r_g + r_h + r_i+r_j+r_k+r_l+r_m+REWARD_FIXED)
                     
                     if(SCALE_CHECK):
                         print("reward_a : ", r_a)
@@ -809,6 +812,7 @@ if __name__ == "__main__":
                         #print("reward j : ", r_j)
                         print("reward k : ", r_k)
                         print("reward_l : ", r_l)
+                        print("reward_m : ", r_m)
 
                     r_k = 0
 
