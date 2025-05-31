@@ -1464,9 +1464,35 @@ class FightingModel(Model):
         visits = heatmap[x, y]
         max_visits = heatmap.max()
         diff       = max_visits - visits
-        reward     = (diff / (max_visits + 1e-6)) * REWARD_L
+        reward     = (diff / (max_visits + 1e-6))
 
         return float(reward)
+    
+
+    def reward_based_agent_heatmap(self, radius: int = 6) -> float:
+        '''
+        agent 위치 기준 r=6 사각형 내에서, max heat 대비 로봇 위치 heat 에 대한 역수 보상
+        (로봇이 위치한 곳의 heat 값이 작을 수록 큰 보상)
+        '''
+        heat = heat_logger._aggregate.get(self.map_num)
+        if heat is None:
+            return 0.0
+        max_v = heat.max() + 1e-6
+
+        rx, ry = map(int, map(round, self.robot.xy))
+
+        # 로봇이 agent-버퍼 안에 있을 때만 계산
+        in_buffer = any(
+            not ag.dead and
+            abs(ag.xy[0]-rx) <= radius and
+            abs(ag.xy[1]-ry) <= radius
+            for ag in self.crowds
+        )
+        if not in_buffer:
+            return 0.0         # 버퍼 밖이면 0
+
+        return (max_v - heat[rx, ry]) / max_v    # 0~1
+
     
     def return_current_image(self):
         # Create a 2D NumPy array with zeros of type uint8
