@@ -11,10 +11,6 @@ from shapely.geometry import Polygon, MultiPolygon, Point
 from shapely.ops import triangulate
 import matplotlib.tri as mtri
 from typing import List, Tuple
-import math
-import numpy as np
-from itertools import product
-import collections
 
 import agent
 from agent import WallAgent
@@ -109,56 +105,6 @@ def are_meshes_adjacent(mesh1, mesh2):
     # 두 mesh의 공통 꼭짓점의 개수를 센다
     common_vertices = set(mesh1) & set(mesh2)
     return len(common_vertices) >= 2  # 공통 꼭짓점이 두 개 이상일 때 인접하다고 판단R
-
-
-def _dist2(p, q):         # 제곱거리
-    return (p[0]-q[0])**2 + (p[1]-q[1])**2
-
-def _pt_seg_dist(p, a, b):
-    """점-선분 최소거리^2 (벡터 투영)"""
-    ax, ay = a; bx, by = b; px, py = p
-    dx, dy = bx-ax, by-ay
-    if dx == dy == 0:
-        return _dist2(p, a)
-    t = max(0, min(1, ((px-ax)*dx + (py-ay)*dy)/(dx*dx+dy*dy)))
-    proj = (ax + t*dx, ay + t*dy)
-    return _dist2(p, proj)
-
-def poly_poly_min_dist2(poly1, poly2):
-    """두 다각형(꼭짓점 리스트) 사이의 최소 거리^2"""
-    d2 = math.inf
-    # 꼭짓점-선분 거리
-    for p in poly1:
-        for i in range(len(poly2)):
-            d2 = min(d2,
-                     _pt_seg_dist(p, poly2[i], poly2[(i+1)%len(poly2)]))
-    for p in poly2:
-        for i in range(len(poly1)):
-            d2 = min(d2,
-                     _pt_seg_dist(p, poly1[i], poly1[(i+1)%len(poly1)]))
-    return d2
-
-def polygon_area(poly):
-    """임의 다각형(꼭짓점 시계·반시계) 넓이 – Shoelace 공식"""
-    area = 0.5 * abs(sum(
-        x0*y1 - x1*y0
-        for (x0, y0), (x1, y1) in zip(poly, poly[1:]+[poly[0]])
-    ))
-    return area
-
-def is_collision(self, pos_f):
-    """
-    연속 좌표 pos_f = (x, y)가
-    ▸ 맵 밖 ▸ valid_space==0 ▸ obstacle polygon 내부
-    중 하나면 True
-    """
-    x, y = pos_f
-    if x < 0 or y < 0 or x >= self.width or y >= self.height:
-        return True
-    if not self.valid_space[(int(x), int(y))]:
-        return True
-    return any(_point_in_polygon((x, y), poly) for poly in self.obstacles)
-
 
 # goal_list = [[0,50], [49, 50]]
 hazard_id = 5000
@@ -412,7 +358,7 @@ class FightingModel(Model):
         self.mesh_danger = {}
         self.match_grid_to_mesh = {}
         self.match_mesh_to_grid = {}
-        self.valid_space = collections.defaultdict(lambda: 1)
+        self.valid_space = {}
         self.grid = MultiGrid(width, height, False)
         self.headingding = ContinuousSpace(width, height, False, 0, 0)
         self.fill_outwalls(width, height)
@@ -526,86 +472,141 @@ class FightingModel(Model):
             self.mesh_danger[mesh] = shortest_distance
         return 0
 
-    def mesh_map(self, D: int = 5):
-        PADDING = 8
+    def mesh_map(self):
 
-        self.mesh_list, self.mesh = [], []
-        self.match_grid_to_mesh = {}
-        self.match_mesh_to_grid = {}      # ← 여기서 바로 채움
-        tri_centers, square_of = {}, {}
+        D = 20
+        map_boundary = [[0, 0], [self.width, 0], [self.width, self.height], [0, self.height]]
+        obstacle_hulls = []
 
-        # ── ① 삼각형 생성
-        for gx in range(PADDING, self.width - PADDING, D):
-            for gy in range(PADDING, self.height - PADDING, D):
-                p00, p10 = (gx, gy), (gx + D, gy)
-                p01, p11 = (gx, gy + D), (gx + D, gy + D)
-                for tri in ((p00, p10, p11), (p00, p11, p01)):  # ↘, ↙
-                    cx = sum(v[0] for v in tri) / 3
-                    cy = sum(v[1] for v in tri) / 3
-                    if any(_point_in_polygon((cx, cy), obs) for obs in self.obstacles):
-                        self.obstacle_mesh.append(tri)
+        for obstacle in self.obstacles:
+            if len(obstacle) == 3 or len(obstacle) == 4:
+                hull = ConvexHull(obstacle)
+                hull_points = np.array(obstacle)[hull.vertices]
+                obstacle_hulls.append(hull_points)
+            else:
+                raise ValueError("Each obstacle must have either 3 or 4 points.")
+
+        # 경계점 및 장애물의 모서리 점 추가
+        vertices = map_boundary.copy()
+        for hull_points in obstacle_hulls:
+            vertices.extend(hull_points.tolist())
+        segments = [[i, (i + 1) % 4] for i in range(4)]  # 맵의 경계
+        offset = 4  # 맵 경계 포인트를 위한 오프셋
+
+        # 장애물의 모서리 추가
+        for hull_points in obstacle_hulls:
+            n = len(hull_points)
+            segments.extend([[i + offset, (i + 1) % n + offset] for i in range(n)])
+            offset += n
+
+        # 세그먼트 및 포인트로 메쉬화
+        vertices_with_points, segments_with_points = generate_segments_with_points(vertices, segments, D)
+
+        # 삼각형화를 위한 데이터 생성
+        triangulation_data = {'vertices': np.array(vertices_with_points), 'segments': np.array(segments_with_points)}
+
+        # 삼각형화
+        t = tr.triangulate(triangulation_data, 'p')
+        boundary_coords = []
+
+        for tri in t['triangles']:
+            v0, v1, v2 = t['vertices'][tri[0]], t['vertices'][tri[1]], t['vertices'][tri[2]]
+            vertices_tuple = tuple(sorted([tuple(v0), tuple(v1), tuple(v2)]))
+            self.mesh_list.append(vertices_tuple)
+            
+            # 삼각형의 내부 좌표 계산
+            internal_coords = calculate_internal_coordinates_in_triangle(self.width, self.height, v0, v1, v2, D)
+            # 내부 좌표 저장
+            self.mesh.append(internal_coords)
+        for mesh in self.mesh_list:
+            internal_coords = calculate_internal_coordinates_in_triangle(self.width, self.height, mesh[0], mesh[1], mesh[2], D)
+            for i in internal_coords:
+                if not (i[0], i[1]) in self.match_grid_to_mesh.keys():
+                    self.match_grid_to_mesh[(i[0], i[1])] = (mesh[0], mesh[1], mesh[2])
+
+
+        for mesh in self.mesh_list:
+            middle_point = ((mesh[0][0]+mesh[1][0]+mesh[2][0])/3, (mesh[0][1]+mesh[1][1]+mesh[2][1])/3)
+            
+            for obstacle in self.obstacles:
+                if len(obstacle) == 4: # 사각형 obstacle
+                    if is_point_in_triangle(middle_point, obstacle[0], obstacle[1], obstacle[2]) or is_point_in_triangle(middle_point, obstacle[0], obstacle[2], obstacle[3]) :
+                        self.obstacle_mesh.append(mesh)
+                elif len(obstacle) == 3:
+                    if is_point_in_triangle(middle_point, obstacle[0], obstacle[1], obstacle[2]):
+                        self.obstacle_mesh.append(mesh)            
+
+        path = {}
+        
+        self.next_vertex_matrix = {start: {end: None for end in self.mesh_list} for start in self.mesh_list}
+        for i, mesh1 in enumerate(self.mesh_list):
+            self.distance[mesh1] = {}
+            path[mesh1] = {}
+            for j, mesh2 in enumerate(self.mesh_list):
+                self.distance[mesh1][mesh2] = 9999999999
+                if i == j:
+                    self.distance[mesh1][mesh2] = 0
+                    self.next_vertex_matrix[mesh1][mesh2] = mesh1
+                elif (mesh1 in self.obstacle_mesh or mesh2 in self.obstacle_mesh):
+                    # if mesh1 in self.obstacle_mesh:
+                    #     print(mesh1, "이 obstacle_mesh에 있음")
+                    # elif mesh2 in self.obstacle_mesh:
+                    #     print("mesh2가 obstacle_mesh에 있음")
+                    self.distance[mesh1][mesh2] = math.inf
+                    path[mesh1][mesh2] = None
+                elif are_meshes_adjacent(mesh1, mesh2):  # 인접한 경우에만 거리 계산
+                    # print("인접함!")
+                    mesh1_center = ((mesh1[0][0] + mesh1[1][0] + mesh1[2][0])/3, (mesh1[0][1]+mesh1[1][1]+mesh1[2][1])/3)
+                    mesh2_center = ((mesh2[0][0] + mesh2[1][0] + mesh2[2][0])/3, (mesh2[0][1]+mesh2[1][1]+mesh2[2][1])/3)        
+                    dist = math.sqrt(pow(mesh1_center[0]-mesh2_center[0], 2) + pow(mesh1_center[1]-mesh2_center[1],2))
+                    self.distance[mesh1][mesh2] = dist
+                    self.next_vertex_matrix[mesh1][mesh2] = mesh2 
+                    if (mesh1 not in self.adjacent_mesh.keys()):
+                        self.adjacent_mesh[mesh1] = []
+                    self.adjacent_mesh[mesh1].append(mesh2)
+                    #path[mesh1][mesh2] = [i, j] if dist < math.inf else None
+                else:
+                    self.distance[mesh1][mesh2] = math.inf
+                    self.next_vertex_matrix[mesh1][mesh2] = None
+        
+        n = len(mesh)
+        
+
+        for mesh1 in self.mesh_list:
+            for mesh2 in self.mesh_list:
+                for mesh3 in self.mesh_list:
+                    i = mesh2
+                    k = mesh1
+                    j = mesh3
+                    if mesh1 in self.obstacle_mesh or mesh3 in self.obstacle_mesh:
                         continue
+                    if self.distance[i][k] + self.distance[k][j] < self.distance[i][j]:
+                        self.distance[i][j] = self.distance[i][k] + self.distance[k][j]
+                        self.next_vertex_matrix[i][j] = self.next_vertex_matrix[i][k]
+        for mesh in self.mesh_list:
+            if mesh not in self.obstacle_mesh:
+                self.pure_mesh.append(mesh)
+        # print("pure mesh 개수 : ", len(self.pure_mesh))
+        # print("obstacle mesh 개수 : ", len(self.obstacle_mesh))
+        # print("첫번쨰 pure mesh : ", self.pure_mesh[0])
 
-                    cells = calculate_internal_coordinates_in_triangle(
-                                self.width, self.height,
-                                tri[0], tri[1], tri[2], D=1)
-                    if not cells:
-                        continue
+        
+        boundary_coords = []
+        boundary_coords = list(set(map(tuple, boundary_coords)))
 
-                    # ── ★ 삼각형->셀 매핑을 즉시 저장 ★
-                    self.match_mesh_to_grid[tri] = []
-
-                    self.mesh_list.append(tri)
-                    self.mesh.append(cells)
-                    tri_centers[tri] = (cx, cy)
-                    square_of[tri]   = (gx // D, gy // D)
-
-                    for (x, y) in cells:
-                        # 그리드→삼각형 매핑은 처음 값만 유지
-                        self.match_grid_to_mesh.setdefault((x, y), tri)
-                        self.match_mesh_to_grid[tri].append([x, y])
-
-                self.pure_mesh = [m for m in self.mesh_list if m not in self.obstacle_mesh]
-
-            # ── ② 인접‧거리 행렬
-            self.adjacent_mesh, self.distance = {}, {}
-            self.next_vertex_matrix = {u: {v: None for v in self.mesh_list}
-                                    for u in self.mesh_list}
-
-            for u in self.mesh_list:
-                self.distance[u] = {}
-                cu, su = tri_centers[u], square_of[u]
-                for v in self.mesh_list:
-                    if u == v:
-                        self.distance[u][v] = 0
-                        self.next_vertex_matrix[u][v] = u
-                        continue
-                    if u in self.obstacle_mesh or v in self.obstacle_mesh:
-                        self.distance[u][v] = math.inf
-                        continue
-
-                    sv = square_of[v]
-                    dx, dy = abs(su[0]-sv[0]), abs(su[1]-sv[1])
-
-                    # 같은 정사각형 또는 상·하·좌·우 이웃 정사각형이면 인접
-                    if (dx == 0 and dy == 0) or (dx + dy == 1):
-                        dist = math.hypot(cu[0]-tri_centers[v][0], cu[1]-tri_centers[v][1])
-                        self.distance[u][v] = dist
-                        self.next_vertex_matrix[u][v] = v
-                        self.adjacent_mesh.setdefault(u, []).append(v)
-                    else:
-                        self.distance[u][v] = math.inf
-
-            # ── ③ Floyd–Warshall
-            for k in self.mesh_list:
-                for i in self.mesh_list:
-                    dik = self.distance[i][k]
-                    if dik == math.inf: continue
-                    for j in self.mesh_list:
-                        alt = dik + self.distance[k][j]
-                        if alt < self.distance[i][j]:
-                            self.distance[i][j] = alt
-                            self.next_vertex_matrix[i][j] = self.next_vertex_matrix[i][k]
+        for i in range(self.width):
+            for j in range(self.height):
+                for mesh in self.pure_mesh:
+                    if is_point_in_triangle([i, j], mesh[0], mesh[1], mesh[2]):
+                        if mesh not in self.match_mesh_to_grid.keys():
+                            self.match_mesh_to_grid[mesh] = []
+                        self.match_mesh_to_grid[mesh].append([i, j])
+        for i in range(-10, self.width + 10):      # self.width가 50이라고 가정
+            for j in range(-10, self.height + 10):   # self.height가 50이라고 가정
+                if 0 <= i < self.width and 0 <= j < self.height:
+                    self.valid_space[(i, j)] = 1
+                else:
+                    self.valid_space[(i, j)] = 0
 
     def get_path(self, next_vertex_matrix, start, end): #start->end까지 최단 경로로 가려면 어떻게 가야하는지 알려줌 
 
@@ -621,7 +622,7 @@ class FightingModel(Model):
     def extract_map(self, map_num):
         width = 50
         height = 50 
-
+        #좌하단 #우하단 #우상단 #좌상단 순으로 입력해주기
         if map_num == 0:
             self.obstacles.append([[10, 10], [20, 20], [10, 20]])
             self.obstacles.append([[10, 20], [20, 20], [20,50], [10, 50]])
@@ -717,73 +718,6 @@ class FightingModel(Model):
         #좌하단 #우하단 #우상단 #좌상단 순으로 입력해주기
         scale = 5/7
 
-        if map_num == -1:
-            # ─────────────────────────────────────────
-            # 파라미터
-            # ─────────────────────────────────────────
-            PADDING     = 8          # 외곽 여백
-            max_trials  = 800         # 충돌 피하기 위한 난수 시도 한계
-            min_side, max_side = 4, 20
-            min_gap     = 8           # 장애물 간 최소 간격
-            coverage_target = (0.60, 0.70)   # 맵 면적 대비 10~25 % 사이 될 때 정지
-            ratio_low, ratio_high = coverage_target
-            # ----------------------------------------
-
-            map_area      = width * height
-            used_area     = 0.0
-            boxes_aabb    = []
-
-            def aabb(poly):
-                xs, ys = zip(*poly)
-                return min(xs), max(xs), min(ys), max(ys)
-
-            def overlap(b1, b2):
-                return not (b1[1] + min_gap < b2[0] or b2[1] + min_gap < b1[0] or
-                            b1[3] + min_gap < b2[2] or b2[3] + min_gap < b1[2])
-
-            for _ in range(max_trials):
-                # coverage 상한 초과 시 중단
-                if used_area / map_area >= ratio_high:
-                    break
-
-                # ─ ① 후보 다각형 랜덤 생성
-                if random.random() < 0.7:                # Rectangle
-                    w = random.randint(min_side, max_side)
-                    h = random.randint(min_side, max_side)
-                    x0 = random.randint(PADDING, width  - PADDING - w - 1)
-                    y0 = random.randint(PADDING, height - PADDING - h - 1)
-                    poly = [[x0, y0], [x0+w, y0], [x0+w, y0+h], [x0, y0+h]]
-                else:                                    # Triangle
-                    base = random.randint(min_side, max_side)
-                    x0 = random.randint(PADDING, width  - PADDING - base - 1)
-                    y0 = random.randint(PADDING, height - PADDING - base - 1)
-                    poly = [[x0, y0],
-                            [x0+base, y0],
-                            [x0+random.randint(0, base), y0+base]]
-
-                box = aabb(poly)
-                # ─ ② 충돌·간격 검사
-                if any(overlap(box, b) for b in boxes_aabb):
-                    continue
-
-                poly_area = polygon_area(poly)
-                # coverage 하한 도달 전이라면 면적 큰 다각형 더 환영 → 제한 X
-                # coverage 상한에 근접해가면, 초과 여부 확인
-                if (used_area + poly_area) / map_area > ratio_high:
-                    continue                             # 넣으면 초과 → 패스
-
-                # ─ ③ 채택
-                boxes_aabb.append(box)
-                self.obstacles.append(poly)
-                used_area += poly_area
-
-                # 하한을 최초로 넘겼다면, 이후 확률 70%로 즉시 종료(자연스러운 분포)
-                if used_area / map_area >= ratio_low and random.random() < 0.7:
-                    break
-
-        # 무작위 생성이 끝났습니다. ─ 아래에 기존 else-if 블록들이 이어집니다.
-
-
         if map_num == 1: # 왼쪽 상단
             self.obstacles.append([[10, 10], [16, 10], [10, 16]])
             self.obstacles.append([[34, 10], [40, 10], [40, 16]])
@@ -857,6 +791,7 @@ class FightingModel(Model):
             self.obstacles.append([[10, 40], [20, 49], [10, 49]])
 
         
+            
             
 
         # elif map_num == 1:  # 산학협력관 + 잔디밭
@@ -954,6 +889,7 @@ class FightingModel(Model):
 
 
 # --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
 
     def construct_map(self):
         for i in range(len(self.walls)):
@@ -1077,6 +1013,7 @@ class FightingModel(Model):
         return 0
 
 
+
     def check_bridge(self, space1, space2):
         visited = {}
         for i in self.space_graph.keys():
@@ -1156,7 +1093,6 @@ class FightingModel(Model):
             self.recur_exit(x - 1, y - 1, visible_distance - 2, "d")
 
 
-
     def robot_placement(self,
                         n_robots: int = 1,
                         padding: int = 5):
@@ -1179,6 +1115,8 @@ class FightingModel(Model):
             self.robots.append(self.robot)
             self.schedule.add(self.robot)
             self.grid.place_agent(self.robot, spawn)
+
+    
 
     
     
@@ -1423,6 +1361,13 @@ class FightingModel(Model):
         #print("tracked 되고 있는 수 : ", num)
         return reward
     
+    def reward_based_alived(self):
+        reward = 0
+        num = 0
+        
+        reward = -self.alived_agents()/self.total_agents
+        return reward
+    
     def reward_based_alived_root(self):
         reward = 0
         num = 0
@@ -1508,30 +1453,30 @@ class FightingModel(Model):
     def return_current_image(self):
         # Create a 2D NumPy array with zeros of type uint8
         # shape: (height, width)
-        image = np.zeros((self.width, self.height), dtype=np.uint8)
+        image = np.zeros((self.height, self.width), dtype=np.uint8)
         
         # Fill in wall
         for agent in self.agents:
             if agent.type == 9:
-                image[agent.pos[0], agent.pos[1]] = 20  # 벽 #50?
+                image[agent.pos[0], agent.pos[1]] = 20  # 벽
         
         # Fill in exit
         for agent in self.agents:
             if agent.type == 10:
-                image[agent.pos[0], agent.pos[1]] = 60  # 출구 #100?
+                image[agent.pos[0], agent.pos[1]] = 60  # 출구
 
         # Fill crowd agents
         for agent in self.crowds:
             if (agent.type == 1 or agent.type == 2) and not agent.dead:
-                image[int(round(agent.xy[0])), int(round(agent.xy[1]))] = 100  # agent #150?
+                image[int(round(agent.xy[0])), int(round(agent.xy[1]))] = 100  # agent
         for agent in self.crowds:
             if agent.type == 0 and not agent.dead:
-                image[int(round(agent.xy[0])), int(round(agent.xy[1]))] = 140 #200?
+                image[int(round(agent.xy[0])), int(round(agent.xy[1]))] = 140
         
         # Fill robot
         for agent in self.agents:
             if agent.type == 3:
-                image[int(round(agent.xy[0])), int(round(agent.xy[1]))] = 200  # robot #255?
+                image[int(round(agent.xy[0])), int(round(agent.xy[1]))] = 200  # robot
         
         return image
     

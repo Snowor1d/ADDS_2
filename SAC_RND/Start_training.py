@@ -16,7 +16,7 @@ def print_banner():
 
 
 # ------------- BASIC PARAMETERS ------------------
-LR = 1e-4
+LR = 2e-4
 BUFFER_SIZE = 1000000
 BATCH_SIZE = 128
 INTRINSIC_ETA = 0.1 #intrinsic reward
@@ -33,8 +33,6 @@ CROWD_NUMBER_MIN = 20
 CROWD_NUMBER_MAX = 20
 MAP_NUM = -1 #if not used, -2, if random, -1
 MAP_NUM_RANDOM = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
-#MAP_NUM_RANDOM = [-1]
-#MAP_NUM_RANDOM = [5]
 SCALE_CHECK = 0 # want to check reward scale?
 ACTION_SCALE = 4
 MAX_STEPS = 6000
@@ -62,23 +60,25 @@ ALPHA_START = 0.2 # in SAC
 ALPHA_END = 0.2
 ALPHA_DECAY_STEPS = 3000
 
+# --------------- OTHERS ----------------
+RND_BETA = 0.5
+
 # --------------- REWARD SHPAING -----------------
 
-REWARD_A = 5 #reward_based_alived
-REWARD_B = 0.002 #reward_based_all_agents_danger
-REWARD_D = 3 #reward_based_penalty
+REWARD_A = 2 #reward_based_alived
+REWARD_B = 0.006 #reward_based_all_agents_danger
+REWARD_D = 4 #reward_based_penalty
 REWARD_K = 1 #reward_penalty_collsion
-REWARD_E = 10 #reward_based_evacuated_with_robot
-REWARD_F = 0.01 #reward_based_distance_from_near_agents
-REWARD_FIXED = -0.1
-FINISHED_BONUS = 100
+REWARD_FIXED = -1
 
 REWARD_J = 0 #reward_based_all_agents_danger_log
 REWARD_I = 0 #reward_based_alived_root
 REWARD_C = 0 #reward_based_gain
+REWARD_E = 0 #reward_based_evacuated_with_robot
+REWARD_F = 0 #reward_based_distance_from_near_agents
 REWARD_G = 0 #reward_based_distance_from_near_agent_gain
 REWARD_H = 0 #reward_based_gain_with_time_bonus
-
+FINISHED_BONUS = 50
 
 
 def main():
