@@ -32,7 +32,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 
-from ADDS_AS_reinforcement import SACAgent, ReplayBuffer, PolicyNetwork, QNetwork, ACTION_SCALE, heat_logger
+from ADDS_AS_reinforcement import SAC_CQL_Agent, ReplayBuffer, PolicyNetwork, QNetwork, ACTION_SCALE
 from Start_training import REWARD_A, REWARD_B, REWARD_C, REWARD_D, REWARD_E, REWARD_F, REWARD_G, REWARD_H, REWARD_I, REWARD_J, REWARD_K, REWARD_L, FINISHED_BONUS, MAP_NUM, MAP_NUM_RANDOM, LOG_DIR
 
 def _point_on_segment(p: Tuple[int, int],
@@ -1390,7 +1390,7 @@ class FightingModel(Model):
         input_shape = (50, 50)
         num_actions = 4
 
-        self.sac_agent = SACAgent(input_shape, num_actions, start_epsilon=0)
+        self.sac_agent = SAC_CQL_Agent(input_shape, num_actions, start_epsilon=0)
         if (USING_TRAINED_MODEL):
             self.sac_agent.load_model(file_path)
         self.using_model = True
