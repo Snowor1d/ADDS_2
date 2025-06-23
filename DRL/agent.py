@@ -489,7 +489,6 @@ class CrowdAgent(Agent):
         self.danger = 99999
         for i in self.model.exit_point:
             self.danger = min(self.danger, self.point_to_point_distance([self.xy[0], self.xy[1]], i))
-        print("danger :", self.danger)
         self.gain = (self.previous_danger - self.danger) ## ??? 왜
         if(self.danger<5):
             self.gain = 0
@@ -519,8 +518,9 @@ class CrowdAgent(Agent):
                     repulsive_force[1] += 3*np.exp(-(d/2))*(d_y/d) 
 
                 elif(near_agent.type == 11 or near_agent.type == 9):## 검정벽 
-                    repulsive_force[0] += 15*np.exp(-(d/2))*(d_x/d)
-                    repulsive_force[1] += 15*np.exp(-(d/2))*(d_y/d)
+                    repulsive_force[0] += 10*np.exp(-(d/2))*(d_x/d)
+                    repulsive_force[1] += 10*np.exp(-(d/2))*(d_y/d)
+                    self.blocked = True
             else :
                 if(random_disperse):
                     repulsive_force = [1, -1]
@@ -686,8 +686,16 @@ class CrowdAgent(Agent):
                 self.now_goal = find_closest_direction(self.xy, self.direction, neighbors_coords)
                 #print(self.now_goal)
             else :
-                mesh_index = random.randint(0, len(self.model.pure_mesh)-1)
-                random_mesh_choice = self.model.pure_mesh[mesh_index]
+                while True:
+                    mesh_index = random.randint(0, len(self.model.pure_mesh)-1)
+                    random_mesh_choice = self.model.pure_mesh[mesh_index]
+
+                    if random_mesh_choice in (now_mesh, self.past_mesh):
+                        continue
+                    next_mesh = self.model.next_vertex_matrix[now_mesh][random_mesh_choice]
+                    if next_mesh is None:
+                        continue
+                    break
 
                 next_mesh = self.model.next_vertex_matrix[now_mesh][self.model.pure_mesh[mesh_index]] ## agent가 가고 있는 골에서 다음으로 가야할 골
 
@@ -790,7 +798,7 @@ class RobotAgent(CrowdAgent):
 
         intend_force = 2
         desired_speed = 3
-
+        print("robot_danger : ", self.danger)
             
 
         desired_force = [intend_force*(desired_speed*(goal_x)), intend_force*(desired_speed*(goal_y))]; #desired_force : 사람이 탈출구쪽으로 향하려는 힘

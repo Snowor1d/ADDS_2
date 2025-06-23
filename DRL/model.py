@@ -397,8 +397,8 @@ class FightingModel(Model):
             self.extract_map_50(self.map_num)
         if (MAP_NUM == -1):
             map_num_candidates = MAP_NUM_RANDOM
-            self.map_num = random.choice(map_num_candidates)
-            self.extract_map_50(self.map_num)    
+            # self.map_num = random.choice(map_num_candidates)
+            self.extract_map_50(-1)    
         self.distance = {}  
         self.schedule_e = RandomActivation(self)
         self.schedule = RandomActivation(self)
