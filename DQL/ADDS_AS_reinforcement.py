@@ -17,7 +17,7 @@ import subprocess
 import webbrowser
 from Start_training import START_DECAY_STEP, START_EPSILON, EPSILON_MIN, SCHEDULER_TYPE, DECAY_VALUE, REWARD_A, REWARD_B, REWARD_C, REWARD_D, REWARD_E, REWARD_F, REWARD_G, REWARD_H, REWARD_I, REWARD_J, REWARD_K, CROWD_NUMBER_MIN, CROWD_NUMBER_MAX, LINEARLY_DECAY_STEP, START_UPDATE_STEP, LOG_DIR, FINISHED_BONUS, REWARD_FIXED, MAP_NUM, EXPLORATION_TYPE, \
                             LR, BUFFER_SIZE, BATCH_SIZE, LOG_STD_MAX, LOG_STD_MIN, ALPHA_START, ALPHA_END, ALPHA_DECAY_STEPS, DEVICE, SCALE_CHECK, ACTION_SCALE, START_BATCH_TIMES, MAX_STEPS, PORT_NUM, LONG_EPSILON_MIN, START_LONG_EPSILON, \
-                            GAMMA_START, GAMMA_SCHEDULE_STEP, GAMMA_END, MAP_NUM_RANDOM
+                            GAMMA_START, GAMMA_SCHEDULE_STEP, GAMMA_END, MAP_NUM_RANDOM, ETA, DIFF_STEPS, BETA_MINMAX
 from einops import repeat
 
 # Timer instances
@@ -152,7 +152,10 @@ class DiffusionPolicy(nn.Module):
         self.eps_model = EpsModel(a_dim, s_dim)
         self.alphas   = 1.0 - self.betas
         self.alphas_bar = torch.cumprod(self.alphas, dim=0)
+        self.alphas = self.alphas.to(self.betas.device)
+        self.alphas_bar = self.alphas_bar.to(self.betas.device)
 
+                
         #self.betas -> 각 timesteps에서 추가되는 노이즈의 분산
         #self.alphas -> 각 timesteps에서 노이즈가 제거되는 비율
         #self.alphas_bar -> 누적된 노이즈 제거 비율
@@ -162,7 +165,8 @@ class DiffusionPolicy(nn.Module):
         B = s_flat.size(0)
         i = torch.randint(1, self.N+1, (B,1), device=s_flat.device)   # (B,1)
         eps = torch.randn(B, self.a_dim, device=s_flat.device)
-        alpha_bar_i = self.alphas_bar[i-1]            # (B,1)
+        alpha_bar = self.alphas_bar.to(s_flat.device)
+        alpha_bar_i = alpha_bar[i-1]            # (B,1)
         ai = (alpha_bar_i.sqrt() * a0 +
               (1-alpha_bar_i).sqrt() * eps) # 행동 a_0에 노이즈를 넣어 a_i 생성하는 식
         eps_hat = self.eps_model(ai, s_flat, i.float()) # 조건 s와 a_i를 보고 실제로 들어간 노이즈를 예측
@@ -374,10 +378,6 @@ class PolicyNetwork(nn.Module):
         log_prob = log_prob_u - jacobian
         return action, log_prob
 
-
-ETA = 1.0
-DIFF_STEPS = 5
-BETA_MINMAX = (.1, 10.)
 
 class DiffusionQLAgent:
     def __init__(self, device="cpu", batch_size=BATCH_SIZE):

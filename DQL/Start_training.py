@@ -79,6 +79,10 @@ REWARD_C = 0 #reward_based_gain
 REWARD_G = 0 #reward_based_distance_from_near_agent_gain
 REWARD_H = 0 #reward_based_gain_with_time_bonus
 
+# --------------- DQL PARAMETERS -----------------
+ETA = 1.0 # 값이 클수록 q loss에 가중치
+DIFF_STEPS = 5
+BETA_MINMAX = (.1, 10.)
 
 
 def main():
