@@ -158,15 +158,14 @@ class DiffusionPolicy(nn.Module):
         #self.alphas_bar -> 누적된 노이즈 제거 비율
 
     # ------------ BC 손실 (Alg.1 ③, 식 2) ------------
-    def bc_loss(self, s_flat, a0): # s_flat은 state, a0은 전문가가 취한 행동, 노이즈를 얼마나 잘 제거할 수 있냐에 집중
+    def bc_loss(self, s_flat, a0):
         B = s_flat.size(0)
         i = torch.randint(1, self.N+1, (B,1), device=s_flat.device)   # (B,1)
         eps = torch.randn(B, self.a_dim, device=s_flat.device)
         alpha_bar_i = self.alphas_bar[i-1]            # (B,1)
         ai = (alpha_bar_i.sqrt() * a0 +
               (1-alpha_bar_i).sqrt() * eps) # 행동 a_0에 노이즈를 넣어 a_i 생성하는 식
-        eps_hat = self.eps_model(ai, s_flat, i.float()) # 조건 s와 a_i를 보고 실제로 들어간 노이즈를 예측
-
+        eps_hat = self.eps_model(ai, s_flat, i.float())
         return F.mse_loss(eps_hat, eps)
 
     # ------------ 샘플링 (Alg.1 ①②) ------------
