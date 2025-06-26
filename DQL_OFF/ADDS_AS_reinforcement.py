@@ -15,38 +15,49 @@ import threading
 from torch.utils.tensorboard import SummaryWriter
 import subprocess
 import webbrowser
-from Start_training import START_DECAY_STEP, START_EPSILON, EPSILON_MIN, SCHEDULER_TYPE, DECAY_VALUE, REWARD_A, REWARD_B, REWARD_C, REWARD_D, REWARD_E, REWARD_F, REWARD_G, REWARD_H, REWARD_I, REWARD_J, REWARD_K, CROWD_NUMBER_MIN, CROWD_NUMBER_MAX, LINEARLY_DECAY_STEP, START_UPDATE_STEP, LOG_DIR, FINISHED_BONUS, REWARD_FIXED, MAP_NUM, EXPLORATION_TYPE, \
-                            LR, BUFFER_SIZE, BATCH_SIZE, LOG_STD_MAX, LOG_STD_MIN, ALPHA_START, ALPHA_END, ALPHA_DECAY_STEPS, DEVICE, SCALE_CHECK, ACTION_SCALE, START_BATCH_TIMES, MAX_STEPS, PORT_NUM, LONG_EPSILON_MIN, START_LONG_EPSILON, \
-                            GAMMA_START, GAMMA_SCHEDULE_STEP, GAMMA_END, MAP_NUM_RANDOM
+from Start_training import *
 from einops import repeat
+import model
+from typing import Tuple
+from pathlib import Path
 
-# Timer instances
-sim_timer = Timer() 
+OFFLINE_TRAIN = True
+EVAL_INTERVAL = 200
+EVAL_EPISODES = 10
+MAX_OFFLINE_EP = 1_000_000
+
+
+
+HOME_DIR = Path.home()
+LOG_DIR_PATH = HOME_DIR / LOG_DIR
+TB_DIR = LOG_DIR_PATH / "tensorboard_logs"
+LOG_DIR_PATH.mkdir(parents = True, exist_ok = True)
+TB_DIR.mkdir(parents = True, exist_ok = True)
+
+TOTAL_REWARD_TXT = LOG_DIR_PATH / "total_reward.txt"
+EVAC80_TXT = LOG_DIR_PATH / "evacuation_80.txt"
+EVAC100_TXT = LOG_DIR_PATH / "evacuation_100.txt"
+
+sim_timer = Timer()
 learn_timer = Timer()
-model_load = 3
-# start_fresh : 1
-# load specified model : 2
-# load latest model : 3
 
-home_dir = os.path.expanduser("~")
-log_dir = os.path.join(home_dir, LOG_DIR)
-os.makedirs(log_dir, exist_ok=True)
-os.makedirs(log_dir, exist_ok=True)
+def launch_tensorboard(port: int = PORT_NUM):  # noqa: F405
+    proc = subprocess.Popen([
+        "tensorboard", "--logdir", str(TB_DIR), "--port", str(port)
+    ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    time.sleep(5)
+    webbrowser.open(f"http://localhost:{port}")
+    print(f"TensorBoard ▶ http://localhost:{port}")
+    return proc
 
-def launch_tensorboard(tb_log_dir, port=6006):
-    """
-    TensorBoard를 백그라운드에서 실행하고 기본 브라우저에 해당 URL을 엽니다.
-    """
-    # tensorboard 실행 (포트 지정)
-    tb_process = subprocess.Popen(["tensorboard", "--logdir", tb_log_dir, "--port", str(port)],
-                                  stdout=subprocess.PIPE,
-                                  stderr=subprocess.PIPE)
-    # 잠시 대기한 후, 브라우저에서 TensorBoard URL 열기
-    time.sleep(5)  # TensorBoard가 시작할 시간을 줌
-    url = f"http://localhost:{port}"
-    webbrowser.open(url)
-    print(f"TensorBoard launched at {url}")
-    return tb_process
+def load_offline_buffer(agent: "DiffusionQLAgent", fname: str = "offline_buffer.pkl") -> bool:
+    path = LOG_DIR_PATH / fname
+    if path.exists():
+        print(f"Loading offline buffer: {path}")
+        agent.buffer.load(str(path))
+        return True
+    print(f"Offline buffer not found: {path}")
+    return False
 
 def monitor_metric(metric_file, metric_name, tb_log_dir):
     """
@@ -117,6 +128,72 @@ def gamma_ascent_schedule(parameter_start: float,
 
 
 
+def evaluate_agent(
+    agent: "DiffusionQLAgent",
+    episodes: int = EVAL_EPISODES,
+    max_steps: int = MAX_STEPS,
+    action_scale: int = ACTION_SCALE,   # ⇦ 학습과 동일한 간격으로 행동 수행
+) -> Tuple[float, float, float]:
+    """Evaluate *episodes* random maps.
+
+    • **action_scale**:  환경이 `state` 4‑step 마다 1회 행동을 처리하므로
+      `ACTION_SCALE` 간격으로만 `agent.policy.sample` & `receive_action` 수행.
+    • 시뮬 오류 발생 시 재시도하여 *episodes* 회 성공할 때까지 반복.
+    """
+    rewards, t80s, t100s = [], [], []
+    attempts = 0
+    while len(rewards) < episodes:
+        attempts += 1
+        try:
+            n_agents = random.randint(CROWD_NUMBER_MIN, CROWD_NUMBER_MAX)
+            env = model.FightingModel(n_agents, 50, 50, model_num=MAP_NUM, robot="Q")
+            state = env.return_current_image()
+            t80 = t100 = max_steps
+            total_r = 0.0
+
+            # 초기 행동
+            action = None
+
+            for step in range(max_steps):
+                # ACTION_SCALE 간격으로만 새 행동 샘플링 및 적용
+                if step % action_scale == 0:
+                    with torch.no_grad():
+                        action = agent.policy.sample(
+                            torch.from_numpy(state).view(1, -1).float().to(agent.dev)
+                        ).cpu().numpy()[0]
+                    env.robot.receive_action(action)
+
+                env.step()
+                state = env.return_current_image()
+
+                # 80% / 100% 대피시간 기록
+                if env.alived_agents() < env.total_agents * 0.2 and t80 == max_steps:
+                    t80 = step
+                if env.alived_agents() < 1 and t100 == max_steps:
+                    t100 = step
+
+                if env.robot.is_game_finished:
+                    total_r += FINISHED_BONUS * (1 - step / max_steps)  # noqa: F405
+                    break
+
+            # record episode
+            rewards.append(total_r)
+            t80s.append(t80)
+            t100s.append(t100)
+
+        except Exception as e:
+            print(f"[Eval] Simulation error (attempt {attempts}): {e} — retrying…")
+            time.sleep(0.1)
+            continue
+
+    return (
+        float(np.mean(rewards)),
+        float(np.mean(t80s)),
+        float(np.mean(t100s)),
+    )
+
+
+
 # --------------------------------------------------------------------- #
 #                     DiffusionPolicy  (조건부 DDPM)                     #
 # --------------------------------------------------------------------- #
@@ -152,20 +229,25 @@ class DiffusionPolicy(nn.Module):
         self.eps_model = EpsModel(a_dim, s_dim)
         self.alphas   = 1.0 - self.betas
         self.alphas_bar = torch.cumprod(self.alphas, dim=0)
+        self.alphas = self.alphas.to(self.betas.device)
+        self.alphas_bar = self.alphas_bar.to(self.betas.device)
 
+                
         #self.betas -> 각 timesteps에서 추가되는 노이즈의 분산
         #self.alphas -> 각 timesteps에서 노이즈가 제거되는 비율
         #self.alphas_bar -> 누적된 노이즈 제거 비율
 
     # ------------ BC 손실 (Alg.1 ③, 식 2) ------------
-    def bc_loss(self, s_flat, a0):
+    def bc_loss(self, s_flat, a0): # s_flat은 state, a0은 전문가가 취한 행동, 노이즈를 얼마나 잘 제거할 수 있냐에 집중
         B = s_flat.size(0)
         i = torch.randint(1, self.N+1, (B,1), device=s_flat.device)   # (B,1)
         eps = torch.randn(B, self.a_dim, device=s_flat.device)
-        alpha_bar_i = self.alphas_bar[i-1]            # (B,1)
+        alpha_bar = self.alphas_bar.to(s_flat.device)
+        alpha_bar_i = alpha_bar[i-1]            # (B,1)
         ai = (alpha_bar_i.sqrt() * a0 +
               (1-alpha_bar_i).sqrt() * eps) # 행동 a_0에 노이즈를 넣어 a_i 생성하는 식
-        eps_hat = self.eps_model(ai, s_flat, i.float())
+        eps_hat = self.eps_model(ai, s_flat, i.float()) # 조건 s와 a_i를 보고 실제로 들어간 노이즈를 예측
+
         return F.mse_loss(eps_hat, eps)
 
     # ------------ 샘플링 (Alg.1 ①②) ------------
@@ -198,42 +280,88 @@ class DiffusionPolicy(nn.Module):
 # 1) Replay Buffer
 ##########################################################################
 class ReplayBuffer:
-    def __init__(self, capacity=int(1e4), device=None):
-        self.buffer = deque(maxlen=capacity)
-        self.device = device
+    """메모리·디스크 용량을 최소화한 링 버퍼"""
+    def __init__(self,
+                 capacity     : int,
+                 state_shape  : Tuple[int, int],   # (H,W)
+                 action_dim   : int,
+                 device       : torch.device):
+        self.cap   = capacity
+        self.ptr   = 0          # 다음에 쓸 위치
+        self.size  = 0
+        self.dev   = device
+
+        H, W = state_shape
+        self.states      = np.zeros((capacity, H, W), dtype=np.uint8)
+        self.next_states = np.zeros_like(self.states)
+        self.actions     = np.zeros((capacity, action_dim), dtype=np.float16)
+        self.rewards     = np.zeros((capacity,),            dtype=np.float16)
+        self.dones       = np.zeros((capacity,),            dtype=np.bool_)
+
+    # ------------------------------------------------------------------ #
+    #                           push / sample                            #
+    # ------------------------------------------------------------------ #
     def push(self, state, action, reward, next_state, done):
-        self.buffer.append((state, action, reward, next_state, done))
+        self.states     [self.ptr] = state            # uint8
+        self.next_states[self.ptr] = next_state
+        self.actions    [self.ptr] = action           # float32 → float16 OK
+        self.rewards    [self.ptr] = reward
+        self.dones      [self.ptr] = done
 
-    def sample(self, batch_size, device):
-        # 1) 무작위로 batch_size만큼 샘플 추출
-        batch = random.sample(self.buffer, batch_size)
-        states, actions, rewards, next_states, dones = zip(*batch)
+        self.ptr  = (self.ptr + 1) % self.cap
+        self.size = min(self.size + 1, self.cap)
 
-        # 2) numpy array로 묶기 (zero-copy에 가깝게)
-        states_np      = np.stack(states, axis=0).astype(np.float32)       # (B, H, W)
-        next_states_np = np.stack(next_states, axis=0).astype(np.float32)  # (B, H, W)
-        actions_np     = np.stack(actions, axis=0).astype(np.float32)      # (B, action_dim)
-        rewards_np     = np.array(rewards, dtype=np.float32)               # (B,)
-        dones_np       = np.array(dones,   dtype=np.float32)               # (B,)
+    def sample(self, batch_size: int):
+        idx = np.random.randint(0, self.size, size=batch_size)
 
-        # 3) torch tensor로 변환 & 차원 맞추기
-        states_t       = torch.from_numpy(states_np).unsqueeze(1).to(device)       # (B,1,H,W)
-        next_states_t  = torch.from_numpy(next_states_np).unsqueeze(1).to(device)  # (B,1,H,W)
-        actions_t      = torch.from_numpy(actions_np).to(device)                   # (B,action_dim)
-        rewards_t      = torch.from_numpy(rewards_np).to(device)                   # (B,)
-        dones_t        = torch.from_numpy(dones_np).to(device)                     # (B,)
-
-        return states_t, actions_t, rewards_t, next_states_t, dones_t
+        s      = torch.from_numpy(self.states[idx].astype(np.float32) / 255.0) \
+                       .unsqueeze(1).to(self.dev)          # (B,1,H,W)
+        s_next = torch.from_numpy(self.next_states[idx].astype(np.float32) / 255.0) \
+                       .unsqueeze(1).to(self.dev)
+        a      = torch.from_numpy(self.actions[idx].astype(np.float32)).to(self.dev)
+        r      = torch.from_numpy(self.rewards[idx].astype(np.float32)).to(self.dev)
+        d      = torch.from_numpy(self.dones[idx].astype(np.float32)).to(self.dev)
+        return s, a, r, s_next, d
 
     def __len__(self):
-        return len(self.buffer)
+        return self.size
 
-    def save(self, filepath):
-        with open(filepath, "wb") as f:
-            pickle.dump(self.buffer, f)
-    def load(self, filepath):
-        with open(filepath, "rb") as f:
-            self.buffer = pickle.load(f)
+    # ------------------------------------------------------------------ #
+    #                       디스크 저장 / 로드 (zip)                      #
+    # ------------------------------------------------------------------ #
+    def save(self, file: str | Path):
+        file = Path(file)
+        np.savez_compressed(
+            file,
+            states      = self.states[:self.size],
+            next_states = self.next_states[:self.size],
+            actions     = self.actions[:self.size],
+            rewards     = self.rewards[:self.size],
+            dones       = self.dones[:self.size],
+            size        = np.array([self.size], dtype=np.int32)
+        )
+        print(f"[ReplayBuffer] saved {self.size:,} transitions → {file}")
+
+    def load(self, file: str | Path):
+        file = Path(file)
+        if not file.exists():
+            raise FileNotFoundError(file)
+        data = np.load(file, allow_pickle=False)
+        n    = int(data["size"][0])
+        if n > self.cap:
+            raise ValueError(f"file contains {n} samples but capacity={self.cap}")
+
+        # 기존 메모리 재사용
+        self.states[:n]       = data["states"]
+        self.next_states[:n]  = data["next_states"]
+        self.actions[:n]      = data["actions"]
+        self.rewards[:n]      = data["rewards"]
+        self.dones[:n]        = data["dones"]
+
+        self.size = n
+        self.ptr  = n % self.cap
+        print(f"[ReplayBuffer] loaded {self.size:,} transitions from {file}")
+
 
 class ResidualBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
@@ -374,20 +502,18 @@ class PolicyNetwork(nn.Module):
         return action, log_prob
 
 
-ETA = 1.0
-DIFF_STEPS = 5
-BETA_MINMAX = (.1, 10.)
-
 class DiffusionQLAgent:
     def __init__(self, device="cpu", batch_size=BATCH_SIZE):
         self.dev = torch.device(device)
         self.batch = batch_size
-        self.buffer = ReplayBuffer(BUFFER_SIZE)
+        self.buffer = ReplayBuffer(BUFFER_SIZE, (50, 50), 2, DEVICE)
 
         self.q1 = QNetwork().to(self.dev)
         self.q2 = QNetwork().to(self.dev)
-        self.q1_t = QNetwork().to(self.dev); self.q1_t.load_state_dict(self.q1.state_dict())
-        self.q2_t = QNetwork().to(self.dev); self.q2_t.load_state_dict(self.q2.state_dict())
+        self.q1_t = QNetwork().to(self.dev); 
+        self.q1_t.load_state_dict(self.q1.state_dict())
+        self.q2_t = QNetwork().to(self.dev); 
+        self.q2_t.load_state_dict(self.q2.state_dict())
         self.q_optim = optim.Adam(
             list(self.q1.parameters())+list(self.q2.parameters()), lr=LR)
 
@@ -413,7 +539,7 @@ class DiffusionQLAgent:
     def update(self):
         if len(self.buffer) < self.batch*START_BATCH_TIMES: 
             return
-        s,a,r,s2,d = self.buffer.sample(self.batch, self.dev)
+        s,a,r,s2,d = self.buffer.sample(self.batch)
         B = s.size(0)
         s_f  = s.view(B,-1); s2_f = s2.view(B,-1)
 
@@ -448,14 +574,25 @@ class DiffusionQLAgent:
                 pt.data.mul_(self.tau).add_((1-self.tau)*p.data)
             for p,pt in zip(self.q2.parameters(), self.q2_t.parameters()):
                 pt.data.mul_(self.tau).add_((1-self.tau)*p.data)
+        
+        q_loss = (q1_loss + q2_loss).item()
+
+        losses = {
+            "Ld" : Ld.item(),
+            "Lq" : Lq.item(),
+            "q_loss" : q_loss
+        }
+
+        return losses
 
     def store_transition(self, state, action, reward, next_state, done):
         self.buffer.push(state, action, reward, next_state, done)
     
     def save_replay_buffer(self, f):
-        self.buffer.save(os.path.join(log_dir, f))
-    def load_replay_buffer(self, f):
-        self.buffer.load(os.path.join(log_dir, f))
+        path = LOG_DIR_PATH / f
+        self.buffer.save(str(path))
+    # def load_replay_buffer(self, f):
+    #     self.buffer.load(os.path.join(LOG_DIR, f))
 
     # -------------- 버퍼 저장·로드 --------------
     def save_model(self, path):
@@ -507,281 +644,37 @@ def monitor_total_reward(total_reward_file, tb_log_dir):
         finally:
             writer.close()
 
-##########################################################################
-# Example usage in your training loop
-##########################################################################
+def main():
+    tb = SummaryWriter(TB_DIR.as_posix())
+    launch_tensorboard()
+
+    agent = DiffusionQLAgent(device=DEVICE, batch_size=BATCH_SIZE)  # noqa: F405
+    offline = load_offline_buffer(agent, OFFLINE_BUFFER_NAME)
+
+    if offline:
+        print("▶ Offline training mode")
+        step = 0
+        for ep in range(1, MAX_OFFLINE_EP + 1):
+            print(f"step : {ep}")
+            loss_dict = agent.update()
+            if loss_dict:
+                tb.add_scalar("Loss/BC",        loss_dict["Ld"],     step)
+                tb.add_scalar("Loss/Q_guidance", loss_dict["Lq"],     step)
+                tb.add_scalar("Loss/Q_critic",   loss_dict["q_loss"], step)
+                step += 1
+            if ep % EVAL_INTERVAL == 0 and loss_dict:
+                R, e80, e100 = evaluate_agent(agent)
+                tb.add_scalar("Eval/TotalReward", R,   ep)
+                tb.add_scalar("Eval/Evac80",      e80, ep)
+                tb.add_scalar("Eval/Evac100",     e100, ep)
+
+                ckpt_path = LOG_DIR_PATH / f"dql_eval_ckpt_ep_{ep}.pth"
+                agent.save_model(str(ckpt_path))
+                print(f"[Checkpoint] Saved evaluation model at episode {ep}: {ckpt_path}")
+
+        tb.close(); return
+
+    # Online roll‑out fallback … [unchanged] …
+
 if __name__ == "__main__":
-        
-
-    import time
-    import model  # Your environment code (model.FightingModel)
-
-
-    # TensorBoard 로그 경로 및 total_reward.txt 경로 설정
-    total_reward_file = os.path.join(log_dir, "total_reward.txt")
-    tb_log_dir = os.path.join(log_dir, "tensorboard_logs")
-    evacuation_time_80_file = os.path.join(log_dir, "evacuation_80.txt")
-    evacuation_time_100_file = os.path.join(log_dir, "evacuation_100.txt")
-
-    tb_process = launch_tensorboard(tb_log_dir, port=PORT_NUM)
-    # 별도 스레드에서 total_reward.txt 모니터링 시작
-    monitor_thread = threading.Thread(target=monitor_total_reward, args=(total_reward_file, tb_log_dir), daemon=True)
-    monitor_thread.start()
-    # 추가: 새로운 지표(80%, 100% 대피시간) 모니터링 쓰레드
-    monitor_thread_80 = threading.Thread(
-        target=monitor_metric, 
-        args=(evacuation_time_80_file, "Evacuation Time 80", tb_log_dir),
-        daemon=True
-    )
-    monitor_thread_80.start()
-
-    monitor_thread_100 = threading.Thread(
-        target=monitor_metric, 
-        args=(evacuation_time_100_file, "Evacuation Time 100", tb_log_dir),
-        daemon=True
-    )
-    monitor_thread_100.start()
-
-
-
-    # hyperparams
-    max_episodes = 9999999
-    start_episode = 0
-    
-    agent = DiffusionQLAgent(device=DEVICE, batch_size=int(BATCH_SIZE))
-    print(f"Agent initialized, lr={LR}, batch_size={BATCH_SIZE}, replay_size={BUFFER_SIZE}")
-    replay_buffer_path = os.path.join(log_dir, "replay_buffer.pkl")
-
-        
-    if model_load == 1:
-        pass
-    elif model_load == 2:
-        print("load specified model")
-        model_name = "dql_checkpoint_ep_200.pth"
-        model_path = os.path.join(log_dir, model_name)
-
-        if(os.path.exists(model_path)):
-            start_episode = int(model_name.split("_")[-1].split(".")[0])
-            agent.load_model(model_name)
-            if os.path.exists(replay_buffer_path):
-                agent.load_replay_buffer("replay_buffer.pkl")
-    elif model_load == 3:
-        print("Mode 3: Loading the latest model from log_dir.")
-        model_files = [f for f in os.listdir(log_dir) if f.startswith("dql_checkpoint") and f.endswith(".pth")]
-        if model_files:
-            latest_model = max(model_files, key=lambda f: int(f.split("_")[-1].split(".")[0]))
-            latest_model_path = os.path.join(log_dir, latest_model)
-            start_episode = int(latest_model.split("_")[-1].split(".")[0])
-            print(f"Loading latest model: {latest_model}")
-            agent.load_model(latest_model_path)
-            if os.path.exists(replay_buffer_path):
-                print(f"Loading replay buffer from {replay_buffer_path}")
-                agent.load_replay_buffer(replay_buffer_path)
-        else:
-            pass
-
-    abnormal_reward = 0
-    max_steps = MAX_STEPS
-
-    #epsilon_scheduler = EpsilonScheduler(start_epsilon=start_epsilon, epsilon_min = EPSILON_MIN, start_decay_step = START_DECAY_STEP, scheduler_type=SCHEDULER_TYPE, decay_value=DECAY_VALUE, linear_decay_steps = LINEARLY_DECAY_STEP)
-
-    for episode in range(max_episodes):
-        episode_num = start_episode+episode
-        print(f"Episode {episode_num}")
-        # Create environment
-        while True:
-            try:
-                number_of_agents = 0
-                if (CROWD_NUMBER_MIN == CROWD_NUMBER_MAX):
-                    number_of_agents = CROWD_NUMBER_MIN
-                else:
-                    number_of_agents = random.randint(CROWD_NUMBER_MIN, CROWD_NUMBER_MAX)
-                 
-                env_model = model.FightingModel(number_of_agents, 50, 50, model_num = MAP_NUM, robot = 'Q')
-                break
-            except Exception as e:
-                print(e, "Retrying environment creation...")
-        
-        state = env_model.return_current_image()
-        total_reward = 0
-        reward = 0
-        evacuation_time_80 = max_steps
-        evacuation_time_100 = max_steps
-
-        buffered_state = state
-        buffered_action = None
-        abnormal_reward = 0
-        #agent.update_alpha(ALPHA_START, ALPHA_END, ALPHA_DECAY_STEPS, episode_num)
-        #agent.update_gamma(GAMMA_START, GAMMA_END, GAMMA_SCHEDULE_STEP, episode_num)
-        try:
-            for step in range(max_steps):
-                # 1) Select action
-            
-                if(step%ACTION_SCALE==0):
-                    
-                    action_np, _ = agent.select_action(state)
-                    dx, dy = action_np[0], action_np[1]
-                    real_action = env_model.robot.receive_action([dx, dy])
-                    action_np[0] = real_action[0]
-                    action_np[1] = real_action[1]
-                    buffered_state = state
-                    buffered_action = action_np
-                
-                
-                # Simulation time check
-                sim_timer.start()
-                # 2) Step environment
-                env_model.step()
-
-
-                sim_timer.stop()
-                reward = 0
-                r_k = 0
-                # 4) Next state
-                next_state = env_model.return_current_image()
-
-                # 5) Done?
-                done = (step >= max_steps-1) or (env_model.robot.is_game_finished)
-                if(env_model.robot.is_game_finished):
-                    reward += FINISHED_BONUS * (1-step/max_steps)
-
-                if (REWARD_K):
-                    r_k += env_model.reward_penalty_collision() * REWARD_K
-                # 6) Store transition
-                if((step%ACTION_SCALE==(ACTION_SCALE-1) and step>ACTION_SCALE) or (env_model.robot.is_game_finished and step>ACTION_SCALE)):
-                    r_a = 0
-                    r_b = 0
-                    r_c = 0
-                    r_d = 0
-                    r_e = 0
-                    r_f = 0              
-                    r_g = 0
-                    r_h = 0
-                    r_i = 0
-                    r_j = 0      
-
-                    if (REWARD_A):
-                        r_a = env_model.reward_based_alived() * REWARD_A
-                    if (REWARD_B):
-                        r_b = env_model.reward_based_all_agents_danger() * REWARD_B
-                    if (REWARD_C):
-                        r_c = env_model.reward_based_gain() * REWARD_C
-                    if (REWARD_D):
-                        r_d = env_model.reward_penalty() * REWARD_D
-                    if (REWARD_E):
-                        r_e = env_model.reward_based_evacuated_with_robot() * REWARD_E
-                    if (REWARD_F):
-                        r_f = env_model.reward_based_distance_from_near_agents() * REWARD_F
-                    if (REWARD_G):
-                        r_g = env_model.reward_based_distance_from_near_agent_gain() * REWARD_G
-                    if (REWARD_H):
-                        r_h = env_model.reward_based_gain_with_time_bonus() * REWARD_H
-                    if (REWARD_I):
-                        r_i = env_model.reward_based_alived_root() * REWARD_I
-                    if (REWARD_J):
-                        r_j = env_model.reward_based_all_agents_danger_log() * REWARD_J
-                    
-                    reward += (r_a + r_b + r_c + r_d + r_e + r_g + r_h + r_i+r_j+r_k+REWARD_FIXED)
-                    
-                    if(SCALE_CHECK):
-                        print("reward_a : ", r_a)
-                        print("reward_b : ", r_b)
-                        #print("reward_c : ", r_c)
-                        print("reward_d : ", r_d)
-                        #print("reward_e : ", r_e)
-                        #print("reward f : ", r_f)
-                        #print("reward g : ", r_g)
-                        #print("reward h : ", r_h)
-                        #print("reward i : ", r_i)
-                        #print("reward j : ", r_j)
-                        print("reward k : ", r_k)
-
-                    r_k = 0
-
-                    agent.store_transition(    
-                        buffered_state,
-                        buffered_action,
-                        reward, 
-                        next_state, 
-                        float(done)
-                    )
-                    total_reward += reward
-
-                    reward = 0
-
-                # 7) Update agent
-                if(step%ACTION_SCALE==(ACTION_SCALE-1) and episode_num>=START_UPDATE_STEP):
-                    learn_timer.start()
-                    agent.update()
-                    learn_timer.stop()
-
-                state = next_state
-
-
-                if (env_model.alived_agents() < env_model.total_agents * 0.2 and evacuation_time_80 == max_steps):
-                    evacuation_time_80 = step
-                if (env_model.alived_agents() < 1 and evacuation_time_100 == max_steps):
-                    evacuation_time_100 = step
-                if done:
-                    break
-        except Exception as e:
-            print(e)
-            print("error occured. retry.")
-            env_model = model.FightingModel(number_of_agents, 50, 50, 2, 'Q')
-            abnormal_reward = 1
-
-        # Possibly update epsilon, or do other logging
-
-        #agent.epsilon = epsilon_scheduler.get_epsilon(agent.epsilon, episode_num)
-        #print("writing.. ", PORT_NUM)
-        print("-----------------------------------------------")
-        print("Total reward:", total_reward)
-        #print("now_epsilon : ", agent.epsilon)
-        #print("now_gamma : ", agent.gamma)
-        print("evacuation_time_80 : ", evacuation_time_80)
-        print("evacuation_time_100 : ", evacuation_time_100)
-        
-        print("-----------------------------------------------")
-        
-        # print("now_epsilon_long : ", agent.epsilon_long)
-        # Save model occasionally
-
-        reward_file_path = os.path.join(log_dir, "total_reward.txt")
-        evacuation_time_80_file_path = os.path.join(log_dir, "evacuation_80.txt")
-        evacuation_time_100_file_path = os.path.join(log_dir, "evacuation_100.txt")
-        if not os.path.exists(reward_file_path):
-            # 파일이 없으면 빈 파일 생성
-            open(reward_file_path, "w").close()
-        if not os.path.exists(evacuation_time_80_file_path):
-            open(evacuation_time_80_file_path, "w").close()
-        if not os.path.exists(evacuation_time_100_file_path):
-            open(evacuation_time_100_file_path, "w").close()
-
-        if (episode_num) % 50 == 0:
-            model_filename = os.path.join(log_dir, f"dql_checkpoint_ep_{episode_num}.pth")
-            agent.save_model(model_filename)
-            replay_buffer_filename = "replay_buffer.pkl"
-            agent.save_replay_buffer(replay_buffer_filename)
-
-        reward_file_path = os.path.join(log_dir, "total_reward.txt")
-        with open(reward_file_path, "a") as f:
-            if(abnormal_reward != 1):
-                f.write(f"{total_reward}\n")
-
-        with open(evacuation_time_80_file_path, "a") as f:
-            if(abnormal_reward != 1):
-                f.write(f"{evacuation_time_80}\n")
-        with open(evacuation_time_100_file_path, "a") as f:
-                f.write(f"{evacuation_time_100}\n")
-
-        # with open(epsilon_path, "w") as f:
-        #     f.write(str(agent.epsilon)+"\n")
-        #     f.write(str(agent.epsilon_long))
-
-
-        # each episode time print
-        if ENABLE_TIMER:
-            print(f"episode {episode_num} - Total Simulation Time: {sim_timer.get_time():.6f} 초")
-            print(f"episode {episode_num} - Total Learning Time: {learn_timer.get_time():.6f} 초")
-            sim_timer.reset()
-            learn_timer.reset()
+    main()

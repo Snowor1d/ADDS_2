@@ -10,7 +10,7 @@ import numpy as np
 # model.py, ADDS_AS_reinforcement.py (동일 폴더 or 경로 맞춰 수정)
 from model import FightingModel
 from ADDS_AS_reinforcement import ReplayBuffer
-from Start_training import REWARD_A, REWARD_B, REWARD_C, REWARD_D, REWARD_E, REWARD_F, REWARD_G, REWARD_H, REWARD_I, REWARD_J, REWARD_K
+from Start_training import *
 ############################
 # 화면 및 조이스틱 설정
 ############################
@@ -51,7 +51,7 @@ clock = pygame.time.Clock()
 # 로깅(리워드 파일 저장) 설정
 ############################
 home_dir = os.path.expanduser("~")
-log_dir = os.path.join(home_dir, "learning_log_guide_game_imitation")
+log_dir = os.path.join(home_dir, LOG_DIR)
 os.makedirs(log_dir, exist_ok=True)
 reward_log_file = os.path.join(log_dir, "total_reward_imitation.txt")
 
@@ -150,7 +150,7 @@ def main():
     # -------------------------
     # 여러 에피소드 진행을 위해
     # -------------------------
-    replay_buffer = ReplayBuffer(capacity=int(1e5))
+    replay_buffer = ReplayBuffer(capacity=int(1e5), state_shape = (50, 50), action_dim = 2, device="cpu")
     episode_count = 0
     running = True
 
@@ -174,6 +174,8 @@ def main():
         # 조이스틱 knob 초기 위치
         knob_x, knob_y = JOYSTICK_CENTER
         dragging = False
+
+        frame_count = 0
 
         while not done and running:
             clock.tick(15)  # 초당 30프레임
@@ -242,6 +244,7 @@ def main():
             # 방향 뒤집힘 보정: (env_dx, env_dy) = (dy, dx)
             env_dx = user_dy
             env_dy = user_dx
+            
 
             env_model.robot.receive_action([env_dx, env_dy])
 
@@ -252,7 +255,9 @@ def main():
             action = np.array([env_dx, env_dy], dtype=np.float32)
 
             env_model.step()
-
+            frame_count += 1
+            
+            # 환경에서 현재 상태 이미지 받아오기
             reward = 0.0
             reward += env_model.reward_based_alived()
             reward += env_model.reward_penalty()
@@ -265,13 +270,15 @@ def main():
             next_state = np.array(env_model.return_current_image(), dtype=np.float32)
 
             # 버퍼에 저장
-            replay_buffer.push(
-                current_state,
-                action,
-                reward,
-                next_state,
-                float(done)
-            )
+
+            if (frame_count % ACTION_SCALE) == 0 :
+                replay_buffer.push(
+                    current_state,
+                    action,
+                    reward,
+                    next_state,
+                    float(done)
+                )
 
             total_reward += reward
             step_count += 1
@@ -304,11 +311,11 @@ def main():
     pygame.quit()
 
     # 전체 종료 시점에 ReplayBuffer 저장
-    save_path = os.path.join(os.path.dirname(__file__), "imitation_dataset.pkl")
-    with open(save_path, "wb") as f:
-        pickle.dump(replay_buffer.buffer, f)
+    #save_path = os.path.join(os.path.dirname(__file__), "imitation_dataset.pkl")
+    save_path = os.path.join(log_dir, "expert_dataset.pkl")
+    replay_buffer.save(save_path)
 
-    print(f"Replay buffer saved to {save_path}, size={len(replay_buffer.buffer)}")
+    print(f"Replay buffer saved to {save_path}, size={replay_buffer.__len__}")
     print(f"Reward log saved to {reward_log_file}")
     print("Bye ~")
 

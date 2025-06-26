@@ -1182,36 +1182,88 @@ class FightingModel(Model):
 
     
     
-    def random_agent_distribute_outdoor(self, agent_num, ran):
+    # def random_agent_distribute_outdoor(self, agent_num, ran):
         
 
-        space_num = len(self.pure_mesh)
+    #     space_num = len(self.pure_mesh)
         
         
-        space_agent = agent_num
-        agent_location = []
+    #     space_agent = agent_num
+    #     agent_location = []
 
-        for i in range(agent_num):
-            assign_mesh_num = random.randint(0, space_num-1)
-            assigned_mesh = self.pure_mesh[assign_mesh_num]
+    #     for i in range(agent_num):
+    #         assign_mesh_num = random.randint(0, space_num-1)
+    #         assigned_mesh = self.pure_mesh[assign_mesh_num]
             
-            while(1):
-                assigned_coordinates = self.match_mesh_to_grid[assigned_mesh]
-                if (len(assigned_coordinates) !=0):
-                    break
-                else :
-                    assign_mesh_num = random.randint(0, space_num-1)
-                    assigned_mesh = self.pure_mesh[assign_mesh_num]
-            assigned = assigned_coordinates[random.randint(0, len(assigned_coordinates)-1)]
-            assigned = [int(assigned[0]), int(assigned[1])]
-            if not assigned in agent_location:
-                agent_location.append(assigned)
-                a = CrowdAgent(self.agent_num, self, assigned, 1)
+    #         while(1):
+    #             assigned_coordinates = self.match_mesh_to_grid[assigned_mesh]
+    #             if (len(assigned_coordinates) !=0):
+    #                 break
+    #             else :
+    #                 assign_mesh_num = random.randint(0, space_num-1)
+    #                 assigned_mesh = self.pure_mesh[assign_mesh_num]
+    #         assigned = assigned_coordinates[random.randint(0, len(assigned_coordinates)-1)]
+    #         assigned = [int(assigned[0]), int(assigned[1])]
+    #         if not assigned in agent_location:
+    #             agent_location.append(assigned)
+    #             a = CrowdAgent(self.agent_num, self, assigned, 1)
+    #             self.crowds.append(a)
+    #             self.agent_num += 1
+    #             self.schedule.add(a)
+    #             self.grid.place_agent(a, assigned)
+
+
+
+    def random_agent_distribute_outdoor(self,
+                                        n_agents: int,
+                                        max_retry: int = 2000):
+        """
+        ▸ self.valid_space == 1
+        ▸ 장애물(polygons) 내부 아님
+        ▸ 이미 사용한 좌표 아님
+        조건을 만족하는 곳에만 CrowdAgent 배치
+        """
+        rng = random.random
+        safe_cache = {}                   # mesh → 안전 좌표 리스트
+        used = set()                      # 중복 방지
+
+        for _ in range(n_agents):
+            for _ in range(max_retry):
+
+                # ① 임의 삼각형 선택
+                tri = random.choice(self.pure_mesh)
+
+                # ─ 캐싱된 안전 좌표가 없다면 한 번 만들어 둔다
+                if tri not in safe_cache:
+                    cand = self.match_mesh_to_grid[tri]
+                    safe = [p for p in cand
+                            if self.valid_space[tuple(p)]              # 맵 밖/벽 아님
+                            and not any(_point_in_polygon(p, obs)      # 장애물 내부 아님
+                                    for obs in self.obstacles)]
+                    safe_cache[tri] = safe
+
+                if not safe_cache[tri]:
+                    continue                      # 이 삼각형은 전부 위험 → 다시 뽑기
+
+                # ② 좌표 뽑기
+                px, py = random.choice(safe_cache[tri])
+
+                if (px, py) in used:              # 이미 누가 스폰됨
+                    continue
+
+                # ===============================
+                #      실제 배치
+                # ===============================
+                a = CrowdAgent(self.agent_num, self, [px, py], 1)
                 self.crowds.append(a)
                 self.agent_num += 1
                 self.schedule.add(a)
-                self.grid.place_agent(a, assigned)
+                self.grid.place_agent(a, [px, py])
 
+                used.add((px, py))
+                break         # 다음 에이전트로
+            else:
+                raise RuntimeError("안전 좌표를 충분히 찾지 못했습니다.")
 
 
 
