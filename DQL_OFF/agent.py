@@ -798,7 +798,7 @@ class RobotAgent(CrowdAgent):
 
         intend_force = 2
         desired_speed = 3
-        print("robot_danger : ", self.danger)
+        #print("robot_danger : ", self.danger)
             
 
         desired_force = [intend_force*(desired_speed*(goal_x)), intend_force*(desired_speed*(goal_y))]; #desired_force : 사람이 탈출구쪽으로 향하려는 힘

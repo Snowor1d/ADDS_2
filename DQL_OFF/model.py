@@ -968,7 +968,7 @@ class FightingModel(Model):
                 a = WallAgent(self.agent_num, self, each_point, 9)
                 self.agent_num+=1
                 #self.schedule_e.add(a)
-                self.valid_space[(each_point[0], each_point[1]-1)] = 0
+                #self.valid_space[(each_point[0], each_point[1]-1)] = 0
                 self.valid_space[(each_point[0], each_point[1])] = 0
                 self.grid.place_agent(a, each_point)
 
@@ -1182,36 +1182,41 @@ class FightingModel(Model):
 
     
     
-    # def random_agent_distribute_outdoor(self, agent_num, ran):
-        
+    # def random_agent_distribute_outdoor(self, n_agents: int, max_retry: int = 2000):
+    #     safe_cache, used = {}, set()
 
-    #     space_num = len(self.pure_mesh)
-        
-        
-    #     space_agent = agent_num
-    #     agent_location = []
+    #     # ── 안전 좌표를 삼각형별로 미리 계산
+    #     for tri in self.pure_mesh:
+    #         cells = [p for p in self.match_mesh_to_grid[tri]
+    #                 if self.valid_space[tuple(p)]
+    #                 and not any(_point_in_polygon(p, obs) for obs in self.obstacles)]
+    #         if cells:
+    #             safe_cache[tri] = cells                    # 빈 삼각형은 애초에 제외
 
-    #     for i in range(agent_num):
-    #         assign_mesh_num = random.randint(0, space_num-1)
-    #         assigned_mesh = self.pure_mesh[assign_mesh_num]
-            
-    #         while(1):
-    #             assigned_coordinates = self.match_mesh_to_grid[assigned_mesh]
-    #             if (len(assigned_coordinates) !=0):
-    #                 break
-    #             else :
-    #                 assign_mesh_num = random.randint(0, space_num-1)
-    #                 assigned_mesh = self.pure_mesh[assign_mesh_num]
-    #         assigned = assigned_coordinates[random.randint(0, len(assigned_coordinates)-1)]
-    #         assigned = [int(assigned[0]), int(assigned[1])]
-    #         if not assigned in agent_location:
-    #             agent_location.append(assigned)
-    #             a = CrowdAgent(self.agent_num, self, assigned, 1)
+    #     for _ in range(n_agents):
+    #         for _ in range(max_retry):
+    #             tri = random.choice(list(safe_cache))      # 항상 후보가 있는 tri 중에서만
+    #             px, py = random.choice(safe_cache[tri])
+
+    #             if (px, py) in used:
+    #                 safe_cache[tri].remove([px, py])       # 중복 좌표는 바로 제외
+    #                 if not safe_cache[tri]:
+    #                     safe_cache.pop(tri)                # tri가 고갈되면 목록에서 제거
+    #                 continue
+
+    #             # --- 실제 배치 ---
+    #             a = CrowdAgent(self.agent_num, self, [px, py], 1)
+    #             self.grid.place_agent(a, [px, py])
+    #             self.schedule.add(a)
     #             self.crowds.append(a)
     #             self.agent_num += 1
-    #             self.schedule.add(a)
-    #             self.grid.place_agent(a, assigned)
-
+    #             used.add((px, py))
+    #             safe_cache[tri].remove([px, py])
+    #             if not safe_cache[tri]:
+    #                 safe_cache.pop(tri)
+    #             break
+    #         else:
+    #             raise RuntimeError("max_retry 소진 – 로직/장애물 설정을 다시 확인해 주세요.")
 
 
     def random_agent_distribute_outdoor(self,
@@ -1263,7 +1268,10 @@ class FightingModel(Model):
                 used.add((px, py))
                 break         # 다음 에이전트로
             else:
-                raise RuntimeError("안전 좌표를 충분히 찾지 못했습니다.")
+                print("안전 좌표 찾기 실패")
+                #raise RuntimeError("안전 좌표를 충분히 찾지 못했습니다.")
+    
+        #print("요청 : ", n_agents, " 실제 생성:", len(self.crowds))
 
 
 
@@ -1338,7 +1346,7 @@ class FightingModel(Model):
         if(self.using_model and self.step_n%ACTION_SCALE==0):
             if(np.random.rand() < 0.04):
                 self.robot.now_exploration = 0
-            action, _ = self.dql_agent.select_action(state, True)
+            action, _ = self.dql_agent.select_action(state)
             dx, dy = action[0], action[1]
             self.robot.receive_action([dx, dy])
 
@@ -1502,7 +1510,10 @@ class FightingModel(Model):
         input_shape = (50, 50)
         num_actions = 4
 
-        self.dql_agent = DiffusionQLAgent(input_shape, num_actions, start_epsilon=0)
+        self.dql_agent = DiffusionQLAgent(
+                            device="cuda" if torch.cuda.is_available() else "cpu",
+                            batch_size = 128
+        )
         if (USING_TRAINED_MODEL):
             self.dql_agent.load_model(file_path)
         self.using_model = True

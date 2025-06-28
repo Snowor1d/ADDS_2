@@ -87,9 +87,9 @@ ETA = 1.0 # 값이 클수록 q loss에 가중치
 DIFF_STEPS = 5
 BETA_MINMAX = (.1, 10.)
 EVAL_INTERVAL = 20
-EVAL_EPISODES = 10
+EVAL_EPISODES = 3
 OFFLINE_BUFFER_NAME = "expert_dataset.npz"
-
+MAX_OFFLINE_EP = 10_000_000
 def main():
     print_banner()
     while True:

@@ -22,10 +22,6 @@ from typing import Tuple
 from pathlib import Path
 
 OFFLINE_TRAIN = True
-EVAL_INTERVAL = 200
-EVAL_EPISODES = 10
-MAX_OFFLINE_EP = 1_000_000
-
 
 
 HOME_DIR = Path.home()
@@ -163,6 +159,40 @@ def evaluate_agent(
                         ).cpu().numpy()[0]
                     env.robot.receive_action(action)
 
+                    r_a = 0
+                    r_b = 0
+                    r_c = 0
+                    r_d = 0
+                    r_e = 0
+                    r_f = 0
+                    r_g = 0
+                    r_h = 0
+                    r_i = 0
+                    r_j = 0
+                    r_k = 0
+
+                    if (REWARD_A):
+                        r_a = env.reward_based_alived() * REWARD_A
+                    if (REWARD_B):
+                        r_b = env.reward_based_all_agents_danger() * REWARD_B
+                    if (REWARD_C):
+                        r_c = env.reward_based_gain() * REWARD_C
+                    if (REWARD_D):
+                        r_d = env.reward_penalty() * REWARD_D
+                    if (REWARD_E):
+                        r_e = env.reward_based_evacuated_with_robot() * REWARD_E
+                    if (REWARD_F):
+                        r_f = env.reward_based_distance_from_near_agents() * REWARD_F
+                    if (REWARD_G):
+                        r_g = env.reward_based_distance_from_near_agent_gain() * REWARD_G
+                    if (REWARD_H):
+                        r_h = env.reward_based_gain_with_time_bonus() * REWARD_H
+                    if (REWARD_I):
+                        r_i = env.reward_based_alived_root() * REWARD_I
+                    if (REWARD_J):
+                        r_j = env.reward_based_all_agents_danger_log() * REWARD_J
+
+                    total_r += (r_a + r_b + r_c + r_d + r_e + r_g + r_f + r_h + r_i + r_j + r_k + REWARD_FIXED)
                 env.step()
                 state = env.return_current_image()
 
@@ -526,6 +556,9 @@ class DiffusionQLAgent:
         self.tau   = .995
         self.eps   = 0.05            # ε-greedy (아주 작게)
 
+
+
+
     # -------------- 행동 선택 --------------
     def select_action(self, state_np):
         if np.random.rand() < self.eps:
@@ -578,9 +611,9 @@ class DiffusionQLAgent:
         q_loss = (q1_loss + q2_loss).item()
 
         losses = {
-            "Ld" : Ld.item(),
-            "Lq" : Lq.item(),
-            "q_loss" : q_loss
+            "Ld" : Ld.item(), # behavior cloning loss
+            "Lq" : Lq.item(), # Q-guidance loss
+            "q_loss" : q_loss # Q-critic loss 
         }
 
         return losses
@@ -662,7 +695,9 @@ def main():
                 tb.add_scalar("Loss/Q_guidance", loss_dict["Lq"],     step)
                 tb.add_scalar("Loss/Q_critic",   loss_dict["q_loss"], step)
                 step += 1
+            print(f"[Offline] Episode {ep} - Losses: {loss_dict}, ep : {ep}, EVAL_INT : {EVAL_INTERVAL}")
             if ep % EVAL_INTERVAL == 0 and loss_dict:
+                print(f"[Eval] Episode {ep} - Evaluating agent…")
                 R, e80, e100 = evaluate_agent(agent)
                 tb.add_scalar("Eval/TotalReward", R,   ep)
                 tb.add_scalar("Eval/Evac80",      e80, ep)
