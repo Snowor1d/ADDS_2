@@ -1,354 +1,234 @@
+"""
+ADDS Imitation-Learning 데이터 수집 UI
+------------------------------------
+• PyGame 조이스틱으로 로봇을 수동 조종하며 (dx, dy) 액션을 생성
+• 매 프레임(또는 ACTION_SCALE 주기)마다 (s, a, r, s', done)을 ReplayBuffer에 push
+• 여러 에피소드를 한 세션에서 계속 진행해도 버퍼는 메모리에 누적
+• 프로그램을 종료할 때만 디스크의 기존 expert_dataset.pkl 과 병합하여 저장
+"""
 import pygame
-import sys
-import math
-import os
-import pickle
-import time
-
+import sys, math, os, pickle, time
 import numpy as np
+from pathlib import Path
 
-# model.py, ADDS_AS_reinforcement.py (동일 폴더 or 경로 맞춰 수정)
+# ---------- 외부 모듈 ----------
 from model import FightingModel
-from ADDS_AS_reinforcement import ReplayBuffer
-from Start_training import *
-############################
-# 화면 및 조이스틱 설정
-############################
-SCREEN_WIDTH = 800
+from ADDS_AS_reinforcement import ReplayBuffer          # 동일 폴더
+from Start_training import *                            # REWARD_A …, ACTION_SCALE …
+
+# ---------- 화면/조이스틱 파라미터 ----------
+SCREEN_WIDTH  = 800
 SCREEN_HEIGHT = 800
-
-# 맵 70x70을 그릴 때의 셀 크기
-CELL_SIZE = 10
-# 맵을 화면 중간에 배치하기 위한 오프셋
-MAP_OFFSET_X = (SCREEN_WIDTH - 50*CELL_SIZE) // 2
-MAP_OFFSET_Y = (SCREEN_HEIGHT - 50*CELL_SIZE) // 2
-
-# 조이스틱 UI
-JOYSTICK_CENTER = (120, 700)  # 화면 아래쪽 근처
+CELL_SIZE     = 10
+MAP_OFFSET_X  = (SCREEN_WIDTH  - 50*CELL_SIZE) // 2
+MAP_OFFSET_Y  = (SCREEN_HEIGHT - 50*CELL_SIZE) // 2
+JOYSTICK_CENTER = (120, 700)
 JOYSTICK_RADIUS = 60
-KNOB_RADIUS = 15
-MAX_MOVE = 2.0  # 환경에서 허용하는 로봇 이동 범위가 -2~2
+KNOB_RADIUS     = 15
+MAX_MOVE        = 2.0
 
-# 색상
-WHITE = (255, 255, 255)
-BLACK = (0, 0, 0)
-GREY  = (200, 200, 200)
-RED   = (255, 0, 0)
-BLUE  = (0, 0, 255)
-GREEN = (0, 255, 0)
-YELLOW= (255, 255, 0)
-DARK_GREY = (150, 150, 150)
+WHITE = (255,255,255); BLACK=(0,0,0); GREY=(200,200,200)
+RED   = (255,0,0); BLUE=(0,0,255); GREEN=(0,255,0)
+YELLOW=(255,255,0); DARK_GREY=(150,150,150)
 
-############################
-# PyGame 초기화
-############################
+# ---------- 경로 ----------
+HOME_DIR = Path.home()
+LOG_DIR  = HOME_DIR / LOG_DIR        # LOG_DIR 상수는 Start_training.py 쪽에서 정의
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+REWARD_LOG = LOG_DIR / "total_reward_imitation.txt"
+BUFFER_FNAME = LOG_DIR / "expert_dataset.npz"           # ← 기존 파일과 병합
+
+# =================================================================== #
+#                       PyGame 초기화 & 유틸                           #
+# =================================================================== #
 pygame.init()
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 pygame.display.set_caption("ADDS Imitation Learning")
 clock = pygame.time.Clock()
 
-############################
-# 로깅(리워드 파일 저장) 설정
-############################
-home_dir = os.path.expanduser("~")
-log_dir = os.path.join(home_dir, LOG_DIR)
-os.makedirs(log_dir, exist_ok=True)
-reward_log_file = os.path.join(log_dir, "total_reward_imitation.txt")
+def draw_text(surf, text, x, y, color=BLACK, size=20):
+    font = pygame.font.SysFont("Arial", size)
+    surf.blit(font.render(text, True, color), (x, y))
 
-############################
-# 유틸 함수들
-############################
-def draw_text(surface, text, x, y, color=(0,0,0), font_size=20):
-    font = pygame.font.SysFont("Arial", font_size)
-    img = font.render(text, True, color)
-    surface.blit(img, (x, y))
+def draw_joystick(surf, center, radius, knob_pos):
+    pygame.draw.circle(surf, GREY, center, radius)
+    pygame.draw.circle(surf, RED,  knob_pos, KNOB_RADIUS)
 
-def draw_joystick(surface, center, radius, knob_pos):
-    # 조이스틱 밑판
-    pygame.draw.circle(surface, GREY, center, radius)
-    # 핸들
-    pygame.draw.circle(surface, RED, knob_pos, KNOB_RADIUS)
-
-def clamp_knob_to_circle(cx, cy, knob_x, knob_y, radius):
-    """knob이 조이스틱 원 범위 벗어나지 않도록 clamp."""
-    dx = knob_x - cx
-    dy = knob_y - cy
+def clamp_knob(cx, cy, kx, ky, radius):
+    dx, dy = kx-cx, ky-cy
     dist = math.hypot(dx, dy)
     if dist > radius:
-        scale = radius / dist
-        dx *= scale
-        dy *= scale
-    return cx + dx, cy + dy
+        dx *= radius/dist; dy *= radius/dist
+    return cx+dx, cy+dy
 
-def get_joystick_action(joystick_center, knob_pos, max_move=MAX_MOVE):
-    """
-    조이스틱에서 (-max_move ~ +max_move) 범위의 (dx, dy) 계산
-    """
-    cx, cy = joystick_center
-    kx, ky = knob_pos
-    dx = kx - cx
-    dy = ky - cy
-    dist = math.sqrt(dx*dx + dy*dy)
-    if dist == 0:
-        return 0.0, 0.0
+def get_action(center, knob, max_move=MAX_MOVE):
+    cx, cy = center; kx, ky = knob
+    dx, dy = kx-cx, ky-cy
+    dist = math.hypot(dx, dy)
+    if dist == 0: return 0.0, 0.0
     ratio = dist / JOYSTICK_RADIUS
     scaled_dx = (dx/dist) * ratio * max_move
     scaled_dy = (dy/dist) * ratio * max_move
-    return scaled_dx, scaled_dy
+    return scaled_dx, scaled_dy       # (dx, dy)
 
-def draw_environment(surface, env_map):
-    """
-    2-pass로 그리드 그림:
-      1) 벽(20) 이외의 것
-      2) 벽(20) => 최상단
-    """
-    # (1) 먼저 벽 아닌 것(0, 60, 100, 140, 200 등) 그리기
-    for x in range(len(env_map)):
-        for y in range(len(env_map[0])):
-            val = env_map[x][y]
-            if val == 20:
-                # 벽은 두 번째 pass에서 그릴 것
+def draw_env(surf, env_map):
+    # pass-1: 배경 / 에이전트 / 목표
+    for i,row in enumerate(env_map):
+        for j,val in enumerate(row):
+            if val == 20:      # 벽은 두 번째 패스
                 continue
-
-            rect = (
-                MAP_OFFSET_X + y*CELL_SIZE,
-                MAP_OFFSET_Y + x*CELL_SIZE,
-                CELL_SIZE, CELL_SIZE
-            )
-            if val == 0:
-                color = WHITE
-            elif val == 60:
-                color = BLUE
-            elif val == 100:
-                color = GREEN
-            elif val == 140:
-                color = YELLOW
-            elif val == 200:
-                color = RED
-            else:
-                # 예외 코드
-                color = DARK_GREY
-
-            pygame.draw.rect(surface, color, rect)
-
-    # (2) 벽(20)만 별도로 덮어 그림
-    for x in range(len(env_map)):
-        for y in range(len(env_map[0])):
-            val = env_map[x][y]
+            rect = (MAP_OFFSET_X + j*CELL_SIZE,
+                    MAP_OFFSET_Y + i*CELL_SIZE,
+                    CELL_SIZE, CELL_SIZE)
+            color = {
+                0:WHITE, 60:BLUE, 100:GREEN, 140:YELLOW, 200:RED
+            }.get(val, DARK_GREY)
+            pygame.draw.rect(surf, color, rect)
+    # pass-2: 벽
+    for i,row in enumerate(env_map):
+        for j,val in enumerate(row):
             if val == 20:
-                rect = (
-                    MAP_OFFSET_X + y*CELL_SIZE,
-                    MAP_OFFSET_Y + x*CELL_SIZE,
-                    CELL_SIZE, CELL_SIZE
-                )
-                pygame.draw.rect(surface, BLACK, rect)
+                rect = (MAP_OFFSET_X + j*CELL_SIZE,
+                        MAP_OFFSET_Y + i*CELL_SIZE,
+                        CELL_SIZE, CELL_SIZE)
+                pygame.draw.rect(surf, BLACK, rect)
 
-####################################
-# 메인 함수
-####################################
+# =================================================================== #
+#                               main                                  #
+# =================================================================== #
 def main():
-    # -------------------------
-    # 여러 에피소드 진행을 위해
-    # -------------------------
-    replay_buffer = ReplayBuffer(capacity=int(1e5), state_shape = (50, 50), action_dim = 2, device="cpu")
+    replay_buffer = ReplayBuffer(capacity=int(1e5),
+                                 state_shape=(50,50),
+                                 action_dim=2,
+                                 device="cpu")
+
     episode_count = 0
     running = True
 
+    # ------------------------ 메인 루프 ------------------------ #
     while running:
-        # 새로운 episode 시작
-        env_model = FightingModel(
-            number_agents=20,
-            width=50,
-            height=50,
-            model_num=1,   # 원하는 맵 번호
-            robot='Q'
-        )
-        state = np.array(env_model.return_current_image(), dtype=np.float32)
-
-        # episode별 변수
-        step_count = 0
-        total_reward = 0.0
-        done = False
+        env = FightingModel(number_agents=20, width=50, height=50,
+                             model_num=1, robot="Q")
+        state = np.array(env.return_current_image(), dtype=np.float32)
+        done = False; step = 0; total_reward = 0.0
         episode_count += 1
 
-        # 조이스틱 knob 초기 위치
         knob_x, knob_y = JOYSTICK_CENTER
         dragging = False
+        frame_cnt = 0
 
-        frame_count = 0
-
+        # -------------- 1 개 에피소드 루프 -------------- #
         while not done and running:
-            clock.tick(15)  # 초당 30프레임
+            clock.tick(15)                         # FPS ≃ 15
 
-            # -------------------------
-            # 이벤트 처리
-            # -------------------------
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
+            # ──── 이벤트 ────
+            for ev in pygame.event.get():
+                if ev.type == pygame.QUIT:
                     running = False
-                    break
-
-                elif event.type == pygame.MOUSEBUTTONDOWN:
-                    mx, my = pygame.mouse.get_pos()
-                    dist = math.hypot(mx - knob_x, my - knob_y)
-                    if dist <= KNOB_RADIUS+5:
+                elif ev.type == pygame.MOUSEBUTTONDOWN:
+                    mx,my = pygame.mouse.get_pos()
+                    if math.hypot(mx-knob_x, my-knob_y) <= KNOB_RADIUS+5:
                         dragging = True
+                elif ev.type == pygame.MOUSEBUTTONUP:
+                    dragging = False; knob_x,knob_y = JOYSTICK_CENTER
+                elif ev.type == pygame.MOUSEMOTION and dragging:
+                    mx,my = pygame.mouse.get_pos()
+                    knob_x,knob_y = clamp_knob(*JOYSTICK_CENTER, mx,my, JOYSTICK_RADIUS)
+                elif ev.type == pygame.KEYDOWN and ev.key == pygame.K_ESCAPE:
+                    running = False
+            if not running: break
 
-                elif event.type == pygame.MOUSEBUTTONUP:
-                    dragging = False
-                    # 손 떼면 중앙 복귀
-                    knob_x, knob_y = JOYSTICK_CENTER
-
-                elif event.type == pygame.MOUSEMOTION and dragging:
-                    mx, my = pygame.mouse.get_pos()
-                    knob_x, knob_y = clamp_knob_to_circle(
-                        JOYSTICK_CENTER[0], JOYSTICK_CENTER[1],
-                        mx, my,
-                        JOYSTICK_RADIUS
-                    )
-
-                if event.type == pygame.KEYDOWN:
-                    if event.key == pygame.K_ESCAPE:
-                        running = False
-                        break
-
-            if not running:
-                break
-
-            # -------------------------
-            # 키보드 방향키 입력 읽기
-            # -------------------------
+            # ──── 키보드 → knob 이동 ────
             keys = pygame.key.get_pressed()
-            # 방향키를 누르면 knob 움직이기
-            move_step = 5.0  # 한 프레임당 knob 이동 픽셀
-            if keys[pygame.K_UP]:
-                knob_y -= move_step
-            if keys[pygame.K_DOWN]:
-                knob_y += move_step
-            if keys[pygame.K_LEFT]:
-                knob_x -= move_step
-            if keys[pygame.K_RIGHT]:
-                knob_x += move_step
+            move = 5
+            if keys[pygame.K_UP]   : knob_y -= move
+            if keys[pygame.K_DOWN] : knob_y += move
+            if keys[pygame.K_LEFT] : knob_x -= move
+            if keys[pygame.K_RIGHT]: knob_x += move
+            knob_x, knob_y = clamp_knob(*JOYSTICK_CENTER, knob_x, knob_y, JOYSTICK_RADIUS)
 
-            # 키보드 누른 뒤에도 knob이 조이스틱 범위 안에 있어야 함
-            knob_x, knob_y = clamp_knob_to_circle(
-                JOYSTICK_CENTER[0], JOYSTICK_CENTER[1],
-                knob_x, knob_y,
-                JOYSTICK_RADIUS
-            )
+            # ──── 조이스틱 → 액션 ────
+            user_dx, user_dy = get_action(JOYSTICK_CENTER, (knob_x, knob_y))
+            env_dx, env_dy   = user_dy, user_dx          # 축 뒤집기
+            env.robot.receive_action([env_dx, env_dy])
 
-            # -------------------------
-            # 조이스틱 -> 로봇 액션
-            # -------------------------
-            user_dx, user_dy = get_joystick_action(JOYSTICK_CENTER, (knob_x, knob_y))
-            # 방향 뒤집힘 보정: (env_dx, env_dy) = (dy, dx)
-            env_dx = user_dy
-            env_dy = user_dx
-            
-
-            env_model.robot.receive_action([env_dx, env_dy])
-
-            # -------------------------
-            # 환경 스텝
-            # -------------------------
-            current_state = state
+            # ──── 환경 스텝 ────
+            cur_state = state
             action = np.array([env_dx, env_dy], dtype=np.float32)
 
-            env_model.step()
-            frame_count += 1
-            
-            # 환경에서 현재 상태 이미지 받아오기
+            env.step(); frame_cnt += 1
             reward = 0.0
-            r_a = 0
-            r_b = 0
-            r_c = 0
-            r_d = 0
-            r_e = 0
-            r_f = 0
-            r_g = 0
-            r_h = 0
-            r_i = 0
-            r_j = 0
-            r_k = 0
+            if REWARD_A: reward += env.reward_based_alived() * REWARD_A
+            if REWARD_B: reward += env.reward_based_all_agents_danger() * REWARD_B
+            if REWARD_C: reward += env.reward_based_gain() * REWARD_C
+            if REWARD_D: reward += env.reward_penalty() * REWARD_D
+            if REWARD_E: reward += env.reward_based_evacuated_with_robot() * REWARD_E
+            if REWARD_F: reward += env.reward_based_distance_from_near_agents() * REWARD_F
+            if REWARD_G: reward += env.reward_based_distance_from_near_agent_gain() * REWARD_G
+            if REWARD_H: reward += env.reward_based_gain_with_time_bonus() * REWARD_H
+            if REWARD_I: reward += env.reward_based_alived_root() * REWARD_I
+            if REWARD_J: reward += env.reward_based_all_agents_danger_log() * REWARD_J
+            reward += REWARD_FIXED
 
-            if (REWARD_A):
-                r_a = env_model.reward_based_alived() * REWARD_A
-            if (REWARD_B):
-                r_b = env_model.reward_based_all_agents_danger() * REWARD_B
-            if (REWARD_C):
-                r_c = env_model.reward_based_gain() * REWARD_C
-            if (REWARD_D):
-                r_d = env_model.reward_penalty() * REWARD_D
-            if (REWARD_E):
-                r_e = env_model.reward_based_evacuated_with_robot() * REWARD_E
-            if (REWARD_F):
-                r_f = env_model.reward_based_distance_from_near_agents() * REWARD_F
-            if (REWARD_G):
-                r_g = env_model.reward_based_distance_from_near_agent_gain() * REWARD_G
-            if (REWARD_H):
-                r_h = env_model.reward_based_gain_with_time_bonus() * REWARD_H
-            if (REWARD_I):
-                r_i = env_model.reward_based_alived_root() * REWARD_I
-            if (REWARD_J):
-                r_j = env_model.reward_based_all_agents_danger_log() * REWARD_J
+            if env.alived_agents() <= 0:
+                done = True; reward += 10.0
 
-            reward += (r_a + r_b + r_c + r_d + r_e + r_g + r_f + r_h + r_i + r_j + r_k + REWARD_FIXED)
+            next_state = np.array(env.return_current_image(), dtype=np.float32)
 
-            if env_model.alived_agents() <= 0:
-                done = True
-                reward += 10.0
-
-            next_state = np.array(env_model.return_current_image(), dtype=np.float32)
-
-            # 버퍼에 저장
-
-            if (frame_count % ACTION_SCALE) == 0 :
-                replay_buffer.push(
-                    current_state,
-                    action,
-                    reward,
-                    next_state,
-                    float(done)
-                )
+            # 버퍼 push (ACTION_SCALE 주기)
+            if frame_cnt % ACTION_SCALE == 0:
+                replay_buffer.push(cur_state, action, reward, next_state, float(done))
 
             total_reward += reward
-            step_count += 1
-            state = next_state
+            step += 1; state = next_state
 
-            # -------------------------
-            # 화면 그리기
-            # -------------------------
+            # ──── 화면 그리기 ────
             screen.fill(WHITE)
-
-            draw_environment(screen, env_model.return_current_image())
+            draw_env(screen, env.return_current_image())
             draw_joystick(screen, JOYSTICK_CENTER, JOYSTICK_RADIUS, (knob_x, knob_y))
-
-            draw_text(screen, f"Episode: {episode_count}", 10, 10, color=BLACK, font_size=22)
-            draw_text(screen, f"Step: {step_count}", 10, 35, color=BLACK, font_size=22)
-            draw_text(screen, f"Reward: {reward:.3f}", 10, 60, color=BLACK, font_size=22)
-            draw_text(screen, f"EpiTotal: {total_reward:.3f}", 10, 85, color=BLACK, font_size=22)
-            draw_text(screen, "ESC to quit", 10, 110, color=(128,0,0), font_size=18)
-
+            draw_text(screen, f"Episode {episode_count}", 10,10, size=22)
+            draw_text(screen, f"Step    {step}", 10,35, size=22)
+            draw_text(screen, f"Reward  {reward:7.3f}", 10,60, size=22)
+            draw_text(screen, f"EpiTotal{total_reward:7.3f}", 10,85, size=22)
+            draw_text(screen, "ESC to quit", 10,110, color=(128,0,0), size=18)
             pygame.display.flip()
 
-        # 한 episode 끝난 뒤 => total_reward 로그에 기록
+        # ──── 에피소드 종료 후 로그 ────
         if done:
-            print(f"[Episode {episode_count} finished] steps={step_count}, total_reward={total_reward:.2f}")
-
-            with open(reward_log_file, "a", encoding='utf-8') as f:
+            print(f"[Episode {episode_count}] steps={step}, total_reward={total_reward:.2f}")
+            with open(REWARD_LOG, "a", encoding="utf-8") as f:
                 f.write(f"{total_reward}\n")
 
-    # while문 종료 => ESC or Quit
+    # --------------- 메인 루프 끝 (사용자 종료) --------------- #
     pygame.quit()
 
-    # 전체 종료 시점에 ReplayBuffer 저장
-    #save_path = os.path.join(os.path.dirname(__file__), "imitation_dataset.pkl")
-    save_path = os.path.join(log_dir, "expert_dataset.pkl")
-    replay_buffer.save(save_path)
+    # ──── 종료 시점: ReplayBuffer ←→ 디스크 병합 저장 ────
+    if BUFFER_FNAME.exists():
+        print(f"Loading existing buffer: {BUFFER_FNAME}")
+        # (1) 기존 버퍼를 같은 capacity 로 새 객체에 로드
+        existing = ReplayBuffer(capacity=int(1e5),
+                                state_shape=(50,50),
+                                action_dim=2,
+                                device="cpu")
+        existing.load(BUFFER_FNAME)          # ← npz 로드
 
-    print(f"Replay buffer saved to {save_path}, size={replay_buffer.__len__}")
-    print(f"Reward log saved to {reward_log_file}")
-    print("Bye ~")
+        print("Appending new transitions …")
+        for i in range(replay_buffer.size):
+            existing.push(replay_buffer.states[i],
+                        replay_buffer.actions[i],
+                        replay_buffer.rewards[i],
+                        replay_buffer.next_states[i],
+                        replay_buffer.dones[i])
+        final_buf = existing
+    else:
+        final_buf = replay_buffer
 
+    # (2) 병합(또는 신규) 버퍼를 저장
+    final_buf.save(BUFFER_FNAME)             # → expert_dataset.npz (np.savez_compressed)
+    print(f"Saved merged buffer ▶ {BUFFER_FNAME}  (size={len(final_buf):,})")
+    print(f"Reward log ▶ {REWARD_LOG}")
+    print("Bye 👋")
+
+# -------------------------------------------------------------------- #
 if __name__ == "__main__":
     main()
