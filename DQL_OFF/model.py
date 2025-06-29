@@ -1269,6 +1269,8 @@ class FightingModel(Model):
                 break         # 다음 에이전트로
             else:
                 print("안전 좌표 찾기 실패")
+                self.total_agents -= 1
+                
                 #raise RuntimeError("안전 좌표를 충분히 찾지 못했습니다.")
     
         #print("요청 : ", n_agents, " 실제 생성:", len(self.crowds))

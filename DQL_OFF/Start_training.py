@@ -65,14 +65,14 @@ ALPHA_DECAY_STEPS = 3000
 # --------------- REWARD SHPAING -----------------
 
 REWARD_A = 5 #reward_based_alived
-REWARD_B = 0.002 #reward_based_all_agents_danger
-REWARD_D = 3 #reward_based_penalty
-REWARD_K = 1 #reward_penalty_collsion
-REWARD_E = 10 #reward_based_evacuated_with_robot
-REWARD_F = 0.01 #reward_based_distance_from_near_agents
-REWARD_FIXED = -0.1
-FINISHED_BONUS = 100
-EVAL_INTERVAL = 200
+REWARD_B = 0 #reward_based_all_agents_danger
+REWARD_D = 0 #reward_based_penalty
+REWARD_K = 0 #reward_penalty_collsion
+REWARD_E = 0 #reward_based_evacuated_with_robot
+REWARD_F = 0 #reward_based_distance_from_near_agents
+REWARD_FIXED = -1
+FINISHED_BONUS = 0
+EVAL_INTERVAL = 1000
 EVAL_EPISODES = 10
 
 
