@@ -16,7 +16,7 @@ from typing import Callable, List
 
 import numpy as np
 import torch
-from tqdm import tqdm                               # ★ 진행률 표시
+from tqdm import tqdm                              
 
 # ───────────────────── 프로젝트 모듈 ───────────────────── #
 from Start_training import LOG_DIR, ACTION_SCALE
@@ -25,10 +25,10 @@ from ADDS_AS_reinforcement import SACAgent          # 옵션: 선행 학습 모�
 
 # ───────────────────── 기본 설정값 ───────────────────── #
 DEFAULTS = {
-    "capacity"  : 500_000,          # 총 transition 수
+    "capacity"  : 5000000,          # 총 transition 수
     "r_random"  : 0.20,             # 랜덤 데이터 비율
     "r_algo"    : 0.80,             # 휴리스틱+SAC 비율
-    "r_human"   : 0.00,             # ★ 인간 데모 비율(현재 0)
+    "r_human"   : 0.00,             # 인간 데모 비율(현재 0)
     "map_num"   : -1,
     "crowd_size": 20,
     "max_steps" : 3_000,
@@ -41,91 +41,119 @@ SAVE_PATH_DEFAULT = os.path.join(HOME_DIR, LOG_DIR, "offline_dataset_dql.npz")
 # ╔═══════════════ Heuristic Policy (내장) ═══════════════╗
 class HeuristicPolicy:
     """
-    로봇이 ➊출구에서 가장 먼 agent 를 찾아 이동 → ➋agent 밀집 지역을
-    통과하며 출구로 복귀 → ➌끌고 온 agent 가 탈출할 때까지 대기, 를 반복.
-
-    상태(state)
-    ───────────
-    • SEARCH   : target agent 선택 전
-    • TO_AGENT : target agent 쪽으로 이동
-    • TO_EXIT  : agent 근처 → 출구로 이동
-    • WAIT     : 출구 도착, 끌고 온 agent 탈출 대기
+    (1) 출구에서 가장 먼 agent로 이동
+    (2) agent 밀집 지역을 통과하며 출구로 복귀
+    (3) 끌고 온 agent 전부 탈출 시까지 대기
+    ── 위 과정을 반복하는 휴리스틱 정책
     """
-    def __init__(self, env: model.FightingModel,
-                 sight_radius=7, arrive_tol=2.0,
-                 density_coef=8.0, obstacle_cost=1_000.0):
-        self.env = env
-        self.R, self.EPS, self.DC, self.OC = sight_radius, arrive_tol, density_coef, obstacle_cost
-        self.state, self.target_agent, self.following = "SEARCH", None, set()
-        self.exit_xy: List[float] = env.exit_point[0]
 
-    # ---------- 유틸 ----------
-    def _dist(self, a, b): return math.hypot(a[0] - b[0], a[1] - b[1])
-    def _alive_agents(self):
+    # ────────────── 초기화 ──────────────
+    def __init__(self, env: model.FightingModel,
+                 sight_radius: int = 7,
+                 arrive_tol: float = 2.0,
+                 density_coef: float = 8.0,
+                 obstacle_cost: float = 1_000.0):
+        self.env = env
+
+        self.R   = sight_radius      # 로봇 influence 반경
+        self.EPS = arrive_tol        # “도착” 허용 오차
+        self.DC  = density_coef      # agent 밀집 보너스
+        self.OC  = obstacle_cost     # 장애물 패널티
+
+        self.state = "SEARCH"
+        self.target_agent = None               # CrowdAgent
+        self.following: set[int] = set()       # 탈출 대기 agent id
+        self.exit_xy: list[float] = env.exit_point[0]  # 단일 출구
+
+    # ────────────── 유틸 ──────────────
+    def _dist(self, a, b) -> float:
+        return math.hypot(a[0] - b[0], a[1] - b[1])
+
+    def _alive(self):
         return [ag for ag in self.env.crowds if not ag.dead]
 
-    # ---------- 메인 ----------
-    def select_action(self, _state_img=None) -> np.ndarray:
-        robot, pos = self.env.robot, self.env.robot.xy
+    def _reached(self, a, b) -> bool:
+        return self._dist(a, b) < self.EPS
 
-        # 1) 상태 머신 -------------------------------------------------
+    # ────────── 상태 머신 갱신 ──────────
+    def _update_state(self, pos):
         if self.state == "SEARCH":
-            agents = self._alive_agents()
-            if not agents: return np.zeros(2, np.float32)   # 전원 탈출
-            self.target_agent = max(agents, key=lambda ag: self._dist(ag.xy, self.exit_xy))
+            agents = self._alive()
+            if not agents:           # 전원 탈출
+                return
+            self.target_agent = max(
+                agents, key=lambda ag: self._dist(ag.xy, self.exit_xy))
             self.state = "TO_AGENT"
 
         elif self.state == "TO_AGENT":
             if (self.target_agent is None or self.target_agent.dead
-                    or self._dist(pos, self.target_agent.xy) < self.EPS):
+                    or self._reached(pos, self.target_agent.xy)):
                 self.state = "TO_EXIT"
 
         elif self.state == "TO_EXIT":
-            if self._dist(pos, self.exit_xy) < self.EPS:
-                self.state = "WAIT"
-                self.following = {ag.unique_id for ag in self._alive_agents()
+            if self._reached(pos, self.exit_xy):
+                # 반경 R 안 agent 들을 추종 집합으로 저장
+                self.following = {ag.unique_id for ag in self._alive()
                                   if self._dist(ag.xy, pos) < self.R}
+                self.state = "WAIT"
 
         elif self.state == "WAIT":
-            if not [ag for ag in self._alive_agents() if ag.unique_id in self.following]:
-                self.state, self.target_agent, self.following = "SEARCH", None, set()
+            # 매 스텝 반경 R 안에 남은 agent 만 keep
+            self.following = {ag.unique_id for ag in self._alive()
+                              if self._dist(ag.xy, pos) < self.R
+                                 and ag.unique_id in self.following}
+            if not self.following:       # 전부 탈출 or 이탈
+                self.state, self.target_agent = "SEARCH", None
 
-        # 2) 목표점 ----------------------------------------------------
+    # ────────── 메인 인터페이스 ──────────
+    def select_action(self, _state_img=None) -> np.ndarray:
+        """로봇에 줄 Δx,Δy 액션(범위 [-2,2])을 반환"""
+        pos = self.env.robot.xy
+
+        # 1) 상태 갱신 ------------------------------------------------
+        self._update_state(pos)
+
+        # 2) 이동 목표 결정 ------------------------------------------
         if self.state == "TO_AGENT" and self.target_agent:
             goal = self.target_agent.xy
         elif self.state in ("TO_EXIT", "WAIT"):
             goal = self.exit_xy
-        else:                         # SEARCH
+        else:                       # SEARCH 상태 → 정지
             return np.zeros(2, np.float32)
 
-        # 3) 8-방향 스코어링 -------------------------------------------
+        # 3) 8-방향 스코어링 -----------------------------------------
         p = np.asarray(pos , dtype=np.float32)
         g = np.asarray(goal, dtype=np.float32)
-        base_dir = g - p
 
-        norm = np.linalg.norm(base_dir) or 1.0
-        base_dir /= norm
+        base_dir = g - p                              # float32 (확실)
+        base_dir /= np.linalg.norm(base_dir) or 1.0   # in-place OK
 
         dirs = [(1,0),(1,1),(0,1),(-1,1),(-1,0),(-1,-1),(0,-1),(1,-1)]
         best_vec, best_score = None, -float("inf")
-        for vx, vy in dirs:
-            vec = np.array([vx, vy], dtype=np.float32)
-            vec /= np.linalg.norm(vec)
 
-            nxt = (pos[0] + vec[0], pos[1] + vec[1])
+        for vx, vy in dirs:
+            vec = np.asarray([vx, vy], dtype=np.float32)     # ← 처음부터 float32
+            vec /= np.linalg.norm(vec)                       # in-place OK
+
+            nxt = (p[0] + vec[0], p[1] + vec[1])
             ix, iy = map(round, nxt)
 
+            # 장애물 충돌 체크
             if not self.env.valid_space.get((ix, iy), 0):
                 score = -self.OC
             else:
-                score  = -self._dist(nxt, self.exit_xy)                # 출구까지 거리
-                density = sum(self._dist(ag.xy, nxt) < self.R*1.5 for ag in self._alive_agents())
-                score += self.DC * density                             # agent 밀집 보너스
-                score += 2.0 * np.dot(vec, base_dir)                   # 진행 방향 일치도
+                score  = -self._dist(nxt, self.exit_xy)          # 출구까지 거리
+                # agent 밀집도 (R*1.5 안에 몇 명?)
+                density = sum(self._dist(ag.xy, nxt) < self.R*1.5
+                              for ag in self._alive())
+                score += self.DC * density
+                score += 2.0 * np.dot(vec, base_dir)            # 진행방향 일치도
+
             if score > best_score:
                 best_score, best_vec = score, vec
 
         return (best_vec * 2.0).astype(np.float32)
+
 
 # ════════════════════════════════════════════════════════════════ #
 
