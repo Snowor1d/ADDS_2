@@ -28,7 +28,6 @@ from matplotlib.animation import PillowWriter, ImageMagickWriter
 DEBUG_PRINT = True
 CROWD_SIZE  = 20
 MAP_SIZE    = 50
-<<<<<<< Updated upstream
 MAX_FRAMES  = 4_000            # 충분히 길게
 # ------------------------------------
 
@@ -43,10 +42,6 @@ def save_gif(anim, path, fps=30):
     except Exception as e:
         print("[WARN] PillowWriter 실패 → ImageMagick 시도:", e)
     anim.save(path, writer=ImageMagickWriter(fps=fps))
-=======
-MAX_FRAMES  = 3000           # 600 frame ≒ 20 s @ 30 fps
-# ─────────────────────────────────────────────────────── #
->>>>>>> Stashed changes
 
 def main() -> None:
     # ─ 경로 ----------
@@ -69,17 +64,10 @@ def main() -> None:
 
     traj_x, traj_y = [], []
 
-<<<<<<< Updated upstream
     # ─ 업데이트 ──────
     def update(f_idx: int):
         if alive_agents(env) == 0 or f_idx >= MAX_FRAMES-1:
             ani.event_source.stop()
-=======
-    # 업데이트 함수 -------------------------------------------------
-    def update(frame_idx: int):
-        if env.robot.is_game_finished:
-            #ani.event_source.stop()          # ▶︎ 녹화 중단
->>>>>>> Stashed changes
             if DEBUG_PRINT:
                 print(f"[{f_idx}] ✅  ALL AGENTS ESCAPED")
             return (im,)
