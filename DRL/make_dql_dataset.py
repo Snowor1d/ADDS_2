@@ -25,7 +25,11 @@ from ADDS_AS_reinforcement import SACAgent          # 옵션: 선행 학습 모�
 
 # ───────────────────── 기본 설정값 ───────────────────── #
 DEFAULTS = {
+<<<<<<< Updated upstream
     "capacity"  : 5000000,          # 총 transition 수
+=======
+    "capacity"  : 500,          # 총 transition 수
+>>>>>>> Stashed changes
     "r_random"  : 0.20,             # 랜덤 데이터 비율
     "r_algo"    : 0.80,             # 휴리스틱+SAC 비율
     "r_human"   : 0.00,             # 인간 데모 비율(현재 0)
@@ -91,13 +95,21 @@ class HeuristicPolicy:
                 self.state = "TO_EXIT"
 
         elif self.state == "TO_EXIT":
+<<<<<<< Updated upstream
             if self._reached(pos, self.exit_xy):
                 # 반경 R 안 agent 들을 추종 집합으로 저장
                 self.following = {ag.unique_id for ag in self._alive()
+=======
+            if self._dist(pos, self.exit_xy) < self.EPS:
+                self.state = "WAIT"
+                return np.zeros(2, np.float32)
+                self.following = {ag.unique_id for ag in self._alive_agents()
+>>>>>>> Stashed changes
                                   if self._dist(ag.xy, pos) < self.R}
                 self.state = "WAIT"
 
         elif self.state == "WAIT":
+<<<<<<< Updated upstream
             # 매 스텝 반경 R 안에 남은 agent 만 keep
             self.following = {ag.unique_id for ag in self._alive()
                               if self._dist(ag.xy, pos) < self.R
@@ -112,6 +124,11 @@ class HeuristicPolicy:
 
         # 1) 상태 갱신 ------------------------------------------------
         self._update_state(pos)
+=======
+            if not [ag for ag in self._alive_agents() if ag.unique_id in self.following]:
+                self.state, self.target_agent, self.following = "SEARCH", None, set()
+        
+>>>>>>> Stashed changes
 
         # 2) 이동 목표 결정 ------------------------------------------
         if self.state == "TO_AGENT" and self.target_agent:

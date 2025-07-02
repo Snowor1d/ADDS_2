@@ -54,6 +54,7 @@ START_LONG_EPSILON = 0
 LOG_DIR = "Log_DQL"
 PORT_NUM = 6007
 
+
 # --------------- SAC ALGORITHM PARAMETER ---------------
 LOG_STD_MAX = 0.5
 LOG_STD_MIN = -20
