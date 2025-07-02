@@ -331,7 +331,7 @@ class ReplayBuffer:
     # ------------------------------------------------------------------ #
     #                           push / sample                            #
     # ------------------------------------------------------------------ #
-    def push(self, state, action, reward, next_state, done):
+    def push(self, state, action, reward, next_state, done, src_tag=None):
         self.states     [self.ptr] = state            # uint8
         self.next_states[self.ptr] = next_state
         self.actions    [self.ptr] = action           # float32 → float16 OK

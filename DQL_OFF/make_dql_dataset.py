@@ -21,7 +21,7 @@ from tqdm import tqdm
 # ───────────────────── 프로젝트 모듈 ───────────────────── #
 from Start_training import *
 import model                                        # FightingModel
-from ADDS_AS_reinforcement import DiffusionQLAgent          # 옵션: 선행 학습 모델 불러오기
+from ADDS_AS_reinforcement import DiffusionQLAgent, ReplayBuffer       # 옵션: 선행 학습 모델 불러오기
 
 # ───────────────────── 기본 설정값 ───────────────────── #
 DEFAULTS = {
@@ -144,36 +144,6 @@ class RandomPolicy:
         return np.random.uniform(-2.0, 2.0, 2).astype(np.float32)
 
 
-# ─────── Replay Buffer ─────── #
-class ReplayBuffer:
-    def __init__(self, capacity, state_shape=(50,50), action_dim=2):
-        self.capacity = capacity; self.ptr = 0; self.size = 0
-        self.states      = np.zeros((capacity, *state_shape), np.uint8)
-        self.next_states = np.zeros_like(self.states)
-        self.actions     = np.zeros((capacity, action_dim), np.float32)
-        self.rewards     = np.zeros(capacity, np.float32)
-        self.dones       = np.zeros(capacity, bool)
-        self.source_id   = np.zeros(capacity, np.uint8)
-
-    def push(self, s,a,r,ns,done,src=0):
-        i = self.ptr
-        self.states[i], self.next_states[i] = s, ns
-        self.actions[i], self.rewards[i]    = a, r
-        self.dones[i],  self.source_id[i]   = done, src
-        self.ptr  = (i+1) % self.capacity
-        self.size = min(self.size+1, self.capacity)
-
-    def save(self, path):
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        np.savez_compressed(
-            path,
-            states=self.states[:self.size], next_states=self.next_states[:self.size],
-            actions=self.actions[:self.size], rewards=self.rewards[:self.size],
-            dones=self.dones[:self.size],     source_id=self.source_id[:self.size],
-            size=self.size, capacity=self.capacity,
-        )
-
-
 # ─────── Transition 수집 ─────── #
 def collect(policy_factory: str|Callable[[model.FightingModel],object],
             num_samples:int, src_tag:int, cfg:dict, buf:ReplayBuffer,
@@ -272,7 +242,7 @@ def main():
 
     print(f"[Plan] random={n_random}, algo={n_algo}, human={n_human}")
 
-    buf = ReplayBuffer(cfg["capacity"])
+    buf = ReplayBuffer(cfg["capacity"], (50, 50), 2, 'cpu')
     sac = None
     if cfg["algo_ckpt"]:
         sac = DiffusionQLAgent(device="cpu"); sac.load_model(cfg["algo_ckpt"])
@@ -285,9 +255,9 @@ def main():
             buf.push(s, a.astype(np.float32), 0.0, ns, bool(d), 2)
 
     buf.save(cfg["save_path"])
-    cnts = np.bincount(buf.source_id[:buf.size], minlength=3)
+    #cnts = np.bincount(buf.source_id[:buf.size], minlength=3)
     print(f"\nSaved {buf.size} transitions → {cfg['save_path']}")
-    print(f"Ratio random={cnts[0]/buf.size:.2%}, algo={cnts[1]/buf.size:.2%}, human={cnts[2]/buf.size:.2%}")
+    #print(f"Ratio random={cnts[0]/buf.size:.2%}, algo={cnts[1]/buf.size:.2%}, human={cnts[2]/buf.size:.2%}")
 
 
 if __name__ == "__main__":
