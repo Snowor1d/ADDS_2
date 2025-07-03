@@ -25,7 +25,7 @@ from ADDS_AS_reinforcement import DiffusionQLAgent, ReplayBuffer       # 옵션:
 
 # ───────────────────── 기본 설정값 ───────────────────── #
 DEFAULTS = {
-    "capacity"  : 500,          # 총 transition 수
+    "capacity"  : 50,          # 총 transition 수
     "r_random"  : 0.20,             # 랜덤 데이터 비율
     "r_algo"    : 0.80,             # 휴리스틱+SAC 비율
     "r_human"   : 0.00,             # 인간 데모 비율(현재 0)
