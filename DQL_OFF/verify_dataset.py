@@ -37,7 +37,7 @@ def verify(path: pathlib.Path):
 
     # ③ dtype / 범위 / 유한성 ----------------------------------------
     act       = f["actions"]
-    dtype_ok  = (act.dtype == np.float32)
+    dtype_ok  = (act.dtype == np.float16)
     range_ok  = np.abs(act).max() <= 2.0001
     finite_ok = np.isfinite(act).all()
     ok &= dtype_ok and range_ok and finite_ok
