@@ -1268,7 +1268,7 @@ class FightingModel(Model):
                 used.add((px, py))
                 break         # 다음 에이전트로
             else:
-                print("안전 좌표 찾기 실패")
+                #print("안전 좌표 찾기 실패")
                 self.total_agents -= 1
                 
                 #raise RuntimeError("안전 좌표를 충분히 찾지 못했습니다.")

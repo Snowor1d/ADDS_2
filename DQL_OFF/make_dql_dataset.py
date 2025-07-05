@@ -213,7 +213,12 @@ def collect(policy_factory: str|Callable[[model.FightingModel],object],
                     if collected >= num_samples:
                         break
 
+                    if done:
+                        break
+
                 state = next_state
+
+                
 
 
 def main():
