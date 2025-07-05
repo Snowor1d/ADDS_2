@@ -541,6 +541,8 @@ class DiffusionQLAgent:
             a2 = self.policy.sample(s2_f)
             qt = torch.min(self.q1_t(s2, a2), self.q2_t(s2, a2)).squeeze(-1)
             y = r + self.gamma * (1 - d) * qt
+        q1_pred = self.q1(s, a).squeeze(-1)
+        q2_pred = self.q2(s, a).squeeze(-1)
         q1_loss = F.mse_loss(self.q1(s, a).squeeze(-1), y)
         q2_loss = F.mse_loss(self.q2(s, a).squeeze(-1), y)
 
@@ -566,7 +568,16 @@ class DiffusionQLAgent:
             for p, pt in zip(self.q2.parameters(), self.q2_t.parameters()):
                 pt.data.mul_(self.tau).add_((1 - self.tau) * p.data)
 
-        return {"Ld": Ld.item(), "Lq": Lq.item(), "q_loss": (q1_loss + q2_loss).item()}
+        with torch.no_grad():
+            return {
+                "Ld"       : Ld.item(),
+                "Lq"       : Lq.item(),
+                "q_loss"   : (q1_loss + q2_loss).item(),
+                "y_mean"   : y.mean().item(),
+                "q1_mean"  : q1_pred.mean().item(),
+                "q2_mean"  : q2_pred.mean().item(),
+            }
+
 
     def store_transition(self, state, action, reward, next_state, done):
         self.buffer.push(state, action, reward, next_state, done)
@@ -648,6 +659,10 @@ def main():
                 tb.add_scalar("Loss/BC", loss_dict["Ld"], step)
                 tb.add_scalar("Loss/Q_guidance", loss_dict["Lq"], step)
                 tb.add_scalar("Loss/Q_critic", loss_dict["q_loss"], step)
+                tb.add_scalar("Debug/y_mean",   loss_dict["y_mean"],  step)
+                tb.add_scalar("Debug/q1_mean",  loss_dict["q1_mean"], step)
+                tb.add_scalar("Debug/q2_mean",  loss_dict["q2_mean"], step)
+
                 step += 1
 
             print(f"[Offline] Episode {ep} - Losses: {loss_dict}")
