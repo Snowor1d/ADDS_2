@@ -537,9 +537,12 @@ class DiffusionQLAgent:
         B = s.size(0)
         s_f, s2_f = s.view(B, -1), s2.view(B, -1)
 
+        r_mean = r.mean().item()
+
         with torch.no_grad():
             a2 = self.policy.sample(s2_f)
             qt = torch.min(self.q1_t(s2, a2), self.q2_t(s2, a2)).squeeze(-1)
+            qt_mean = qt.mean().item()
             y = r + self.gamma * (1 - d) * qt
         q1_pred = self.q1(s, a).squeeze(-1)
         q2_pred = self.q2(s, a).squeeze(-1)
@@ -573,6 +576,8 @@ class DiffusionQLAgent:
                 "Ld"       : Ld.item(),
                 "Lq"       : Lq.item(),
                 "q_loss"   : (q1_loss + q2_loss).item(),
+                "r_mean"   : r_mean,
+                "qt_mean"  : qt_mean,
                 "y_mean"   : y.mean().item(),
                 "q1_mean"  : q1_pred.mean().item(),
                 "q2_mean"  : q2_pred.mean().item(),
@@ -662,6 +667,9 @@ def main():
                 tb.add_scalar("Debug/y_mean",   loss_dict["y_mean"],  step)
                 tb.add_scalar("Debug/q1_mean",  loss_dict["q1_mean"], step)
                 tb.add_scalar("Debug/q2_mean",  loss_dict["q2_mean"], step)
+
+                tb.add_scalar("Debug/r_mean",   loss_dict["r_mean"],  step)
+                tb.add_scalar("Debug/qt_mean",  loss_dict["qt_mean"], step)
 
                 step += 1
 

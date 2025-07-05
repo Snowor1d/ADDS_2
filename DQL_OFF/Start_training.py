@@ -73,8 +73,6 @@ REWARD_E = 0 #reward_based_evacuated_with_robot
 REWARD_F = 0 #reward_based_distance_from_near_agents
 REWARD_FIXED = -1
 FINISHED_BONUS = 0
-EVAL_INTERVAL = 1000
-EVAL_EPISODES = 10
 
 
 REWARD_J = 0 #reward_based_all_agents_danger_log
@@ -87,9 +85,9 @@ REWARD_H = 0 #reward_based_gain_with_time_bonus
 ETA = 1.0 # 값이 클수록 q loss에 가중치
 DIFF_STEPS = 5
 BETA_MINMAX = (.1, 10.)
-EVAL_INTERVAL = 20
+EVAL_INTERVAL = 1000
 EVAL_EPISODES = 3
-OFFLINE_BUFFER_NAME = "expert_dataset.npz"
+OFFLINE_BUFFER_NAME = "offline_dataset_dql.npz"
 MAX_OFFLINE_EP = 10_000_000
 def main():
     print_banner()
