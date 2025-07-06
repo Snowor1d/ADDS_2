@@ -17,7 +17,7 @@ def print_banner():
 
 # ------------- BASIC PARAMETERS ------------------
 LR = 1e-4
-BUFFER_SIZE = 1000000
+BUFFER_SIZE = 2_000_000
 BATCH_SIZE = 128
 INTRINSIC_ETA = 0.1 #intrinsic reward
 START_BATCH_TIMES = 1
@@ -85,9 +85,9 @@ REWARD_H = 0 #reward_based_gain_with_time_bonus
 ETA = 1.0 # 값이 클수록 q loss에 가중치
 DIFF_STEPS = 5
 BETA_MINMAX = (.1, 10.)
-EVAL_INTERVAL = 1000
+EVAL_INTERVAL = 5000
 EVAL_EPISODES = 3
-OFFLINE_BUFFER_NAME = "offline_dataset_dql.npz"
+OFFLINE_BUFFER_NAME = "expert_dataset.npz"
 MAX_OFFLINE_EP = 10_000_000
 def main():
     print_banner()

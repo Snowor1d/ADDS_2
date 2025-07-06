@@ -136,9 +136,9 @@ def evaluate_agent(
             for step in range(max_steps):
                 if step % action_scale == 0:
                     with torch.no_grad():
-                        action = agent.policy.sample(
-                            torch.from_numpy(state).view(1, -1).float().to(agent.dev)
-                        ).cpu().numpy()[0]
+                        state_t = torch.from_numpy(state).unsqueeze(0).unsqueeze(0).float()/255.0
+                        state_t = state_t.to(agent.dev)
+                        action = agent.policy.sample(state_t).cpu().numpy()[0]
                     env.robot.receive_action(action)
 
                     r_a = r_b = r_c = r_d = r_e = r_f = r_g = r_h = r_i = r_j = r_k = 0
@@ -235,10 +235,37 @@ class EpsModel(nn.Module):
         return self.net(x)
 
 
+class ImageEncoder(nn.Module):
+    def __init__(self, input_shape=(1, 50, 50), feature_dim=256):
+        super().__init__()
+        c, h, w = input_shape
+        self.conv = nn.Sequential(
+            nn.Conv2d(c, 32, 5, 2, 2), nn.LeakyReLU(0.01),
+            nn.Conv2d(32, 64, 3, 2, 1), nn.LeakyReLU(0.01),
+            nn.Conv2d(64, 128, 3, 2, 1), nn.LeakyReLU(0.01),
+        )
+
+        # ⬇️  flatten 크기를 자동으로 계산
+        with torch.no_grad():
+            dummy = torch.zeros(1, *input_shape)
+            conv_out = self.conv(dummy).view(1, -1).size(1)   # 6272
+        self.fc = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(conv_out, feature_dim),
+            nn.LeakyReLU(0.01),
+        )
+
+    def forward(self, x):
+        x = self.conv(x)
+        return self.fc(x)
+
 class DiffusionPolicy(nn.Module):
     def __init__(self, s_dim, a_dim, N=5, beta_min=0.1, beta_max=10.0):
         super().__init__()
+        
         self.N, self.a_dim = N, a_dim
+        self.encoder = ImageEncoder((1, 50, 50), s_dim)
+        
         self.register_buffer("betas", self._make_beta(N, beta_min, beta_max))
         self.eps_model = EpsModel(a_dim, s_dim)
         self.alphas = 1.0 - self.betas
@@ -247,25 +274,29 @@ class DiffusionPolicy(nn.Module):
         self.alphas_bar = self.alphas_bar.to(self.betas.device)
 
     def bc_loss(self, s_flat, a0):
-        B = s_flat.size(0)
+        feat = self.encoder(s_flat)
+        B = feat.size(0)
         i = torch.randint(1, self.N + 1, (B, 1), device=s_flat.device)
         eps = torch.randn(B, self.a_dim, device=s_flat.device)
         alpha_bar = self.alphas_bar.to(s_flat.device)
         alpha_bar_i = alpha_bar[i - 1]
         ai = alpha_bar_i.sqrt() * a0 + (1 - alpha_bar_i).sqrt() * eps
-        eps_hat = self.eps_model(ai, s_flat, i.float())
+        eps_hat = self.eps_model(ai, feat, i.float())
         return F.mse_loss(eps_hat, eps)
 
     @torch.no_grad()
     def sample(self, s_flat):
+
+        feat = self.encoder(s_flat)
         B = s_flat.size(0)
         a = torch.randn(B, self.a_dim, device=s_flat.device)
         for i in reversed(range(1, self.N + 1)):
             beta, alpha = self.betas[i - 1], self.alphas[i - 1]
             alpha_bar = self.alphas_bar[i - 1]
-            eps_hat = self.eps_model(
-                a, s_flat, torch.full((B, 1), i, device=s_flat.device)
-            )
+
+            t_idx = torch.full((B, 1), i, device=s_flat.device, dtype=torch.float32)
+            eps_hat = self.eps_model(a, feat, t_idx)
+
             coef1 = 1 / alpha.sqrt()
             coef2 = beta / (1 - alpha_bar).sqrt()
             a = coef1 * (a - coef2 * eps_hat)
@@ -501,6 +532,7 @@ class DiffusionQLAgent:
         self.dev = torch.device(device)
         self.batch = batch_size
         self.buffer = ReplayBuffer(BUFFER_SIZE, (50, 50), 2, DEVICE)
+        self.R_BASE = 4.0
 
         self.q1 = QNetwork().to(self.dev)
         self.q2 = QNetwork().to(self.dev)
@@ -512,8 +544,9 @@ class DiffusionQLAgent:
             list(self.q1.parameters()) + list(self.q2.parameters()), lr=LR
         )
 
+        FEATURE_DIM = 256
         self.policy = DiffusionPolicy(
-            s_dim=50 * 50, a_dim=2, N=DIFF_STEPS, beta_min=BETA_MINMAX[0], beta_max=BETA_MINMAX[1]
+            s_dim=FEATURE_DIM, a_dim=2, N=DIFF_STEPS, beta_min=BETA_MINMAX[0], beta_max=BETA_MINMAX[1]
         ).to(self.dev)
         self.p_optim = optim.Adam(self.policy.parameters(), lr=LR)
 
@@ -524,9 +557,11 @@ class DiffusionQLAgent:
     def select_action(self, state_np):
         if np.random.rand() < self.eps:
             return np.random.uniform(-2, 2, size=(2,)), True
-        s_flat = torch.from_numpy(state_np).view(1, -1).float().to(self.dev)
+
+        state_t = torch.from_numpy(state_np).unsqueeze(0).unsqueeze(0).float() / 255.0
+        state_t = state_t.to(self.dev)
         with torch.no_grad():
-            a = self.policy.sample(s_flat)
+            a = self.policy.sample(state_t)
         return a.cpu().numpy()[0], False
 
     def update(self):
@@ -534,13 +569,12 @@ class DiffusionQLAgent:
             return
 
         s, a, r, s2, d = self.buffer.sample(self.batch)
-        B = s.size(0)
-        s_f, s2_f = s.view(B, -1), s2.view(B, -1)
+        #r = r+ self.R_BASE #R_BASE 더해야 할까?
 
         r_mean = r.mean().item()
 
         with torch.no_grad():
-            a2 = self.policy.sample(s2_f)
+            a2 = self.policy.sample(s2)
             qt = torch.min(self.q1_t(s2, a2), self.q2_t(s2, a2)).squeeze(-1)
             qt_mean = qt.mean().item()
             y = r + self.gamma * (1 - d) * qt
@@ -554,8 +588,8 @@ class DiffusionQLAgent:
         torch.nn.utils.clip_grad_norm_(list(self.q1.parameters()) + list(self.q2.parameters()), 1.0)
         self.q_optim.step()
 
-        Ld = self.policy.bc_loss(s_f, a)
-        a0 = self.policy.sample(s_f)
+        Ld = self.policy.bc_loss(s, a)
+        a0 = self.policy.sample(s)
         q_min = torch.min(self.q1(s, a0), self.q2(s, a0)).squeeze(-1)
         Lq = (-q_min).mean()
         L_total = Ld + ETA * Lq
