@@ -694,6 +694,11 @@ class CrowdAgent(Agent):
 
   
 class RobotAgent(CrowdAgent):
+    SEEK, LEAD, WAIT = 0, 1, 2           # 상태 코드
+    LEAD_RADIUS  = 3                     # agent를 ‘붙잡았다’고 간주하는 반경
+    HOLD_RADIUS  = 4                     # lead 중 agent가 이 범위를 벗어나면 STOP
+    EXIT_THRESH  = 2                     # agent-to-exit 거리가 이하면 WAIT
+
     def __init__(self, unique_id, model, pos, type1):
         super().__init__(unique_id, model, pos, type1)
         self.action = [0, 0, "GUIDE"]
@@ -705,84 +710,160 @@ class RobotAgent(CrowdAgent):
         self.robot_waypoint = [0, 0]
         self.now_exploration = 0
 
-        if self.model.robot_type == "A":
-            self._init_astar()  # A* 알고리즘 초기화
+        self.astar_state   : int   = self.SEEK
+        self.lead_target_id: int|None = None
 
+        self._seek_path: list[tuple[int,int]] = []
+        self._seek_idx = 0
+
+        self.exit_path : list[tuple[int,int]] = []
+        self._lead_idx = 0
 
     @staticmethod
     def _astar_grid(start, goal, valid, width, height):
-        """4-connected A* on the discrete grid.
-        valid[(x,y)] == 1  → free cell, 0 → obstacle
-        returns [ (x0,y0), (x1,y1), ... ]  (start 포함, goal 포함)
-        """
-        def h(p):                      # 유클리드 휴리스틱
+        """4-connected A* on the discrete grid."""
+        def heur(p):                                # ← 함수 이름을 h → heur 로 변경
             return ((p[0]-goal[0])**2 + (p[1]-goal[1])**2) ** 0.5
 
         open_q, came, g = [], {}, {start: 0}
-        heappush(open_q, (h(start), start))
+        heappush(open_q, (heur(start), start))
         nbr = [(1,0),(-1,0),(0,1),(0,-1)]
         while open_q:
             _, cur = heappop(open_q)
-            if cur == goal:            # 경로 복원
+            if cur == goal:
                 path = [cur]
                 while cur in came:
-                    cur = came[cur]
-                    path.append(cur)
+                    cur = came[cur]; path.append(cur)
                 return path[::-1]
-            for dx,dy in nbr:
-                nx, ny = cur[0]+dx, cur[1]+dy
-                if 0 <= nx < width and 0 <= ny < height and valid[(nx,ny)]:
-                    ng = g[cur] + 1        # 모든 간선 가중치 1
-                    if ng < g.get((nx,ny), 1e9):
-                        g[(nx,ny)] = ng
-                        came[(nx,ny)] = cur
-                        heappush(open_q, (ng + h((nx,ny)), (nx,ny)))
-        return []    # 경로 없음
-    
-    # ──────────────────────────────────────────────────────
-    # NEW: A* 전용 상태 변수
-    def _init_astar(self):
-        self._a_path = []           # 현재 따라가는 그리드 경로
-        self._a_target_id = None    # 목적 agent id
 
-    # ──────────────────────────────────────────────────────
+            for dx, dy in nbr:
+                nx, ny = cur[0] + dx, cur[1] + dy
+                if 0 <= nx < width and 0 <= ny < height and valid[(nx, ny)]:
+                    ng = g[cur] + 1
+                    if ng < g.get((nx, ny), 1e9):
+                        g[(nx, ny)] = ng
+                        came[(nx, ny)] = cur
+                        heappush(open_q, (ng + heur((nx, ny)), (nx, ny)))
+        return []  
+
+    # ------------------------------------------------------------
+    def _xy_int(self):
+        return (int(round(self.xy[0])), int(round(self.xy[1])))
+
+    def _nearest_exit_cell(self, pos):
+        """가장 가까운 출구 셀(정수 좌표) 리턴"""
+        tgt = min(self.model.exit_point,
+                  key=lambda e: self.point_to_point_distance(pos, e))
+        return (int(round(tgt[0])), int(round(tgt[1])))
+
     def _choose_farthest_agent(self):
-        """살아있는 crowd 중 로봇과 가장 먼 agent 반환"""
-        max_d, farthest = -1, None
+        max_d, far = -1, None
         for ag in self.model.crowds:
             if not ag.dead:
                 d = self.point_to_point_distance(self.xy, ag.xy)
                 if d > max_d:
-                    max_d, farthest = d, ag
-        return farthest
+                    max_d, far = d, ag
+        return far
 
-    # ──────────────────────────────────────────────────────
-    def _astar_tick(self):
-        """하나의 시뮬레이션 step마다 호출"""
-        # ① 목표 agent/경로가 없으면 새로 설정
-        if (not self._a_path) or self._a_target_id is None:
-            target = self._choose_farthest_agent()
-            if target is None:          # 모두 탈출
-                return self.xy          # 제자리
-            self._a_target_id = target.unique_id
-            tgt_xy = (int(round(target.xy[0])), int(round(target.xy[1])))
-            s_xy   = (int(round(self.xy[0])),   int(round(self.xy[1])))
-            self._a_path = self._astar_grid(
-                s_xy, tgt_xy,
+    # ------------------------------------------------------------
+    # 상태별 세부 로직
+    # ------------------------------------------------------------
+    def _seek(self):
+        """목표 agent에게로 이동"""
+        # 1) 타깃이 없으면 한 번만 선정
+        if self.lead_target_id is None:
+            tgt = self._choose_farthest_agent()
+            if tgt is None:                           # 모든 agent 탈출
+                return self._xy_int()
+            self.lead_target_id = tgt.unique_id
+            s  = self._xy_int()
+            g  = (int(round(tgt.xy[0])), int(round(tgt.xy[1])))
+            self._seek_path = self._astar_grid(
+                s, g, self.model.valid_space,
+                self.model.width, self.model.height)
+            self._seek_idx = 1                        # 0은 현재 칸
+            print(f"[A*] SEEK → agent#{tgt.unique_id}")
+
+        # 2) 경로를 따라 한 칸 전진
+        if self._seek_idx < len(self._seek_path):
+            wp = self._seek_path[self._seek_idx]
+            self.xy = [float(wp[0]), float(wp[1])]
+            self._seek_idx += 1
+
+        # 3) 반경 안에 들어오면 LEAD 전환
+        tgt = self.model.return_agent_id(self.lead_target_id)
+        if tgt and not tgt.dead and \
+           self.point_to_point_distance(self.xy, tgt.xy) <= self.LEAD_RADIUS:
+            self.astar_state = self.LEAD
+            self.exit_path   = []        # exit 경로는 LEAD에서 계산
+            print(f"[A*] LEAD start with agent#{tgt.unique_id}")
+
+        return self._xy_int()
+
+    # ------------------------------------------------------------
+    def _lead(self):
+        """agent를 데리고 출구로 이동"""
+        tgt = self.model.return_agent_id(self.lead_target_id)
+        if tgt is None or tgt.dead:               # agent가 사라졌으면 종료
+            self._reset_to_seek()
+            return self._xy_int()
+
+        # 1) exit 경로를 한 번만 계산
+        if not self.exit_path:
+            s_cell = (int(round(tgt.xy[0])), int(round(tgt.xy[1])))
+            e_cell = self._nearest_exit_cell(tgt.xy)
+            self.exit_path = self._astar_grid(
+                s_cell, e_cell,
                 self.model.valid_space,
-                self.model.width, self.model.height)[1:]  # 첫 칸(자기 위치) 제외
+                self.model.width, self.model.height)
+            self._lead_idx = 0
+            print(f"[A*] exit path len={len(self.exit_path)}")
 
-        # ② 다음 칸으로 한 step 이동
-        if self._a_path:
-            nxt = self._a_path.pop(0)
-            self.xy = [float(nxt[0]), float(nxt[1])]
-        return (int(round(self.xy[0])), int(round(self.xy[1])))
-    
+        # 2) agent가 멀리 떨어졌으면 대기
+        dist = self.point_to_point_distance(self.xy, tgt.xy)
+        if dist > self.HOLD_RADIUS:
+            return self._xy_int()       # STOP·대기
+
+        # 3) 다음 way-point로 전진
+        if self._lead_idx < len(self.exit_path):
+            wp = self.exit_path[self._lead_idx]
+            if self._xy_int() == wp:
+                self._lead_idx += 1
+                if self._lead_idx < len(self.exit_path):
+                    wp = self.exit_path[self._lead_idx]
+            self.xy = [float(wp[0]), float(wp[1])]
+
+        # 4) 도착 판정 → WAIT
+        if self.point_to_point_distance(
+                tgt.xy, self._nearest_exit_cell(tgt.xy)) < self.EXIT_THRESH:
+            self.astar_state = self.WAIT
+            print("[A*] WAIT at exit")
+
+        return self._xy_int()
+
+    # ------------------------------------------------------------
+    def _wait(self):
+        """출구 앞에서 agent 탈출을 기다림"""
+        tgt = self.model.return_agent_id(self.lead_target_id)
+        if tgt is None or tgt.dead:
+            print("[A*] agent escaped → SEEK")
+            self._reset_to_seek()
+        return self._xy_int()
+
+    # ------------------------------------------------------------
+    def _reset_to_seek(self):
+        """SEEK 상태로 초기화"""
+        self.astar_state   = self.SEEK
+        self.lead_target_id= None
+        self._seek_path, self.exit_path = [], []
+
+    # ------------------------------------------------------------
+    # 외부에서 호출되는 단일 정책 함수
+    # ------------------------------------------------------------
     def robot_policy_A(self):
-        """robot_type == 'A' 일 때 호출"""
-        # 플레이어와 agent 이동 모델은 ContinuousSpace지만
-        # 로봇 행동은 1-셀 granularity로 충분하므로 int grid 사용
-        return self._astar_tick()
+        if   self.astar_state == self.SEEK: return self._seek()
+        elif self.astar_state == self.LEAD: return self._lead()
+        else:                               return self._wait()
      
 
     def receive_action(self, action):
@@ -819,6 +900,7 @@ class RobotAgent(CrowdAgent):
         
 
         return np.array(self.action)
+    
     def robot_policy_Q(self):
 
         if(math.sqrt(pow(self.xy[0]-self.robot_waypoint[0], 2)+pow(self.xy[1]-self.robot_waypoint[1], 2))<2):
