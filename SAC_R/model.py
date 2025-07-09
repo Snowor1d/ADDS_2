@@ -302,6 +302,7 @@ class FightingModel(Model):
     """A model with some number of agents."""
 
     def __init__(self, number_agents: int, width: int, height: int, model_num = -1, robot = 'Q'):
+        super().__init__()
         self.frame_stack = FrameStack(stack_len=4)
         self._first_step = True
         

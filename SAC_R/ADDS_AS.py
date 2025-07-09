@@ -300,8 +300,3 @@ if visualization_mode == 'on':
     server2.port = 8522
     
     server2.launch()
-    
-    
-
-
-
