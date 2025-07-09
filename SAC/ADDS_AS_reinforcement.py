@@ -15,7 +15,8 @@ import threading
 from torch.utils.tensorboard import SummaryWriter
 import subprocess
 import webbrowser
-from Start_training import START_DECAY_STEP, START_EPSILON, EPSILON_MIN, SCHEDULER_TYPE, DECAY_VALUE, REWARD_A, REWARD_B, REWARD_C, REWARD_D, REWARD_E, REWARD_F, REWARD_G, REWARD_H, REWARD_I, REWARD_J, REWARD_K, REWARD_L, REWARD_M, CROWD_NUMBER_MIN, CROWD_NUMBER_MAX, LINEARLY_DECAY_STEP, START_UPDATE_STEP, LOG_DIR, FINISHED_BONUS, REWARD_FIXED, MAP_NUM, EXPLORATION_TYPE, \
+from typing import Tuple, Any, Union
+from Start_training import START_DECAY_STEP, START_EPSILON, EPSILON_MIN, SCHEDULER_TYPE, DECAY_VALUE, REWARD_A, REWARD_B, REWARD_C, REWARD_D, REWARD_E, REWARD_F, REWARD_G, REWARD_H, REWARD_I, REWARD_J, REWARD_K, CROWD_NUMBER_MIN, CROWD_NUMBER_MAX, LINEARLY_DECAY_STEP, START_UPDATE_STEP, LOG_DIR, FINISHED_BONUS, REWARD_FIXED, MAP_NUM, EXPLORATION_TYPE, \
                             LR, BUFFER_SIZE, BATCH_SIZE, LOG_STD_MAX, LOG_STD_MIN, ALPHA_START, ALPHA_END, ALPHA_DECAY_STEPS, DEVICE, SCALE_CHECK, ACTION_SCALE, START_BATCH_TIMES, MAX_STEPS, PORT_NUM, LONG_EPSILON_MIN, START_LONG_EPSILON, \
                             GAMMA_START, GAMMA_SCHEDULE_STEP, GAMMA_END, MAP_NUM_RANDOM
 from heat_map import HeatMapLogger #@for heat_map
@@ -128,42 +129,113 @@ def gamma_ascent_schedule(parameter_start: float,
 # 1) Replay Buffer
 ##########################################################################
 class ReplayBuffer:
-    def __init__(self, capacity=int(1e4), device=None):
-        self.buffer = deque(maxlen=capacity)
+    """
+    NumPy 기반 고정 크기 링 버퍼 + dtype 축소로 메모리 사용 최소화
+
+    Parameters
+    ----------
+    capacity : int
+        최대 저장 가능한 transition 개수
+    state_shape : tuple of int
+        상태(state) 배열의 shape, 예: (C, H, W)
+    action_dim : int
+        액션 벡터 차원
+    device : torch.device or str, optional
+        샘플을 Tensor로 변환할 때 사용할 디바이스
+    state_dtype : np.dtype, optional
+        상태 저장 dtype (이미지라면 np.uint8 권장)
+    """
+    def __init__(
+        self,
+        capacity: int,
+        state_shape = (4, 50, 50),
+        action_dim = 2,
+        device=None,
+        state_dtype: np.dtype = np.uint8,
+    ) -> None:
+        self.capacity = capacity
         self.device = device
-    def push(self, state, action, reward, next_state, done):
-        self.buffer.append((state, action, reward, next_state, done))
+        self.state_dtype = np.uint8
 
-    def sample(self, batch_size, device):
-        # 1) 무작위로 batch_size만큼 샘플 추출
-        batch = random.sample(self.buffer, batch_size)
-        states, actions, rewards, next_states, dones = zip(*batch)
+        # 고정 크기 NumPy 배열 할당
+        self.states = np.zeros((capacity, *state_shape), dtype=state_dtype)
+        self.next_states = np.zeros((capacity, *state_shape), dtype=state_dtype)
+        self.actions = np.zeros((capacity, action_dim), dtype=np.float32)
+        self.rewards = np.zeros((capacity,), dtype=np.float32)
+        self.dones = np.zeros((capacity,), dtype=bool)
 
-        # 2) numpy array로 묶기 (zero-copy에 가깝게)
-        states_np      = np.stack(states, axis=0).astype(np.float32)       # (B, H, W)
-        next_states_np = np.stack(next_states, axis=0).astype(np.float32)  # (B, H, W)
-        actions_np     = np.stack(actions, axis=0).astype(np.float32)      # (B, action_dim)
-        rewards_np     = np.array(rewards, dtype=np.float32)               # (B,)
-        dones_np       = np.array(dones,   dtype=np.float32)               # (B,)
+        self.ptr = 0
+        self.size = 0
 
-        # 3) torch tensor로 변환 & 차원 맞추기
-        states_t       = torch.from_numpy(states_np).unsqueeze(1).to(device)       # (B,1,H,W)
-        next_states_t  = torch.from_numpy(next_states_np).unsqueeze(1).to(device)  # (B,1,H,W)
-        actions_t      = torch.from_numpy(actions_np).to(device)                   # (B,action_dim)
-        rewards_t      = torch.from_numpy(rewards_np).to(device)                   # (B,)
-        dones_t        = torch.from_numpy(dones_np).to(device)                     # (B,)
+    def push(
+        self,
+        state: np.ndarray,
+        action: np.ndarray,
+        reward: float,
+        next_state: np.ndarray,
+        done: bool,
+    ) -> None:
+        i = self.ptr
+        # dtype 변환 및 저장
+        self.states[i] = state.astype(self.state_dtype, copy=False)
+        self.next_states[i] = next_state.astype(self.state_dtype, copy=False)
+        self.actions[i] = action
+        self.rewards[i] = reward
+        self.dones[i] = done
 
-        return states_t, actions_t, rewards_t, next_states_t, dones_t
+        # 포인터 업데이트
+        self.ptr = (i + 1) % self.capacity
+        self.size = min(self.size + 1, self.capacity)
 
-    def __len__(self):
-        return len(self.buffer)
+    def sample(self, batch_size: int):
+        idx = np.random.choice(self.size, batch_size, replace=False)
+        # NumPy -> torch.Tensor 변환 (float32)
+        batch_states = torch.from_numpy(self.states[idx].astype(np.float32)).to(self.device)
+        batch_next_states = torch.from_numpy(self.next_states[idx].astype(np.float32)).to(self.device)
+        batch_actions = torch.from_numpy(self.actions[idx]).to(self.device)
+        batch_rewards = torch.from_numpy(self.rewards[idx]).to(self.device)
+        batch_dones = torch.from_numpy(self.dones[idx].astype(np.float32)).to(self.device)
 
-    def save(self, filepath):
-        with open(filepath, "wb") as f:
-            pickle.dump(self.buffer, f)
-    def load(self, filepath):
-        with open(filepath, "rb") as f:
-            self.buffer = pickle.load(f)
+        return batch_states, batch_actions, batch_rewards, batch_next_states, batch_dones
+
+    def __len__(self) -> int:
+        return self.size
+    
+    def save(self, filepath: Union[str, bytes, os.PathLike]) -> None:
+        """압축된 npz 파일로 버퍼를 저장 (현재 size 만큼만 포함)."""
+        np.savez_compressed(
+            filepath,
+            states=self.states[: self.size],
+            next_states=self.next_states[: self.size],
+            actions=self.actions[: self.size],
+            rewards=self.rewards[: self.size],
+            dones=self.dones[: self.size],
+            size=self.size,
+            ptr=self.ptr,
+            capacity=self.capacity,
+            state_dtype=np.dtype(self.state_dtype).name
+        )
+
+    def load(self, filepath: Union[str, bytes, os.PathLike]) -> None:
+        """저장된 npz 파일을 읽어 버퍼 상태를 복원."""
+        data = np.load(filepath, allow_pickle=False)
+        cap = int(data.get("capacity", self.capacity))
+        if cap != self.capacity:
+            # 새 capacity 에 맞춰 새로운 배열 할당 후 복사
+            prev_dtype = np.dtype(data["state_dtype"])
+            prev_shape = self.states.shape[1:]
+            prev_action_dim = self.actions.shape[1]
+            self.__init__(cap, prev_shape, prev_action_dim, self.device, prev_dtype)
+        self.size = int(data["size"])
+        self.ptr = int(data["ptr"])
+
+        # 데이터 복사
+        self.states[: self.size] = data["states"]
+        self.next_states[: self.size] = data["next_states"]
+        self.actions[: self.size] = data["actions"]
+        self.rewards[: self.size] = data["rewards"]
+        self.dones[: self.size] = data["dones"]
+
 
 class ResidualBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
@@ -233,7 +305,7 @@ class QNetwork(nn.Module):
     def __init__(self, input_shape=(50,50), action_dim=2):
         super(QNetwork, self).__init__()
         # CNN feature extractor
-        self.conv1 = nn.Conv2d(1, 32, kernel_size=5, stride=2, padding=2)
+        self.conv1 = nn.Conv2d(4, 32, kernel_size=5, stride=2, padding=2)
         self.bn1   = nn.BatchNorm2d(32)
         self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)
         self.bn2   = nn.BatchNorm2d(64)
@@ -249,7 +321,7 @@ class QNetwork(nn.Module):
         self.q_out = nn.Linear(256, 1)
 
     def _get_conv_out(self, shape):
-        dummy = torch.zeros(1, 1, *shape)  # (batch, channel=1, H, W)
+        dummy = torch.zeros(1, 4, *shape)  # (batch, channel=1, H, W)
         o = F.leaky_relu(self.bn1(self.conv1(dummy)), negative_slope=0.01)
         o = F.leaky_relu(self.bn2(self.conv2(o)), negative_slope=0.01)
         o = F.leaky_relu(self.bn3(self.conv3(o)), negative_slope=0.01)
@@ -278,7 +350,7 @@ class PolicyNetwork(nn.Module):
         self.log_std_max = LOG_STD_MAX
 
         # --- 여기서 conv1, bn1 선언 ---
-        self.conv1 = nn.Conv2d(1, 32, kernel_size=5, stride=2, padding=2)
+        self.conv1 = nn.Conv2d(4, 32, kernel_size=5, stride=2, padding=2)
         self.bn1   = nn.BatchNorm2d(32)
         self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)
         self.bn2   = nn.BatchNorm2d(64)
@@ -301,7 +373,7 @@ class PolicyNetwork(nn.Module):
         self.log_std_head = nn.Linear(64, 2)
 
     def _get_conv_out(self, shape):
-        dummy = torch.zeros(1, 1, *shape)
+        dummy = torch.zeros(1, 4, *shape)
         x = F.leaky_relu(self.bn1(self.conv1(dummy)), negative_slope=0.01)
         x = F.leaky_relu(self.bn2(self.conv2(x)), negative_slope=0.01)
         x = F.leaky_relu(self.bn3(self.conv3(x)), negative_slope=0.01)
@@ -340,7 +412,28 @@ class PolicyNetwork(nn.Module):
         jacobian = torch.log(4*sigma*(1 - sigma) + 1e-8).sum(dim=1)
         log_prob = log_prob_u - jacobian
         return action, log_prob
+    
+class FrameStack:
+    """ACTION_SCALE 간격으로만 push 되는 4‑프레임 스택"""
+    def __init__(self, stack_len=4):
+        self.stack_len = stack_len
+        self.frames = deque(maxlen=stack_len)
 
+    def reset(self, first_frame):
+        self.frames.clear()
+        for _ in range(self.stack_len):
+            self.frames.append(np.copy(first_frame))
+        return np.stack(list(self.frames)[::-1], axis=0)   # (4,H,W)
+
+    def append(self, frame):
+        """deque에 실제 push & 최신 스택 반환"""
+        self.frames.append(np.copy(frame))
+        return np.stack(list(self.frames)[::-1], axis=0)
+
+    def peek_with(self, frame):
+        """frame을 push 했다고 가정한 결과 스택 반환( deque 내용은 그대로 )"""
+        tmp = list(self.frames) + [frame]
+        return np.stack(tmp[-self.stack_len:][::-1], axis=0)
 
 
 ##########################################################################
@@ -358,7 +451,7 @@ class SACAgent:
         self.epsilon_long_min = long_epsilon_min
 
         # Replay buffer
-        self.replay_buffer = ReplayBuffer(capacity=int(replay_size))
+        self.replay_buffer = ReplayBuffer(capacity=int(replay_size), device =self.device)
         
 
         # Critic networks
@@ -421,7 +514,7 @@ class SACAgent:
                 return np.array([dx, dy]), True
 
         # Otherwise use the policy
-        state_t = torch.FloatTensor(state_np).unsqueeze(0).unsqueeze(0).to(self.device)  # (1,1,H,W)
+        state_t = torch.FloatTensor(state_np).unsqueeze(0).to(self.device)  # (1,1,H,W)
         # state_np는 2D 배열인데, 차원을 추가하여 모델 입력에 적합한 차원으로 만들려는 것
 
         with torch.no_grad():
@@ -456,7 +549,7 @@ class SACAgent:
         #states, actions, rewards, next_states, dones = self.replay_buffer.sample(self.batch_size)
 
         # 1. Replay Buffer에서 샘플 가져오기
-        states, actions, rewards, next_states, dones = self.replay_buffer.sample(self.batch_size, self.device)
+        states, actions, rewards, next_states, dones = self.replay_buffer.sample(self.batch_size)
 
 
         # (B,1,H,W), (B,4), (B,), (B,1,H,W), (B,)
@@ -652,9 +745,9 @@ if __name__ == "__main__":
         start_epsilon_long = START_LONG_EPSILON  # 기본값 설정
         print("No start_epsilon.txt found. Initializing values to defaults.")
     
-    agent = SACAgent(input_shape=(50,50), alpha=ALPHA_START, lr=float(LR), start_epsilon=start_epsilon, start_epsilon_long = float(START_LONG_EPSILON), long_epsilon_min=float(LONG_EPSILON_MIN), batch_size=int(BATCH_SIZE), replay_size=float(BUFFER_SIZE), device=DEVICE)
+    agent = SACAgent(input_shape=(50,50), alpha=ALPHA_START, lr=float(LR), start_epsilon=start_epsilon, start_epsilon_long = float(START_LONG_EPSILON), long_epsilon_min=float(LONG_EPSILON_MIN), batch_size=int(BATCH_SIZE), replay_size=int(BUFFER_SIZE), device=DEVICE)
     print(f"Agent initialized, lr={LR}, alpha={agent.alpha}, batch_size={BATCH_SIZE}, replay_size={BUFFER_SIZE}")
-    replay_buffer_path = os.path.join(log_dir, "replay_buffer.pkl")
+    replay_buffer_path = os.path.join(log_dir, "replay_buffer.npz")
 
         
     if model_load == 1:
@@ -668,7 +761,7 @@ if __name__ == "__main__":
             start_episode = int(model_name.split("_")[-1].split(".")[0])
             agent.load_model(model_name)
             if os.path.exists(replay_buffer_path):
-                agent.load_replay_buffer("replay_buffer.pkl")
+                agent.load_replay_buffer("replay_buffer.npz")
     elif model_load == 3:
         print("Mode 3: Loading the latest model from log_dir.")
         model_files = [f for f in os.listdir(log_dir) if f.startswith("sac_checkpoint") and f.endswith(".pth")]
@@ -706,7 +799,9 @@ if __name__ == "__main__":
             except Exception as e:
                 print(e, "Retrying environment creation...")
         
-        state = env_model.return_current_image()
+        first_frame = env_model.return_current_image()
+        frame_stack = FrameStack(4)
+        state = frame_stack.reset(first_frame)
         total_reward = 0
         reward = 0
         evacuation_time_80 = max_steps
@@ -723,16 +818,17 @@ if __name__ == "__main__":
             
                 if(step%ACTION_SCALE==0):
                     
-                    if(np.random.rand() < agent.epsilon_long):
-                        env_model.robot.now_exploration = 1
-                    
+                    if step > 0:
+                        state = frame_stack.append(curr_frame)
                     action_np, _ = agent.select_action(state)
                     dx, dy = action_np[0], action_np[1]
                     real_action = env_model.robot.receive_action([dx, dy])
                     action_np[0] = real_action[0]
                     action_np[1] = real_action[1]
-                    buffered_state = state
+
+                    buffered_state = np.copy(state)
                     buffered_action = action_np
+
                 
                 
                 # Simulation time check
@@ -744,11 +840,15 @@ if __name__ == "__main__":
                     hx, hy = map(int, np.round(env_model.robot.xy)) 
                     heat_logger.update(env_model.map_num, hx, hy) 
 
+                
+                curr_frame = env_model.return_current_image()
+                next_state = frame_stack.peek_with(curr_frame)
                 sim_timer.stop()
                 reward = 0
                 r_k = 0
+
                 # 4) Next state
-                next_state = env_model.return_current_image()
+
 
                 # 5) Done?
                 done = (step >= max_steps-1) or (env_model.robot.is_game_finished)
@@ -759,6 +859,8 @@ if __name__ == "__main__":
                     r_k += env_model.reward_penalty_collision() * REWARD_K
                 # 6) Store transition
                 if((step%ACTION_SCALE==(ACTION_SCALE-1) and step>ACTION_SCALE) or (env_model.robot.is_game_finished and step>ACTION_SCALE)):
+                    
+
                     r_a = 0
                     r_b = 0
                     r_c = 0
@@ -769,8 +871,6 @@ if __name__ == "__main__":
                     r_h = 0
                     r_i = 0
                     r_j = 0      
-                    r_l = 0
-                    r_m = 0
 
                     if (REWARD_A):
                         r_a = env_model.reward_based_alived() * REWARD_A
@@ -792,12 +892,8 @@ if __name__ == "__main__":
                         r_i = env_model.reward_based_alived_root() * REWARD_I
                     if (REWARD_J):
                         r_j = env_model.reward_based_all_agents_danger_log() * REWARD_J
-                    if (REWARD_L):
-                        r_l = env_model.reward_based_heatmap() * REWARD_L
-                    if (REWARD_M):
-                        r_m = env_model.reward_based_agent_heatmap() * REWARD_M
                     
-                    reward += (r_a + r_b + r_c + r_d + r_e + r_g + r_h + r_i+r_j+r_k+r_l+r_m+REWARD_FIXED)
+                    reward += (r_a + r_b + r_c + r_d + r_e + r_g + r_h + r_i+r_j+r_k+REWARD_FIXED)
                     
                     if(SCALE_CHECK):
                         print("reward_a : ", r_a)
@@ -811,8 +907,6 @@ if __name__ == "__main__":
                         #print("reward i : ", r_i)
                         #print("reward j : ", r_j)
                         print("reward k : ", r_k)
-                        print("reward_l : ", r_l)
-                        print("reward_m : ", r_m)
 
                     r_k = 0
 
@@ -833,7 +927,7 @@ if __name__ == "__main__":
                     agent.update()
                     learn_timer.stop()
 
-                state = next_state
+                    state = next_state
 
 
                 if (env_model.alived_agents() < env_model.total_agents * 0.2 and evacuation_time_80 == max_steps):
@@ -851,6 +945,7 @@ if __name__ == "__main__":
         heat_logger.flush_episode() #@for heatmap
         if (episode + 1) % 10 == 0:
             heat_logger.snapshot(episode + 1)
+
 
         # Possibly update epsilon, or do other logging
 
@@ -883,7 +978,7 @@ if __name__ == "__main__":
         if (episode_num) % 50 == 0:
             model_filename = os.path.join(log_dir, f"sac_checkpoint_ep_{episode_num}.pth")
             agent.save_model(model_filename)
-            replay_buffer_filename = "replay_buffer.pkl"
+            replay_buffer_filename = "replay_buffer.npz"
             agent.save_replay_buffer(replay_buffer_filename)
 
         reward_file_path = os.path.join(log_dir, "total_reward.txt")

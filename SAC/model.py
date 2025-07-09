@@ -10,7 +10,6 @@ from mesa.datacollection import DataCollector
 from shapely.geometry import Polygon, MultiPolygon, Point
 from shapely.ops import triangulate
 import matplotlib.tri as mtri
-from typing import List, Tuple
 
 import agent
 from agent import WallAgent
@@ -25,6 +24,7 @@ from matplotlib.path import Path
 import triangle as tr
 import os
 from collections import deque
+from typing import List, Tuple
 #import cv2
 
 import torch
@@ -32,8 +32,8 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 
-from ADDS_AS_reinforcement import SACAgent, ReplayBuffer, PolicyNetwork, QNetwork, ACTION_SCALE, heat_logger
-from Start_training import REWARD_A, REWARD_B, REWARD_C, REWARD_D, REWARD_E, REWARD_F, REWARD_G, REWARD_H, REWARD_I, REWARD_J, REWARD_K, REWARD_L, FINISHED_BONUS, MAP_NUM, MAP_NUM_RANDOM, LOG_DIR
+from ADDS_AS_reinforcement import SACAgent, ReplayBuffer, PolicyNetwork, QNetwork, ACTION_SCALE, FrameStack
+from Start_training import REWARD_A, REWARD_B, REWARD_C, REWARD_D, REWARD_E, REWARD_F, REWARD_G, REWARD_H, REWARD_I, REWARD_J, REWARD_K, FINISHED_BONUS, MAP_NUM, MAP_NUM_RANDOM
 
 def _point_on_segment(p: Tuple[int, int],
                       a: Tuple[int, int],
@@ -97,9 +97,6 @@ def _sample_safe_cell(self,
 
         return p
     raise ValueError("안전 스폰 위치를 찾지 못했습니다 ‑ padding 값·장애물 배치를 확인하세요.")
-
-
-
 
 def are_meshes_adjacent(mesh1, mesh2):
     # 두 mesh의 공통 꼭짓점의 개수를 센다
@@ -305,6 +302,9 @@ class FightingModel(Model):
     """A model with some number of agents."""
 
     def __init__(self, number_agents: int, width: int, height: int, model_num = -1, robot = 'Q'):
+        self.frame_stack = FrameStack(stack_len=4)
+        self._first_step = True
+        
         self.crowds = []
         self.step_n = 0
         self.checking_reward = 0
@@ -784,7 +784,6 @@ class FightingModel(Model):
             self.obstacles.append([[6, 25], [10, 25], [10, 40], [6, 40]])
             self.obstacles.append([[11, 32], [40, 32], [40, 40], [11, 40]])
 
-
         elif map_num == 12:
             self.obstacles.append([[15, 10], [40, 35], [35, 40], [10, 15]])
             self.obstacles.append([[20, 0], [35, 0], [35, 15]])
@@ -888,6 +887,7 @@ class FightingModel(Model):
 
 
 # --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
 
     def construct_map(self):
         for i in range(len(self.walls)):
@@ -1005,6 +1005,7 @@ class FightingModel(Model):
         elif (self.map_num == 12):
             index = 1
         
+        
         self.exit_list = [all_exits[index]]
         self.exit_point = [all_exit_points[index]]
         
@@ -1090,7 +1091,6 @@ class FightingModel(Model):
             self.recur_exit(x - 1, y - 1, visible_distance - 2, "d")
 
 
-
     def robot_placement(self,
                         n_robots: int = 1,
                         padding: int = 5):
@@ -1113,7 +1113,6 @@ class FightingModel(Model):
             self.robots.append(self.robot)
             self.schedule.add(self.robot)
             self.grid.place_agent(self.robot, spawn)
-
     
     
     def random_agent_distribute_outdoor(self, agent_num, ran):
@@ -1214,7 +1213,22 @@ class FightingModel(Model):
         #             agent.dead = True 
         self.step_count += 1
 
-        state = self.return_current_image()
+        #state = self.return_current_image()
+
+        frame = self.return_current_image()
+        if self._first_step:
+            state = self.frame_stack.reset(frame)
+            self._first_step = False
+        else:
+            state = self.frame_stack.append(frame)
+        
+        if self.step_n % ACTION_SCALE == 0:
+            if self._first_step:
+                state = self.frame_stack.reset(frame)
+                self._first_step = False
+            else:
+                state = self.frame_stack.append(frame)
+                
         # if(self.using_model):
         #     self.checking_reward += self.reward_based_evacuated_with_robot()
         if(self.using_model and self.step_n%ACTION_SCALE==0):
@@ -1235,8 +1249,7 @@ class FightingModel(Model):
             print("reward_based_gain_with_time_bonus :", self.reward_based_gain_with_time_bonus() * REWARD_H)
             print("reward_based_alived_root : ", self.reward_based_alived_root() * REWARD_I)
             print("reward_based_all_agents_danger_log : ", self.reward_based_all_agents_danger_log() * REWARD_J)
-            print("reward_penalty_collision : ", self.reward_penalty_collision() * REWARD_K)
-            print("reward_based_heatmap : ", self.reward_based_heatmap() * REWARD_L)      
+            print("reward_penalty_collision : ", self.reward_penalty_collision() * REWARD_K)        
             
 
         self.schedule.step()
@@ -1373,6 +1386,8 @@ class FightingModel(Model):
         return reward
     
 
+
+
     def reward_evacuation(self):
         if(self.step_n<3):
             return 0
@@ -1417,7 +1432,6 @@ class FightingModel(Model):
             return 0
         return -minimum_distance
     
-
     def reward_based_all_agents_danger_log(self):
         reward = 0
         for agent in self.crowds:
@@ -1431,7 +1445,6 @@ class FightingModel(Model):
         self.new_founded_agent_danger = 0
         return reward
     
-
     def reward_based_near_agents_exist(self):
         
         for agent in self.crowds:
@@ -1440,87 +1453,40 @@ class FightingModel(Model):
                 if (distance<20):
                     return 0
         return -2
-    
 
     def reward_penalty_collision(self):
         if self.robot.collision_check :
             return -1
         else :
             return 0
-        
-    
-    def reward_based_heatmap(self) -> float:
-
-        heatmap = heat_logger._aggregate.get(self.map_num)
-        if heatmap is None:
-            return 0.0
-
-
-        x = int(round(self.robot.xy[0]))
-        y = int(round(self.robot.xy[1]))
-        if x < 0 or x >= self.width or y < 0 or y >= self.height:
-            return 0.0
-
-        visits = heatmap[x, y]
-        max_visits = heatmap.max()
-        diff       = max_visits - visits
-        reward     = (diff / (max_visits + 1e-6))
-
-        return float(reward)
-    
-
-    def reward_based_agent_heatmap(self, radius: int = 6) -> float:
-        '''
-        agent 위치 기준 r=6 사각형 내에서, max heat 대비 로봇 위치 heat 에 대한 역수 보상
-        (로봇이 위치한 곳의 heat 값이 작을 수록 큰 보상)
-        '''
-        heat = heat_logger._aggregate.get(self.map_num)
-        if heat is None:
-            return 0.0
-        max_v = heat.max() + 1e-6
-
-        rx, ry = map(int, map(round, self.robot.xy))
-
-        # 로봇이 agent-버퍼 안에 있을 때만 계산
-        in_buffer = any(
-            not ag.dead and
-            abs(ag.xy[0]-rx) <= radius and
-            abs(ag.xy[1]-ry) <= radius
-            for ag in self.crowds
-        )
-        if not in_buffer:
-            return 0.0         # 버퍼 밖이면 0
-
-        return (max_v - heat[rx, ry]) / max_v    # 0~1
-
     
     def return_current_image(self):
         # Create a 2D NumPy array with zeros of type uint8
         # shape: (height, width)
-        image = np.zeros((self.width, self.height), dtype=np.uint8)
+        image = np.zeros((self.height, self.width), dtype=np.uint8)
         
         # Fill in wall
         for agent in self.agents:
             if agent.type == 9:
-                image[agent.pos[0], agent.pos[1]] = 20  # 벽 #50?
+                image[agent.pos[0], agent.pos[1]] = 20  # 벽
         
         # Fill in exit
         for agent in self.agents:
             if agent.type == 10:
-                image[agent.pos[0], agent.pos[1]] = 60  # 출구 #100?
+                image[agent.pos[0], agent.pos[1]] = 60  # 출구
 
         # Fill crowd agents
         for agent in self.crowds:
             if (agent.type == 1 or agent.type == 2) and not agent.dead:
-                image[int(round(agent.xy[0])), int(round(agent.xy[1]))] = 100  # agent #150?
+                image[int(round(agent.xy[0])), int(round(agent.xy[1]))] = 100  # agent
         for agent in self.crowds:
             if agent.type == 0 and not agent.dead:
-                image[int(round(agent.xy[0])), int(round(agent.xy[1]))] = 140 #200?
+                image[int(round(agent.xy[0])), int(round(agent.xy[1]))] = 140
         
         # Fill robot
         for agent in self.agents:
             if agent.type == 3:
-                image[int(round(agent.xy[0])), int(round(agent.xy[1]))] = 200  # robot #255?
+                image[int(round(agent.xy[0])), int(round(agent.xy[1]))] = 200  # robot
         
         return image
     
