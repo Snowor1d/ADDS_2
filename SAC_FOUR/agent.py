@@ -9,6 +9,7 @@ import random
 import copy
 import sys 
 from collections import deque
+from heapq import heappush, heappop
 
 import torch
 import torch.nn as nn
@@ -383,6 +384,10 @@ class CrowdAgent(Agent):
                    
             if (self.model.robot_type == "Q"):
                 new_position_robot = self.robot_policy_Q()
+            elif self.robot.robot_type == "A":
+                new_position_robot = self.robot_policy_A()
+            else : 
+                raise ValueError(f"Unknown robot_type {self.robot_type}")
             
             self.model.grid.move_agent(self, new_position_robot)
             self.pos = new_position_robot
@@ -697,6 +702,74 @@ class RobotAgent(CrowdAgent):
         self.robot_waypoint = [0, 0]
         self.now_exploration = 0
         
+    def _astar_grid(start, goal, valid, width, height):
+        """4-connected A* on the discrete grid.
+        valid[(x,y)] == 1  → free cell, 0 → obstacle
+        returns [ (x0,y0), (x1,y1), ... ]  (start 포함, goal 포함)
+        """
+        def h(p):                      # 유클리드 휴리스틱
+            return ((p[0]-goal[0])**2 + (p[1]-goal[1])**2) ** 0.5
+
+        open_q, came, g = [], {}, {start: 0}
+        heappush(open_q, (h(start), start))
+        nbr = [(1,0),(-1,0),(0,1),(0,-1)]
+        while open_q:
+            _, cur = heappop(open_q)
+            if cur == goal:            # 경로 복원
+                path = [cur]
+                while cur in came:
+                    cur = came[cur]
+                    path.append(cur)
+                return path[::-1]
+            for dx,dy in nbr:
+                nx, ny = cur[0]+dx, cur[1]+dy
+                if 0 <= nx < width and 0 <= ny < height and valid[(nx,ny)]:
+                    ng = g[cur] + 1        # 모든 간선 가중치 1
+                    if ng < g.get((nx,ny), 1e9):
+                        g[(nx,ny)] = ng
+                        came[(nx,ny)] = cur
+                        heappush(open_q, (ng + h((nx,ny)), (nx,ny)))
+        return []    # 경로 없음
+    
+    # ──────────────────────────────────────────────────────
+    # NEW: A* 전용 상태 변수
+    def _init_astar(self):
+        self._a_path = []           # 현재 따라가는 그리드 경로
+        self._a_target_id = None    # 목적 agent id
+
+    # ──────────────────────────────────────────────────────
+    def _choose_farthest_agent(self):
+        """살아있는 crowd 중 로봇과 가장 먼 agent 반환"""
+        max_d, farthest = -1, None
+        for ag in self.model.crowds:
+            if not ag.dead:
+                d = self.point_to_point_distance(self.xy, ag.xy)
+                if d > max_d:
+                    max_d, farthest = d, ag
+        return farthest
+
+    # ──────────────────────────────────────────────────────
+    def _astar_tick(self):
+        """하나의 시뮬레이션 step마다 호출"""
+        # ① 목표 agent/경로가 없으면 새로 설정
+        if (not self._a_path) or self._a_target_id is None:
+            target = self._choose_farthest_agent()
+            if target is None:          # 모두 탈출
+                return self.xy          # 제자리
+            self._a_target_id = target.unique_id
+            tgt_xy = (int(round(target.xy[0])), int(round(target.xy[1])))
+            s_xy   = (int(round(self.xy[0])),   int(round(self.xy[1])))
+            self._a_path = _astar_grid(
+                s_xy, tgt_xy,
+                self.model.valid_space,
+                self.model.width, self.model.height)[1:]  # 첫 칸(자기 위치) 제외
+
+        # ② 다음 칸으로 한 step 이동
+        if self._a_path:
+            nxt = self._a_path.pop(0)
+            self.xy = [float(nxt[0]), float(nxt[1])]
+        return (int(round(self.xy[0])), int(round(self.xy[1])))
+    
 
     def receive_action(self, action):
                 
@@ -857,6 +930,11 @@ class RobotAgent(CrowdAgent):
         #print(robot_goal)
         return (next_x, next_y)
 
+    def robot_policy_A(self):
+        """robot_type == 'A' 일 때 호출"""
+        # 플레이어와 agent 이동 모델은 ContinuousSpace지만
+        # 로봇 행동은 1-셀 granularity로 충분하므로 int grid 사용
+        return self._astar_tick()
 
     def make_buffer(self):
         robot_xy = self.model.robot.xy
