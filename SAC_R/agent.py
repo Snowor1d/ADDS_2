@@ -635,7 +635,7 @@ class CrowdAgent(Agent):
                 self.model.new_founded_agent_danger += self.danger
             self.is_effected_by_robot = 1
             if self.previous_type != 0:
-                if random.choices([0, 1], weights=[0.1, 0.9], k=1)[0] == 0:
+                if random.choices([0, 1], weights=[0, 1.0], k=1)[0] == 0: #agent가 로봇을 신뢰할 학률
                     self.type = 1
                     self.not_tracking = 7 #7step동안 로봇을 안따라가게 
             if (self.type == 0):
@@ -696,7 +696,7 @@ class CrowdAgent(Agent):
 class RobotAgent(CrowdAgent):
     SEEK, LEAD, WAIT = 0, 1, 2           # 상태 코드
     LEAD_RADIUS  = 3                     # agent를 ‘붙잡았다’고 간주하는 반경
-    HOLD_RADIUS  = 4                     # lead 중 agent가 이 범위를 벗어나면 STOP
+    HOLD_RADIUS  = 3.5                  # lead 중 agent가 이 범위를 벗어나면 STOP
     EXIT_THRESH  = 2                     # agent-to-exit 거리가 이하면 WAIT
 
     def __init__(self, unique_id, model, pos, type1):
@@ -768,40 +768,41 @@ class RobotAgent(CrowdAgent):
     # ------------------------------------------------------------
     # 상태별 세부 로직
     # ------------------------------------------------------------
-    def _seek(self):
-        """목표 agent에게로 이동"""
-        # 1) 타깃이 없으면 한 번만 선정
-        if self.lead_target_id is None:
+    def _seek(self):                                          # ← CHANGED (이전 로직 전면 교체)
+        """Continuously track the (moving) target agent."""
+        
+        # 1) 타깃이 없으면 새로 선택
+        if self.lead_target_id is None or \
+           self.model.return_agent_id(self.lead_target_id) is None:
             tgt = self._choose_farthest_agent()
-            if tgt is None:                           # 모든 agent 탈출
+            if tgt is None:                                   # 모든 agent 탈출 완료
                 return self._xy_int()
-            self.lead_target_id = tgt.unique_id
-            s  = self._xy_int()
-            g  = (int(round(tgt.xy[0])), int(round(tgt.xy[1])))
-            self._seek_path = self._astar_grid(
-                s, g, self.model.valid_space,
-                self.model.width, self.model.height)
-            self._seek_idx = 1                        # 0은 현재 칸
-            print(f"[A*] SEEK → agent#{tgt.unique_id}")
+            self.lead_target_id = tgt.unique_id               # ← CHANGED
 
-        # 2) 경로를 따라 한 칸 전진
-        if self._seek_idx < len(self._seek_path):
-            wp = self._seek_path[self._seek_idx]
-            self.xy = [float(wp[0]), float(wp[1])]
-            self._seek_idx += 1
-
-        # 3) 반경 안에 들어오면 LEAD 전환
         tgt = self.model.return_agent_id(self.lead_target_id)
-        if tgt and not tgt.dead and \
-           self.point_to_point_distance(self.xy, tgt.xy) <= self.LEAD_RADIUS:
+
+        # 2) ‘현재’ 위치 기준으로 1-step A* 경로 계산  ← NEW
+        s = self._xy_int()
+        g = (int(round(tgt.xy[0])), int(round(tgt.xy[1])))
+        path = self._astar_grid(
+            s, g, self.model.valid_space,
+            self.model.width, self.model.height)
+
+        if len(path) >= 2:                                    # path[0]==s, path[1]==next cell
+            next_cell = path[1]
+            self.xy = [float(next_cell[0]), float(next_cell[1])]
+        # 경로가 없으면 제자리
+
+        # 3) 반경 안에 들어오면 LEAD 상태로 전환     ← CHANGED
+        if self.point_to_point_distance(self.xy, tgt.xy) <= self.LEAD_RADIUS:
             self.astar_state = self.LEAD
-            self.exit_path   = []        # exit 경로는 LEAD에서 계산
-            print(f"[A*] LEAD start with agent#{tgt.unique_id}")
+            self.exit_path, self._lead_idx = [], 0
 
         return self._xy_int()
 
     # ------------------------------------------------------------
     def _lead(self):
+        print("leading!")
         """agent를 데리고 출구로 이동"""
         tgt = self.model.return_agent_id(self.lead_target_id)
         if tgt is None or tgt.dead:               # agent가 사라졌으면 종료
@@ -822,10 +823,12 @@ class RobotAgent(CrowdAgent):
         # 2) agent가 멀리 떨어졌으면 대기
         dist = self.point_to_point_distance(self.xy, tgt.xy)
         if dist > self.HOLD_RADIUS:
+            print(f"[A*] agent too far: {dist} > {self.HOLD_RADIUS}")
             return self._xy_int()       # STOP·대기
 
         # 3) 다음 way-point로 전진
         if self._lead_idx < len(self.exit_path):
+            print(f"[A*] lead_idx={self._lead_idx}, exit_path_len={len(self.exit_path)}")
             wp = self.exit_path[self._lead_idx]
             if self._xy_int() == wp:
                 self._lead_idx += 1
@@ -843,6 +846,7 @@ class RobotAgent(CrowdAgent):
 
     # ------------------------------------------------------------
     def _wait(self):
+        print("waiting!")
         """출구 앞에서 agent 탈출을 기다림"""
         tgt = self.model.return_agent_id(self.lead_target_id)
         if tgt is None or tgt.dead:
