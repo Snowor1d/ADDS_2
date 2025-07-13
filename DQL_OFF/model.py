@@ -359,11 +359,14 @@ class FightingModel(Model):
     """A model with some number of agents."""
 
     def __init__(self, number_agents: int, width: int, height: int, model_num = -1, robot = 'Q'):
+        from make_dql_dataset import HeuristicPolicy
+        self.robot_algo = robot
+
         self.crowds = []
         self.step_n = 0
         self.checking_reward = 0
         if (model_num == -1):
-            model_num = random.randint(1,5)
+            model_num = random.choice(MAP_NUM_RANDOM)
 
         self.robot_type = robot
         self.spaces_of_map = []
@@ -393,12 +396,13 @@ class FightingModel(Model):
         self.obstacles = list()
         self.mesh = list()
         self.mesh_list = list()
-        if(MAP_NUM != -2 and MAP_NUM != -1):
-            self.extract_map_50(self.map_num)
+
         if (MAP_NUM == -1):
             map_num_candidates = MAP_NUM_RANDOM
             # self.map_num = random.choice(map_num_candidates)
-            self.extract_map_50(-1)    
+            self.extract_map_50(-1)
+        else :
+            self.extract_map_50(self.map_num)    
         self.distance = {}  
         self.schedule_e = RandomActivation(self)
         self.schedule = RandomActivation(self)
@@ -437,6 +441,8 @@ class FightingModel(Model):
         self.before_minimum_distance = 0
         self.minimum_distance = 0
         self.new_founded_agent_danger = 0
+
+        self.H_policy = HeuristicPolicy(self)
 
         # for i in range(50):
         #     for j in range(50):
@@ -1319,6 +1325,9 @@ class FightingModel(Model):
 
 
     def step(self):
+
+        from make_dql_dataset import HeuristicPolicy
+
         self.step_n += 1
         """Advance the model by one step."""
         global started
@@ -1345,7 +1354,13 @@ class FightingModel(Model):
         state = self.return_current_image()
         # if(self.using_model):
         #     self.checking_reward += self.reward_based_evacuated_with_robot()
-        if(self.using_model and self.step_n%ACTION_SCALE==0):
+        
+        if(self.using_model and self.robot_algo=='H'):
+            action = self.H_policy.select_action(self.robot)
+            dx, dy = action[0], action[1]
+            self.robot.receive_action([dx, dy])
+        
+        elif(self.using_model and self.step_n%ACTION_SCALE==0):
             if(np.random.rand() < 0.04):
                 self.robot.now_exploration = 0
             action, _ = self.dql_agent.select_action(state)

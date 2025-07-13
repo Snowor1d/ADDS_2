@@ -52,7 +52,7 @@ def main() -> None:
 
     # ─ Env & Policy ─
     env    = model.FightingModel(CROWD_SIZE, MAP_SIZE, MAP_SIZE,
-                                 model_num=-1, robot="Q")
+                                 model_num=1, robot="Q")
     policy = HeuristicPolicy(env)
 
     # ─ Figure ───────

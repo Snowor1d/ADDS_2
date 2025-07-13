@@ -401,7 +401,7 @@ class CrowdAgent(Agent):
             self.robot_step += 1
 
                    
-            if (self.model.robot_type == "Q"):
+            if (self.model.robot_type == "Q" or self.model.robot_type == "H"):
                 new_position_robot = self.robot_policy_Q()
             
             self.model.grid.move_agent(self, new_position_robot)

@@ -97,7 +97,7 @@ class HeuristicPolicy:
             if not self.following:
                 self.state, self.target_agent = "SEARCH", None
 
-    def select_action(self, _state_img=None) -> np.ndarray:
+    def select_action(self, robot=None) -> np.ndarray:
         pos = self.env.robot.xy
         self._update_state(pos)
 
@@ -121,11 +121,12 @@ class HeuristicPolicy:
             vec /= np.linalg.norm(vec)
             nxt = (p[0] + vec[0], p[1] + vec[1])
             ix, iy = map(round, nxt)
-
+            score = 0
             if not self.env.valid_space.get((ix, iy), 0):
-                score = -self.OC
+                score = -self.OC * 100
             else:
-                score  = -self._dist(nxt, self.exit_xy)
+                score  = -self.env.robot.point_to_point_distance(nxt, self.exit_xy)*0.05
+
                 density = sum(self._dist(ag.xy, nxt) < self.R*1.5
                               for ag in self._alive())
                 score += self.DC * density
@@ -140,7 +141,7 @@ class HeuristicPolicy:
 # ─────── Random Policy ─────── #
 class RandomPolicy:
     """Δx, Δy ∈ [-2,2] 균등 추출"""
-    def select_action(self, *_):
+    def select_action(self, *_, robot=None):
         return np.random.uniform(-2.0, 2.0, 2).astype(np.float32)
 
 
@@ -168,7 +169,7 @@ def collect(policy_factory: str|Callable[[model.FightingModel],object],
 
             for step in range(cfg["max_steps"]):
                 if step % ACTION_SCALE == 0:
-                    raw = policy.select_action(state)
+                    raw = policy.select_action(state, robot=env.robot)
                     eff = env.robot.receive_action(raw)
                     if isinstance(eff, str) or (isinstance(eff, np.ndarray) and eff.dtype.kind not in 'fiu'):
                         eff = raw

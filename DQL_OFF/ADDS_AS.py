@@ -50,6 +50,7 @@ import tornado.web
 import tornado.websocket
 from PIL import Image      
 from mesa_viz_tornado.UserParam import UserParam
+from Start_training import *
 import cv2
 
 most_danger = 1
@@ -59,7 +60,8 @@ model_num = 21
 if visualization_mode == 'on':
     Width = width
     Height =height
-    s_model_r = model.FightingModel(number_of_agents,width,height,model_num)
+    model_num = random.choice(MAP_NUM_RANDOM)
+    s_model_r = model.FightingModel(number_of_agents,width,height,model_num, robot='H')
     s_model_r.use_model('dql_checkpoint_ep_0.pth')  
     ran_num = random.randint(10000,20000)
     most_danger_mesh = None
