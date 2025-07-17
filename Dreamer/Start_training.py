@@ -62,9 +62,9 @@ ALPHA_DECAY_STEPS = 3000
 
 # --------------- REWARD SHAPING -----------------
 
-REWARD_A = 2 #reward_based_alived
+REWARD_A = 0 #reward_based_alived
 REWARD_B = 0.006 #reward_based_all_agents_danger
-REWARD_D = 4 #reward_based_penalty
+REWARD_D = 0 #reward_based_penalty
 REWARD_K = 1 #reward_penalty_collsion
 REWARD_FIXED = -1
 
@@ -94,6 +94,8 @@ LR_CRITIC = 1e-4
 SYML_LOG_BASE = 10
 FREE_NATS = 1.0
 GRAD_CLIP = 100.0
+DREAMER_UPDATE_FREQ = 2
+DREAMER_START_UPDATE_EP= 200
 
 # --------------- Dreamer parameters -----------------
 
