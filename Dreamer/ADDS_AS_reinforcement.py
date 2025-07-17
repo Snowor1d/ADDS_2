@@ -459,7 +459,7 @@ class DreamerAgent:
 
 # === Training loop =========================================================
 
-def train(max_episodes=6000, max_steps=MAX_STEPS):
+def train(max_episodes=1_000_000, max_steps=MAX_STEPS):
     import model  # FightingModel env provided by user
     agent = DreamerAgent()
     tb_proc     = launch_tensorboard(TB_DIR, port=PORT_NUM)
@@ -519,7 +519,9 @@ def train(max_episodes=6000, max_steps=MAX_STEPS):
         with open(EVAC100_TXT,      "a") as f:   f.write(f"{evacuation_time_100}\n")
         
         if ep % 1 == 0:
-            agent.update()
+            if(ep>10):
+                for _ in range(3):
+                    agent.update()
         if ep % 100 == 0:
             print(f"Episode {ep} – reward {total_reward:.1f} – replay {len(agent.buffer)}")
 
