@@ -696,7 +696,7 @@ class CrowdAgent(Agent):
 class RobotAgent(CrowdAgent):
     SEEK, LEAD, WAIT = 0, 1, 2           # 상태 코드
     LEAD_RADIUS  = 3                     # agent를 ‘붙잡았다’고 간주하는 반경
-    HOLD_RADIUS  = 3.5                  # lead 중 agent가 이 범위를 벗어나면 STOP
+    HOLD_RADIUS  = 4                  # lead 중 agent가 이 범위를 벗어나면 STOP
     EXIT_THRESH  = 2                     # agent-to-exit 거리가 이하면 WAIT
 
     def __init__(self, unique_id, model, pos, type1):
@@ -760,10 +760,15 @@ class RobotAgent(CrowdAgent):
         max_d, far = -1, None
         for ag in self.model.crowds:
             if not ag.dead:
-                d = self.point_to_point_distance(self.xy, ag.xy)
+                d = self.shortest_distance(self.xy, ag.xy)
                 if d > max_d:
                     max_d, far = d, ag
         return far
+    
+
+    def shortest_distance(self, point1, point2):
+        """point1과 point2 사이의 최단 거리"""
+        return math.sqrt(pow(point1[0]-point2[0], 2) + pow(point1[1]-point2[1], 2))
 
     # ------------------------------------------------------------
     # 상태별 세부 로직
@@ -794,7 +799,7 @@ class RobotAgent(CrowdAgent):
         # 경로가 없으면 제자리
 
         # 3) 반경 안에 들어오면 LEAD 상태로 전환     ← CHANGED
-        if self.point_to_point_distance(self.xy, tgt.xy) <= self.LEAD_RADIUS:
+        if self.shortest_distance(self.xy, tgt.xy) <= self.LEAD_RADIUS:
             self.astar_state = self.LEAD
             self.exit_path, self._lead_idx = [], 0
 
@@ -821,7 +826,7 @@ class RobotAgent(CrowdAgent):
             print(f"[A*] exit path len={len(self.exit_path)}")
 
         # 2) agent가 멀리 떨어졌으면 대기
-        dist = self.point_to_point_distance(self.xy, tgt.xy)
+        dist = self.shortest_distance(self.xy, tgt.xy)
         if dist > self.HOLD_RADIUS:
             print(f"[A*] agent too far: {dist} > {self.HOLD_RADIUS}")
             return self._xy_int()       # STOP·대기
@@ -837,7 +842,7 @@ class RobotAgent(CrowdAgent):
             self.xy = [float(wp[0]), float(wp[1])]
 
         # 4) 도착 판정 → WAIT
-        if self.point_to_point_distance(
+        if self.shortest_distance(
                 tgt.xy, self._nearest_exit_cell(tgt.xy)) < self.EXIT_THRESH:
             self.astar_state = self.WAIT
             print("[A*] WAIT at exit")
