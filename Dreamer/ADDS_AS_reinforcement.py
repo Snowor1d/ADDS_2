@@ -18,6 +18,8 @@ from Start_training import *
 from torch.utils.tensorboard import SummaryWriter
 import threading, time, subprocess, webbrowser
 
+print(f"[CONFIG] BATCH_SIZE={BATCH_SIZE}, SEQ_LEN={SEQ_LEN}, IMAG={IMAG_HORIZON}")
+
 HOME_DIR  = os.path.expanduser("~")
 LOG_PATH  = os.path.join(HOME_DIR, LOG_DIR)
 TB_DIR    = os.path.join(LOG_PATH, "tensorboard_logs")
@@ -93,59 +95,77 @@ class ReplayBuffer:
         self._length += len(episode)
 
     def sample(self, batch_size: int = BATCH_SIZE, seq_len: int = SEQ_LEN):
-        episodes = random.choices(self._episodes, k=batch_size)
+        episodes  = random.choices(self._episodes, k=batch_size)
         sequences = []
-        for ep in episodes:
-            if len(ep) < seq_len + 1:
-                start = 0
-            else:
-                start = random.randint(0, len(ep) - seq_len - 1)
-            seq = ep[start : start + seq_len + 1]
-            sequences.append({k: np.stack([t[k] for t in seq]) for k in seq[0].keys()})
-        batch = {k: np.stack([seq[k] for seq in sequences]) for k in sequences[0].keys()}
-        # shapes: obs (B,T+1,C,H,W), act/reward/done (B,T,*)
-        return {k: torch.tensor(v, device=DEVICE) for k, v in batch.items()}
 
+        for ep in episodes:
+            # ───── 랜덤 시퀀스 잘라내기 ─────
+            start = 0 if len(ep) < seq_len + 1 else random.randint(0, len(ep) - seq_len - 1)
+            seq   = ep[start : start + seq_len + 1]          # 길이 = T+1
+
+            # ───── obs(T+1) vs. 그 외(T) 분리 ─────
+            seq_dict = {}
+            for k in seq[0]:
+                arr = np.stack([t[k] for t in seq])
+                seq_dict[k] = arr if k == "obs" else arr[:-1]   # obs: T+1, 나머지: T
+            sequences.append(seq_dict)
+
+        # ───── 배치 결합 ─────
+        batch_np = {k: np.stack([s[k] for s in sequences]) for k in sequences[0]}
+
+        # ───── dtype & device 통일 ─────
+        batch = {}
+        for k, v in batch_np.items():
+            if k == "obs":          # 픽셀(0‑255) → uint8 유지
+                batch[k] = torch.tensor(v, dtype=torch.uint8,  device=DEVICE)
+            else:                   # act, rew, done → float32
+                batch[k] = torch.tensor(v, dtype=torch.float32, device=DEVICE)
+
+        return batch
     def __len__(self):
         return self._length
 
 # === Encoder / Decoder =====================================================
 
 class ConvEncoder(nn.Module):
-    def __init__(self, obs_shape=(1, 50, 50), depth=32):
+
+    def __init__(self, obs_shape: Tuple[int, int, int] = (1, 50, 50), depth: int = 16):
         super().__init__()
         c, h, w = obs_shape
+        self.depth = depth
         self.net = nn.Sequential(
-            nn.Conv2d(c, depth, 3, stride=1, padding=1), nn.ReLU(),     # 50×50
-            nn.Conv2d(depth, depth * 2, 3, stride=2, padding=1), nn.ReLU(),  # 25×25
-            nn.Conv2d(depth * 2, depth * 4, 3, stride=2, padding=1), nn.ReLU(),  # 13×13
-            nn.Conv2d(depth * 4, depth * 4, 3, stride=2, padding=1), nn.ReLU(),  # 7×7
-            nn.Conv2d(depth * 4, depth * 4, 3, stride=2, padding=1), nn.ReLU(),  # 4×4
-            nn.Flatten(),  # 4×4×128 = 2048
+            nn.Conv2d(c,     depth,     3, stride=2, padding=1), nn.ReLU(),  # 50 → 25
+            nn.Conv2d(depth, depth*2,   3, stride=2, padding=1), nn.ReLU(),  # 25 → 13
+            nn.Conv2d(depth*2, depth*4, 3, stride=2, padding=1), nn.ReLU(),  # 13 → 7
+            nn.Conv2d(depth*4, depth*4, 3, stride=2, padding=1), nn.ReLU(),  # 7  → 4
+            nn.Flatten(),                                                   # 4×4×(depth*4)
         )
         with torch.no_grad():
-            self.out_dim = self.net(torch.zeros(1, *obs_shape)).shape[-1]
+            dummy = torch.zeros(1, *obs_shape)
+            self.out_dim = self.net(dummy).shape[-1]  # = depth*4*4*4
 
-    def forward(self, obs):
+    def forward(self, obs: torch.Tensor) -> torch.Tensor:
         obs = obs.float() / 255.0
         return self.net(obs)
 
+
 class ConvDecoder(nn.Module):
-    def __init__(self, in_dim: int, obs_shape=(1, 50, 50), depth: int = 32):
+
+    def __init__(self, in_dim: int, obs_shape: Tuple[int, int, int] = (1, 50, 50), depth: int = 16):
         super().__init__()
         c, h, w = obs_shape
-        self.fc = nn.Linear(in_dim, depth * 4 * 4 * 4)  # 128×4×4
+        self.fc  = nn.Linear(in_dim, depth*4 * 4 * 4)          # 4×4×(depth*4)
         self.net = nn.Sequential(
-            nn.ConvTranspose2d(depth * 4, depth * 4, 4, 2, padding=1), nn.ReLU(),  # 8×8
-            nn.ConvTranspose2d(depth * 4, depth * 2, 4, 2, padding=1), nn.ReLU(),  # 16×16
-            nn.ConvTranspose2d(depth * 2, depth, 4, 2, padding=1), nn.ReLU(),  # 32×32
-            nn.ConvTranspose2d(depth, c, 4, 2, padding=1),  # 64×64 → crop to 50×50
+            nn.ConvTranspose2d(depth*4, depth*4, 4, 2, 1), nn.ReLU(),  # 4 → 8
+            nn.ConvTranspose2d(depth*4, depth*2, 4, 2, 1), nn.ReLU(),  # 8 → 16
+            nn.ConvTranspose2d(depth*2, depth,   4, 2, 1), nn.ReLU(),  # 16 → 32
+            nn.ConvTranspose2d(depth,   c,       4, 2, 1),             # 32 → 64
         )
 
-    def forward(self, feat):
-        x = self.fc(feat).view(-1, 128, 4, 4)
+    def forward(self, z: torch.Tensor) -> torch.Tensor:
+        x = self.fc(z).view(-1, self.fc.out_features // 16, 4, 4)  # (B, depth*4, 4, 4)
         x = self.net(x)
-        return x[..., :50, :50]  # crop to 50×50
+        return x[..., :50, :50]   
 
 # === RSSM ==================================================================
 
@@ -250,11 +270,11 @@ class DreamerAgent:
     def __init__(self):
         # Modules
         self.encoder = ConvEncoder().to(DEVICE)
-        self.decoder = ConvDecoder(self.encoder.out_dim).to(DEVICE)
-        
         embed_dim_t = self.encoder.out_dim
         self.rssm = RSSM(deter = LATENT_DIM, stoch=STOCH_DIM, act_dim = ACTION_DIM,embed_dim = embed_dim_t).to(DEVICE)
-
+        feat_dim = LATENT_DIM + STOCH_DIM
+        self.decoder = ConvDecoder(in_dim = feat_dim).to(DEVICE)
+        
         feat_dim = LATENT_DIM + STOCH_DIM
         self.reward_head = MLP(feat_dim, 1).to(DEVICE)
         self.discount_head = MLP(feat_dim, 1).to(DEVICE)
@@ -296,35 +316,50 @@ class DreamerAgent:
         rew = batch['rew']  # (B,T)
         done = batch['done']
 
-        B, T = act.shape[:2]
-        embed = self.encoder(obs[:, :-1].reshape(-1, *OBS_SHAPE))  # (B*T,D)
-        embed = embed.view(B, T, -1)
+        # batch['obs'] shape: (B, T, C, H, W)
+        B, Tp1, C, H, W = obs.size()
+        T = Tp1 - 1  # T is the sequence length (B,T,C,H,W)
+        # 1) time 축을 batch로 합치기 → (B*T, C, H, W)
+        obs_flat = obs[:, :-1].reshape(B * T, C, H, W)
 
+        # 2) conv2d 등을 포함한 encoder 통과
+        embed_flat = self.encoder(obs_flat)  # (B*T, D)
+
+        # 3) 다시 시퀀스 차원 복원 → (B, T, D)
+        D = embed_flat.size(-1)
+        embed = embed_flat.view(B, T, D)
         # RSSM rollout over sequence
         def rssm_step(prev, inputs):
             act_t, embed_t = inputs
             return self.rssm.obs_step(prev, act_t, embed_t)[0]  # return state
 
         first_state = self.rssm.init_state(B)
-        states = static_scan(rssm_step, (act, embed), first_state)
-        feats = torch.stack([self.rssm.get_feat(s) for s in states], 1)  # (B,T,F)
+        states,kls = [], []
+        state = first_state
+        
+        for t in range(T):
+            state, (prior, post) = self.rssm.obs_step(
+                state,
+                act[:, t],
+                embed[:, t],
+            )  # (B, D)
+            states.append(state)
+            kls.append(torch.distributions.kl_divergence(post, prior))
 
-        # — Reconstruction & reward prediction —
+
+        feats = torch.stack([self.rssm.get_feat(s) for s in states], dim=1)  # (B,T,F)
+        
+        # Reconstruction & reward prediction
         img_pred = self.decoder(feats.reshape(-1, feats.shape[-1]))
+        img_target = obs[:, 1:].reshape_as(img_pred).float()
         rew_pred = self.reward_head(feats).squeeze(-1)
-
         # symlog transform rewards for stability
         rew_targets = symlog(rew) #보상 타깃을 symlog로 변환
-        loss_img = F.mse_loss(img_pred, obs[:, 1:].reshape_as(img_pred))
+        loss_img = F.mse_loss(img_pred, img_target)
         loss_rew = F.mse_loss(rew_pred, rew_targets)
 
         # KL loss between prior/posterior (free nats)
-        kls = []
-        prev = first_state
-        for t in range(T):
-            state, (prior, post) = self.rssm.obs_step(prev, act[:, t], embed[:, t])
-            kls.append(torch.distributions.kl.kl_divergence(post, prior))
-            prev = state
+
         kl_loss = torch.mean(torch.stack(kls, 1))
         kl_loss = torch.max(kl_loss, torch.tensor(FREE_NATS, device=DEVICE))
 
@@ -333,6 +368,8 @@ class DreamerAgent:
         loss_wm.backward()
         nn.utils.clip_grad_norm_(self.opt_world.param_groups[0]['params'], GRAD_CLIP)
         self.opt_world.step()
+        
+        states = [(s[0].detach(), s[1].detach()) for s in states]
         return loss_wm.item(), states
 
     def _imagine(self, start_state, horizon=IMAG_HORIZON):
@@ -353,8 +390,9 @@ class DreamerAgent:
     def _update_actor_critic(self, states):
         '''Imagined trajectories → Train actor & critic.'''
         start_states = states[-1]  # use last latent of sequence as root
-        feat_start = self.rssm.get_feat(start_states)  # (B,F)
+
         feats, actions = self._imagine(start_states)
+        feats = feats.detach() 
         rew_pred = self.reward_head(feats).squeeze(-1)
         disc_pred = torch.sigmoid(self.discount_head(feats)).squeeze(-1) * DISCOUNT
         values = self.critic_target(feats).detach()
@@ -377,7 +415,7 @@ class DreamerAgent:
         self.opt_critic.step()
 
         # Actor loss (maximize predicted return via advantage)
-        dist = self.actor(feats.detach())
+        dist = self.actor(feats)
         log_prob = dist.log_prob(actions).sum(-1)
         advantage = (returns.detach() - symexp(val_pred).detach()) #val_pred는 log 스케일 값이기 때문에, 이를 원래 scale로 복원해야 함
         loss_actor = -(log_prob * advantage).mean()
