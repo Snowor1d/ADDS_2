@@ -363,8 +363,8 @@ class DreamerAgent:
 
         # KL loss between prior/posterior (free nats)
 
-        kl_loss = torch.mean(torch.stack(kls, 1))
-        kl_loss = torch.max(kl_loss, torch.tensor(FREE_NATS, device=DEVICE))
+        kl = torch.mean(torch.stack(kls, 1))
+        kl_loss = torch.clamp(kl - FREE_NATS, min=0)
 
         loss_wm = loss_img + loss_rew + kl_loss
         self.opt_world.zero_grad()
@@ -403,50 +403,68 @@ class DreamerAgent:
         return feats, raws, actions
 
     def _update_actor_critic(self, states):
-        '''Imagined trajectories → Train actor & critic.'''
-        start_states = states[-1]  # use last latent of sequence as root
+        """
+        Args
+        ----
+        states : 길이 T 리스트.
+                 각 원소는 (h_t, z_t)  —  모두 detach() 된 posterior state
+        """
+        # 1) (B,T,*) 텐서로 변환
+        h_seq = torch.stack([s[0] for s in states], 1)   # (B,T,deter)
+        z_seq = torch.stack([s[1] for s in states], 1)   # (B,T,stoch)
+        B, T, _ = h_seq.shape
 
-        feats, u_raw, actions = self._imagine(start_states)
-        feats = feats.detach() 
-        rew_pred = self.reward_head(feats).squeeze(-1)
+        # 2) (B*T,*) 로 펼쳐 root 배치 구성
+        start_states = (
+            h_seq.reshape(B * T, -1),   # h
+            z_seq.reshape(B * T, -1)    # z
+        )
+
+        # 3) 상상 rollout  (B*T, H, …)
+        feats, u_raw, a_sq = self._imagine(start_states)
+        feats = feats.detach()          # world-model엔 역전파 안 함
+
+        # 4) 보상·discount·가치 예측
+        rew_pred  = self.reward_head(feats).squeeze(-1)
         disc_pred = torch.sigmoid(self.discount_head(feats)).squeeze(-1) * DISCOUNT
-        values = self.critic_target(feats).detach()
+        values    = self.critic_target(feats).detach()
 
-        returns = []
-        g = values[:, -1]
+        # 5) λ-리턴(=단순 부트스트랩) 계산
+        returns, g = [], values[:, -1]
         for t in reversed(range(IMAG_HORIZON)):
             g = rew_pred[:, t] + disc_pred[:, t] * g
             returns.insert(0, g)
-        returns = torch.stack(returns, 1)  # (B,H)
+        returns = torch.stack(returns, 1)            # (B*T, H)
 
-        # Critic loss (two‑hot symlog)
-        val_pred = self.critic(feats)
-        target = symlog(returns.detach())
-        loss_critic = F.mse_loss(val_pred, target)
+        # ── Critic 손실 ──────────────────────────────
+        val_pred   = self.critic(feats)
+        target     = symlog(returns.detach())
+        loss_critic = F.mse_loss(val_pred, target)   # (B*T,H) 평균
 
         self.opt_critic.zero_grad()
         loss_critic.backward()
         nn.utils.clip_grad_norm_(self.critic.parameters(), GRAD_CLIP)
         self.opt_critic.step()
 
-        # Actor loss (maximize predicted return via advantage)
-        dist = self.actor(feats)
-        log_prob_u = dist.log_prob(u_raw).sum(-1)
-        advantage = (returns.detach() - symexp(val_pred).detach()) #val_pred는 log 스케일 값이기 때문에, 이를 원래 scale로 복원해야 함
+        # ── Actor 손실 ───────────────────────────────
+        dist       = self.actor(feats)
+        log_prob_u = dist.log_prob(u_raw).sum(-1)    # (B*T,H)
+        advantage  = returns.detach() - symexp(val_pred).detach()
         loss_actor = -(log_prob_u * advantage).mean()
 
         self.opt_actor.zero_grad()
         loss_actor.backward()
-
-        WRITER.add_scalar("actor_critic/actor_loss", loss_actor.item(), self._steps)
-        WRITER.add_scalar("actor_critic/critic_loss", loss_critic.item(), self._steps)
-        WRITER.add_scalar("actor_critic/returns", returns.mean().item(), self._steps)
         nn.utils.clip_grad_norm_(self.actor.parameters(), GRAD_CLIP)
         self.opt_actor.step()
 
-        # Update target critic
+        # ── 타깃 크리틱 Polyak 평균 ──────────────────
         for p, p_t in zip(self.critic.parameters(), self.critic_target.parameters()):
             p_t.data.mul_(0.99).add_(0.01 * p.data)
+
+        # ── TensorBoard 로그 ────────────────────────
+        WRITER.add_scalar("actor_critic/critic_loss", loss_critic.item(), self._steps)
+        WRITER.add_scalar("actor_critic/actor_loss",  loss_actor.item(),  self._steps)
+        WRITER.add_scalar("actor_critic/returns",     returns.mean().item(), self._steps)
 
         return {'critic': loss_critic.item(), 'actor': loss_actor.item()}
 
