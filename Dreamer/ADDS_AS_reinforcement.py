@@ -389,6 +389,7 @@ class DreamerAgent:
         feats = []
         state = start_state
         for _ in range(horizon):
+            feat = self.rssm.get_feat(state)
             dist = self.actor(feat.detach())
             u = dist.rsample()
             action = torch.tanh(u)  # (B,A)
@@ -436,6 +437,10 @@ class DreamerAgent:
 
         self.opt_actor.zero_grad()
         loss_actor.backward()
+
+        WRITER.add_scalar("actor_critic/actor_loss", loss_actor.item(), self._steps)
+        WRITER.add_scalar("actor_critic/critic_loss", loss_critic.item(), self._steps)
+        WRITER.add_scalar("actor_critic/returns", returns.mean().item(), self._steps)
         nn.utils.clip_grad_norm_(self.actor.parameters(), GRAD_CLIP)
         self.opt_actor.step()
 
