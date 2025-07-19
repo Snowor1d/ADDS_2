@@ -383,24 +383,29 @@ class DreamerAgent:
 
     def _imagine(self, start_state, horizon=IMAG_HORIZON):
         '''Deterministic rollout in latent space.'''
+        
         states = []
-        feat = self.rssm.get_feat(start_state)
+        raws = []
+        feats = []
         state = start_state
         for _ in range(horizon):
             dist = self.actor(feat.detach())
-            action = torch.tanh(dist.rsample())  # (B,A)
+            u = dist.rsample()
+            action = torch.tanh(u)  # (B,A)
             state, _ = self.rssm.img_step(state, action)
             feat = self.rssm.get_feat(state)
             states.append((feat, action))
+            raws.append(u)
         feats = torch.stack([f for f, _ in states], 1)  # (B,H,F)
         actions = torch.stack([a for _, a in states], 1)
-        return feats, actions
+        raws = torch.stack(raws, 1)
+        return feats, raws, actions
 
     def _update_actor_critic(self, states):
         '''Imagined trajectories → Train actor & critic.'''
         start_states = states[-1]  # use last latent of sequence as root
 
-        feats, actions = self._imagine(start_states)
+        feats, u_raw, actions = self._imagine(start_states)
         feats = feats.detach() 
         rew_pred = self.reward_head(feats).squeeze(-1)
         disc_pred = torch.sigmoid(self.discount_head(feats)).squeeze(-1) * DISCOUNT
@@ -417,7 +422,7 @@ class DreamerAgent:
         val_pred = self.critic(feats)
         target = symlog(returns.detach())
         loss_critic = F.mse_loss(val_pred, target)
-        WRITER.add_scalar("ac/critic_loss", loss_critic.item(), self._steps)
+
         self.opt_critic.zero_grad()
         loss_critic.backward()
         nn.utils.clip_grad_norm_(self.critic.parameters(), GRAD_CLIP)
@@ -425,12 +430,10 @@ class DreamerAgent:
 
         # Actor loss (maximize predicted return via advantage)
         dist = self.actor(feats)
-    
-        log_prob = dist.log_prob(actions).sum(-1)
+        log_prob_u = dist.log_prob(u_raw).sum(-1)
         advantage = (returns.detach() - symexp(val_pred).detach()) #val_pred는 log 스케일 값이기 때문에, 이를 원래 scale로 복원해야 함
-        loss_actor = -(log_prob * advantage).mean()
-        WRITER.add_scalar("ac/actor_loss", loss_actor.item(), self._steps)
-        WRITER.add_scalar("ac/returns_mean", returns.mean().item(), self._steps)
+        loss_actor = -(log_prob_u * advantage).mean()
+
         self.opt_actor.zero_grad()
         loss_actor.backward()
         nn.utils.clip_grad_norm_(self.actor.parameters(), GRAD_CLIP)
@@ -442,10 +445,12 @@ class DreamerAgent:
 
         return {'critic': loss_critic.item(), 'actor': loss_actor.item()}
 
+
     # ---------------------------------------------------------------------
     # Environment interaction
     # ---------------------------------------------------------------------
-
+    
+    @torch.no_grad()
     def act(self, obs, training=True):
         obs_t = torch.tensor(obs, device=DEVICE).unsqueeze(0)  # (1,C,H,W)
         embed = self.encoder(obs_t)
