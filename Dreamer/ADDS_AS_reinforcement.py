@@ -32,6 +32,7 @@ EVAC80_TXT, EVAC100_TXT  = (os.path.join(LOG_PATH, f"evacuation_{p}.txt")
 
 # === Utility functions =====================================================
 
+
 def symlog(x: torch.Tensor) -> torch.Tensor: #Dreamer V3에 도입됨
     """Symmetric log transform (Dreamer V3)."""
     return torch.sign(x) * torch.log1p(torch.abs(x)) / math.log(SYML_LOG_BASE)
@@ -62,6 +63,8 @@ def launch_tensorboard(tb_log_dir, port=6006):
     webbrowser.open(url)
     print(f"TensorBoard launched at {url}")
     return proc
+
+WRITER = SummaryWriter(log_dir=TB_DIR)
 
 def monitor_metric(metric_file, metric_name, tb_log_dir):
     writer = SummaryWriter(log_dir=tb_log_dir)
@@ -368,6 +371,12 @@ class DreamerAgent:
         loss_wm.backward()
         nn.utils.clip_grad_norm_(self.opt_world.param_groups[0]['params'], GRAD_CLIP)
         self.opt_world.step()
+
+        global_step = self._steps
+        WRITER.add_scalar("world_model/img_loss", loss_img.item(), global_step)
+        WRITER.add_scalar("world_model/rew_loss", loss_rew.item(), global_step)
+        WRITER.add_scalar("world_model/kl_loss", kl_loss.item(), global_step)
+        WRITER.add_scalar("world_model/total", loss_wm.item(), global_step)
         
         states = [(s[0].detach(), s[1].detach()) for s in states]
         return loss_wm.item(), states
@@ -408,7 +417,7 @@ class DreamerAgent:
         val_pred = self.critic(feats)
         target = symlog(returns.detach())
         loss_critic = F.mse_loss(val_pred, target)
-
+        WRITER.add_scalar("ac/critic_loss", loss_critic.item(), self._steps)
         self.opt_critic.zero_grad()
         loss_critic.backward()
         nn.utils.clip_grad_norm_(self.critic.parameters(), GRAD_CLIP)
@@ -416,10 +425,12 @@ class DreamerAgent:
 
         # Actor loss (maximize predicted return via advantage)
         dist = self.actor(feats)
+    
         log_prob = dist.log_prob(actions).sum(-1)
         advantage = (returns.detach() - symexp(val_pred).detach()) #val_pred는 log 스케일 값이기 때문에, 이를 원래 scale로 복원해야 함
         loss_actor = -(log_prob * advantage).mean()
-
+        WRITER.add_scalar("ac/actor_loss", loss_actor.item(), self._steps)
+        WRITER.add_scalar("ac/returns_mean", returns.mean().item(), self._steps)
         self.opt_actor.zero_grad()
         loss_actor.backward()
         nn.utils.clip_grad_norm_(self.actor.parameters(), GRAD_CLIP)

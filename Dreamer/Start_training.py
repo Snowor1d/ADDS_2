@@ -95,7 +95,7 @@ SYML_LOG_BASE = 10
 FREE_NATS = 1.0
 GRAD_CLIP = 100.0
 DREAMER_UPDATE_FREQ = 2
-DREAMER_START_UPDATE_EP= 200
+DREAMER_START_UPDATE_EP= 1
 
 # --------------- Dreamer parameters -----------------
 
