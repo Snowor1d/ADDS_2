@@ -98,8 +98,12 @@ class ReplayBuffer:
         self._length += len(episode)
 
     def sample(self, batch_size: int = BATCH_SIZE, seq_len: int = SEQ_LEN):
-        episodes  = random.choices(self._episodes, k=batch_size)
         sequences = []
+
+        valid_eps = [ep for ep in episodes if len(ep) >= seq_len + 1] # 길이 T+1 이상인 에피소드만 선택
+        if len(valid_eps) < batch_size:
+            raise ValueError("Not enough valid episodes to sample from")
+        episodes = random.choices(valid_eps, k=batch_size)
 
         for ep in episodes:
             # ───── 랜덤 시퀀스 잘라내기 ─────
