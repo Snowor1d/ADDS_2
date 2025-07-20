@@ -63,10 +63,10 @@ ALPHA_DECAY_STEPS = 3000
 # --------------- REWARD SHAPING -----------------
 
 REWARD_A = 0 #reward_based_alived
-REWARD_B = 0.006 #reward_based_all_agents_danger
-REWARD_D = 0 #reward_based_penalty
-REWARD_K = 1 #reward_penalty_collsion
-REWARD_FIXED = -1
+REWARD_B = 0.002 #reward_based_all_agents_danger
+REWARD_D = 0.3 #reward_based_penalty
+REWARD_K = 0.2 #reward_penalty_collsion
+REWARD_FIXED = -0.3
 
 REWARD_J = 0 #reward_based_all_agents_danger_log
 REWARD_I = 0 #reward_based_alived_root
@@ -87,15 +87,15 @@ IMAG_HORIZON = 15        # imagination rollout length
 BATCH_SIZE = 32
 SEQ_LEN = 50             # length of sequences sampled from buffer
 REPLAY_CAPACITY = 200_000
-DISCOUNT = 0.997
+DISCOUNT = 0.99
 LR_WORLD = 3e-4
-LR_ACTOR = 3e-5
-LR_CRITIC = 1e-4
+LR_ACTOR = 5e-5
+LR_CRITIC = 5e-5
 SYML_LOG_BASE = 10
 FREE_NATS = 1.0
-GRAD_CLIP = 100.0
+GRAD_CLIP = 40
 DREAMER_UPDATE_FREQ = 2
-DREAMER_START_UPDATE_EP= 1
+DREAMER_START_UPDATE_EP= 100
 
 # --------------- Dreamer parameters -----------------
 
