@@ -425,14 +425,15 @@ class DreamerAgent:
         feats = feats.detach()          # world-model엔 역전파 안 함
 
         # 4) 보상·discount·가치 예측
-        rew_pred  = self.reward_head(feats).squeeze(-1)
+        rew_pred  = self.reward_head(feats).squeeze(-1) 
+        rew_pred_linear = symexp(rew_pred)
         disc_pred = torch.sigmoid(self.discount_head(feats)).squeeze(-1) * DISCOUNT
-        values    = self.critic_target(feats).detach()
-
+        values_symlog    = self.critic_target(feats).detach()
+        values = symexp(values_symlog)
         # 5) λ-리턴(=단순 부트스트랩) 계산
         returns, g = [], values[:, -1]
         for t in reversed(range(IMAG_HORIZON)):
-            g = rew_pred[:, t] + disc_pred[:, t] * g
+            g = rew_pred_linear[:, t] + disc_pred[:, t] * g
             returns.insert(0, g)
         returns = torch.stack(returns, 1)            # (B*T, H)
 
@@ -474,12 +475,10 @@ class DreamerAgent:
     # ---------------------------------------------------------------------
     
     @torch.no_grad()
-    def act(self, obs, training=True):
+    def act(self, obs, prev_action, training=True):
         obs_t = torch.tensor(obs, device=DEVICE).unsqueeze(0)  # (1,C,H,W)
         embed = self.encoder(obs_t)
-        if self._steps == 0:
-            self._state = self.rssm.init_state(1)
-        self._state, _ = self.rssm.obs_step(self._state, torch.zeros(1, ACTION_DIM, device=DEVICE), embed)
+        self._state, _ = self.rssm.obs_step(self._state, prev_action, embed)
         feat = self.rssm.get_feat(self._state)
         dist = self.actor(feat)
         if training:
@@ -495,6 +494,9 @@ class DreamerAgent:
         self._episode.append(transition)
         if transition['done']:
             self.buffer.add_episode(self._episode)
+
+    def reset_state(self):
+        self._state = self.rssm.init_state(1)
 
 # === Training loop =========================================================
 
@@ -513,6 +515,7 @@ def train(max_episodes=1_000_000, max_steps=MAX_STEPS):
                                    daemon=True).start()
 
     for ep in range(max_episodes):
+        agent.reset_state()
         env = model.FightingModel(random.randint(3, 8), 50, 50, model_num=0, robot='Q')
         obs = env.return_current_image()  # (H,W)
         obs = obs[np.newaxis, ...]  # (1,H,W)
@@ -520,7 +523,7 @@ def train(max_episodes=1_000_000, max_steps=MAX_STEPS):
 
         evacuation_time_80 = max_steps
         evacuation_time_100 = max_steps
-
+        prev_action = torch.zeros(1, ACTION_DIM, device=DEVICE)
         for t in range(max_steps):
 
             if env.alived_agents() < env.total_agents*0.2 and evacuation_time_80 == max_steps:
@@ -528,7 +531,8 @@ def train(max_episodes=1_000_000, max_steps=MAX_STEPS):
             if env.alived_agents() == 0 and evacuation_time_100 == max_steps:
                 evacuation_time_100 = t
 
-            act = agent.act(obs)
+            act = agent.act(obs, prev_action)
+            prev_action = torch.tensor(act, device=DEVICE).unsqueeze(0)
             action_res = env.robot.receive_action(act)
             env.step()
             next_obs = env.return_current_image()[np.newaxis, ...]
