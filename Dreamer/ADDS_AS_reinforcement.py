@@ -313,6 +313,9 @@ class DreamerAgent:
             return  # not enough data yet
         batch = self.buffer.sample()
         loss_wm, states = self._update_world_model(batch)
+        
+        if self._steps < WORLD_MODEL_FIRST_LEARN:
+            return loss_wm, None
         loss_ac = self._update_actor_critic(states)
         return loss_wm, loss_ac
 
@@ -456,7 +459,8 @@ class DreamerAgent:
         log_prob_u = dist.log_prob(u_raw).sum(-1)    # (B*T,H)
         advantage  = returns.detach() - symexp(val_pred).detach()
         loss_actor = -(log_prob_u * advantage).mean()
-
+        entropy = dist.entropy().sum(-1)
+        loss_actor = -(log_prob_u * advantage + ENTROPY_COEFF * entropy).mean()
         self.opt_actor.zero_grad()
         loss_actor.backward()
         nn.utils.clip_grad_norm_(self.actor.parameters(), GRAD_CLIP)
@@ -508,6 +512,8 @@ def train(max_episodes=1_000_000, max_steps=MAX_STEPS):
     import model  # FightingModel env provided by user
     agent = DreamerAgent()
     tb_proc     = launch_tensorboard(TB_DIR, port=PORT_NUM)
+
+    ACTION_REPEAT = ACTION_SCALE
     mon_total   = threading.Thread(target=monitor_metric,
                                    args=(TOTAL_REWARD_TXT, "Total Reward", TB_DIR),
                                    daemon=True).start()
@@ -519,25 +525,58 @@ def train(max_episodes=1_000_000, max_steps=MAX_STEPS):
                                    daemon=True).start()
 
     for ep in range(max_episodes):
-        agent.reset_state()
+
         env = model.FightingModel(random.randint(3, 8), 50, 50, model_num=0, robot='Q')
         obs = env.return_current_image()  # (H,W)
         obs = obs[np.newaxis, ...]  # (1,H,W)
+
+        repeat_left = 0
+        cur_action = np.zeros(ACTION_DIM, dtype=np.float32)
+        obs_start = obs
+        decision_t = 0
+        reward = 0
+        done_prev = False
+
+        agent.reset_state()
         total_reward = 0.0
 
         evacuation_time_80 = max_steps
         evacuation_time_100 = max_steps
         prev_action = torch.zeros(1, ACTION_DIM, device=DEVICE)
-        for t in range(max_steps):
 
+        repeat_left = 0
+
+        for t in range(max_steps):
+            
+            if repeat_left == 0:
+                
+                if t > 0:
+                    agent.store({
+                        'obs' : obs_start,
+                        'act' : cur_action,
+                        "rew" : reward,
+                        'done' : done_prev,
+                        't' : decision_t
+                    })
+
+                    decision_t += 1
+
+
+                cur_action = agent.act(obs, prev_action)
+                obs_start = obs
+                repeat_left = ACTION_REPEAT
+            repeat_left -= 1
+            
+            env.robot.receive_action(cur_action)
+            act = cur_action
+
+            
             if env.alived_agents() < env.total_agents*0.2 and evacuation_time_80 == max_steps:
                 evacuation_time_80 = t
             if env.alived_agents() == 0 and evacuation_time_100 == max_steps:
                 evacuation_time_100 = t
 
-            act = agent.act(obs, prev_action)
             prev_action = torch.tensor(act, device=DEVICE).unsqueeze(0)
-            action_res = env.robot.receive_action(act)
             env.step()
             next_obs = env.return_current_image()[np.newaxis, ...]
             reward = 0.0  # TODO: compute/collect from env
@@ -554,12 +593,18 @@ def train(max_episodes=1_000_000, max_steps=MAX_STEPS):
             if(REWARD_F):
                 reward += env.reward_based_evacuated_with_robot() * REWARD_F
             reward+=REWARD_FIXED
-            done = env.robot.is_game_finished or t == max_steps - 1
-            agent.store({'obs': obs, 'act': act, 'rew': reward, 'done': done, 't': t})
+            done_prev = env.robot.is_game_finished or t == max_steps - 1
             obs = next_obs
             total_reward += reward
             agent._steps += 1
-            if done:
+            if done_prev:
+                agent.store({
+                    'obs' : obs_start,
+                    'act' : cur_action,
+                    'rew' : reward,
+                    'done' : True,
+                    't' : decision_t
+                })
                 break
         with open(TOTAL_REWARD_TXT, "a") as f:   f.write(f"{total_reward}\n")
         with open(EVAC80_TXT,       "a") as f:   f.write(f"{evacuation_time_80}\n")
