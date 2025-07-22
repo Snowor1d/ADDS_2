@@ -94,6 +94,10 @@ class ReplayBuffer:
         self._length = 0  # total number of transitions
 
     def add_episode(self, episode: List[dict]):
+        if len(self._episodes) == self.capacity:
+            # 가장 오래된 에피소드 길이 빼주기
+            oldest = self._episodes[0]
+            self._length -= len(oldest)
         self._episodes.append(episode)
         self._length += len(episode)
 
@@ -398,12 +402,13 @@ class DreamerAgent:
         for _ in range(horizon):
             feat = self.rssm.get_feat(state)
             dist = self.actor(feat.detach())
-            u = dist.rsample()
-            action = torch.tanh(u)  # (B,A)
+            u_raw = dist.rsample()
+            sig_u = torch.sigmoid(u_raw)
+            action = sig_u * 4 - 2
             state, _ = self.rssm.img_step(state, action)
             feat = self.rssm.get_feat(state)
             states.append((feat, action))
-            raws.append(u)
+            raws.append(u_raw)
         feats = torch.stack([f for f, _ in states], 1)  # (B,H,F)
         actions = torch.stack([a for _, a in states], 1)
         raws = torch.stack(raws, 1)
@@ -456,11 +461,15 @@ class DreamerAgent:
 
         # ── Actor 손실 ───────────────────────────────
         dist       = self.actor(feats)
-        log_prob_u = dist.log_prob(u_raw).sum(-1)    # (B*T,H)
-        advantage  = returns.detach() - symexp(val_pred).detach()
-        loss_actor = -(log_prob_u * advantage).mean()
+
+        sig_u = torch.sigmoid(u_raw)
+        log_det = torch.log(sig_u * (1 - sig_u) * 4 + 1e-6)
+        log_prob_a = dist.log_prob(u_raw).sum(-1) - log_det.sum(-1)
+        
         entropy = dist.entropy().sum(-1)
-        loss_actor = -(log_prob_u * advantage + ENTROPY_COEFF * entropy).mean()
+        advantage  = returns.detach() - symexp(val_pred).detach()
+        loss_actor = -(log_prob_a * advantage + ENTROPY_COEFF * entropy).mean()
+
         self.opt_actor.zero_grad()
         loss_actor.backward()
         nn.utils.clip_grad_norm_(self.actor.parameters(), GRAD_CLIP)
@@ -490,9 +499,12 @@ class DreamerAgent:
         feat = self.rssm.get_feat(self._state)
         dist = self.actor(feat)
         if training:
-            action = torch.tanh(dist.rsample())
+            u_raw = dist.rsample()
         else:
-            action = torch.tanh(dist.mean)
+            u_raw = dist.mean
+        sig_u = torch.sigmoid(u_raw)
+        action = sig_u * 4 - 2
+
         return action.squeeze(0).detach().cpu().numpy()
 
     def store(self, transition):
@@ -534,7 +546,6 @@ def train(max_episodes=1_000_000, max_steps=MAX_STEPS):
         cur_action = np.zeros(ACTION_DIM, dtype=np.float32)
         obs_start = obs
         decision_t = 0
-        reward = 0
         done_prev = False
 
         agent.reset_state()
@@ -545,12 +556,13 @@ def train(max_episodes=1_000_000, max_steps=MAX_STEPS):
         prev_action = torch.zeros(1, ACTION_DIM, device=DEVICE)
 
         repeat_left = 0
-
+        reward = 0
         for t in range(max_steps):
             
             if repeat_left == 0:
                 
                 if t > 0:
+                    
                     agent.store({
                         'obs' : obs_start,
                         'act' : cur_action,
@@ -558,7 +570,7 @@ def train(max_episodes=1_000_000, max_steps=MAX_STEPS):
                         'done' : done_prev,
                         't' : decision_t
                     })
-
+                    reward = 0
                     decision_t += 1
 
 
@@ -579,7 +591,6 @@ def train(max_episodes=1_000_000, max_steps=MAX_STEPS):
             prev_action = torch.tensor(act, device=DEVICE).unsqueeze(0)
             env.step()
             next_obs = env.return_current_image()[np.newaxis, ...]
-            reward = 0.0  # TODO: compute/collect from env
             if(REWARD_A):
                 reward += env.reward_based_alived() * REWARD_A
             if(REWARD_B):
