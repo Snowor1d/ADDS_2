@@ -255,8 +255,12 @@ class Actor(nn.Module):
 
     def forward(self, feat):
         mean, std_log = torch.chunk(self.mlp(feat), 2, -1)
-        std = torch.sigmoid(std_log + 2.0) + 0.01  # per Dreamer V3
+
+        std = torch.clamp(std_log, LOG_STD_MIN, LOG_STD_MAX)
+        std = std.exp()
+
         dist = Normal(mean, std)
+
         return dist
 
 
@@ -462,13 +466,18 @@ class DreamerAgent:
         # ── Actor 손실 ───────────────────────────────
         dist       = self.actor(feats)
 
-        sig_u = torch.sigmoid(u_raw)
+        sig_u = torch.sigmoid(u_raw).clamp(1e-4, 1 - 1e-4) # 안정성 위해
         log_det = torch.log(sig_u * (1 - sig_u) * 4 + 1e-6)
         log_prob_a = dist.log_prob(u_raw).sum(-1) - log_det.sum(-1)
         
         entropy = dist.entropy().sum(-1)
         advantage  = returns.detach() - symexp(val_pred).detach()
-        loss_actor = -(log_prob_a * advantage + ENTROPY_COEFF * entropy).mean()
+
+        adv_mean = advantage.mean(dim=1, keepdim=True)
+        adv_std = advantage.std(dim=1, keepdim=True) + 1e-5
+        adv_norm = (advantage - adv_mean) / adv_std
+
+        loss_actor = -(log_prob_a * adv_norm + ENTROPY_COEFF * entropy).mean()
 
         self.opt_actor.zero_grad()
         loss_actor.backward()
