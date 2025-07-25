@@ -40,7 +40,8 @@ def symlog(x: torch.Tensor) -> torch.Tensor: #Dreamer V3에 도입됨
 
 def symexp(x: torch.Tensor) -> torch.Tensor: #Dreamer V3에 도입됨, symlog의 역함수
     """Inverse of symlog (symexp)."""
-    return torch.sign(x) * (SYML_LOG_BASE ** torch.abs(x) - 1.0)
+    x = torch.clamp(x, -15, 15)
+    return torch.sign(x) * (torch.exp(torch.abs(x) * math.log(SYML_LOG_BASE)) - 1.0)
 
 
 def static_scan(fn, inputs, start):
@@ -288,11 +289,11 @@ class DreamerAgent:
         embed_dim_t = self.encoder.out_dim
         self.rssm = RSSM(deter = LATENT_DIM, stoch=STOCH_DIM, act_dim = ACTION_DIM,embed_dim = embed_dim_t).to(DEVICE)
         feat_dim = LATENT_DIM + STOCH_DIM
+        self.discount_head = MLP(feat_dim, 1).to(DEVICE)
         self.decoder = ConvDecoder(in_dim = feat_dim).to(DEVICE)
         
         feat_dim = LATENT_DIM + STOCH_DIM
         self.reward_head = MLP(feat_dim, 1).to(DEVICE)
-        self.discount_head = MLP(feat_dim, 1).to(DEVICE)
         self.actor = Actor(feat_dim).to(DEVICE)
         self.critic = Critic(feat_dim).to(DEVICE)
         self.critic_target = Critic(feat_dim).to(DEVICE)
@@ -354,7 +355,8 @@ class DreamerAgent:
         first_state = self.rssm.init_state(B)
         states,kls = [], []
         state = first_state
-        
+        kl_posts = []
+        kl_priors = []
         for t in range(T):
             state, (prior, post) = self.rssm.obs_step(
                 state,
@@ -362,7 +364,11 @@ class DreamerAgent:
                 embed[:, t],
             )  # (B, D)
             states.append(state)
-            kls.append(torch.distributions.kl_divergence(post, prior))
+            kl_post = torch.distributions.kl_divergence(post.detach(), prior)
+            kl_prior = torch.distributions.kl_divergence(post, prior.detach())
+            kl_posts.append(kl_post)
+            kl_priors.append(kl_prior)
+        
 
 
         feats = torch.stack([self.rssm.get_feat(s) for s in states], dim=1)  # (B,T,F)
@@ -376,12 +382,18 @@ class DreamerAgent:
         loss_img = F.mse_loss(img_pred, img_target)
         loss_rew = F.mse_loss(rew_pred, rew_targets)
 
+        disc_logits = self.discount_head(feats).squeeze(-1)
+        cont_target = (1.0 - done.float())
+        loss_disc = F.binary_cross_entropy_with_logits(disc_logits, cont_target)
+        
+
         # KL loss between prior/posterior (free nats)
 
-        kl = torch.mean(torch.stack(kls, 1))
-        kl_loss = torch.clamp(kl - FREE_NATS, min=0)
+        kl_post = torch.stack(kl_posts, 1).mean()
+        kl_prior = torch.stack(kl_priors, 1).mean()
+        kl_loss = 0.8 * torch.clamp(kl_post, min=FREE_NATS) + 0.2 * torch.clamp(kl_prior, min=FREE_NATS)
 
-        loss_wm = loss_img + loss_rew + kl_loss
+        loss_wm = loss_img + loss_rew + kl_loss + loss_disc
         self.opt_world.zero_grad()
         loss_wm.backward()
         nn.utils.clip_grad_norm_(self.opt_world.param_groups[0]['params'], GRAD_CLIP)
@@ -391,6 +403,7 @@ class DreamerAgent:
         WRITER.add_scalar("world_model/img_loss", loss_img.item(), global_step)
         WRITER.add_scalar("world_model/rew_loss", loss_rew.item(), global_step)
         WRITER.add_scalar("world_model/kl_loss", kl_loss.item(), global_step)
+        WRITER.add_scalar("world_model/disc_loss", loss_disc.item(), global_step)
         WRITER.add_scalar("world_model/total", loss_wm.item(), global_step)
         
         states = [(s[0].detach(), s[1].detach()) for s in states]
@@ -399,9 +412,11 @@ class DreamerAgent:
     def _imagine(self, start_state, horizon=IMAG_HORIZON):
         '''Deterministic rollout in latent space.'''
         
+
         states = []
-        raws = []
+        u_raws = []
         feats = []
+        disc_probs = []
         state = start_state
         for _ in range(horizon):
             feat = self.rssm.get_feat(state)
@@ -409,14 +424,21 @@ class DreamerAgent:
             u_raw = dist.rsample()
             sig_u = torch.sigmoid(u_raw)
             action = sig_u * 4 - 2
+
+            logit_c = self.discount_head(feat)
+            prob_c = torch.sigmoid(logit_c).squeeze(-1)
+
             state, _ = self.rssm.img_step(state, action)
-            feat = self.rssm.get_feat(state)
-            states.append((feat, action))
-            raws.append(u_raw)
-        feats = torch.stack([f for f, _ in states], 1)  # (B,H,F)
-        actions = torch.stack([a for _, a in states], 1)
-        raws = torch.stack(raws, 1)
-        return feats, raws, actions
+            
+            feats.append(feat)
+            u_raws.append(u_raw)
+            disc_probs.append(prob_c)
+        
+        feats = torch.stack(feats, 1)
+        u_raws = torch.stack(u_raws, 1)
+        disc_probs = torch.stack(disc_probs, 1)
+
+        return feats, u_raws, disc_probs
 
     def _update_actor_critic(self, states):
         """
@@ -426,6 +448,9 @@ class DreamerAgent:
                  각 원소는 (h_t, z_t)  —  모두 detach() 된 posterior state
         """
         # 1) (B,T,*) 텐서로 변환
+        
+        lambda_ = LAMBDA
+
         h_seq = torch.stack([s[0] for s in states], 1)   # (B,T,deter)
         z_seq = torch.stack([s[1] for s in states], 1)   # (B,T,stoch)
         B, T, _ = h_seq.shape
@@ -437,22 +462,29 @@ class DreamerAgent:
         )
 
         # 3) 상상 rollout  (B*T, H, …)
-        feats, u_raw, a_sq = self._imagine(start_states)
+        feats, u_raw, cont_prob = self._imagine(start_states)
         feats = feats.detach()          # world-model엔 역전파 안 함
 
         # 4) 보상·discount·가치 예측
         rew_pred  = self.reward_head(feats).squeeze(-1) 
         rew_pred_linear = symexp(rew_pred)
-        disc_pred = torch.sigmoid(self.discount_head(feats)).squeeze(-1) * DISCOUNT
+        disc_pred = cont_prob * DISCOUNT
         values_symlog    = self.critic_target(feats).detach()
         values = symexp(values_symlog)
         # 5) λ-리턴(=단순 부트스트랩) 계산
-        returns, g = [], values[:, -1]
+        returns, next_val = [], values[:, -1]
         for t in reversed(range(IMAG_HORIZON)):
-            g = rew_pred_linear[:, t] + disc_pred[:, t] * g
-            returns.insert(0, g)
-        returns = torch.stack(returns, 1)            # (B*T, H)
+            if t == IMAG_HORIZON - 1:
+                target = rew_pred_linear[:, t] + disc_pred[:, t] * next_val
+            else:
+                target = rew_pred_linear[:, t] + disc_pred[:, t] * (
+                    (1-lambda_) * values[:, t + 1] + lambda_ * next_val
+                )
+            returns.insert(0, target)
+            next_val = target
+                  # (B*T, H)
 
+        returns = torch.stack(returns, 1)
         # ── Critic 손실 ──────────────────────────────
         val_pred   = self.critic(feats)
         target     = symlog(returns.detach())
