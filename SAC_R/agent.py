@@ -15,6 +15,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
+from Start_training import K1, K2, K3
 
 
 
@@ -256,6 +257,9 @@ class CrowdAgent(Agent):
 
         self.previous_escaped_agents = 0
         self.escaped_agents = 0
+        self.exit_belief = None       # {"idx": int, "score": float, "alpha": int}
+        self.info_decay  = 0          # 받은 정보의 전파 단계 α
+        self.vision_r    = 7          # 이웃 탐색 반경 (한 칸=0.5 m라면 ≈3.5 m)
 
 
 
@@ -396,16 +400,20 @@ class CrowdAgent(Agent):
             self.pos = new_position_robot
             return
         
-        if(self.type == 0 or self.type == 1 or self.type == 2):
-            self.pos = (int(round(self.xy[0])), int(round(self.xy[1])))
-            new_position = self.agent_modeling()
-            new_position = (int(round(new_position[0])), int(round(new_position[1])))
-            self.model.grid.move_agent(self, new_position) ## 그 위치로 이동
+        if self.type in (0, 1, 2):               # (로봇이 아니면)
+            # (1) 목표 재계산 --------------------
+            self.which_goal_agent_want()          # ← 새 버전 호출
+            # (2) 힘 계산·충돌 예측·이동 ----------
+            self.pos = (round(self.xy[0]), round(self.xy[1]))
+            new_pos  = self.agent_modeling()      # ← 내부에서 predict_collision() 포함
+            new_pos  = (int(round(new_pos[0])), int(round(new_pos[1])))
+            self.model.grid.move_agent(self, new_pos)
 
     def choice_near_goal(self, pos):
         shortest_distance = 9999999999
         near_goal = None
         for i in self.model.exit_point:
+            distance = self.mesh_to_mesh_distance(i, pos)
             if (self.mesh_to_mesh_distance(i, pos) < distance):
                 near_goal = i
                 distance = self.mesh_to_mesh_distance(i, pos)
@@ -543,10 +551,17 @@ class CrowdAgent(Agent):
         self.previous_type = self.type
 
                 
-        if(goal_d != 0):
-          desired_force = [intend_force*(self.desired_speed_a*(goal_x/goal_d)), intend_force*(self.desired_speed_a*(goal_y/goal_d))] #desired_force : 사람이 탈출구쪽으로 향하려는 힘
-        else :
-          desired_force = [0, 0]
+        tau = 0.5                                # relaxation time [s]
+        if goal_d != 0:
+            dir_x, dir_y = goal_x/goal_d, goal_y/goal_d
+        else:                                    # 목표 바로 위
+            dir_x, dir_y = 0.0, 0.0
+
+        v_des_x = self.desired_speed_a * dir_x
+        v_des_y = self.desired_speed_a * dir_y
+
+        desired_force = [(v_des_x - self.vel[0]) / tau,
+                        (v_des_y - self.vel[1]) / tau]
         
         F_x += desired_force[0]
         F_y += desired_force[1]
@@ -566,13 +581,13 @@ class CrowdAgent(Agent):
         future_xy = self.xy.copy()
         future_xy[0] += self.vel[0] * time_step
         future_xy[1] += self.vel[1] * time_step
+        future_xy = self.predict_collision(future_xy)
 
-        #if (self.model.valid_space[(int(round(future_xy[0])), int(round(future_xy[1])))]):
-        if True:
-            self.xy = future_xy.copy()
+        if self.model.valid_space[(int(round(future_xy[0])), int(round(future_xy[1])))]:
+            self.xy = future_xy
             self.blocked = False
-        else :
-            self.blocked = True
+        else:
+            self.blocked = True      # 벽이면 이동 보류
 
         if(self.xy[0] < 1):
             self.xy[0] = 1
@@ -590,106 +605,139 @@ class CrowdAgent(Agent):
         return (next_x, next_y)
 
  
-    def which_goal_agent_want(self, find_another = False):
-        global robot_prev_xy
-        robot_radius = 7
-        agent_radius = 7
-        exit_confirm_radius = 7
+    # agent.py ─ CrowdAgent 내부
+    def which_goal_agent_want(self, find_another: bool = False) -> None:
+        """
+        Modified Social-Force §2.2/2.3 규칙에 맞춘 목표 결정 함수.
+        · self.exit_belief   = {"idx": 출구 index, "score": S_ij, "alpha": hop 수}
+        · self.now_goal      = [x, y] (다음 time-step 까지의 가상 목적지)
+        """
+        # ───────────────────── 상수 설정 ─────────────────────
+        VISION_R          = 7    # 시야 반경 (=정보 직접 관찰 범위)
+        AGENT_R           = 7    # 이웃 판단 반경
+        ROBOT_R           = 7    # 로봇 영향 반경
+        EXIT_CONFIRM_R    = 7    # 출구 도착 판정 반경
         
-        to_follow_agents = [] ## 같은 mesh에 따라갈 agent가 있는지 확인하려는 list
-        for agent in self.model.crowds : ## 같은 mesh에 있는 agent들 중에서 int(round(agent.xy[0]))
-            if (agent.type == 0 or agent.type == 1): ## 로봇 following/ myway 인 agent만 확인
-                distance = math.sqrt(pow(self.xy[0]-agent.xy[0],2)+pow(self.xy[1]-agent.xy[1],2))
-                if distance < agent_radius and not agent.dead: ## agent 반경 내에 있으면
-                    to_follow_agents.append(agent)
-
-        now_mesh = self.choice_safe_mesh(self.xy) ## agent가 있는 mesh
-        if(self.danger == 0) :
-          self.danger = self.model.mesh_danger[now_mesh]
-        shortest_distance = math.sqrt(pow(self.xy[0]-self.model.exit_point[0][0],2)+pow(self.xy[1]-self.model.exit_point[0][1],2)) ## agent와 가장 가까운 탈출구 사이의 거리
-        shortest_goal = self.model.exit_point[0]
-
-        exit_point_index = 0
-        for index, i in enumerate(self.model.exit_point): ## agent가 가장 가까운 탈출구로 이동
-            if  (math.sqrt(pow(self.xy[0]-i[0],2)+pow(self.xy[1]-i[1],2)) < shortest_distance):
-                shortest_distance = math.sqrt(pow(self.xy[0]-i[0],2)+pow(self.xy[1]-i[1],2))
-                exit_point_index = index
-        if(self.is_confirmed == 1):
-            self.is_confirmed_past = 1
-
+        # ─ 0단계: ‘직접’ 출구가 보이면 α=0 정보로 belief 갱신 ─
+        for idx, center in enumerate(self.model.exit_point):
+            if self.point_to_point_distance(self.xy, center) < VISION_R:
+                sc = self.model.exit_score(self, idx, alpha=0)
+                self.exit_belief = {"idx": idx, "score": sc, "alpha": 0}
         
-        if (shortest_distance < exit_confirm_radius): ## agent가 탈출구에 도착했을 때
-            self.now_goal = self.model.exit_point[exit_point_index]
+        # ─ 1단계: 이웃에게서 정보 수신 & 비교 ─
+        neighbors = [ag for ag in self.model.crowds
+                    if (ag is not self) and not ag.dead
+                    and self.point_to_point_distance(self.xy, ag.xy) < AGENT_R]
+        
+        for nb in neighbors:
+            if nb.exit_belief:
+                alpha_new = nb.exit_belief["alpha"] + 1
+                sc    = self.model.exit_score(self, nb.exit_belief["idx"],
+                                            alpha=alpha_new)
+                if (self.exit_belief is None) or (sc > self.exit_belief["score"]):
+                    self.exit_belief = {"idx": nb.exit_belief["idx"],
+                                        "score": sc, "alpha": alpha_new}
+        
+        # ─ 2단계: belief 기반 목표 설정 ─
+        if self.exit_belief:                     # 정보가 있다면 해당 출구 중심
+            self.now_goal = self.model.exit_point[self.exit_belief["idx"]][:]
+        else:                                    # 아무 정보도 없으면 ‘가장 가까운’ 출구
+            self.now_goal = self.choice_near_exit()[:]
+        
+        # ─ 3단계: 출구에 거의 도착했는지 확인 ─
+        if self.point_to_point_distance(self.xy, self.now_goal) < EXIT_CONFIRM_R:
             self.is_confirmed = 1
-            #self.danger = 0
-            return  
+            return
         
-        robot_d = math.sqrt(pow(self.xy[0]-self.model.robot.xy[0],2)+pow(self.xy[1]-self.model.robot.xy[1],2))
-        
+        # ─ 4단계: 기존 로봇-추종‧My-way 전환 로직 (약간 정리) ─
+        robot_d = self.point_to_point_distance(self.xy, self.model.robot.xy)
         if self.not_tracking > 0:
             self.not_tracking -= 1
-        if(robot_d < robot_radius and self.model.robot_mode == "GUIDE" and self.not_tracking == 0):
-            self.robot_tracked = 7
-            self.type = 0
-            if(self.is_effected_by_robot == 0):
-                self.model.new_founded_agent_danger += self.danger
-            self.is_effected_by_robot = 1
-            if self.previous_type != 0:
-                if random.choices([0, 1], weights=[0, 1.0], k=1)[0] == 0: #agent가 로봇을 신뢰할 학률
-                    self.type = 1
-                    self.not_tracking = 7 #7step동안 로봇을 안따라가게 
-            if (self.type == 0):
-                goal_x = self.model.robot.xy[0]
-                goal_y = self.model.robot.xy[1]
-                self.type = 0
-                self.now_goal = [goal_x, goal_y]
-        else:
-            self.type = 1
-            if(len(to_follow_agents) > 0):
-                if(self.previous_mesh != now_mesh):
-                    if(random.choices([0, 1], weights=[0.9, 0.1], k=1)[0] == 0):
-                        self.type = self.previous_type
-                    elif random.choices([0, 1], weights=[0.6, 0.4], k=1)[0] == 0:
-                        self.type = 2
-                        if(self.previous_type !=2):
-                            self.follow_agent_id = random.choice(to_follow_agents).unique_id 
-                    else:
-                        self.type = 1
-            else :
-                self.type = 1
-
-        if(math.sqrt((pow(self.xy[0]-self.now_goal[0],2)+pow(self.xy[1]-self.now_goal[1],2))<2 and self.type==1) or self.agent_pos_initialized == 0 or find_another): #로봇에 의해 가이드되고 있을때는 골에 근접하더라도 골 초기화 x
-            ## agent가 가고 있는 골에 도착했을 때, 처음 agent가 생성되었을 때 
-            self.type = 1
-            self.previous_mesh = now_mesh
-            self.past_mesh = self.previous_mesh
-
-            is_ongoing_direction = random.choices([0, 1], weights=[0.5, 0.5], k=1)[0] #80프로 확률로 가던 방향 선택하게 할 것 ## 50%로 바꿈
-            
-            if (is_ongoing_direction and self.agent_pos_initialized == 1):
-                neighbors_coords = []
-                for neighbor in self.model.adjacent_mesh[now_mesh]:
-                    neighbor_coord = ((neighbor[0][0]+neighbor[1][0]+neighbor[2][0])/3, (neighbor[0][1]+neighbor[1][1]+neighbor[2][1])/3)
-                    neighbors_coords.append(neighbor_coord)
-                #print("neighbors_coords : ", neighbors_coords)
-                #print("self.direction : ", self.direction)
-                self.now_goal = find_closest_direction(self.xy, self.direction, neighbors_coords)
-                #print(self.now_goal)
-            else :
-                mesh_index = random.randint(0, len(self.model.pure_mesh)-1)
-                random_mesh_choice = self.model.pure_mesh[mesh_index]
-
-                while (random_mesh_choice == now_mesh or random_mesh_choice == self.past_mesh):
-                    random_mesh_choice = self.model.pure_mesh[random.randint(0, len(self.model.pure_mesh)-1)]
-                    #print("무한루프 걸림")
-                next_mesh = self.model.next_vertex_matrix[now_mesh][self.model.pure_mesh[mesh_index]] ## agent가 가고 있는 골에서 다음으로 가야할 골
-                self.now_goal =  [(next_mesh[0][0]+next_mesh[1][0]+next_mesh[2][0])/3, (next_mesh[0][1]+next_mesh[1][1]+next_mesh[2][1])/3] ## 다음으로 가야할 골의 중심
-            self.agent_pos_initialized = 1
         
-        if self.type == 2:
-            self.now_goal =  self.model.return_agent_id(self.follow_agent_id).xy
-        if (self.robot_tracked>0):
-            self.robot_tracked -= 1
+        if (robot_d < ROBOT_R and               # 로봇 근처 --> type 0(guide) 시도
+            self.model.robot_mode == "GUIDE" and
+            self.not_tracking == 0):
+            self.type           = 0
+            self.robot_tracked  = 7
+            self.now_goal       = self.model.robot.xy[:]   # 로봇 위치로
+            self.is_effected_by_robot = 1
+            # 신뢰 확률에 따라 다시 벗어날 수도 있음
+            if random.random() > 0.5:
+                self.type = 1
+                self.not_tracking = 7
+        else:                                     # 로봇 영향권 밖
+            if neighbors:                         # 이웃 따라가기(종래의 type==2)
+                if random.random() < 0.3:
+                    follow = min(neighbors,
+                                key=lambda nb: self.point_to_point_distance(
+                                    self.xy, nb.xy))
+                    self.type = 2
+                    self.now_goal = follow.xy[:]
+                    self.follow_agent_id = follow.unique_id
+                else:
+                    self.type = 1                # my-way
+            else:
+                self.type = 1
+        
+        # ─ 5단계: “방금 목표에 도착했거나 재탐색” 상황 처리 ─
+        if (find_another or
+            self.point_to_point_distance(self.xy, self.now_goal) < 2):
+            self.agent_pos_initialized = 1
+            # 인접 mesh 가운데 진행 방향에 가장 가까운 곳 택  (기존 코드 재활용)
+            now_mesh = self.choice_safe_mesh(self.xy)
+            neigh   = self.model.adjacent_mesh.get(now_mesh, [])
+            if neigh:
+                self.now_goal = find_closest_direction(
+                                    self.xy, self.direction,
+                                    [((m[0][0]+m[1][0]+m[2][0])/3,
+                                    (m[0][1]+m[1][1]+m[2][1])/3) for m in neigh])
+
+
+            if(math.sqrt((pow(self.xy[0]-self.now_goal[0],2)+pow(self.xy[1]-self.now_goal[1],2))<2 and self.type==1) or self.agent_pos_initialized == 0 or find_another): #로봇에 의해 가이드되고 있을때는 골에 근접하더라도 골 초기화 x
+                ## agent가 가고 있는 골에 도착했을 때, 처음 agent가 생성되었을 때 
+                self.type = 1
+                self.previous_mesh = now_mesh
+                self.past_mesh = self.previous_mesh
+
+                is_ongoing_direction = random.choices([0, 1], weights=[0.5, 0.5], k=1)[0] #80프로 확률로 가던 방향 선택하게 할 것 ## 50%로 바꿈
+                
+                if (is_ongoing_direction and self.agent_pos_initialized == 1):
+                    neighbors_coords = []
+                    for neighbor in self.model.adjacent_mesh[now_mesh]:
+                        neighbor_coord = ((neighbor[0][0]+neighbor[1][0]+neighbor[2][0])/3, (neighbor[0][1]+neighbor[1][1]+neighbor[2][1])/3)
+                        neighbors_coords.append(neighbor_coord)
+                    #print("neighbors_coords : ", neighbors_coords)
+                    #print("self.direction : ", self.direction)
+                    self.now_goal = find_closest_direction(self.xy, self.direction, neighbors_coords)
+                    #print(self.now_goal)
+                else :
+                    mesh_index = random.randint(0, len(self.model.pure_mesh)-1)
+                    random_mesh_choice = self.model.pure_mesh[mesh_index]
+
+                    while (random_mesh_choice == now_mesh or random_mesh_choice == self.past_mesh):
+                        random_mesh_choice = self.model.pure_mesh[random.randint(0, len(self.model.pure_mesh)-1)]
+                        #print("무한루프 걸림")
+                    next_mesh = self.model.next_vertex_matrix[now_mesh][self.model.pure_mesh[mesh_index]] ## agent가 가고 있는 골에서 다음으로 가야할 골
+                    self.now_goal =  [(next_mesh[0][0]+next_mesh[1][0]+next_mesh[2][0])/3, (next_mesh[0][1]+next_mesh[1][1]+next_mesh[2][1])/3] ## 다음으로 가야할 골의 중심
+                self.agent_pos_initialized = 1
+            
+            if self.type == 2:
+                self.now_goal =  self.model.return_agent_id(self.follow_agent_id).xy
+            if (self.robot_tracked>0):
+                self.robot_tracked -= 1
+
+    def predict_collision(self, future_xy):
+        for ag in self.model.crowds:
+            if ag is self or ag.dead: continue
+            # 원형 반지름 r_i ≈ 0.5 cell
+            if math.hypot(future_xy[0]-ag.xy[0], future_xy[1]-ag.xy[1]) < 1.0:
+                # 동일 진행 방향 축 상에서 안전 위치 반환
+                dir_vec = np.array(future_xy) - np.array(self.xy)
+                if np.linalg.norm(dir_vec)==0: return self.xy
+                dir_vec = dir_vec/np.linalg.norm(dir_vec)
+                safe_xy = ag.xy - dir_vec   # 한 칸 뒤로
+                return safe_xy.tolist()
+        return future_xy
 
 
   
@@ -1091,5 +1139,3 @@ class RobotAgent(CrowdAgent):
         reward = (SumList[1]+SumList[2]+SumList[3]+SumList[4])/4 - SumOfDistances
 
         return reward
-    
-

@@ -33,7 +33,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 from ADDS_AS_reinforcement import SACAgent, ReplayBuffer, PolicyNetwork, QNetwork, ACTION_SCALE, FrameStack
-from Start_training import REWARD_A, REWARD_B, REWARD_C, REWARD_D, REWARD_E, REWARD_F, REWARD_G, REWARD_H, REWARD_I, REWARD_J, REWARD_K, FINISHED_BONUS, MAP_NUM, MAP_NUM_RANDOM
+from Start_training import REWARD_A, REWARD_B, REWARD_C, REWARD_D, REWARD_E, REWARD_F, REWARD_G, REWARD_H, REWARD_I, REWARD_J, REWARD_K, FINISHED_BONUS, MAP_NUM, MAP_NUM_RANDOM, K1, K2, K3
 
 def _point_on_segment(p: Tuple[int, int],
                       a: Tuple[int, int],
@@ -320,6 +320,7 @@ class FightingModel(Model):
         self.running = (
             True  # required by the MESA Model Class to start and stop the simulation
         )
+        
         self.agent_id = 1000
         self.agent_num = 0
         self.datacollector_currents = DataCollector(
@@ -385,9 +386,30 @@ class FightingModel(Model):
         self.minimum_distance = 0
         self.new_founded_agent_danger = 0
 
-        # for i in range(50):
-        #     for j in range(50):
-        #         print("(", i, j, ")", self.valid_space[(i, j)])
+        self.exit_meta = [
+        {"idx":i,
+         "center": tuple(self.exit_point[i]),
+         "width" : 5,             # exit_width = 5
+         } for i in range(len(self.exit_point))
+        ]
+        
+
+        self.stats = DataCollector(
+            model_reporters = {
+                "Step"           : lambda m: m.step_n,
+                "Evacuated"      : lambda m: m.evacuated_agents(),
+                "EvacWithRobot"  : lambda m: m.evacuated_agents_with_robot(),
+                "AvgDanger"      : lambda m: np.mean([ag.danger for ag in m.crowds if not ag.dead]),
+            },
+            agent_reporters = {
+                "x"      : lambda a: a.xy[0],
+                "y"      : lambda a: a.xy[1],
+                "speed"  : lambda a: np.linalg.norm(a.vel),
+                "type"   : "type",
+                "danger" : "danger",
+            }
+        )
+
     def alived_agents(self):
         alived_agents = self.total_agents
         for i in self.crowds:
@@ -1187,10 +1209,30 @@ class FightingModel(Model):
             start = next_vertex_matrix[start][end]
             path.append(start)
         return path
+    
+    def exit_score(self, agent, exit_idx, alpha):
+        """식 (12)를 그대로 구현 – distance·density·width 3요소."""
+        # (i) 거리
+        d_s  = agent.point_to_point_distance(agent.xy, self.exit_point[exit_idx])
+
+        # (ii) 밀도 = 동일 출구를 향해 ‘현재’ 이동 중인 인원 수
+        people_to_exit = sum(
+                            bool(ag.exit_belief and ag.exit_belief["idx"] == exit_idx)
+                            for ag in self.crowds if not ag.dead
+                        )
+        d_e = people_to_exit
+
+        # (iii) 폭 – 이미 exit_meta에 내장됨
+        d_w = self.exit_meta[exit_idx]["width"]
+
+        base = (K1*np.exp(-d_s) + K2*np.exp(-d_e) + K3*(1-np.exp(-d_w)))
+        score = np.exp(-alpha) * base/(K1+K2+K3)
+        return score
         
 
 
     def step(self):
+        self.stats.collect(self)        # 매 스텝 자동 누적
         self.step_n += 1
         """Advance the model by one step."""
         global started
@@ -1287,13 +1329,6 @@ class FightingModel(Model):
                 reward += self.robot.point_to_point_distance(agent.xy, self.robot.xy)
                 print(self.robot.point_to_point_distance(agent.xy, self.robot.xy))
         return -reward
-
-    def reward_based_alived(self):
-        reward = 0
-        num = 0
-        
-        reward = -self.alived_agents()/self.total_agents
-        return reward
     
     def reward_based_all_agents_danger(self):
         
