@@ -364,11 +364,16 @@ class DreamerAgent:
                 embed[:, t],
             )  # (B, D)
             states.append(state)
-            kl_post = torch.distributions.kl_divergence(post.detach(), prior)
-            kl_prior = torch.distributions.kl_divergence(post, prior.detach())
+            
+            prior_detached = Normal(prior.loc.detach(), prior.scale.detach())
+            post_detached = Normal(post.loc.detach(), post.scale.detach())
+
+            kl_post = torch.distributions.kl_divergence(post, prior_detached)
+            kl_prior = torch.distributions.kl_divergence(post_detached, prior)
+
             kl_posts.append(kl_post)
             kl_priors.append(kl_prior)
-        
+
 
 
         feats = torch.stack([self.rssm.get_feat(s) for s in states], dim=1)  # (B,T,F)
