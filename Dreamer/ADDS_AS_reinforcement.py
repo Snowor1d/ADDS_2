@@ -373,6 +373,8 @@ class DreamerAgent:
 
             kl_posts.append(kl_post)
             kl_priors.append(kl_prior)
+        
+        feats = torch.stack([self.rssm.get_feat(s) for s in states], dim=1)
 
         img_pred = self.decoder(feats.reshape(-1, feats.shape[-1]))
         img_pred = torch.sigmoid(img_pred)
