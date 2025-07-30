@@ -160,7 +160,7 @@ class CrowdAgent(Agent):
 
     def __init__(self, unique_id, model, pos, type): 
         super().__init__(unique_id, model)
-        
+        self.unique_id = unique_id
         self.next_mesh = None
         self.past_mesh = None
         self.previous_mesh = None
@@ -239,6 +239,7 @@ class CrowdAgent(Agent):
         self.is_effected_by_robot = 0
         self.blocked = False
 
+        self.decision_flag = 0 # self.decision_flag == 0 -> 결정 다시 내림
 
 
         self.model.robot_mode = "GUIDE"
@@ -540,10 +541,10 @@ class CrowdAgent(Agent):
         else:
             self.is_near_robot = 0
 
-        if (self.blocked == False):
-            self.which_goal_agent_want()
-        else :
-            self.which_goal_agent_want(find_another = True)
+        # if (self.blocked == False):
+        #     self.which_goal_agent_want()
+        # else :
+        #     self.which_goal_agent_want(find_another = True)
 
         if(self.robot_initialized == 1):
             self.robot_initialized += 1
@@ -551,7 +552,7 @@ class CrowdAgent(Agent):
         self.previous_type = self.type
 
                 
-        tau = 0.5                                # relaxation time [s]
+        tau = 0.5                               # relaxation time [s]
         if goal_d != 0:
             dir_x, dir_y = goal_x/goal_d, goal_y/goal_d
         else:                                    # 목표 바로 위
@@ -612,15 +613,19 @@ class CrowdAgent(Agent):
             · self.exit_belief = {"idx": 출구 index, "score": S_ij, "alpha": hop}
             · self.now_goal    = [x, y]  (다음 time-step 까지 유효한 가상 목표)
         """
+
         # ────────── 파라미터 ──────────
-        VISION_R, AGENT_R, ROBOT_R, EXIT_CONFIRM_R = 7, 7, 7, 7
+        VISION_R, AGENT_R, ROBOT_R, EXIT_CONFIRM_R = 10, 7, 7, 7
+        P_robot_following = 0.8 #로봇을 따라갈 확률
+        P_neighbor_following = 0.7 #군중을 따라갈 확률
 
         # ─ 0단계: 직접 출구를 보면 α=0 정보 기록 ─
         for idx, center in enumerate(self.model.exit_point):
+            #print(f"센터 : {center}")
+            #print(f"거리 : {idx}", self.point_to_point_distance(self.xy, center))
             if self.point_to_point_distance(self.xy, center) < VISION_R:
                 s = self.model.exit_score(self, idx, alpha=0)
                 self.exit_belief = {"idx": idx, "score": s, "alpha": 0}
-
         # ─ 1단계: 이웃에게서 정보 수신 & 비교 ─
         neighbors = [ag for ag in self.model.crowds
                     if (ag is not self) and not ag.dead
@@ -636,70 +641,115 @@ class CrowdAgent(Agent):
         # ─ 2단계: 출구 정보가 있으면 그 출구, 없으면 탐험(Random walk) ─
         if self.exit_belief:                                       # 정보 有
             self.now_goal = self.model.exit_point[self.exit_belief["idx"]][:]
-        else:                                                      # 정보 0  → random-walk
-            now_mesh      = self.choice_safe_mesh(self.xy)
-            self.now_goal = self._explore_randomly(now_mesh)
-            self.type     = 1               # my-way
-            self.agent_pos_initialized = 1
-            return                           # **여기서 결정 확정**
-
-        # ─ 3단계: 거의 도착? ─
-        if self.point_to_point_distance(self.xy, self.now_goal) < EXIT_CONFIRM_R:
-            self.is_confirmed = 1
+            print("출구로 향하자!")
             return
 
         # ─ 4단계: 행동 타입 결정 (로봇/이웃/마이웨이) ─
-        robot_d = self.point_to_point_distance(self.xy, self.model.robot.xy)
-        if self.not_tracking > 0:
-            self.not_tracking -= 1
+        if(self.decision_flag == 0): 
+            print(f"Agent{self.unique_id} 는 새로운 결정을 내리기로 했습니다.")
+            robot_d = self.point_to_point_distance(self.xy, self.model.robot.xy)
+            if(robot_d < ROBOT_R and self.model.robot_mode == "GUIDE"):
+                if random.random() < P_robot_following:
+                    print(f"Agent{self.unique_id} 는 로봇을 따라갑니다!")
+                    self.type = 0
+                    self.now_goal = self.model.robot_xy[:]
+                    self.is_effected_by_robot = 1
+                else:
+                    self.type = 1
+                    print(f"Agent{self.unique_id} 가 로봇을 외면했습니다! - My Way")
+                
+            else :
+                followable_neighbors = []
+                for n in neighbors:
+                    if (n.type != 2): #서로가 서로를 따라갈 수는 없음
+                        followable_neighbors.append(n)
+                if(len(followable_neighbors) == 0):
+                    print(f"Agent{self.unique_id} 는 주위에 아무것도 없습니다. - My Way")
+                    self.type = 1 #따라갈 군중이 없으니 my-way
+                else: # 따라갈 군중이 있음
+                    if random.random() < (1-P_neighbor_following): #따라갈 군중이 있어도 제 갈길 가는 Agent
+                        print(f"Agent{self.unique_id} 가 이웃을 외면했습니다!")
+                        self.type = 1
+                    else: # 이웃 군중 따라가는 Agent
+                        self.type = 2
+                        self.follow_agent_id = followable_neighbors[0].unique_id # 이제 가장 믿을만한 이웃을 고를거임, 일단 초기화
+                        max_score = -99999
+                        for n in followable_neighbors:
+                            dist = self.point_to_point_distance
+                            score = 0
+                            if (n.exit_belief):
+                                score = n.exit_belief["score"]
+                            else: # 이웃한테 탈출구 정보가 없으면 일단 후순위
+                                dist = self.point_to_point_distance(self.xy, n.xy)
+                                score = -1000 - dist # 후순위 이웃 중 자기한테 가까울수록 신뢰함
+                            if score > max_score:
+                                self.follow_agent_id = n.unique_id 
+                        print(f"Agent{self.unique_id} 가 Agent{self.follow_agent_id} 를 따라갑니다!")
+            self.decision_flag = 20
+            
+        else:
+            self.decision_flag -= 1
 
-        if (robot_d < ROBOT_R and self.model.robot_mode == "GUIDE"
-                and self.not_tracking == 0):
-            # 4-A) 로봇 근처 → 80 % follow
-            if random.random() < 0.8:        # 80 %
-                self.type          = 0       # guide
-                self.robot_tracked = 7
-                self.now_goal      = self.model.robot.xy[:]
-                self.is_effected_by_robot = 1
-            else:                            # 20 %
-                self.type = 1                # 마이-웨이
-                self.not_tracking = 7
-
-        else:                                # 로봇 영향권 밖
-            if neighbors and random.random() < 0.7:   # 70 %
-                follow = min(neighbors,
-                            key=lambda nb: self.point_to_point_distance(
-                                            self.xy, nb.xy))
-                self.type = 2               # agent-following
-                self.now_goal = follow.xy[:]
-                self.follow_agent_id = follow.unique_id
-            else:                           # 30 % (또는 이웃 없음)
-                self.type = 1               # 마이-웨이
-
-        # ─ 5단계: 목표에 거의 도착했거나 재탐색 필요 ─
-        if (find_another or
-            self.point_to_point_distance(self.xy, self.now_goal) < 2):
-
+        if self.type==0:
+            self.now_goal = self.model.robot.xy 
+        elif self.type==1:
             now_mesh = self.choice_safe_mesh(self.xy)
-            neigh    = self.model.adjacent_mesh.get(now_mesh, [])
-            if neigh:
-                self.now_goal = find_closest_direction(
-                    self.xy, self.direction,
-                    [((m[0][0]+m[1][0]+m[2][0])/3,
-                    (m[0][1]+m[1][1]+m[2][1])/3) for m in neigh])
+            self.now_goal = self._explore_randomly(now_mesh)
+        elif self.type==2:
+            self.now_goal = self.model.return_agent_id(self.follow_agent_id).xy
 
-            # “도착” 이후 다시 랜덤 결정
-            if (random.random() < 0.5 and self.agent_pos_initialized):
-                # 진행중인 방향 유지(50 %)
-                pass
-            else:
-                rnd_mesh = random.choice(self.model.pure_mesh)
-                while rnd_mesh in (now_mesh, getattr(self, "past_mesh", None)):
-                    rnd_mesh = random.choice(self.model.pure_mesh)
-                nxt_mesh  = self.model.next_vertex_matrix[now_mesh][rnd_mesh]
-                self.now_goal = [ (nxt_mesh[0][0]+nxt_mesh[1][0]+nxt_mesh[2][0])/3,
-                                (nxt_mesh[0][1]+nxt_mesh[1][1]+nxt_mesh[2][1])/3 ]
-            self.agent_pos_initialized = 1
+
+        # robot_d = self.point_to_point_distance(self.xy, self.model.robot.xy)
+        # if self.not_tracking > 0:
+        #     self.not_tracking -= 1
+
+        # if (robot_d < ROBOT_R and self.model.robot_mode == "GUIDE"
+        #         and self.not_tracking == 0):
+        #     # 4-A) 로봇 근처 → 80 % follow
+        #     if random.random() < 0.8:        # 80 %
+        #         self.type          = 0       # guide
+        #         self.robot_tracked = 7
+        #         self.now_goal      = self.model.robot.xy[:]
+        #         self.is_effected_by_robot = 1
+        #     else:                            # 20 %
+        #         self.type = 1                # 마이-웨이
+        #         self.not_tracking = 7
+
+        # else:                                # 로봇 영향권 밖
+        #     if neighbors and random.random() < 0.7:   # 70 %
+        #         follow = min(neighbors,
+        #                     key=lambda nb: self.point_to_point_distance(
+        #                                     self.xy, nb.xy))
+        #         self.type = 2               # agent-following
+        #         self.now_goal = follow.xy[:]
+        #         self.follow_agent_id = follow.unique_id
+        #     else:                           # 30 % (또는 이웃 없음)
+        #         self.type = 1               # 마이-웨이
+
+        # # ─ 5단계: 목표에 거의 도착했거나 재탐색 필요 ─
+        # if (find_another or
+        #     self.point_to_point_distance(self.xy, self.now_goal) < 2):
+
+        #     now_mesh = self.choice_safe_mesh(self.xy)
+        #     neigh    = self.model.adjacent_mesh.get(now_mesh, [])
+        #     if neigh:
+        #         self.now_goal = find_closest_direction(
+        #             self.xy, self.direction,
+        #             [((m[0][0]+m[1][0]+m[2][0])/3,
+        #             (m[0][1]+m[1][1]+m[2][1])/3) for m in neigh])
+
+        #     # “도착” 이후 다시 랜덤 결정
+        #     if (random.random() < 0.5 and self.agent_pos_initialized):
+        #         # 진행중인 방향 유지(50 %)
+        #         pass
+        #     else:
+        #         rnd_mesh = random.choice(self.model.pure_mesh)
+        #         while rnd_mesh in (now_mesh, getattr(self, "past_mesh", None)):
+        #             rnd_mesh = random.choice(self.model.pure_mesh)
+        #         nxt_mesh  = self.model.next_vertex_matrix[now_mesh][rnd_mesh]
+        #         self.now_goal = [ (nxt_mesh[0][0]+nxt_mesh[1][0]+nxt_mesh[2][0])/3,
+        #                         (nxt_mesh[0][1]+nxt_mesh[1][1]+nxt_mesh[2][1])/3 ]
+        #     self.agent_pos_initialized = 1
 
         # type==2 일 때 추종 대상의 실시간 위치로 업데이트
         if self.type == 2:
@@ -722,7 +772,7 @@ class CrowdAgent(Agent):
 
         # ─ ① 진행방향 유지
         if self.agent_pos_initialized and self.direction != [0, 0] and \
-        random.random() < 0.5 and neigh_centers:
+        random.random() < 0.9 and neigh_centers:
             return find_closest_direction(self.xy, self.direction, neigh_centers)
 
         # ─ ② 완전 랜덤
