@@ -374,17 +374,13 @@ class DreamerAgent:
             kl_posts.append(kl_post)
             kl_priors.append(kl_prior)
 
-
-
-        feats = torch.stack([self.rssm.get_feat(s) for s in states], dim=1)  # (B,T,F)
-        
-        # Reconstruction & reward prediction
         img_pred = self.decoder(feats.reshape(-1, feats.shape[-1]))
-        img_target = obs[:, 1:].reshape_as(img_pred).float()
-        rew_pred = self.reward_head(feats).squeeze(-1)
-        # symlog transform rewards for stability
-        rew_targets = symlog(rew) #보상 타깃을 symlog로 변환
+        img_pred = torch.sigmoid(img_pred)
+        img_target = (obs[:, 1:].float()/255.0).reshape_as(img_pred)
         loss_img = F.mse_loss(img_pred, img_target)
+
+        rew_pred = self.reward_head(feats).squeeze(-1)
+        rew_targets = symlog(rew) #보상 타깃을 symlog로 변환
         loss_rew = F.mse_loss(rew_pred, rew_targets)
 
         disc_logits = self.discount_head(feats).squeeze(-1)
@@ -584,7 +580,7 @@ def train(max_episodes=1_000_000, max_steps=MAX_STEPS):
 
     for ep in range(max_episodes):
 
-        env = model.FightingModel(random.randint(3, 8), 50, 50, model_num=0, robot='Q')
+        env = model.FightingModel(random.randint(CROWD_NUMBER_MIN, CROWD_NUMBER_MAX), 50, 50, model_num=0, robot='Q')
         obs = env.return_current_image()  # (H,W)
         obs = obs[np.newaxis, ...]  # (1,H,W)
 
