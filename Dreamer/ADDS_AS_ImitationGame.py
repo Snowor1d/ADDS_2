@@ -265,13 +265,13 @@ def main():
             next_state = np.array(env_model.return_current_image(), dtype=np.float32)
 
             # 버퍼에 저장
-            replay_buffer.push(
-                current_state,
-                action,
-                reward,
-                next_state,
-                float(done)
-            )
+            # replay_buffer.push(
+            #     current_state,
+            #     action,
+            #     reward,
+            #     next_state,
+            #     float(done)
+            # )
 
             total_reward += reward
             step_count += 1

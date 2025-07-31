@@ -63,8 +63,8 @@ ALPHA_DECAY_STEPS = 3000
 
 # --------------- REWARD SHAPING -----------------
 
-REWARD_A = 0 #reward_based_alived
-REWARD_B = 0.002 #reward_based_all_agents_danger
+REWARD_A = 2 #reward_based_alived
+REWARD_B = 0.006 #reward_based_all_agents_danger
 REWARD_D = 0.3 #reward_based_penalty
 REWARD_K = 0.2 #reward_penalty_collsion
 REWARD_FIXED = -0.3
@@ -97,7 +97,7 @@ FREE_NATS = 1.0
 GRAD_CLIP = 10
 DREAMER_UPDATE_FREQ = 2
 DREAMER_START_UPDATE_EP= 100
-WORLD_MODEL_FIRST_LEARN = 1_000_000 # /1000->300
+WORLD_MODEL_FIRST_LEARN = 1_000_000 # /1000->1000
 ENTROPY_COEFF = 0.003
 LAMBDA= 0.95
 
