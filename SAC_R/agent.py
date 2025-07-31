@@ -642,22 +642,22 @@ class CrowdAgent(Agent):
         # ─ 2단계: 출구 정보가 있으면 그 출구, 없으면 탐험(Random walk) ─
         if self.exit_belief:                                       # 정보 有
             self.now_goal = self.model.exit_point[self.exit_belief["idx"]][:]
-            print("출구로 향하자!")
+            #print("출구로 향하자!")
             return
 
         # ─ 4단계: 행동 타입 결정 (로봇/이웃/마이웨이) ─
         robot_d = self.point_to_point_distance(self.xy, self.model.robot.xy)
         if(self.decision_flag == 0 or robot_d < ROBOT_R): 
-            print(f"Agent{self.unique_id} 는 새로운 결정을 내리기로 했습니다.")
+            #print(f"Agent{self.unique_id} 는 새로운 결정을 내리기로 했습니다.")
             if(robot_d < ROBOT_R and self.model.robot_mode == "GUIDE"):
                 if random.random() < P_robot_following:
-                    print(f"Agent{self.unique_id} 는 로봇을 따라갑니다!")
+                    #print(f"Agent{self.unique_id} 는 로봇을 따라갑니다!")
                     self.type = 0
                     self.now_goal = self.model.robot_xy[:]
                     self.is_effected_by_robot = 1
                 else:
                     self.type = 1
-                    print(f"Agent{self.unique_id} 가 로봇을 외면했습니다! - My Way")
+                    #print(f"Agent{self.unique_id} 가 로봇을 외면했습니다! - My Way")
                 
             else :
                 followable_neighbors = []
@@ -665,11 +665,11 @@ class CrowdAgent(Agent):
                     if (n.type != 2): #서로가 서로를 따라갈 수는 없음
                         followable_neighbors.append(n)
                 if(len(followable_neighbors) == 0):
-                    print(f"Agent{self.unique_id} 는 주위에 아무것도 없습니다. - My Way")
+                    #print(f"Agent{self.unique_id} 는 주위에 아무것도 없습니다. - My Way")
                     self.type = 1 #따라갈 군중이 없으니 my-way
                 else: # 따라갈 군중이 있음
                     if random.random() < (1-P_neighbor_following): #따라갈 군중이 있어도 제 갈길 가는 Agent
-                        print(f"Agent{self.unique_id} 가 이웃을 외면했습니다!")
+                        #print(f"Agent{self.unique_id} 가 이웃을 외면했습니다!")
                         self.type = 1
                     else: # 이웃 군중 따라가는 Agent
                         self.type = 2
@@ -685,7 +685,7 @@ class CrowdAgent(Agent):
                                 score = -1000 - dist # 후순위 이웃 중 자기한테 가까울수록 신뢰함
                             if score > max_score:
                                 self.follow_agent_id = n.unique_id 
-                        print(f"Agent{self.unique_id} 가 Agent{self.follow_agent_id} 를 따라갑니다!")
+                        #print(f"Agent{self.unique_id} 가 Agent{self.follow_agent_id} 를 따라갑니다!")
             self.decision_flag = self.decision_period
             
         else:
@@ -912,7 +912,7 @@ class RobotAgent(CrowdAgent):
 
     # ------------------------------------------------------------
     def _lead(self):
-        print("leading!")
+        #print("leading!")
         """agent를 데리고 출구로 이동"""
         tgt = self.model.return_agent_id(self.lead_target_id)
         if tgt is None or tgt.dead:               # agent가 사라졌으면 종료

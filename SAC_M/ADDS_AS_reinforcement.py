@@ -129,6 +129,28 @@ def make_frame(img50, scale):
     plane = np.full_like(img50, scale*10, dtype=np.float32) # scale을 uint8로 저장 위해
     return np.stack([img50.astype(np.float32), plane], axis=0)    
 
+class FiLMBlock(nn.Module):
+    """Feature-wise Linear Modulation (condition = 단일 scale 값)"""
+    def __init__(self, feat_dim: int):
+        super().__init__()
+        self.gamma = nn.Linear(1, feat_dim)
+        self.beta  = nn.Linear(1, feat_dim)
+
+    def forward(self, x: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
+        scale = scale.unsqueeze(-1)        # (B,1)
+        γ = self.gamma(scale)              # (B, feat_dim)
+        β = self.beta(scale)               # (B, feat_dim)
+        if x.dim() == 2:                   # FC 특징
+            return γ * x + β
+        else:                              # Conv 특징 맵
+            γ = γ[:, :, None, None]
+            β = β[:, :, None, None]
+            return γ * x + β
+
+
+
+
+
 ##########################################################################
 # 1) Replay Buffer
 ##########################################################################
@@ -152,7 +174,7 @@ class ReplayBuffer:
     def __init__(
         self,
         capacity: int,
-        state_shape = (8, 50, 50),
+        state_shape = (4, 50, 50),
         action_dim = 2,
         device=None,
         state_dtype: np.dtype = np.uint8,
