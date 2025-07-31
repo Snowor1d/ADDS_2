@@ -239,7 +239,8 @@ class CrowdAgent(Agent):
         self.is_effected_by_robot = 0
         self.blocked = False
 
-        self.decision_flag = 0 # self.decision_flag == 0 -> 결정 다시 내림
+        self.decision_flag = random.randint(1,5) # self.decision_flag == 0 -> 결정 다시 내림
+        self.decision_period = random.randint(15,40) #self.decision_period == 0 -> 결정 다시 내림, 군중 마다 얼마만큼의 시간동안 자신의 결정을 번복하지 않는가 모델링
 
 
         self.model.robot_mode = "GUIDE"
@@ -616,7 +617,7 @@ class CrowdAgent(Agent):
 
         # ────────── 파라미터 ──────────
         VISION_R, AGENT_R, ROBOT_R, EXIT_CONFIRM_R = 10, 7, 7, 7
-        P_robot_following = 0.8 #로봇을 따라갈 확률
+        P_robot_following = 1 #로봇을 따라갈 확률
         P_neighbor_following = 0.7 #군중을 따라갈 확률
 
         # ─ 0단계: 직접 출구를 보면 α=0 정보 기록 ─
@@ -645,9 +646,9 @@ class CrowdAgent(Agent):
             return
 
         # ─ 4단계: 행동 타입 결정 (로봇/이웃/마이웨이) ─
-        if(self.decision_flag == 0): 
+        robot_d = self.point_to_point_distance(self.xy, self.model.robot.xy)
+        if(self.decision_flag == 0 or robot_d < ROBOT_R): 
             print(f"Agent{self.unique_id} 는 새로운 결정을 내리기로 했습니다.")
-            robot_d = self.point_to_point_distance(self.xy, self.model.robot.xy)
             if(robot_d < ROBOT_R and self.model.robot_mode == "GUIDE"):
                 if random.random() < P_robot_following:
                     print(f"Agent{self.unique_id} 는 로봇을 따라갑니다!")
@@ -685,7 +686,7 @@ class CrowdAgent(Agent):
                             if score > max_score:
                                 self.follow_agent_id = n.unique_id 
                         print(f"Agent{self.unique_id} 가 Agent{self.follow_agent_id} 를 따라갑니다!")
-            self.decision_flag = 20
+            self.decision_flag = self.decision_period
             
         else:
             self.decision_flag -= 1
