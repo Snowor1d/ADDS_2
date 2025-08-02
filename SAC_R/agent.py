@@ -647,6 +647,8 @@ class CrowdAgent(Agent):
 
         # ─ 4단계: 행동 타입 결정 (로봇/이웃/마이웨이) ─
         robot_d = self.point_to_point_distance(self.xy, self.model.robot.xy)
+        if(robot_d >= ROBOT_R and self.type==0):
+            self.decision_flag = 0
         if(self.decision_flag == 0 or robot_d < ROBOT_R): 
             #print(f"Agent{self.unique_id} 는 새로운 결정을 내리기로 했습니다.")
             if(robot_d < ROBOT_R and self.model.robot_mode == "GUIDE"):

@@ -1138,35 +1138,68 @@ class FightingModel(Model):
             self.grid.place_agent(self.robot, spawn)
     
     
-    def random_agent_distribute_outdoor(self, agent_num, ran):
+    # def random_agent_distribute_outdoor(self, agent_num, ran):
         
 
-        space_num = len(self.pure_mesh)
+    #     space_num = len(self.pure_mesh)
         
         
-        space_agent = agent_num
-        agent_location = []
+    #     space_agent = agent_num
+    #     agent_location = []
 
-        for i in range(agent_num):
-            assign_mesh_num = random.randint(0, space_num-1)
-            assigned_mesh = self.pure_mesh[assign_mesh_num]
+    #     for i in range(agent_num):
+    #         assign_mesh_num = random.randint(0, space_num-1)
+    #         assigned_mesh = self.pure_mesh[assign_mesh_num]
             
-            while(1):
-                assigned_coordinates = self.match_mesh_to_grid[assigned_mesh]
-                if (len(assigned_coordinates) !=0):
-                    break
-                else :
-                    assign_mesh_num = random.randint(0, space_num-1)
-                    assigned_mesh = self.pure_mesh[assign_mesh_num]
-            assigned = assigned_coordinates[random.randint(0, len(assigned_coordinates)-1)]
-            assigned = [int(assigned[0]), int(assigned[1])]
-            if not assigned in agent_location:
-                agent_location.append(assigned)
-                a = CrowdAgent(self.agent_num, self, assigned, 1)
-                self.crowds.append(a)
-                self.agent_num += 1
-                self.schedule.add(a)
-                self.grid.place_agent(a, assigned)
+    #         while(1):
+    #             assigned_coordinates = self.match_mesh_to_grid[assigned_mesh]
+    #             if (len(assigned_coordinates) !=0):
+    #                 break
+    #             else :
+    #                 assign_mesh_num = random.randint(0, space_num-1)
+    #                 assigned_mesh = self.pure_mesh[assign_mesh_num]
+    #         assigned = assigned_coordinates[random.randint(0, len(assigned_coordinates)-1)]
+    #         assigned = [int(assigned[0]), int(assigned[1])]
+    #         if not assigned in agent_location:
+    #             agent_location.append(assigned)
+    #             a = CrowdAgent(self.agent_num, self, assigned, 1)
+    #             self.crowds.append(a)
+    #             self.agent_num += 1
+    #             self.schedule.add(a)
+    #             self.grid.place_agent(a, assigned)
+
+    def random_agent_distribute_outdoor(self, agent_num, ran, padding=1):
+        agent_location = []
+        space_num = len(self.pure_mesh)
+
+        for _ in range(agent_num):
+            while True:
+                mesh = self.pure_mesh[random.randrange(space_num)]
+                coords = self.match_mesh_to_grid[mesh]
+                if not coords:
+                    continue
+
+                x, y = random.choice(coords)
+                # ─ 안전성 체크 ──────────────────────────────
+                # 1) 외곽 패딩 확보
+                if x < padding or x >= self.width - padding \
+                or y < padding or y >= self.height - padding:
+                    continue
+                # 2) 벽·장애물 셀 제외
+                if self.valid_space.get((x, y), 0) == 0:
+                    continue
+                # 3) 중복 위치 제외
+                if (x, y) in agent_location:
+                    continue
+                break
+
+            # ─ 실제 배치 ─────────────────────────────────
+            agent_location.append((x, y))
+            a = CrowdAgent(self.agent_num, self, [x, y], 1)
+            self.crowds.append(a)
+            self.agent_num += 1
+            self.schedule.add(a)
+            self.grid.place_agent(a, (x, y))
 
 
 
