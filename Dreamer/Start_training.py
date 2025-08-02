@@ -21,7 +21,7 @@ BUFFER_SIZE = 1000000
 BATCH_SIZE = 128
 INTRINSIC_ETA = 0.1 #intrinsic reward
 START_BATCH_TIMES = 1
-START_UPDATE_STEP = 150
+START_UPDATE_STEP = 1
 DEVICE = "cuda"
 
 GAMMA_START = 0.99
@@ -49,7 +49,7 @@ LONG_EPSILON_MIN = 0
 START_LONG_EPSILON = 0
 
 # -------------- PATH -------------------
-LOG_DIR = "Log_DREAMER"
+LOG_DIR = "Log_SAC_M"
 PORT_NUM = 6007
 
 # --------------- SAC ALGORITHM PARAMETER ---------------

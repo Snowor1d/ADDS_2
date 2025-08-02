@@ -49,7 +49,7 @@ LONG_EPSILON_MIN = 0
 START_LONG_EPSILON = 0
 
 # -------------- PATH -------------------
-LOG_DIR = "Log_SAC_FOUR"
+LOG_DIR = "Log_SAC_M"
 PORT_NUM = 6008
 
 # --------------- SAC ALGORITHM PARAMETER ---------------

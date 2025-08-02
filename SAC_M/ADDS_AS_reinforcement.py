@@ -126,8 +126,7 @@ def gamma_ascent_schedule(parameter_start: float,
     
 
 def make_frame(img50, scale):
-    plane = np.full_like(img50, scale*10, dtype=np.float32) # scale을 uint8로 저장 위해
-    return np.stack([img50.astype(np.float32), plane], axis=0)    
+    return img50.astype(np.float32)[None, ...]
 
 class FiLMBlock(nn.Module):
     """Feature-wise Linear Modulation (condition = 단일 scale 값)"""
@@ -137,7 +136,7 @@ class FiLMBlock(nn.Module):
         self.beta  = nn.Linear(1, feat_dim)
 
     def forward(self, x: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
-        scale = scale.unsqueeze(-1)        # (B,1)
+        scale = scale.view(-1, 1)     # (B,1)
         γ = self.gamma(scale)              # (B, feat_dim)
         β = self.beta(scale)               # (B, feat_dim)
         if x.dim() == 2:                   # FC 특징
@@ -186,8 +185,14 @@ class ReplayBuffer:
         # 고정 크기 NumPy 배열 할당
         self.states = np.zeros((capacity, *state_shape), dtype=state_dtype)
         self.next_states = np.zeros((capacity, *state_shape), dtype=state_dtype)
+        
         self.actions = np.zeros((capacity, action_dim), dtype=np.float32)
-        self.rewards = np.zeros((capacity,), dtype=np.float32)
+        self.rewards = np.zeros((capacity,), dtype =np.float32)
+        
+        self.scales = np.zeros((capacity,), np.float32)
+        self.next_scales = np.zeros((capacity,), np.float32)
+
+
         self.dones = np.zeros((capacity,), dtype=bool)
 
         self.ptr = 0
@@ -199,6 +204,8 @@ class ReplayBuffer:
         action: np.ndarray,
         reward: float,
         next_state: np.ndarray,
+        scale: float,
+        next_scale: float,
         done: bool,
     ) -> None:
         i = self.ptr
@@ -207,7 +214,10 @@ class ReplayBuffer:
         self.next_states[i] = next_state.astype(self.state_dtype, copy=False)
         self.actions[i] = action
         self.rewards[i] = reward
+        self.scales[i] = scale
+        self.next_scales[i] = next_scale
         self.dones[i] = done
+        
 
         # 포인터 업데이트
         self.ptr = (i + 1) % self.capacity
@@ -222,7 +232,10 @@ class ReplayBuffer:
         batch_rewards = torch.from_numpy(self.rewards[idx]).to(self.device)
         batch_dones = torch.from_numpy(self.dones[idx].astype(np.float32)).to(self.device)
 
-        return batch_states, batch_actions, batch_rewards, batch_next_states, batch_dones
+        batch_scales = torch.from_numpy(self.scales[idx].astype(np.float32)).to(self.device)
+        batch_next_scales = torch.from_numpy(self.next_scales[idx].astype(np.float32)).to(self.device)
+
+        return batch_states, batch_actions, batch_rewards, batch_next_states, batch_dones, batch_scales, batch_next_scales
 
     def __len__(self) -> int:
         return self.size
@@ -236,6 +249,8 @@ class ReplayBuffer:
             actions=self.actions[: self.size],
             rewards=self.rewards[: self.size],
             dones=self.dones[: self.size],
+            scales = self.scales[: self.size],
+            next_scales = self.next_scales[: self.size],
             size=self.size,
             ptr=self.ptr,
             capacity=self.capacity,
@@ -261,6 +276,8 @@ class ReplayBuffer:
         self.actions[: self.size] = data["actions"]
         self.rewards[: self.size] = data["rewards"]
         self.dones[: self.size] = data["dones"]
+        self.scales[: self.size] = data["scales"]
+        self.next_scales[: self.size] = data["next_scales"]
 
 
 class ResidualBlock(nn.Module):
@@ -308,7 +325,7 @@ class EpsilonScheduler:
 
     def get_epsilon(self, now_epsilon, episode):
         # 아직 감소 시작 전이면 초기값 반환
-        
+
         if episode < self.start_decay_step:
             return now_epsilon
 
@@ -332,12 +349,16 @@ class QNetwork(nn.Module):
     def __init__(self, input_shape=(50,50), action_dim=2):
         super(QNetwork, self).__init__()
         # CNN feature extractor
-        self.conv1 = nn.Conv2d(8, 32, kernel_size=5, stride=2, padding=2)
+        self.conv1 = nn.Conv2d(4, 32, kernel_size=5, stride=2, padding=2)
         self.bn1   = nn.BatchNorm2d(32)
         self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)
         self.bn2   = nn.BatchNorm2d(64)
         self.conv3 = nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1)
         self.bn3   = nn.BatchNorm2d(128)
+
+        self.film1 = FiLMBlock(32)
+        self.film2 = FiLMBlock(64)
+        self.film3 = FiLMBlock(128)
         
         # conv_out_size 계산 (flatten 전 feature 크기)
         conv_out_size = self._get_conv_out(input_shape)
@@ -348,22 +369,26 @@ class QNetwork(nn.Module):
         self.q_out = nn.Linear(256, 1)
 
     def _get_conv_out(self, shape):
-        dummy = torch.zeros(1, 8, *shape)  # (batch, channel=1, H, W)
+        dummy = torch.zeros(1, 4, *shape) 
         o = F.leaky_relu(self.bn1(self.conv1(dummy)), negative_slope=0.01)
         o = F.leaky_relu(self.bn2(self.conv2(o)), negative_slope=0.01)
         o = F.leaky_relu(self.bn3(self.conv3(o)), negative_slope=0.01)
         return int(np.prod(o.size()[1:]))
 
-    def forward(self, state, action):
-        x = F.leaky_relu(self.bn1(self.conv1(state)), negative_slope=0.01)
-        x = F.leaky_relu(self.bn2(self.conv2(x)), negative_slope=0.01)
-        x = F.leaky_relu(self.bn3(self.conv3(x)), negative_slope=0.01)
+    def forward(self, state, action, scale):
+        x = F.leaky_relu(self.bn1(self.conv1(state)), 0.01)
+        x = self.film1(x, scale)
+        x = F.leaky_relu(self.bn2(self.conv2(x)), 0.01)
+        x = self.film2(x, scale)
+        x = F.leaky_relu(self.bn3(self.conv3(x)), 0.01)
+        x = self.film3(x, scale)
+
         x = x.view(x.size(0), -1)
-        # 행동 정보를 이미지 feature와 concat
         x = torch.cat([x, action], dim=1)
-        x = F.leaky_relu(self.fc1(x), negative_slope=0.01)
-        x = F.leaky_relu(self.fc2(x), negative_slope=0.01)
+        x = F.leaky_relu(self.fc1(x), 0.01)
+        x = F.leaky_relu(self.fc2(x), 0.01)
         q_val = self.q_out(x)
+        #?
         return q_val
 
 
@@ -377,12 +402,16 @@ class PolicyNetwork(nn.Module):
         self.log_std_max = LOG_STD_MAX
 
         # --- 여기서 conv1, bn1 선언 ---
-        self.conv1 = nn.Conv2d(8, 32, kernel_size=5, stride=2, padding=2)
+        self.conv1 = nn.Conv2d(4, 32, kernel_size=5, stride=2, padding=2)
         self.bn1   = nn.BatchNorm2d(32)
         self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)
         self.bn2   = nn.BatchNorm2d(64)
         self.conv3 = nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1)
         self.bn3   = nn.BatchNorm2d(128)
+
+        self.film1 = FiLMBlock(32)
+        self.film2 = FiLMBlock(64)
+        self.film3 = FiLMBlock(128)
         
         # fc_backbone
         conv_out_size = self._get_conv_out(input_shape)
@@ -398,33 +427,37 @@ class PolicyNetwork(nn.Module):
         # 최종 출력: (dx, dy)의 mean, log_std
         self.mean_head = nn.Linear(64, 2)
         self.log_std_head = nn.Linear(64, 2)
+        self.log_std_min = LOG_STD_MIN
+        self.log_std_max = LOG_STD_MAX
 
     def _get_conv_out(self, shape):
-        dummy = torch.zeros(1, 8, *shape)
+        dummy = torch.zeros(1, 4, *shape)
         x = F.leaky_relu(self.bn1(self.conv1(dummy)), negative_slope=0.01)
         x = F.leaky_relu(self.bn2(self.conv2(x)), negative_slope=0.01)
         x = F.leaky_relu(self.bn3(self.conv3(x)), negative_slope=0.01)
         x = x.view(x.size(0), -1)
         return int(np.prod(x.size()[1:]))
 
-    def backbone(self, state):
+    def backbone(self, state, scale):
         x = F.leaky_relu(self.bn1(self.conv1(state)), negative_slope=0.01)
+        x = self.film1(x, scale)
         x = F.leaky_relu(self.bn2(self.conv2(x)), negative_slope=0.01)
+        x = self.film2(x, scale)
         x = F.leaky_relu(self.bn3(self.conv3(x)), negative_slope=0.01)
+        x = self.film3(x, scale)
         x = x.view(x.size(0), -1)
         feat = self.fc_backbone(x)
         return feat
 
-    def forward(self, state):
-        feat = self.backbone(state)
+    def forward(self, state, scale):
+        feat = self.backbone(state, scale)
         mean = self.mean_head(feat)
-        log_std = self.log_std_head(feat)
-        log_std = torch.clamp(log_std, self.log_std_min, self.log_std_max)
+        log_std = self.log_std_head(feat).clamp(self.log_std_min, self.log_std_max)
         return mean, log_std
 
-    def sample_action(self, state, temperature=1.0):
+    def sample_action(self, state, scale, temperature=1.0):
         B = state.size(0)
-        mean, log_std = self.forward(state)
+        mean, log_std = self.forward(state, scale)
         std = log_std.exp()
         eps = torch.randn_like(mean) * temperature
         u = mean + std * eps
@@ -525,14 +558,14 @@ class SACAgent:
     # ------------------------------------------------- #
     # Store experience
     # ------------------------------------------------- #
-    def store_transition(self, s, a, r, s_next, done):
+    def store_transition(self, s, scale, a, r, s_next, next_scale, done):
         # if -20 <= a[0] <= 20 and -20 <= a[1] <= 20:
-        self.replay_buffer.push(s, a, r, s_next, done)
+        self.replay_buffer.push(s, a, r, s_next, scale, next_scale, done)
 
     # ------------------------------------------------- #
     # Select action
     # ------------------------------------------------- #
-    def select_action(self, state_np, deterministic=False):
+    def select_action(self, state_np, scale_np, deterministic=False):
 
         if(EXPLORATION_TYPE == 0):
             # Epsilon check
@@ -543,17 +576,18 @@ class SACAgent:
                 return np.array([dx, dy]), True
 
         # Otherwise use the policy
-        state_t = torch.FloatTensor(state_np).unsqueeze(0).to(self.device)  # (1,1,H,W)
+        state_t  = torch.FloatTensor(state_np).unsqueeze(0).to(self.device)
+        scale_t  = torch.FloatTensor([scale_np]).to(self.device)   
         # state_np는 2D 배열인데, 차원을 추가하여 모델 입력에 적합한 차원으로 만들려는 것
 
         with torch.no_grad():
             if deterministic:
                 # 결정적 행동 선택: mean에 대해 바로 sigmoid 변환.
-                mean, _ = self.policy.forward(state_t)
+                mean, _ = self.policy.forward(state_t, scale_t)
                 action_t = 4*torch.sigmoid(mean)-2
             else:
                 # 비결정적 선택: sample_action에서 샘플링 (자코비안 보정 포함)
-                action_t, log_prob = self.policy.sample_action(state_t)
+                action_t, log_prob = self.policy.sample_action(state_t, scale_t)
         action_np = action_t.cpu().numpy()[0]
         print(action_np)
 
@@ -578,24 +612,24 @@ class SACAgent:
         #states, actions, rewards, next_states, dones = self.replay_buffer.sample(self.batch_size)
 
         # 1. Replay Buffer에서 샘플 가져오기
-        states, actions, rewards, next_states, dones = self.replay_buffer.sample(self.batch_size)
+        states, actions, rewards, next_states, dones, scales, next_scales = self.replay_buffer.sample(self.batch_size)
 
 
         # (B,1,H,W), (B,4), (B,), (B,1,H,W), (B,)
         # Q target:
         with torch.no_grad():
             # next action, next log prob
-            next_action, next_log_prob = self.policy.sample_action(next_states) #update 할때 최적 정책으로 update -> off policy !!
+            next_action, next_log_prob = self.policy.sample_action(next_states, next_scales) #update 할때 최적 정책으로 update -> off policy !!
             # compute target Q
-            q1_next = self.q1_target(next_states, next_action)
-            q2_next = self.q2_target(next_states, next_action)
+            q1_next = self.q1_target(next_states, next_action, next_scales)
+            q2_next = self.q2_target(next_states, next_action, next_scales)
             q_next = torch.min(q1_next, q2_next).squeeze(-1)  # (B,)
             # soft state value
             q_target = rewards + self.gamma * (1 - dones) * (q_next - self.alpha * next_log_prob)
 
         # ----- Update Q1, Q2 -----
-        q1_val = self.q1(states, actions).squeeze(-1)  # (B,) #q value를 scalar 값으로
-        q2_val = self.q2(states, actions).squeeze(-1)
+        q1_val = self.q1(states, actions, scales)
+        q2_val = self.q2(states, actions, scales)
         loss_q1 = F.mse_loss(q1_val, q_target) # q의 실제와 예측 차이 계산
         loss_q2 = F.mse_loss(q2_val, q_target)
         max_grad_norm = 1.0
@@ -614,9 +648,9 @@ class SACAgent:
 
         # ----- Update Policy -----
         # re-sample action from current policy
-        new_action, log_prob = self.policy.sample_action(states)
-        q1_new = self.q1(states, new_action)
-        q2_new = self.q2(states, new_action)
+        new_action, log_prob = self.policy.sample_action(states, scales)
+        q1_new = self.q1(states, new_action, scales)
+        q2_new = self.q2(states, new_action, scales)
         q_new = torch.min(q1_new, q2_new).squeeze(-1)  # (B,)
 
         # policy loss = alpha * log_prob - Q
@@ -667,6 +701,13 @@ class SACAgent:
     def load_model(self, filepath):
         filepath = os.path.join(log_dir, filepath)
         ckpt = torch.load(filepath)
+
+        w = ckpt['q1']['conv1.weight']          # [32, 8, 5, 5]
+        ckpt['q1']['conv1.weight'] = w[:, :4]   # [32, 4, 5, 5]
+
+        w = ckpt['q2']['conv1.weight']
+        ckpt['q2']['conv1.weight'] = w[:, :4]
+        
         self.q1.load_state_dict(ckpt['q1'])
         self.q2.load_state_dict(ckpt['q2'])
         self.q1_target.load_state_dict(ckpt['q1_target'])
@@ -868,7 +909,7 @@ if __name__ == "__main__":
                     
                     if step > 0:
                         state = frame_stack.append(curr_frame)
-                    action_np, _ = agent.select_action(state)
+                    action_np, _ = agent.select_action(state, scale)
                     dx, dy = action_np[0], action_np[1]
                     real_action = env_model.robot.receive_action([dx, dy])
                     action_np[0] = real_action[0]
@@ -889,12 +930,13 @@ if __name__ == "__main__":
                     heat_logger.update(env_model.map_num, hx, hy) 
 
                 
-                img_raw, _ = env_model.return_current_image(return_scale=True)
+                img_raw, scale = env_model.return_current_image(return_scale=True)
                 curr_frame = make_frame(img_raw, scale)
                 next_state = frame_stack.peek_with(curr_frame)
                 sim_timer.stop()
                 reward = 0
                 r_k = 0
+                next_scale = scale
 
                 # 4) Next state
 
@@ -961,9 +1003,11 @@ if __name__ == "__main__":
 
                     agent.store_transition(    
                         buffered_state,
+                        scale,
                         buffered_action,
                         reward, 
-                        next_state, 
+                        next_state,
+                        next_scale, 
                         float(done)
                     )
                     total_reward += reward

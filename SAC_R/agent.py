@@ -187,6 +187,8 @@ class CrowdAgent(Agent):
         self.which_goal = 0
         self.previous_stage = []
         self.now_goal = [0,0]
+        self.now_pointing_mesh = None
+
         global robot_prev_xy
         self.robot_previous_goal = [0, 0]
         self.robot_initialized = 0
@@ -240,7 +242,7 @@ class CrowdAgent(Agent):
         self.blocked = False
 
         self.decision_flag = random.randint(1,5) # self.decision_flag == 0 -> 결정 다시 내림
-        self.decision_period = random.randint(15,40) #self.decision_period == 0 -> 결정 다시 내림, 군중 마다 얼마만큼의 시간동안 자신의 결정을 번복하지 않는가 모델링
+        self.decision_period = random.randint(15,35) #self.decision_period == 0 -> 결정 다시 내림, 군중 마다 얼마만큼의 시간동안 자신의 결정을 번복하지 않는가 모델링
 
 
         self.model.robot_mode = "GUIDE"
@@ -695,9 +697,18 @@ class CrowdAgent(Agent):
 
         if self.type==0:
             self.now_goal = self.model.robot.xy 
+
         elif self.type==1:
             now_mesh = self.choice_safe_mesh(self.xy)
+
+            if (now_mesh == self.now_pointing_mesh): #향햐던 mesh에 도달했을 때
+                self.now_pointing_mesh = None
+
+            if (self.now_pointing_mesh == None): # 향하던 mesh에 도달하면 -> None으로 설정 -> 다시 탐색하게 하기
+                self.now_pointing_mesh = random.choice(self.model.pure_mesh)
+
             self.now_goal = self._explore_randomly(now_mesh)
+            
         elif self.type==2:
             self.now_goal = self.model.return_agent_id(self.follow_agent_id).xy
 
@@ -763,27 +774,27 @@ class CrowdAgent(Agent):
 
 
     def _explore_randomly(self, now_mesh):
-        """
-        '아무 정보 없음' 상태에서 사용할 임시 목표를 생성.
-        50 % : 진행 방향 유지(가장 가까운 이웃 mesh)
-        50 % : pure_mesh 중 아무 곳이나.
-        """
-        # 이웃 mesh 의 중심점 리스트
-        neigh = self.model.adjacent_mesh.get(now_mesh, [])
-        neigh_centers = [((m[0][0]+m[1][0]+m[2][0])/3,
-                        (m[0][1]+m[1][1]+m[2][1])/3) for m in neigh]
+        
+        next_mesh = self.model.next_vertex_matrix[now_mesh][self.now_pointing_mesh]
+        return [ (next_mesh[0][0]+next_mesh[1][0]+next_mesh[2][0])/3,
+                (next_mesh[0][1]+next_mesh[1][1]+next_mesh[2][1])/3 ]
+        
+        # # 이웃 mesh 의 중심점 리스트
+        # neigh = self.model.adjacent_mesh.get(now_mesh, [])
+        # neigh_centers = [((m[0][0]+m[1][0]+m[2][0])/3,
+        #                 (m[0][1]+m[1][1]+m[2][1])/3) for m in neigh]
 
-        # ─ ① 진행방향 유지
-        if self.agent_pos_initialized and self.direction != [0, 0] and \
-        random.random() < 0.9 and neigh_centers:
-            return find_closest_direction(self.xy, self.direction, neigh_centers)
+        # # ─ ① 진행방향 유지
+        # if self.agent_pos_initialized and self.direction != [0, 0] and \
+        # random.random() < 0.9 and neigh_centers:
+        #     return find_closest_direction(self.xy, self.direction, neigh_centers)
 
-        # ─ ② 완전 랜덤
-        rnd_mesh = random.choice(self.model.pure_mesh)
-        while rnd_mesh in (now_mesh, self.past_mesh):
-            rnd_mesh = random.choice(self.model.pure_mesh)
-        return [ (rnd_mesh[0][0]+rnd_mesh[1][0]+rnd_mesh[2][0])/3,
-                (rnd_mesh[0][1]+rnd_mesh[1][1]+rnd_mesh[2][1])/3 ]
+        # # ─ ② 완전 랜덤
+        # rnd_mesh = random.choice(self.model.pure_mesh)
+        # while rnd_mesh in (now_mesh, self.past_mesh):
+        #     rnd_mesh = random.choice(self.model.pure_mesh)
+        # return [ (rnd_mesh[0][0]+rnd_mesh[1][0]+rnd_mesh[2][0])/3,
+                #(rnd_mesh[0][1]+rnd_mesh[1][1]+rnd_mesh[2][1])/3 ]
 
     def predict_collision(self, future_xy):
         for ag in self.model.crowds:
