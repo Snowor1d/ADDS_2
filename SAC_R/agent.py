@@ -696,6 +696,7 @@ class CrowdAgent(Agent):
             self.decision_flag -= 1
 
         if self.type==0:
+            self.decision_flag = 5
             self.now_goal = self.model.robot.xy 
 
         elif self.type==1:
