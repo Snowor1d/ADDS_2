@@ -1226,6 +1226,7 @@ class FightingModel(Model):
 
         #state = self.return_current_image()
         img_raw, scale = self.return_current_image(return_scale=True)
+        scale = scale-1.0
         frame = make_frame(img_raw, scale)
 
         if self._first_step:

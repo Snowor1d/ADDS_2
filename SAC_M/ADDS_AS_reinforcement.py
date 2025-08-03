@@ -135,6 +135,11 @@ class FiLMBlock(nn.Module):
         self.gamma = nn.Linear(1, feat_dim)
         self.beta  = nn.Linear(1, feat_dim)
 
+        nn.init.zeros_(self.gamma.weight)
+        nn.init.ones_(self.gamma.bias)
+        nn.init.zeros_(self.beta.weight)
+        nn.init.zeros_(self.beta.bias)
+
     def forward(self, x: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
         scale = scale.view(-1, 1)     # (B,1)
         γ = self.gamma(scale)              # (B, feat_dim)
@@ -888,6 +893,7 @@ if __name__ == "__main__":
         #first_frame = env_model.return_current_image()
         frame_stack = FrameStack(4)
         img_raw, scale = env_model.return_current_image(return_scale = True)
+        scale = scale-1.0
         frame = make_frame(img_raw, scale)
         state = frame_stack.reset(frame)
         
@@ -931,6 +937,7 @@ if __name__ == "__main__":
 
                 
                 img_raw, scale = env_model.return_current_image(return_scale=True)
+                scale = (scale-1.0)
                 curr_frame = make_frame(img_raw, scale)
                 next_state = frame_stack.peek_with(curr_frame)
                 sim_timer.stop()
