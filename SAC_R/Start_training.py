@@ -36,7 +36,13 @@ SCALE_CHECK = 0 # want to check reward scale?
 ACTION_SCALE = 4
 MAX_STEPS = 6000
 
-# --------------- EPSILON-EXPLORATION ------------------
+
+ROBOT_RADIUS = 10
+EXIT_CONFIRM_RADIUS = 10
+NEIGHBOR_RADIUS = 10
+VISION_RADIUS = 10
+
+# ---------------- EPSILON-EXPLORATION -------------------
 EPSILON_MIN = 0.1
 START_EPSILON = 1 
 SCHEDULER_TYPE = "l"
@@ -46,6 +52,7 @@ START_DECAY_STEP = 150
 EXPLORATION_TYPE = 0
 LONG_EPSILON_MIN = 0
 START_LONG_EPSILON = 0
+
 
 # -------------- PATH -------------------
 LOG_DIR = "Log_SAC_FOUR"

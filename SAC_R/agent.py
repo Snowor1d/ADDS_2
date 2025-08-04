@@ -15,8 +15,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
-from Start_training import K1, K2, K3
-
+from Start_training import ROBOT_RADIUS, EXIT_CONFIRM_RADIUS, NEIGHBOR_RADIUS, VISION_RADIUS
 
 
 def send_command(command):
@@ -51,13 +50,12 @@ exit_area = [[0,exit_w], [0,exit_h]]
 mode = "GUIDE"
 robot_step_num = 0
 robot_xy = [2, 2]
-robot_radius = 7 #로봇 반경 -> 10미터 
 robot_status = 0
 robot_ringing = 0
 robot_goal = [0, 0]
 past_target = ((0,0), (0,0))
 robot_prev_xy = [0,0]
-AGENT_TIME_STEP = 0.2
+AGENT_TIME_STEP = 0.15
 ROBOT_TIME_STEP = 0.15
 
 now_danger_sum = 0
@@ -211,7 +209,7 @@ class CrowdAgent(Agent):
         if self.type == 3: # robot mass는 3으로 고정
             self.mass = 3
 
-        self.desired_speed_a = np.random.normal(1.5, 0.2) # agent의 desired_speed, 평균 1.5m/s, 표준 편차 0.2m/s
+        self.desired_speed_a = np.random.normal(4, 0.2) # agent의 desired_speed, 평균 1.5m/s, 표준 편차 0.2m/s
         self.previous_goal = [0,0]
 
         self.now_action = ["UP", "GUIDE"]
@@ -263,7 +261,6 @@ class CrowdAgent(Agent):
         self.escaped_agents = 0
         self.exit_belief = None       # {"idx": int, "score": float, "alpha": int}
         self.info_decay  = 0          # 받은 정보의 전파 단계 α
-        self.vision_r    = 7          # 이웃 탐색 반경 (한 칸=0.5 m라면 ≈3.5 m)
 
 
 
@@ -447,7 +444,7 @@ class CrowdAgent(Agent):
     def agents_in_robot_area(self, robot_xyP):
         #from model import Model
         number_a = 0
-        robot_radius = 7
+        robot_radius = ROBOT_RADIUS
         for i in self.model.crowds:
             if(i.dead == False and (i.type == 0 or i.type == 1 or i.type == 2)): ##  agent가 살아있을 때 / 끌려가는 agent 일 때
                 if (pow(robot_xyP[0]-i.xy[0], 2) + pow(robot_xyP[1]-i.xy[1], 2)) < pow(robot_radius, 2) : ## 로봇 반경 내에 agent가 있다면
@@ -458,7 +455,6 @@ class CrowdAgent(Agent):
 
         
     def agent_modeling(self):
-        global robot_radius
         global robot_status
         global robot_step_num
         global random_disperse
@@ -530,7 +526,8 @@ class CrowdAgent(Agent):
                 else:
                     repulsive_force = [-1, 1] # agent가 정확히 같은 위치에 있을시 따로 떨어트리기 위함 
                     random_disperse = 1
-        
+        #print(f"self.xy : {self.xy}")
+        #print(f"self.now_goal : {self.now_goal}")
         goal_x = self.now_goal[0] - self.xy[0]
         goal_y = self.now_goal[1] - self.xy[1]
         goal_d = math.sqrt(pow(goal_x,2) + pow(goal_y,2))
@@ -539,7 +536,7 @@ class CrowdAgent(Agent):
         robot_y = self.model.robot.xy[1] - self.xy[1]
         robot_d = math.sqrt(pow(robot_x,2)+pow(robot_y,2))
 
-        if(robot_d<robot_radius):
+        if(robot_d<ROBOT_RADIUS):
             self.is_near_robot = 1
         else:
             self.is_near_robot = 0
@@ -555,17 +552,21 @@ class CrowdAgent(Agent):
         self.previous_type = self.type
 
                 
-        tau = 0.5                               # relaxation time [s]
+        tau = 0.3                               # relaxation time [s]
         if goal_d != 0:
             dir_x, dir_y = goal_x/goal_d, goal_y/goal_d
         else:                                    # 목표 바로 위
             dir_x, dir_y = 0.0, 0.0
-
+        #print(f"goal_x : {goal_x}, goal_y : {goal_y}, dir_x : {dir_x}, dir_y : {dir_y}")
+        #print(f"self.desired_speed_a : {self.desired_speed_a}")
         v_des_x = self.desired_speed_a * dir_x
         v_des_y = self.desired_speed_a * dir_y
+        #print(f"v_des_x : {v_des_x}, v_des_y : {v_des_y}")
+    
 
         desired_force = [(v_des_x - self.vel[0]) / tau,
                         (v_des_y - self.vel[1]) / tau]
+        #print(f"desired_force : {desired_force}")
         
         F_x += desired_force[0]
         F_y += desired_force[1]
@@ -579,14 +580,19 @@ class CrowdAgent(Agent):
 
         self.vel[0] = self.acc[0]
         self.vel[1] = self.acc[1]
+        self.vel[0] = max(min(self.vel[0], 1), -1)
+        self.vel[1] = max(min(self.vel[1], 1), -1)
         #self.xy = [self.xy[0], self.xy[1]]
         self.direction = [self.vel[0], self.vel[1]]
-
+        #print(f"원래 위치 : {self.xy}")
         future_xy = self.xy.copy()
         future_xy[0] += self.vel[0] * time_step
+        #print(f"x 방향 속도 : {self.vel[0]*time_step}")
+        #print(f"y 방향 속도 : {self.vel[1]*time_step}")
         future_xy[1] += self.vel[1] * time_step
-        future_xy = self.predict_collision(future_xy)
-
+        #print(f"미래 위치 : {future_xy}")
+        # future_xy = self.predict_collision(future_xy)
+        #print(f"예측된 미래 위치 : {future_xy}")
         if self.model.valid_space[(int(round(future_xy[0])), int(round(future_xy[1])))]:
             self.xy = future_xy
             self.blocked = False
@@ -618,7 +624,11 @@ class CrowdAgent(Agent):
         """
 
         # ────────── 파라미터 ──────────
-        VISION_R, AGENT_R, ROBOT_R, EXIT_CONFIRM_R = 10, 7, 7, 7
+        ROBOT_R = ROBOT_RADIUS 
+        VISION_R = VISION_RADIUS
+        AGENT_R = NEIGHBOR_RADIUS
+        ROBOT_R = ROBOT_RADIUS
+        EXIT_CONFIRM_R = EXIT_CONFIRM_RADIUS
         P_robot_following = 1 #로봇을 따라갈 확률
         P_neighbor_following = 0.7 #군중을 따라갈 확률
 
@@ -626,7 +636,8 @@ class CrowdAgent(Agent):
         for idx, center in enumerate(self.model.exit_point):
             #print(f"센터 : {center}")
             #print(f"거리 : {idx}", self.point_to_point_distance(self.xy, center))
-            if self.point_to_point_distance(self.xy, center) < VISION_R:
+            #if self.point_to_point_distance(self.xy, center) < VISION_R:
+            if math.sqrt(pow(self.xy[0]-center[0], 2) + pow(self.xy[1]-center[1], 2)) < EXIT_CONFIRM_R:
                 s = self.model.exit_score(self, idx, alpha=0)
                 self.exit_belief = {"idx": idx, "score": s, "alpha": 0}
         # ─ 1단계: 이웃에게서 정보 수신 & 비교 ─
@@ -648,7 +659,8 @@ class CrowdAgent(Agent):
             return
 
         # ─ 4단계: 행동 타입 결정 (로봇/이웃/마이웨이) ─
-        robot_d = self.point_to_point_distance(self.xy, self.model.robot.xy)
+        #robot_d = self.point_to_point_distance(self.xy, self.model.robot.xy) # 이거 좀 부정확함
+        robot_d = math.sqrt(pow(self.xy[0]-self.model.robot.xy[0], 2) + pow(self.xy[1]-self.model.robot.xy[1], 2))
         if(robot_d >= ROBOT_R and self.type==0):
             self.decision_flag = 0
         if(self.decision_flag == 0 or robot_d < ROBOT_R): 
@@ -702,8 +714,13 @@ class CrowdAgent(Agent):
         elif self.type==1:
             now_mesh = self.choice_safe_mesh(self.xy)
 
-            if (now_mesh == self.now_pointing_mesh): #향햐던 mesh에 도달했을 때
-                self.now_pointing_mesh = None
+            if(self.now_pointing_mesh != None):   
+            
+                pointing_mesh_center = ((self.now_pointing_mesh[0][0]+self.now_pointing_mesh[1][0]+self.now_pointing_mesh[2][0])/3, 
+                                        (self.now_pointing_mesh[0][1]+self.now_pointing_mesh[1][1]+self.now_pointing_mesh[2][1])/3)
+                print(f"pointing_mesh_center : {pointing_mesh_center}")
+                if (math.sqrt(pow(self.xy[0]-pointing_mesh_center[0],2)+pow(self.xy[1]-pointing_mesh_center[1],2))<2): #향햐던 mesh에 도달했을 때
+                    self.now_pointing_mesh = None
 
             if (self.now_pointing_mesh == None): # 향하던 mesh에 도달하면 -> None으로 설정 -> 다시 탐색하게 하기
                 self.now_pointing_mesh = random.choice(self.model.pure_mesh)
