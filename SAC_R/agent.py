@@ -552,7 +552,7 @@ class CrowdAgent(Agent):
         self.previous_type = self.type
 
                 
-        tau = 0.3                               # relaxation time [s]
+        tau = 0.5                               # relaxation time [s]
         if goal_d != 0:
             dir_x, dir_y = goal_x/goal_d, goal_y/goal_d
         else:                                    # 목표 바로 위
@@ -569,7 +569,7 @@ class CrowdAgent(Agent):
         #print(f"desired_force : {desired_force}")
         
         F_x += desired_force[0]
-        F_y += desired_force[1]
+        F_y += desired_force[1]d 
         
         F_x += repulsive_force[0]
         F_y += repulsive_force[1]
