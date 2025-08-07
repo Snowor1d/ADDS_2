@@ -1048,7 +1048,7 @@ if __name__ == "__main__":
         except Exception as e:
             print(e)
             print("error occured. retry.")
-            env_model = model.FightingModel(number_of_agents, model_num=MAP_NUM, 'Q')
+            env_model = model.FightingModel(number_of_agents, model_num=MAP_NUM,  robot='Q')
             abnormal_reward = 1
 
         heat_logger.flush_episode() #@for heatmap

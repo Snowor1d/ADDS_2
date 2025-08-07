@@ -21,8 +21,8 @@ BUFFER_SIZE = 1000000
 BATCH_SIZE = 128
 INTRINSIC_ETA = 0.1 #intrinsic reward
 START_BATCH_TIMES = 1
-START_UPDATE_STEP = 2
-DEVICE = "cpu"
+START_UPDATE_STEP = 150
+DEVICE = "cuda"
 
 GAMMA_START = 0.99
 GAMMA_END = 0.99
@@ -32,11 +32,11 @@ GAMMA_SCHEDULE_STEP = 1000
 CROWD_NUMBER_MIN = 20
 CROWD_NUMBER_MAX = 20
 MAP_NUM = -1 #if not used, -2, if random, -1
-#MAP_NUM_RANDOM = [6, 7, 8]
-MAP_NUM_RANDOM = [13, 14, 15]
+MAP_NUM_RANDOM = [6, 7, 8]
+#MAP_NUM_RANDOM = [13, 14, 15]
 SCALE_CHECK = 0 # want to check reward scale?
 ACTION_SCALE = 4
-MAX_STEPS = 2000
+MAX_STEPS = 6000
 
 # --------------- EPSILON-EXPLORATION ------------------
 EPSILON_MIN = 0.1
@@ -51,7 +51,7 @@ START_LONG_EPSILON = 0
 
 # -------------- PATH -------------------
 LOG_DIR = "Log_SAC_S"
-PORT_NUM = 6008
+PORT_NUM = 6007
 
 # --------------- SAC ALGORITHM PARAMETER ---------------
 LOG_STD_MAX = 0.5
