@@ -910,8 +910,7 @@ class FightingModel(Model):
 
 
     def extract_map_50(self, map_num):
-        #좌하단 #우하단 #우상단 #좌상단 순으로 입력해주기
-        scale = 5/7
+
         self.obstacles, self.map_size = map_info(map_num)
         
             

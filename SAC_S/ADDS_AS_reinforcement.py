@@ -126,7 +126,7 @@ def gamma_ascent_schedule(parameter_start: float,
     
 
 def make_frame(img50, scale):
-    return img50.astype(np.float32)[None, ...]
+    return img50[None, ...]
 
 class FiLMBlock(nn.Module):
     """Feature-wise Linear Modulation (condition = 단일 scale 값)"""
@@ -563,7 +563,7 @@ class SACAgent:
     # ------------------------------------------------- #
     # Store experience
     # ------------------------------------------------- #
-    def store_transition(self, s, scale, a, r, s_next, next_scale, done):
+    def store_transition(self, s, a, r, s_next, scale, next_scale, done):
         # if -20 <= a[0] <= 20 and -20 <= a[1] <= 20:
         self.replay_buffer.push(s, a, r, s_next, scale, next_scale, done)
 
@@ -706,13 +706,6 @@ class SACAgent:
     def load_model(self, filepath):
         filepath = os.path.join(log_dir, filepath)
         ckpt = torch.load(filepath)
-
-        w = ckpt['q1']['conv1.weight']          # [32, 8, 5, 5]
-        ckpt['q1']['conv1.weight'] = w[:, :4]   # [32, 4, 5, 5]
-
-        w = ckpt['q2']['conv1.weight']
-        ckpt['q2']['conv1.weight'] = w[:, :4]
-        
         self.q1.load_state_dict(ckpt['q1'])
         self.q2.load_state_dict(ckpt['q2'])
         self.q1_target.load_state_dict(ckpt['q1_target'])
@@ -1010,10 +1003,10 @@ if __name__ == "__main__":
 
                     agent.store_transition(    
                         buffered_state,
-                        scale,
                         buffered_action,
-                        reward, 
+                        reward,
                         next_state,
+                        scale,
                         next_scale, 
                         float(done)
                     )
@@ -1055,7 +1048,7 @@ if __name__ == "__main__":
         except Exception as e:
             print(e)
             print("error occured. retry.")
-            env_model = model.FightingModel(number_of_agents, 2, 'Q')
+            env_model = model.FightingModel(number_of_agents, model_num=MAP_NUM, 'Q')
             abnormal_reward = 1
 
         heat_logger.flush_episode() #@for heatmap
