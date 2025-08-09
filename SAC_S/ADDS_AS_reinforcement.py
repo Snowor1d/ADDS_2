@@ -125,9 +125,6 @@ def gamma_ascent_schedule(parameter_start: float,
     return parameter_start + (parameter_end - parameter_start) * progress
     
 
-def make_frame(img50, scale):
-    return img50[None, ...]
-
 class FiLMBlock(nn.Module):
     """Feature-wise Linear Modulation (condition = 단일 scale 값)"""
     def __init__(self, feat_dim: int):
@@ -873,12 +870,13 @@ if __name__ == "__main__":
             except Exception as e:
                 print(e, "Retrying environment creation...")
         
-        #first_frame = env_model.return_current_image()
-        frame_stack = FrameStack(4)
         img_raw, scale = env_model.return_current_image(return_scale = True)
-        scale = scale-1.0
-        frame = make_frame(img_raw, scale)
-        state = frame_stack.reset(frame)
+        frame_stack = FrameStack(4)
+        state = frame_stack.reset(first_frame)
+
+        # scale = scale-1.0
+        # frame = make_frame(img_raw, scale)
+        # state = frame_stack.reset(frame)
         
         total_reward = 0
         reward = 0
@@ -920,9 +918,7 @@ if __name__ == "__main__":
 
                 
                 img_raw, scale = env_model.return_current_image(return_scale=True)
-                scale = (scale-1.0)
-                curr_frame = make_frame(img_raw, scale)
-                next_state = frame_stack.peek_with(curr_frame)
+                next_state = frame_stack.peek_with(img_raw)
                 sim_timer.stop()
                 reward = 0
                 r_k = 0
