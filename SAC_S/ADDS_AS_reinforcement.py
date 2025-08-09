@@ -872,7 +872,7 @@ if __name__ == "__main__":
         
         img_raw, scale = env_model.return_current_image(return_scale = True)
         frame_stack = FrameStack(4)
-        state = frame_stack.reset(first_frame)
+        state = frame_stack.reset(img_raw)
 
         # scale = scale-1.0
         # frame = make_frame(img_raw, scale)
