@@ -218,7 +218,7 @@ def main():
             # -------------------------
             keys = pygame.key.get_pressed()
             # 방향키를 누르면 knob 움직이기
-            move_step = 5.0  # 한 프레임당 knob 이동 픽셀
+            move_step = 2.0  # 한 프레임당 knob 이동 픽셀
             if keys[pygame.K_UP]:
                 knob_y -= move_step
             if keys[pygame.K_DOWN]:
