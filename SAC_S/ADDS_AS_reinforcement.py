@@ -917,8 +917,8 @@ if __name__ == "__main__":
                     heat_logger.update(env_model.map_num, hx, hy) 
 
                 
-                img_raw, scale = env_model.return_current_image(return_scale=True)
-                next_state = frame_stack.peek_with(img_raw)
+                curr_frame, scale = env_model.return_current_image(return_scale=True)
+                next_state = frame_stack.peek_with(curr_frame)
                 sim_timer.stop()
                 reward = 0
                 r_k = 0
