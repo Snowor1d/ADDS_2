@@ -432,8 +432,6 @@ class PolicyNetwork(nn.Module):
         # 최종 출력: (dx, dy)의 mean, log_std
         self.mean_head = nn.Linear(64, 2)
         self.log_std_head = nn.Linear(64, 2)
-        self.log_std_min = LOG_STD_MIN
-        self.log_std_max = LOG_STD_MAX
 
     def _get_conv_out(self, shape):
         dummy = torch.zeros(1, 4, *shape)
@@ -483,30 +481,22 @@ class FrameStack:
     def __init__(self, stack_len=4):
         self.stack_len = stack_len
         self.frames = deque(maxlen=stack_len)
-        self.channels_per_frame = None
-
-    def _to_chw(self, frame):
-        if frame.ndim == 2:
-            frame = frame[None, ...]
-        return frame
 
     def reset(self, first_frame):
         self.frames.clear()
-        self.channels_per_frame = first_frame.shape[0] if first_frame.ndim == 3 else 1
         for _ in range(self.stack_len):
             self.frames.append(np.copy(first_frame))
-        return np.concatenate(list(self.frames)[::-1], axis=0)   # (stack_len x channels, H, W)
+        return np.stack(list(self.frames)[::-1], axis=0)   # (4,H,W)
 
     def append(self, frame):
         """deque에 실제 push & 최신 스택 반환"""
-        frame = self._to_chw(frame)
         self.frames.append(np.copy(frame))
-        return np.concatenate(list(self.frames)[::-1], axis=0)
+        return np.stack(list(self.frames)[::-1], axis=0)
 
     def peek_with(self, frame):
         """frame을 push 했다고 가정한 결과 스택 반환( deque 내용은 그대로 )"""
         tmp = list(self.frames) + [frame]
-        return np.concatenate(tmp[-self.stack_len:][::-1], axis=0)
+        return np.stack(tmp[-self.stack_len:][::-1], axis=0)
 
 
 ##########################################################################
