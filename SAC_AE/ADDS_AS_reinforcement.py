@@ -314,8 +314,9 @@ class QNetwork(nn.Module):
         
         # conv_out_size 계산 (flatten 전 feature 크기)
         conv_out_size = self._get_conv_out(input_shape)
-        self.state_ln = nn.LayerNorm(conv_out_size)
-
+        
+        self.state_proj = nn.Linear(conv_out_size, 64)
+        self.state_ln = nn.LayerNorm(64)
         
         self.a_mlp = nn.Sequential(
             nn.Linear(action_dim, 64),
@@ -324,12 +325,11 @@ class QNetwork(nn.Module):
             nn.LeakyReLU(0.01, inplace=True),            
         )
 
-        self.z_proj = nn.Linear(conv_out_size, 64)
-        head_in = conv_out_size + 64 + 64
+        head_in = 64 + 64 + 64
         self.head = nn.Sequential(
-            nn.Linear(head_in, 256),
+            nn.Linear(head_in, 128),
             nn.LeakyReLU(0.01, inplace=True),
-            nn.Linear(256, 1),
+            nn.Linear(128, 1),
         )
         self.action_scale = 2.0
 
@@ -345,12 +345,14 @@ class QNetwork(nn.Module):
         x = F.leaky_relu(self.bn2(self.conv2(x)), negative_slope=0.01)
         x = F.leaky_relu(self.bn3(self.conv3(x)), negative_slope=0.01)
         x = x.view(x.size(0), -1)
+        x = self.state_proj(x)
         x = self.state_ln(x)
+        x = F.leaky_relu(x, 0.01)
 
         a_norm = action / self.action_scale
         a_emb = self.a_mlp(a_norm)
 
-        z64 = F.leaky_relu(self.z_proj(x), 0.01)
+        z64 = x
         h = torch.cat([x, a_emb, z64*a_emb], dim=1)
         q_val = self.head(h)
         return q_val
