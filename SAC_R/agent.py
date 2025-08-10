@@ -1046,136 +1046,129 @@ class RobotAgent(CrowdAgent):
         return np.array(self.action)
     
     def robot_policy_Q(self):
-        """
-        Same physics as agents. Use self.desired_speed_a in [cells/s].
-        If you want 2 m/s with cell=0.5 m, set self.desired_speed_a = 4.0.
-        """
-        import math
 
-        # --- Tunables (match agent side) ---
-        tau = 0.9
-        dt  = ROBOT_TIME_STEP
-        A_MAX = 1.2
-        V_MAX_MULT = 1.05
-        K_AGENT_R = 5.0      # robot vs agents repulse (smaller than human-human)
-        LAMBDA_A  = 1.5
-        K_WALL    = 100.0
-        F_REP_LIM = self.mass * 1.5
-        EPS = 1e-6
+        if(math.sqrt(pow(self.xy[0]-self.robot_waypoint[0], 2)+pow(self.xy[1]-self.robot_waypoint[1], 2))<2):
+            self.now_exploration = 0
+            self.robot_waypoint = [0, 0]
 
+        self.previous_danger = self.danger
+        self.danger = 99999
+        for i in self.model.exit_point:
+            self.danger = min(self.danger, self.point_to_point_distance([self.xy[0], self.xy[1]], i))
+        
+        if(self.model.alived_agents()< 1):
+            self.is_game_finished = 1
 
-        def soft_clip_vec(x, y, lim):
-            n = math.hypot(x, y)
-            if n <= lim: return x, y
-            s = math.tanh(n/lim) / (n/lim)
-            return x*s, y*s
+        time_step = ROBOT_TIME_STEP
+        robot_radius = 7
 
-
-        # init guard (keep your spawn behavior)
-        if self.robot_initialized == 0:
+        if(self.robot_initialized == 0 ):
             self.robot_initialized = 1
-            return (self.model.robot.xy[0], self.model.robot.xy[1])
+            return (self.model.robot.xy[0], self.model.robot.xy[1]) ## 오호라... 처음에 리스폰 되는 거 피하려고 
+        self.past_xy.append(self.xy)
 
-        # desired direction from action (normalize)
-        dir_x, dir_y = self.action[0], self.action[1]
-        nrm = math.hypot(dir_x, dir_y)
-        if nrm > 1e-8:
-            dir_x /= nrm; dir_y /= nrm
-        else:
-            dir_x = dir_y = 0.0
+        goal_x = 0
+        goal_y = 0
+        
+        goal_x += self.action[0]
+        goal_y += self.action[1]
+        
+        #print(f"robot desired go to {goal_x}, {goal_y}") 
+        self.model.robot_mode = "GUIDE"
 
-        # desired speed (cells/s) — set in __init__ or externally to 4.0 for 2 m/s
-        v_des_scalar = self.desired_speed_a
-        v_des_x = v_des_scalar * dir_x
-        v_des_y = v_des_scalar * dir_y
+        intend_force = 15
+        desired_speed = 4
 
-        # --- helper: swept move (same as agent) ---
-        def swept_move(xy, vel, dt):
-            nx, ny = xy[0], xy[1]
-            max_disp = max(abs(vel[0]*dt), abs(vel[1]*dt))
-            steps = max(1, int(math.ceil(max_disp / 0.5)))
-            sdt = dt / steps
-            for _ in range(steps):
-                tx = nx + vel[0]*sdt
-                ty = ny + vel[1]*sdt
-                ix, iy = int(round(tx)), int(round(ty))
-                if self.model.valid_space.get((ix, iy), False):
-                    nx, ny = tx, ty
-                else:
-                    ix_only = int(round(nx + vel[0]*sdt))
-                    if self.model.valid_space.get((ix_only, int(round(ny))), False):
-                        nx = nx + vel[0]*sdt
-                    iy_only = int(round(ny + vel[1]*sdt))
-                    if self.model.valid_space.get((int(round(nx)), iy_only), False):
-                        ny = ny + vel[1]*sdt
-            return [nx, ny]
+            
 
-        # --- repulsive forces (robot vs walls & agents) ---
-        F_rep_x = 0.0
-        F_rep_y = 0.0
-        x = int(round(self.xy[0]))
-        y = int(round(self.xy[1]))
+        desired_force = [intend_force*(desired_speed*(goal_x)), intend_force*(desired_speed*(goal_y))]; #desired_force : 사람이 탈출구쪽으로 향하려는 힘
+        
+        x=int(round(self.xy[0]))
+        y=int(round(self.xy[1]))
+ 
+        temp_loc = [(x-1, y), (x+1, y), (x, y+1), (x, y-1), (x+1, y+1), (x+1, y-1), (x-1, y+1), (x-1, y-1), (x-2, y), (x+2, y), (x, y+2), (x, y-2)]
+        near_loc = []
+        for i in temp_loc:
+            if(i[0]>=0 and i[1]>=0 and i[0]<self.model.grid.width and i[1] < self.model.grid.height):
+                near_loc.append(i)
+        near_agents_list = []
+        for i in near_loc:
+            near_agents = self.model.grid.get_cell_list_contents([i])
+            if len(near_agents):
+                for near_agent in near_agents:
+                    near_agents_list.append(near_agent) #kinetic 모델과 동일
+        repulsive_force = [0, 0]
+        obstacle_force = [0, 0]
 
-        temp_loc = [(x-1,y),(x+1,y),(x,y+1),(x,y-1),
-                    (x+1,y+1),(x+1,y-1),(x-1,y+1),(x-1,y-1),
-                    (x-2,y),(x+2,y),(x,y+2),(x,y-2)]
-        near_loc = [(i,j) for (i,j) in temp_loc
-                    if (i>=0 and j>=0 and i<self.model.grid.width and j<self.model.grid.height)]
-        near_list = []
-        for cell in near_loc:
-            contents = self.model.grid.get_cell_list_contents([cell])
-            if contents: near_list.extend(contents)
+        k=4
+        self.collision_check = 0
+        for near_agent in near_agents_list:
+            n_x = near_agent.xy[0]
+            n_y = near_agent.xy[1]
+            d_x = self.xy[0] - n_x
+            d_y = self.xy[1] - n_y
+            d = math.sqrt(pow(d_x, 2) + pow(d_y, 2))
 
-        for nb in near_list:
-            if nb is self or nb.dead: 
+
+            if(near_agent.dead == True):
                 continue
-            dx = self.xy[0] - nb.xy[0]
-            dy = self.xy[1] - nb.xy[1]
-            d  = math.hypot(dx, dy)
-            if d < EPS:
-                continue
-            ux, uy = dx/d, dy/d
+                
+            if(d!=0):
+                if(near_agent.type == 12): ## 가상 벽
+                    repulsive_force[0] += 0
+                    repulsive_force[1] += 0
+    
+                elif(near_agent.type == 1 or near_agent.type ==0 or near_agent.type == 2): ## agents   
+                    repulsive_force[0] += 0/4*np.exp(-(d/2))*(d_x/d) #반발력.. 지수함수 -> 완전 밀착되기 직전에만 힘이 강하게 작용하는게 맞다고 생각해서
+                    repulsive_force[1] += 0/4*np.exp(-(d/2))*(d_y/d) 
 
-            if getattr(nb, "type", None) in (11, 9):
-                mag = K_WALL / (d*d + EPS)
-            else:
-                mag = K_AGENT_R * math.exp(-d / LAMBDA_A)
-            F_rep_x += mag * ux
-            F_rep_y += mag * uy
+                elif(near_agent.type == 11 or near_agent.type == 9):## 검정벽 
+                    self.collision_check = 1
+                    repulsive_force[0] += 8*np.exp(-(d/2))*(d_x/d)
+                    repulsive_force[1] += 8*np.exp(-(d/2))*(d_y/d)
+                    #print("repulsive_force : ", repulsive_force)
 
-        F_rep_x, F_rep_y = soft_clip_vec(F_rep_x, F_rep_y, F_REP_LIM)
+        F_x = 0
+        F_y = 0
+        # print("self.xy : ", self.xy)
+        # print("desired_force : ", desired_force)
+        # print("repulsive_force : ", repulsive_force)
+        F_x += desired_force[0]
+        F_y += desired_force[1]
+        
 
-        # --- Helbing desired force ---
-        F_des_x = self.mass * (v_des_x - self.vel[0]) / tau
-        F_des_y = self.mass * (v_des_y - self.vel[1]) / tau
+        F_x += repulsive_force[0]
+        F_y += repulsive_force[1]
+        vel = [0,0]
+        vel[0] = F_x/self.mass
+        vel[1] = F_y/self.mass
+        future_xy = self.xy.copy()
+        future_xy[0] += vel[0] * time_step
+        future_xy[1] += vel[1] * time_step
 
-        F_x = F_des_x + F_rep_x
-        F_y = F_des_y + F_rep_y
+        if (self.model.valid_space[(int(round(future_xy[0])), int(round(future_xy[1])))]):
+            self.xy = future_xy.copy()
+            self.blocked = False 
+        else :
+            self.blocked = True
 
-        # integrate
-        a_x, a_y = F_x / self.mass, F_y / self.mass
-        a_x, a_y = soft_clip_vec(a_x, a_y, A_MAX)
+        if(self.xy[0]<1):
+            self.xy[0] = 1
+        if(self.xy[1]<1):
+            self.xy[1] = 1
+        if(self.xy[0]>self.model.width-2):
+            self.xy[0] = self.model.width-2
+        if(self.xy[1]>self.model.height-2):
+            self.xy[1] = self.model.height-2
+            
 
-        self.acc[0], self.acc[1] = a_x, a_y
+        next_x = int(round(self.xy[0]))
+        next_y = int(round(self.xy[1]))
 
-        self.vel[0] += a_x * dt
-        self.vel[1] += a_y * dt
-
-        # speed clip
-        V_MAX = V_MAX_MULT * max(v_des_scalar, 1e-6)
-        spd = math.hypot(self.vel[0], self.vel[1])
-        if spd > V_MAX:
-            s = V_MAX / spd
-            self.vel[0] *= s; self.vel[1] *= s
-
-        # move with swept collision
-        self.xy = swept_move(self.xy, self.vel, dt)
-
-        # bounds
-        self.xy[0] = min(max(self.xy[0], 1), self.model.width - 2)
-        self.xy[1] = min(max(self.xy[1], 1), self.model.height - 2)
-
-        return (int(round(self.xy[0])), int(round(self.xy[1])))
+            
+        robot_goal = [next_x, next_y]
+        #print(robot_goal)
+        return (next_x, next_y)
 
 
 
