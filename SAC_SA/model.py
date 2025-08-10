@@ -33,7 +33,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 from ADDS_AS_reinforcement import SACAgent, ReplayBuffer, PolicyNetwork, QNetwork, ACTION_SCALE, FrameStack
-from Start_training import *
+from Start_training import REWARD_A, REWARD_B, REWARD_C, REWARD_D, REWARD_E, REWARD_F, REWARD_G, REWARD_H, REWARD_I, REWARD_J, REWARD_K, FINISHED_BONUS, MAP_NUM, MAP_NUM_RANDOM
 
 def map_info(map_num): #map_num 넣으면 output으로 (obstacle_info, size)
     obstacles = []
@@ -403,13 +403,13 @@ class FightingModel(Model):
     """A model with some number of agents."""
 
     def __init__(self, number_agents: int, model_num = -1, robot = 'Q'):
-        super().__init__()
         self.frame_stack = FrameStack(stack_len=4)
         self._first_step = True
-        self.map_size = 50
+        
         self.crowds = []
         self.step_n = 0
         self.checking_reward = 0
+        self.map_size = 50
         if (model_num == -1):
             model_num = random.randint(1,5)
 
@@ -432,6 +432,8 @@ class FightingModel(Model):
 
         self.using_model = False
         self.total_agents = number_agents
+        self.width = self.map_size
+        self.height = self.map_size      
         self.obstacle_mesh = []
         self.adjacent_mesh = {}
         # map_ran_num = 2
@@ -446,7 +448,7 @@ class FightingModel(Model):
             self.map_num = random.choice(map_num_candidates)
             self.extract_map_50(self.map_num)    
         self.width = self.map_size
-        self.height = self.map_size      
+        self.height = self.map_size
         self.distance = {}  
         self.schedule_e = RandomActivation(self)
         self.schedule = RandomActivation(self)
@@ -454,7 +456,7 @@ class FightingModel(Model):
             True
         )
         self.next_vertex_matrix = {}
-        self.exit_grid = np.zeros((self.width, self.height))
+        self.exit_grid = np.zeros((self.map_size, self.map_size))
         self.pure_mesh = []
         self.mesh_complexity = {}
         self.mesh_danger = {}
@@ -720,105 +722,8 @@ class FightingModel(Model):
             start = next_vertex_matrix[start][end]
             path.append(start)
         return path
-
-    def extract_map(self, map_num):
-        #좌하단 #우하단 #우상단 #좌상단 순으로 입력해주기
-        if map_num == 0:
-            self.obstacles.append([[10, 10], [20, 20], [10, 20]])
-            self.obstacles.append([[10, 20], [20, 20], [20,50], [10, 50]])
-            self.obstacles.append([[20, 40], [50, 40], [50, 50], [20, 50]])
-            self.obstacles.append([[40, 10], [60, 20], [40, 20]])
-
-        elif map_num == 1: # 산학협력관 + 잔디밭
-            self.obstacles.append([[15, 20], [25, 20], [25, 40], [15, 40]])
-            self.obstacles.append([[15, 45], [55, 45], [55, 55], [15, 55]])
-            self.obstacles.append([[35, 15], [55, 15], [55, 35]])
-
-            self.spaces_of_map = [[[0, 55], [15, 70]],[[15, 55], [35, 70]],[[35, 55], [55, 70]],[[55, 55], [70 ,70]]
-                                ,[[0, 40], [15, 55]],[[15, 40], [35, 45]],[[35, 35], [55, 45]],[[55, 45], [70, 55]],[[55, 35], [70, 45]]
-                                ,[[0, 20], [15, 40]],[[25, 20], [35, 40]],[[35, 15], [55, 35]],[[55, 15], [70, 35]]
-                                ,[[0, 0], [15, 20]],[[15, 0], [35, 20]],[[35, 0], [55, 15]],[[55, 0], [70, 15]]]
-            
-
-        elif map_num == 2: # 제 1공학관
-            # 윗 건물
-            self.obstacles.append([[10, 52], [60, 52], [60, 60], [10, 60]])
-            # 정원
-            self.obstacles.append([[32, 26], [44, 26], [44, 40], [32, 40]])
-            # 아래 건물
-            self.obstacles.append([[10, 8], [44, 8], [44, 16], [10, 16]])
-            #오른쪽 건물
-            self.obstacles.append([[50, 8], [56, 8], [56, 14], [50, 14]])
-            self.obstacles.append([[50, 14], [60, 14], [60, 46], [50, 46]])
-
-            self.spaces_of_map = [[[0, 60],[10, 70]],[[10, 60],[35, 70]],[[35, 60 ],[60, 70]],[[60 ,60],[70, 70]]
-                                    ,[[0, 52],[10, 60]],[[0, 40],[16, 52]],[[16, 40],[32, 52]],[[32, 40],[44, 52]],[[44, 46],[60, 52]],[[60, 46],[70, 60]]
-                                    ,[[0, 26],[16, 40]],[[16, 26],[32, 40]],[[44, 26],[50, 46]],[[60, 30],[70, 46]]
-                                    ,[[0, 16],[16, 26]],[[16, 16],[32, 26]],[[32, 16],[44, 26]],[[44, 8],[50, 26]],[[60, 14],[70, 30]]
-                                    ,[[0, 0],[10, 16]],[[10, 0],[27, 8]],[[27, 0],[44, 8]],[[44, 0],[56, 8]],[[56, 0],[70, 14]]]
-
-        elif map_num == 3: # 공학실습동 + 제 2 종합 연구동
-            # 왼쪽 건물
-            self.obstacles.append([[12, 12], [18, 12], [18, 33], [12, 33]])
-            self.obstacles.append([[12, 37], [18, 37], [18, 58], [12, 58]])
-            # 중간 건물
-            self.obstacles.append([[26, 12], [32, 12], [32, 33], [26, 33]])
-            self.obstacles.append([[26, 37], [32, 37], [32, 58], [26, 58]])
-            # 오른쪽 건물
-            self.obstacles.append([[38, 12], [48, 12], [48, 22], [38, 22]])
-            self.obstacles.append([[38, 26], [48, 26], [48, 44], [38, 44]])
-            self.obstacles.append([[38, 48], [48, 48], [48, 58], [38, 58]])
-            self.obstacles.append([[48, 12], [62, 12], [62, 18], [48, 18]])
-            self.obstacles.append([[48, 30], [62, 30], [62, 40], [48, 40]])
-            self.obstacles.append([[48, 52], [62, 52], [62, 58], [48, 58]])
-
-            self.spaces_of_map = [[[0, 58],[12, 70]],[[12, 58],[26, 70]],[[26, 58],[38, 70]],[[38, 58],[62, 70]],[[62, 52],[70, 70]]
-                                    ,[[0, 37],[12, 58]],[[18, 37],[26, 58]],[[32, 37],[38, 58]],[[38, 44],[48, 48]],[[48, 40],[62, 52]],[[62, 30],[70, 50]]
-                                    ,[[0, 33],[12, 37]],[[12, 33],[26, 37]],[[26, 33],[38, 37]]
-                                    ,[[0, 12],[12, 33]],[[18, 12],[26, 33]],[[32, 12],[38, 33]],[[38, 22],[48, 26]],[[48, 18],[62, 30]],[[62, 12],[70, 30]]
-                                    ,[[0, 0],[12, 12]],[[12, 0],[26, 12]],[[26, 0],[38, 12]],[[38, 0],[62, 12]],[[62, 0],[70, 12]]]
-        elif map_num == 4: # 벤젠고리관
-            # 아래 건물
-            self.obstacles.append([[48, 10], [58, 20], [58, 32], [44, 18]])
-            self.obstacles.append([[26, 10], [44, 10], [40, 18], [26, 18]])
-            # 중간 건물
-            self.obstacles.append([[32, 24], [50, 42], [44, 48], [26, 30]])
-            # 윗 건물
-            self.obstacles.append([[12, 28], [20, 28], [20, 42], [12, 46]])
-            self.obstacles.append([[12, 50], [20, 46], [32, 58], [26, 64]]) 
-
-            self.spaces_of_map = [[[0, 50],[20, 70]],[[20, 58],[32, 70]],[[32, 58],[44, 70]],[[44, 42],[70, 70]]
-                                    ,[[0, 18],[12, 50]],[[12, 42],[20, 50]],[[20, 30],[32, 58]],[[32, 36],[44, 58]]
-                                    ,[[12, 18],[32, 30]],[[32, 18],[44, 36]],[[44, 18],[58, 42]],[[58, 20],[70, 42]]
-                                    ,[[0, 0],[12, 18]],[[12, 0],[32, 18]],[[40, 10],[48, 18]],[[32, 0],[48, 10]],[[48, 0],[70, 20]]]
-
-        elif map_num == 5: # 경영관 + 퇴계 인문관
-            # 왼쪽 건물
-            self.obstacles.append([[18, 10], [24, 10], [24, 28], [18, 28]])
-            self.obstacles.append([[12, 20], [18, 20], [18, 26], [12, 26]])
-            # # 오른쪽 건물
-            self.obstacles.append([[34, 10], [46, 10], [46, 16], [34, 16]])
-            self.obstacles.append([[46, 10], [56, 10], [56, 28], [46, 28]])
-            # # 윗 건물
-            self.obstacles.append([[18, 34], [24, 34], [24, 60], [18, 60]])
-            self.obstacles.append([[24, 54], [38, 54], [38, 60], [24, 60]]) 
-            self.obstacles.append([[46, 40], [52, 40], [52, 48], [46, 48]]) 
-            self.obstacles.append([[24, 34], [56, 34], [56, 40], [24, 40]])
-            
-            self.spaces_of_map = [[[0, 47],[18, 70]],[[18, 60],[38, 70]],[[38, 54],[70 ,70]]
-                                    ,[[0, 34],[18, 47]],[[24, 40],[46, 54]],[[46, 40],[70, 54]]
-                                    ,[[0, 20],[18, 34]],[[18, 28],[34, 34]],[[34, 28],[56, 34]]
-                                    ,[[0, 0],[18, 20]],[[24, 10],[34, 28]],[[34, 16],[46, 28]],[[56, 10],[70, 34]]
-                                    ,[[18, 0],[34, 10]],[[34, 0],[56, 10]],[[56, 0],[70, 10]]]
-
-
     def extract_map_50(self, map_num):
-
         self.obstacles, self.map_size = map_info(map_num)
-        
-            
-
-
 
 # --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -1148,12 +1053,8 @@ class FightingModel(Model):
         self.step_count += 1
 
         #state = self.return_current_image()
-        # img_raw, scale = self.return_current_image(return_scale=True)
-        # scale = scale-1.0
-        #frame = make_frame(img_raw, scale)
 
-        frame, scale = self.return_current_image(return_scale = True)
-
+        frame = self.return_current_image()
         if self._first_step:
             state = self.frame_stack.reset(frame)
             self._first_step = False
@@ -1173,7 +1074,6 @@ class FightingModel(Model):
             if(np.random.rand() < 0.04):
                 self.robot.now_exploration = 0
             action, _ = self.sac_agent.select_action(state, True)
-            print(action)
             dx, dy = action[0], action[1]
             self.robot.receive_action([dx, dy])
 
@@ -1399,7 +1299,7 @@ class FightingModel(Model):
         else :
             return 0
     
-    def return_current_image(self, target_size : int = 50, return_scale: bool = False):
+    def return_current_image(self, target_size=50):
         # Create a 2D NumPy array with zeros of type uint8
         # shape: (height, width)
         image = np.zeros((self.height, self.width), dtype=np.uint8)
@@ -1426,7 +1326,7 @@ class FightingModel(Model):
         for agent in self.agents:
             if agent.type == 3:
                 image[int(round(agent.xy[0])), int(round(agent.xy[1]))] = 200  # robot
-        
+
         scale = self.width / float(target_size)
         if (self.width, self.height) != (target_size, target_size):
             image = cv2.resize(
@@ -1434,7 +1334,8 @@ class FightingModel(Model):
                 (target_size, target_size),
                 interpolation=cv2.INTER_NEAREST
             )
-        return (image, scale) if return_scale else image
+        
+        return image
     
     def choice_random_waypoint(self):
         return [random.randint(0, self.width-1), random.randint(0, self.height-1)]
