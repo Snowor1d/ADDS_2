@@ -33,7 +33,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 from ADDS_AS_reinforcement import SACAgent, ReplayBuffer, PolicyNetwork, QNetwork, ACTION_SCALE, FrameStack
-from Start_training import REWARD_A, REWARD_B, REWARD_C, REWARD_D, REWARD_E, REWARD_F, REWARD_G, REWARD_H, REWARD_I, REWARD_J, REWARD_K, FINISHED_BONUS, MAP_NUM, MAP_NUM_RANDOM, K1, K2, K3
+from Start_training import REWARD_A, REWARD_B, REWARD_C, REWARD_D, REWARD_E, REWARD_F, REWARD_G, REWARD_H, REWARD_I, REWARD_J, REWARD_K, FINISHED_BONUS, MAP_NUM, MAP_NUM_RANDOM, K1, K2, K3, SCALE_CHECK
 
 def _point_on_segment(p: Tuple[int, int],
                       a: Tuple[int, int],
@@ -1314,7 +1314,7 @@ class FightingModel(Model):
             dx, dy = action[0], action[1]
             self.robot.receive_action([dx, dy])
 
-        if(self.using_model and self.step_n%ACTION_SCALE==(ACTION_SCALE-1)):
+        if(self.using_model and self.step_n%ACTION_SCALE==(ACTION_SCALE-1) and SCALE_CHECK):
             print("reward_based_alived : ", self.reward_based_alived() * REWARD_A)
             print("reward_based_all_agents_danger : ", self.reward_based_all_agents_danger() * REWARD_B)
             print("reward_based_gain : ", self.reward_based_gain() * REWARD_C)
@@ -1360,7 +1360,7 @@ class FightingModel(Model):
         for agent in self.crowds:
             if(agent.type == 0 or agent.type == 1 or agent.type == 2) and (agent.dead == False):
                 reward += self.robot.point_to_point_distance(agent.xy, self.robot.xy)
-                print(self.robot.point_to_point_distance(agent.xy, self.robot.xy))
+                # print(self.robot.point_to_point_distance(agent.xy, self.robot.xy))
         return -reward
     
     def reward_based_all_agents_danger(self):
