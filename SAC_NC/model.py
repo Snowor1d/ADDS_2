@@ -1291,18 +1291,28 @@ class FightingModel(Model):
         #state = self.return_current_image()
 
         frame = self.return_current_image()
+
+        is_boundary = ((self.step_n - 1) % ACTION_SCALE == 0)
+
         if self._first_step:
             state = self.frame_stack.reset(frame)
             self._first_step = False
-        else:
+
+        elif is_boundary:
             state = self.frame_stack.append(frame)
-        
+
+
         if self.step_n % ACTION_SCALE == 0:
             if self._first_step:
                 state = self.frame_stack.reset(frame)
                 self._first_step = False
             else:
                 state = self.frame_stack.append(frame)
+
+        if self.using_model and is_boundary:
+            action, _ = self.sac_agent.select_action(state, True)
+            dx, dy = action[0], action[1]
+            self.robot.receive_action([dx, dy])
                 
         # if(self.using_model):
         #     self.checking_reward += self.reward_based_evacuated_with_robot()
@@ -1473,7 +1483,7 @@ class FightingModel(Model):
         input_shape = (50, 50)
         num_actions = 4
 
-        self.sac_agent = SACAgent(input_shape, num_actions, start_epsilon=0)
+        self.sac_agent = SACAgent(input_shape, start_epsilon=0)
         if (USING_TRAINED_MODEL):
             self.sac_agent.load_model(file_path)
         self.using_model = True
