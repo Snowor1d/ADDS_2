@@ -891,7 +891,8 @@ if __name__ == "__main__":
                     if (REWARD_I):
                         r_i = env_model.reward_based_alived_root() * REWARD_I
                     if (REWARD_J):
-                        r_j = env_model.reward_based_all_agents_danger_log() * REWARD_J
+                        r_j = env_model.reward_based_all_agents_danger_root() * REWARD_J
+                    
                     
                     reward += (r_a + r_b + r_c + r_d + r_e + r_g + r_h + r_i+r_j+r_k+REWARD_FIXED)
                     

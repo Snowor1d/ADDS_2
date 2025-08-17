@@ -1516,6 +1516,13 @@ class FightingModel(Model):
             if(agent.type == 0 or agent.type == 1 or agent.type == 2) and (agent.dead == False):
                 reward += agent.danger
         return -math.log(reward+1)
+
+    def reward_based_all_agents_danger_root(self):
+        reward = 0
+        for agent in self.crowds:
+            if(agent.type == 0 or agent.type == 1 or agent.type == 2) and (agent.dead == False):
+                reward += agent.danger
+        return -math.sqrt(reward)
         
 
     def reward_based_new_founded_agent_danger(self):
