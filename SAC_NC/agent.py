@@ -391,8 +391,11 @@ class CrowdAgent(Agent):
                 new_position_robot = self.robot_policy_Q()
             
             elif self.model.robot_type == "A":
-                 new_position_robot = self.robot_policy_A()
-
+                new_position_robot = self.robot_policy_A()
+            elif self.model.robot_type == "T":
+                new_position_robot = self.robot_policy_Q()
+            elif self.model.robot_type == "R":
+                new_position_robot = self.robot_policy_Q()
             else:
                 raise ValueError(f"Unknown robot_type {self.model.robot_type}")
             
@@ -853,6 +856,7 @@ class RobotAgent(CrowdAgent):
         self.vel = [0, 0]
 
         self.desired_speed_a = 4
+        self.target_agent = None
 
     @staticmethod
     def _astar_grid(start, goal, valid, width, height):
@@ -1008,7 +1012,72 @@ class RobotAgent(CrowdAgent):
         if   self.astar_state == self.SEEK: return self._seek()
         elif self.astar_state == self.LEAD: return self._lead()
         else:                               return self._wait()
-     
+
+    def robot_policy_go_and_back(self):
+        if (self.target_agent == None):
+            max_d = -1 
+            max_d_ag = None
+            for ag in self.model.crowds:
+                if not ag.dead:
+                    d = self.point_to_point_distance(self.xy, ag.xy)
+                    if d > max_d:
+                        max_d = d
+                        max_d_ag = ag
+            if max_d_ag is not None:
+                self.target_agent = max_d_ag
+
+        if (self.target_agent == None):
+            return
+        
+        if (self.target_agent.dead):
+            self.target_agent = None
+            return
+
+        goal = [0, 0]
+        if (self.point_to_point_distance(self.xy, self.target_agent.xy) < 5):
+            goal = self.model.exit_point[0]
+        else :
+            goal = self.target_agent.xy
+
+        goal_mesh = self.model.match_grid_to_mesh[int(round(goal[0])), int(round(goal[1]))]
+        now_mesh = self.model.match_grid_to_mesh[int(round(self.xy[0])), int(round(self.xy[1]))]
+        next_mesh = self.model.next_vertex_matrix[now_mesh][goal_mesh]
+        if(now_mesh == next_mesh):
+            goal_x = goal[0] - self.xy[0]
+            goal_y = goal[1] - self.xy[1]
+            
+        else:
+            next_mesh_middle = ((next_mesh[0][0]+next_mesh[1][0]+next_mesh[2][0])/3, (next_mesh[0][1]+next_mesh[1][1]+next_mesh[2][1])/3)
+            goal_x = next_mesh_middle[0] - self.xy[0]
+            goal_y = next_mesh_middle[1] - self.xy[1]
+
+        goal_x = 2* goal_x / math.sqrt(pow(goal_x, 2) + pow(goal_y, 2))
+        goal_y = 2* goal_y / math.sqrt(pow(goal_x, 2) + pow(goal_y, 2))
+        self.receive_action([goal_x, goal_y])
+
+
+    def robot_policy_going_exit(self):
+        goal = self.model.exit_point[0]
+        if self.point_to_point_distance(self.xy, goal) < 2:
+            self.receive_action([0, 0])  # stop
+        
+        else :
+            goal_mesh = self.model.match_grid_to_mesh[int(round(goal[0])), int(round(goal[1]))]
+            now_mesh = self.model.match_grid_to_mesh[int(round(self.xy[0])), int(round(self.xy[1]))]
+            next_mesh = self.model.next_vertex_matrix[now_mesh][goal_mesh]
+            if(now_mesh == next_mesh):
+                goal_x = goal[0] - self.xy[0]
+                goal_y = goal[1] - self.xy[1]
+                
+            else:
+                next_mesh_middle = ((next_mesh[0][0]+next_mesh[1][0]+next_mesh[2][0])/3, (next_mesh[0][1]+next_mesh[1][1]+next_mesh[2][1])/3)
+                goal_x = next_mesh_middle[0] - self.xy[0]
+                goal_y = next_mesh_middle[1] - self.xy[1]
+
+            goal_x = 2* goal_x / math.sqrt(pow(goal_x, 2) + pow(goal_y, 2))
+            goal_y = 2* goal_y / math.sqrt(pow(goal_x, 2) + pow(goal_y, 2))
+            self.receive_action([goal_x, goal_y])
+    
 
     def receive_action(self, action):
                 
@@ -1077,7 +1146,7 @@ class RobotAgent(CrowdAgent):
         self.model.robot_mode = "GUIDE"
 
         intend_force = 15
-        desired_speed = 4
+        desired_speed = 2
 
             
 

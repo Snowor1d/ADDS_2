@@ -56,10 +56,11 @@ most_danger = 0
 width = 50
 height = 50
 model_num = 13
+robot_version = 'R' # 'T' : direct to goal, 'R' : 가장 먼 agent와 출구 사이를 왔다갔다
 if visualization_mode == 'on':
     Width = width
     Height =height
-    s_model_r = model.FightingModel(number_of_agents,width,height,model_num)
+    s_model_r = model.FightingModel(number_of_agents,width,height,model_num, robot=robot_version)
     s_model_r.use_model('sac_checkpoint_ep_0.pth')  
     ran_num = random.randint(10000,20000)
     most_danger_mesh = None
