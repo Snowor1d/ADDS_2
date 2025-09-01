@@ -1503,7 +1503,7 @@ class FightingModel(Model):
         return None
     
     def use_model(self, file_path):
-        from ADDS_AS import USING_TRAINED_MODEL
+        from Start_training import USING_TRAINED_MODEL
         input_shape = (50, 50)
         num_actions = 4
 

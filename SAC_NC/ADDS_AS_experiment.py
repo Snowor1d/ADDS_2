@@ -16,7 +16,7 @@ run_iteration      = 1
 number_of_agents   = 20
 max_step_num       = 3000
 robot_version      = 'R' # 'T' : direct to goal, 'R' : 가장 먼 agent와 출구 사이를 왔다갔다, 'Q' : 학습된 모델 사용
-robot_learned_model = 'sac_checkpoint_ep_0.pth'
+robot_learned_model = 'sac_checkpoint_ep_15000.pth'
 test_num           = 5
 map_list           = [6, 7, 8]
 

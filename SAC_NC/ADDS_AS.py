@@ -19,7 +19,7 @@ import agent
 import model
 import time
 import sys
-USING_TRAINED_MODEL = True 
+
 
 
 #-------------------------#

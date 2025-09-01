@@ -81,6 +81,9 @@ REWARD_G = 0 #reward_based_distance_from_near_agent_gain
 REWARD_H = 0 #reward_based_gain_with_time_bonus
 FINISHED_BONUS = 100
 
+
+USING_TRAINED_MODEL = True
+
 # --------------- crowd evacuation parameter -----------------
 K1 = 1 # distance weight
 K2 = 0.000001 # density weight (currently not used ; there is only one exit)
