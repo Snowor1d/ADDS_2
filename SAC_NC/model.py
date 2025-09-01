@@ -301,6 +301,7 @@ class FightingModel(Model):
     """A model with some number of agents."""
 
     def __init__(self, number_agents: int, width: int, height: int, model_num = -1, robot = 'Q'):
+        #print("model_num :", model_num)
         super().__init__()
         self.frame_stack = FrameStack(stack_len=4)
         self._first_step = True
@@ -309,14 +310,11 @@ class FightingModel(Model):
         self.crowds = []
         self.step_n = 0
         self.checking_reward = 0
-        if (model_num == -1):
-            model_num = random.randint(1,5)
 
         self.robot_type = robot
         self.spaces_of_map = []
         self.obstacles_grid_points = []
         self.map_num = model_num # 1 : 산학협력관 + 잔디밭 / 2 : 제2 공학관 + 정원 / 3 : 공학실습동 + 제2 연구동 / 4 : 벤젠고리관 / 5 : 경영관 + 퇴계 인문관
-
         self.running = (
             True  # required by the MESA Model Class to start and stop the simulation
         )
@@ -341,12 +339,15 @@ class FightingModel(Model):
         self.obstacles = list()
         self.mesh = list()
         self.mesh_list = list()
-        if(MAP_NUM != -2 and MAP_NUM != -1):
+        if (self.map_num == -1):
+            if(MAP_NUM != -2 and MAP_NUM != -1):
+                self.extract_map_50(self.map_num)
+            if (MAP_NUM == -1):
+                map_num_candidates = MAP_NUM_RANDOM
+                self.map_num = random.choice(map_num_candidates)
+                self.extract_map_50(self.map_num)    
+        else :
             self.extract_map_50(self.map_num)
-        if (MAP_NUM == -1):
-            map_num_candidates = MAP_NUM_RANDOM
-            self.map_num = random.choice(map_num_candidates)
-            self.extract_map_50(self.map_num)    
         self.distance = {}  
         self.schedule_e = RandomActivation(self)
         self.schedule = RandomActivation(self)
@@ -812,6 +813,20 @@ class FightingModel(Model):
             self.obstacles.append([[20, 0], [35, 0], [35, 15]])
             self.obstacles.append([[10, 40], [20, 49], [10, 49]])
 
+        elif map_num == 21:
+                    self.obstacles.append([[10, 10], [20, 10], [20, 15], [20, 20]])
+                    self.obstacles.append([[25, 10], [35, 10], [35, 15], [25, 15]])
+                    self.obstacles.append([[35, 20], [40, 20], [40, 35], [35, 30]])
+                    self.obstacles.append([[20, 25], [25, 25], [25, 40], [20, 40]])
+                    self.obstacles.append([[10, 30], [15, 30], [15, 40], [10, 40]])
+
+        elif map_num == 22:
+                    self.obstacles.append([[10, 10], [15, 20], [10, 20]])
+                    self.obstacles.append([[20, 10], [40, 10], [40, 15], [40, 15]])     
+                    self.obstacles.append([[20, 20], [40, 20], [20, 25]])
+                    self.obstacles.append([[30, 35], [40, 35], [40, 40], [30, 40]])
+                    self.obstacles.append([[10, 30], [25, 30], [25, 40], [10, 40]]) 
+
         
             
 
@@ -1027,7 +1042,10 @@ class FightingModel(Model):
             index = 0
         elif (self.map_num == 12):
             index = 1
-        
+        elif (self.map_num == 21):
+            index = 2
+        elif (self.map_num == 22):
+            index = 1
         
         self.exit_list = [all_exits[index]]
         self.exit_point = [all_exit_points[index]]

@@ -802,7 +802,7 @@ if __name__ == "__main__":
                 else:
                     number_of_agents = random.randint(CROWD_NUMBER_MIN, CROWD_NUMBER_MAX)
                  
-                env_model = model.FightingModel(number_of_agents, 50, 50, model_num = MAP_NUM, robot = 'Q')
+                env_model = model.FightingModel(number_of_agents, 50, 50, model_num = -1, robot = 'Q')
                 break
             except Exception as e:
                 print(e, "Retrying environment creation...")
@@ -950,7 +950,7 @@ if __name__ == "__main__":
         except Exception as e:
             print(e)
             print("error occured. retry.")
-            env_model = model.FightingModel(number_of_agents, 50, 50, 2, 'Q')
+            env_model = model.FightingModel(number_of_agents, 50, 50, -1, 'Q')
             abnormal_reward = 1
 
         heat_logger.flush_episode() #@for heatmap
