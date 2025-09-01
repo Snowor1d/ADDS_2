@@ -261,7 +261,7 @@ class CrowdAgent(Agent):
         self.escaped_agents = 0
         self.exit_belief = None       # {"idx": int, "score": float, "alpha": int}
         self.info_decay  = 0          # 받은 정보의 전파 단계 α
-        self.life_time = 0
+
 
 
     def step(self) -> None:
@@ -279,9 +279,7 @@ class CrowdAgent(Agent):
         """Handles the step of the model dor each agent.
         Sets the flags of each agent during the simulation.
         """
-        if not self.dead:
-            self.life_time += 1
-            
+
         # buried agents do not move (Do they???? :))
         if self.buried:
             return
@@ -295,12 +293,11 @@ class CrowdAgent(Agent):
         if self.dead and not self.buried:
             self.dead_count += 1
             return
-        
+
         if(self.type != 3): #robot은 죽지 않는다
             if self.model.exit_grid[int(self.xy[0])][int(self.xy[1])]:
                 self.dead = True
                 return
-        
 
 
         self.move()
@@ -382,39 +379,39 @@ class CrowdAgent(Agent):
         or attacks other agent."""
 
         cells_with_agents = []
-        robot_xy = [self.model.robot.xy[0], self.model.robot.xy[1]]
-        robot_prev_xy[0] = robot_xy[0]
-        robot_prev_xy[1] = robot_xy[1]
+#        robot_xy = [self.model.robot.xy[0], self.model.robot.xy[1]]
+ #       robot_prev_xy[0] = robot_xy[0]
+  #      robot_prev_xy[1] = robot_xy[1]
         
-        if (self.type == 3):
-            self.robot_step += 1
+        # if (self.type == 3):
+        #     self.robot_step += 1
 
                    
-            if self.model.robot_type == "Q":
-                new_position_robot = self.robot_policy_Q()
+        #     if self.model.robot_type == "Q":
+        #         new_position_robot = self.robot_policy_Q()
             
-            elif self.model.robot_type == "A":
-                new_position_robot = self.robot_policy_A()
-            elif self.model.robot_type == "T":
-                new_position_robot = self.robot_policy_Q()
-            elif self.model.robot_type == "R":
-                new_position_robot = self.robot_policy_Q()
-            else:
-                raise ValueError(f"Unknown robot_type {self.model.robot_type}")
+        #     elif self.model.robot_type == "A":
+        #         new_position_robot = self.robot_policy_A()
+        #     elif self.model.robot_type == "T":
+        #         new_position_robot = self.robot_policy_Q()
+        #     elif self.model.robot_type == "R":
+        #         new_position_robot = self.robot_policy_Q()
+        #     else:
+        #         raise ValueError(f"Unknown robot_type {self.model.robot_type}")
             
 
-            self.model.grid.move_agent(self, new_position_robot)
-            self.pos = new_position_robot
-            return
+        #     self.model.grid.move_agent(self, new_position_robot)
+        #     self.pos = new_position_robot
+        #     return
         
-        if self.type in (0, 1, 2):               # (로봇이 아니면)
-            # (1) 목표 재계산 --------------------
-            self.which_goal_agent_want()          # ← 새 버전 호출
-            # (2) 힘 계산·충돌 예측·이동 ----------
-            self.pos = (round(self.xy[0]), round(self.xy[1]))
-            new_pos  = self.agent_modeling()      # ← 내부에서 predict_collision() 포함
-            new_pos  = (int(round(new_pos[0])), int(round(new_pos[1])))
-            self.model.grid.move_agent(self, new_pos)
+        # if self.type in (0, 1, 2):               # (로봇이 아니면)
+        #     # (1) 목표 재계산 --------------------
+        #     self.which_goal_agent_want()          # ← 새 버전 호출
+        #     # (2) 힘 계산·충돌 예측·이동 ----------
+        #     self.pos = (round(self.xy[0]), round(self.xy[1]))
+        #     new_pos  = self.agent_modeling()      # ← 내부에서 predict_collision() 포함
+        #     new_pos  = (int(round(new_pos[0])), int(round(new_pos[1])))
+        #     self.model.grid.move_agent(self, new_pos)
 
     def choice_near_goal(self, pos):
         shortest_distance = float('inf')
@@ -658,50 +655,34 @@ class CrowdAgent(Agent):
             #print("출구로 향하자!")
             return
 
-        # ─ 4단계: 행동 타입 결정 (로봇/이웃/마이웨이) ─
-        #robot_d = self.point_to_point_distance(self.xy, self.model.robot.xy) # 이거 좀 부정확함
-        robot_d = math.sqrt(pow(self.xy[0]-self.model.robot.xy[0], 2) + pow(self.xy[1]-self.model.robot.xy[1], 2))
-        if(robot_d >= ROBOT_R and self.type==0):
-            self.decision_flag = 0
-        if(self.decision_flag == 0 or robot_d < ROBOT_R): 
-            #print(f"Agent{self.unique_id} 는 새로운 결정을 내리기로 했습니다.")
-            if(robot_d < ROBOT_R and self.model.robot_mode == "GUIDE"):
-                if random.random() < P_robot_following:
-                    #print(f"Agent{self.unique_id} 는 로봇을 따라갑니다!")
-                    self.type = 0
-                    self.now_goal = self.model.robot_xy[:]
-                    self.is_effected_by_robot = 1
-                else:
+        if(self.decision_flag == 0): 
+
+            followable_neighbors = []
+            for n in neighbors:
+                if (n.type != 2): #서로가 서로를 따라갈 수는 없음
+                    followable_neighbors.append(n)
+            if(len(followable_neighbors) == 0):
+                #print(f"Agent{self.unique_id} 는 주위에 아무것도 없습니다. - My Way")
+                self.type = 1 #따라갈 군중이 없으니 my-way
+            else: # 따라갈 군중이 있음
+                if random.random() < (1-P_neighbor_following): #따라갈 군중이 있어도 제 갈길 가는 Agent
+                    #print(f"Agent{self.unique_id} 가 이웃을 외면했습니다!")
                     self.type = 1
-                    #print(f"Agent{self.unique_id} 가 로봇을 외면했습니다! - My Way")
-                
-            else :
-                followable_neighbors = []
-                for n in neighbors:
-                    if (n.type != 2): #서로가 서로를 따라갈 수는 없음
-                        followable_neighbors.append(n)
-                if(len(followable_neighbors) == 0):
-                    #print(f"Agent{self.unique_id} 는 주위에 아무것도 없습니다. - My Way")
-                    self.type = 1 #따라갈 군중이 없으니 my-way
-                else: # 따라갈 군중이 있음
-                    if random.random() < (1-P_neighbor_following): #따라갈 군중이 있어도 제 갈길 가는 Agent
-                        #print(f"Agent{self.unique_id} 가 이웃을 외면했습니다!")
-                        self.type = 1
-                    else: # 이웃 군중 따라가는 Agent
-                        self.type = 2
-                        self.follow_agent_id = followable_neighbors[0].unique_id # 이제 가장 믿을만한 이웃을 고를거임, 일단 초기화
-                        max_score = -99999
-                        for n in followable_neighbors:
-                            dist = self.point_to_point_distance
-                            score = 0
-                            if (n.exit_belief):
-                                score = n.exit_belief["score"]
-                            else: # 이웃한테 탈출구 정보가 없으면 일단 후순위
-                                dist = self.point_to_point_distance(self.xy, n.xy)
-                                score = -1000 - dist # 후순위 이웃 중 자기한테 가까울수록 신뢰함
-                            if score > max_score:
-                                self.follow_agent_id = n.unique_id 
-                        #print(f"Agent{self.unique_id} 가 Agent{self.follow_agent_id} 를 따라갑니다!")
+                else: # 이웃 군중 따라가는 Agent
+                    self.type = 2
+                    self.follow_agent_id = followable_neighbors[0].unique_id # 이제 가장 믿을만한 이웃을 고를거임, 일단 초기화
+                    max_score = -99999
+                    for n in followable_neighbors:
+                        dist = self.point_to_point_distance
+                        score = 0
+                        if (n.exit_belief):
+                            score = n.exit_belief["score"]
+                        else: # 이웃한테 탈출구 정보가 없으면 일단 후순위
+                            dist = self.point_to_point_distance(self.xy, n.xy)
+                            score = -1000 - dist # 후순위 이웃 중 자기한테 가까울수록 신뢰함
+                        if score > max_score:
+                            self.follow_agent_id = n.unique_id 
+                    #print(f"Agent{self.unique_id} 가 Agent{self.follow_agent_id} 를 따라갑니다!")
             self.decision_flag = self.decision_period
             
         else:
@@ -709,7 +690,7 @@ class CrowdAgent(Agent):
 
         if self.type==0:
             self.decision_flag = 5
-            self.now_goal = self.model.robot.xy 
+            #self.now_goal = self.model.robot.xy 
 
         elif self.type==1:
             now_mesh = self.choice_safe_mesh(self.xy)

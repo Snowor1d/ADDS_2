@@ -370,10 +370,10 @@ class FightingModel(Model):
         self.calculate_mesh_danger()
         self.exit_list = []
         self.random_agent_distribute_outdoor(number_agents, 1)
-        self.make_robot()
+        #self.make_robot()
         #self.visualize_danger()
-        self.robot_xy = [0, 0]
-        self.robot_mode = "GUIDE"
+        #self.robot_xy = [0, 0]
+        #self.robot_mode = "GUIDE"
         self.step_count = 0
 
         self.now_evacuated = 0
@@ -1115,7 +1115,7 @@ class FightingModel(Model):
 
 
     def robot_placement(self,
-                        n_robots: int = 1,
+                        n_robots: int = 0,
                         padding: int = 5):
         """
         장애물(삼각형·사각형)과 경계를 피하고,
@@ -1337,11 +1337,11 @@ class FightingModel(Model):
                 print("reward_based_all_agents_danger_log : ", self.reward_based_all_agents_danger_log() * REWARD_J)
                 print("reward_penalty_collision : ", self.reward_penalty_collision() * REWARD_K)        
 
-        elif (self.robot_version == 'T'):
-            self.robot.robot_policy_going_exit()      
+        #elif (self.robot_version == 'T'):
+            #self.robot.robot_policy_going_exit()      
 
-        elif (self.robot_version == 'R'):
-            self.robot.robot_policy_go_and_back()  
+        #elif (self.robot_version == 'R'):
+            #self.robot.robot_policy_go_and_back()  
 
         self.schedule.step()
         self.datacollector_currents.collect(self)  # passing the model
@@ -1587,13 +1587,6 @@ class FightingModel(Model):
     
     def return_robot(self):
         return self.robot
-
-    def calculate_all_agents_life_time(self):
-        total_life_time = 0
-        for agent in self.crowds:
-            if(agent.type == 0 or agent.type == 1 or agent.type == 2):
-                total_life_time += agent.life_time
-        return total_life_time
 
 
 

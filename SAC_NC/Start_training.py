@@ -31,7 +31,7 @@ GAMMA_SCHEDULE_STEP = 1000
 CROWD_NUMBER_MIN = 20
 CROWD_NUMBER_MAX = 20
 MAP_NUM = -1 #if not used, -2, if random, -1
-MAP_NUM_RANDOM = [6, 7, 8]
+MAP_NUM_RANDOM = [8]
 SCALE_CHECK = 0 # want to check reward scale?
 ACTION_SCALE = 4
 MAX_STEPS = 6000
@@ -67,10 +67,10 @@ ALPHA_DECAY_STEPS = 3000
 # --------------- REWARD SHAPING -----------------
 
 REWARD_A = 2 #reward_based_alived
-REWARD_B = 0 #reward_based_all_agents_danger
+REWARD_B = 0.006 #reward_based_all_agents_danger
 REWARD_D = 4 #reward_based_penalty
 REWARD_K = 1 #reward_penalty_collsion
-REWARD_J = 0.06 #reward_based_all_agents_danger_root
+REWARD_J = 0 #reward_based_all_agents_danger_root
 REWARD_FIXED = -1
 
 REWARD_I = 0 #reward_based_alived_root

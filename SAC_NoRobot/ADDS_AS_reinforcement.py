@@ -696,7 +696,6 @@ if __name__ == "__main__":
     tb_log_dir = os.path.join(log_dir, "tensorboard_logs")
     evacuation_time_80_file = os.path.join(log_dir, "evacuation_80.txt")
     evacuation_time_100_file = os.path.join(log_dir, "evacuation_100.txt")
-    total_lifetime_file = os.path.join(log_dir, "total_lifetime.txt")
 
     tb_process = launch_tensorboard(tb_log_dir, port=PORT_NUM)
     # 별도 스레드에서 total_reward.txt 모니터링 시작
@@ -717,13 +716,6 @@ if __name__ == "__main__":
     )
     monitor_thread_100.start()
 
-
-    monitor_thread_lifetime = threading.Thread(
-        target=monitor_metric,
-        args = (total_lifetime_file, "Total Lifetime", tb_log_dir),
-        daemon=True
-    )
-    monitor_thread_lifetime.start()
 
 
     # hyperparams
@@ -795,17 +787,17 @@ if __name__ == "__main__":
         print(f"Episode {episode_num}")
         # Create environment
         while True:
-            try:
-                number_of_agents = 0
-                if (CROWD_NUMBER_MIN == CROWD_NUMBER_MAX):
-                    number_of_agents = CROWD_NUMBER_MIN
-                else:
-                    number_of_agents = random.randint(CROWD_NUMBER_MIN, CROWD_NUMBER_MAX)
+            #try:
+            number_of_agents = 0
+            if (CROWD_NUMBER_MIN == CROWD_NUMBER_MAX):
+                number_of_agents = CROWD_NUMBER_MIN
+            else:
+                number_of_agents = random.randint(CROWD_NUMBER_MIN, CROWD_NUMBER_MAX)
                  
                 env_model = model.FightingModel(number_of_agents, 50, 50, model_num = MAP_NUM, robot = 'Q')
                 break
-            except Exception as e:
-                print(e, "Retrying environment creation...")
+            #except Exception as e:
+                #rint(e, "Retrying environment creation...")
         
         first_frame = env_model.return_current_image()
         frame_stack = FrameStack(4)
@@ -814,7 +806,6 @@ if __name__ == "__main__":
         reward = 0
         evacuation_time_80 = max_steps
         evacuation_time_100 = max_steps
-        agent_total_lifetime = 0
 
         buffered_state = state
         buffered_action = None
@@ -945,7 +936,6 @@ if __name__ == "__main__":
                 if (env_model.alived_agents() < 1 and evacuation_time_100 == max_steps):
                     evacuation_time_100 = step
                 if done:
-                    agent_total_lifetime = env_model.calculate_all_agents_life_time()
                     break
         except Exception as e:
             print(e)
@@ -985,8 +975,6 @@ if __name__ == "__main__":
             open(evacuation_time_80_file_path, "w").close()
         if not os.path.exists(evacuation_time_100_file_path):
             open(evacuation_time_100_file_path, "w").close()
-        if not os.path.exists(total_lifetime_file):
-            open(total_lifetime_file, "w").close()
 
         if (episode_num) % 50 == 0:
             model_filename = os.path.join(log_dir, f"sac_checkpoint_ep_{episode_num}.pth")
@@ -1009,8 +997,6 @@ if __name__ == "__main__":
             f.write(str(agent.epsilon)+"\n")
             f.write(str(agent.epsilon_long))
 
-        with open(total_lifetime_file, "a") as f:
-            f.write(f"{agent_total_lifetime}\n")
 
         # each episode time print
         if ENABLE_TIMER:

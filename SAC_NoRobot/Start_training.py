@@ -41,8 +41,7 @@ ROBOT_RADIUS = 10
 EXIT_CONFIRM_RADIUS = 10
 NEIGHBOR_RADIUS = 10
 VISION_RADIUS = 10
-
-# ---------------- EPSILON-EXPLORATION -------------------
+# --------------- EPSILON-EXPLORATION ------------------
 EPSILON_MIN = 0.1
 START_EPSILON = 1 
 SCHEDULER_TYPE = "l"
@@ -53,28 +52,27 @@ EXPLORATION_TYPE = 0
 LONG_EPSILON_MIN = 0
 START_LONG_EPSILON = 0
 
-
 # -------------- PATH -------------------
-LOG_DIR = "Log_SAC_FOUR"
-PORT_NUM = 6008
+LOG_DIR = "Log_SAC_NC"
+PORT_NUM = 6007
 
 # --------------- SAC ALGORITHM PARAMETER ---------------
 LOG_STD_MAX = 0.5
 LOG_STD_MIN = -20
 
-ALPHA_START = 0.1 # in SAC
-ALPHA_END = 0.1
+ALPHA_START = 0.2 # in SAC
+ALPHA_END = 0.2
 ALPHA_DECAY_STEPS = 3000
 
 # --------------- REWARD SHAPING -----------------
 
 REWARD_A = 2 #reward_based_alived
-REWARD_B = 0.006 #reward_based_all_agents_danger
+REWARD_B = 0 #reward_based_all_agents_danger
 REWARD_D = 4 #reward_based_penalty
 REWARD_K = 1 #reward_penalty_collsion
+REWARD_J = 0.06 #reward_based_all_agents_danger_root
 REWARD_FIXED = -1
 
-REWARD_J = 0 #reward_based_all_agents_danger_log
 REWARD_I = 0 #reward_based_alived_root
 REWARD_C = 0 #reward_based_gain
 REWARD_E = 0 #reward_based_evacuated_with_robot
@@ -87,8 +85,6 @@ FINISHED_BONUS = 100
 K1 = 1 # distance weight
 K2 = 0.000001 # density weight (currently not used ; there is only one exit)
 K3 = 1 # width weight
-
-
 
 def main():
     print_banner()
