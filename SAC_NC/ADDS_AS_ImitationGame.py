@@ -240,8 +240,8 @@ def main():
             # -------------------------
             user_dx, user_dy = get_joystick_action(JOYSTICK_CENTER, (knob_x, knob_y))
             # 방향 뒤집힘 보정: (env_dx, env_dy) = (dy, dx)
-            env_dx = user_dy
-            env_dy = user_dx
+            env_dx = user_dx
+            env_dy = -user_dy
 
             env_model.robot.receive_action([env_dx, env_dy])
 
