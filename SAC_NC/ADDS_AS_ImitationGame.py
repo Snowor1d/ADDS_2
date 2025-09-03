@@ -282,7 +282,7 @@ def main():
             # -------------------------
             screen.fill(WHITE)
 
-            draw_environment(screen, env_model.return_current_image())
+            draw_environment(screen, np.rot90(env_model.return_current_image(), k=1))
             draw_joystick(screen, JOYSTICK_CENTER, JOYSTICK_RADIUS, (knob_x, knob_y))
 
             draw_text(screen, f"Episode: {episode_count}", 10, 10, color=BLACK, font_size=22)
