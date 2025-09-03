@@ -160,7 +160,7 @@ def main():
             number_agents=20,
             width=50,
             height=50,
-            model_num=1,   # 원하는 맵 번호
+            model_num=-1,   # 원하는 맵 번호
             robot='Q'
         )
         state = np.array(env_model.return_current_image(), dtype=np.float32)
