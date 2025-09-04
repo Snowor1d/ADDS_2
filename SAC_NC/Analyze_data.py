@@ -48,6 +48,7 @@ ROBOT_LABELS = {
     "T": "Direct-to-Goal",         # 예: 바로 출구 지향
     "Q": "RL-Trained",         # 예: 학습 모델
     "H": "Human-Control",
+    "N": "No Robot"
     # 필요 시 더 추가: "Human": "Human (Joystick Baseline)" 등
 }
 
