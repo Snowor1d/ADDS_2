@@ -371,7 +371,8 @@ class FightingModel(Model):
         self.calculate_mesh_danger()
         self.exit_list = []
         self.random_agent_distribute_outdoor(number_agents, 1)
-        self.make_robot()
+        if (self.robot_version != 'N'):
+            self.make_robot()
         #self.visualize_danger()
         self.robot_xy = [0, 0]
         self.robot_mode = "GUIDE"

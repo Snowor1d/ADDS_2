@@ -56,7 +56,7 @@ most_danger = 0
 width = 50
 height = 50
 model_num = -1
-robot_version = 'R' # 'T' : direct to goal, 'R' : 가장 먼 agent와 출구 사이를 왔다갔다
+robot_version = 'N' # 'T' : direct to goal, 'R' : 가장 먼 agent와 출구 사이를 왔다갔다
 if visualization_mode == 'on':
     Width = width
     Height =height

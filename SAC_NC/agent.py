@@ -380,12 +380,12 @@ class CrowdAgent(Agent):
         Here the agent decides   if it moves,
         drinks the heal potion,
         or attacks other agent."""
-
-        cells_with_agents = []
-        robot_xy = [self.model.robot.xy[0], self.model.robot.xy[1]]
-        robot_prev_xy[0] = robot_xy[0]
-        robot_prev_xy[1] = robot_xy[1]
-        
+        if(self.model.robot_version != 'N'):
+            cells_with_agents = []
+            robot_xy = [self.model.robot.xy[0], self.model.robot.xy[1]]
+            robot_prev_xy[0] = robot_xy[0]
+            robot_prev_xy[1] = robot_xy[1]
+            
         if (self.type == 3):
             self.robot_step += 1
 
@@ -660,7 +660,10 @@ class CrowdAgent(Agent):
 
         # ─ 4단계: 행동 타입 결정 (로봇/이웃/마이웨이) ─
         #robot_d = self.point_to_point_distance(self.xy, self.model.robot.xy) # 이거 좀 부정확함
-        robot_d = math.sqrt(pow(self.xy[0]-self.model.robot.xy[0], 2) + pow(self.xy[1]-self.model.robot.xy[1], 2))
+        if self.model.robot_version == 'N':
+            robot_d = 9999999999
+        else:
+            robot_d = math.sqrt(pow(self.xy[0]-self.model.robot.xy[0], 2) + pow(self.xy[1]-self.model.robot.xy[1], 2))
         if(robot_d >= ROBOT_R and self.type==0):
             self.decision_flag = 0
         if(self.decision_flag == 0 or robot_d < ROBOT_R): 
