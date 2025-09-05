@@ -20,8 +20,8 @@ BUFFER_SIZE = 1000000
 BATCH_SIZE = 128
 INTRINSIC_ETA = 0.1 #intrinsic reward
 START_BATCH_TIMES = 1
-START_UPDATE_STEP = 150
-DEVICE = "cpu"
+START_UPDATE_STEP = 500
+DEVICE = "cuda"
 
 GAMMA_START = 0.99
 GAMMA_END = 0.99
@@ -31,10 +31,10 @@ GAMMA_SCHEDULE_STEP = 1000
 CROWD_NUMBER_MIN = 20
 CROWD_NUMBER_MAX = 20
 MAP_NUM = -1 #if not used, -2, if random, -1
-MAP_NUM_RANDOM = [6]
+MAP_NUM_RANDOM = [6, 7, 8]
 SCALE_CHECK = 0 # want to check reward scale?
 ACTION_SCALE = 4
-MAX_STEPS = 6000
+MAX_STEPS = 4000
 
 
 ROBOT_RADIUS = 10
@@ -46,14 +46,14 @@ EPSILON_MIN = 0.1
 START_EPSILON = 1 
 SCHEDULER_TYPE = "l"
 DECAY_VALUE = 0
-LINEARLY_DECAY_STEP = 2000
-START_DECAY_STEP = 150
+LINEARLY_DECAY_STEP = 3000
+START_DECAY_STEP = 500
 EXPLORATION_TYPE = 0
 LONG_EPSILON_MIN = 0
 START_LONG_EPSILON = 0
 
 # -------------- PATH -------------------
-LOG_DIR = "Log_SAC_NC"
+LOG_DIR = "Log_SAC_NC_6007"
 PORT_NUM = 6007
 
 # --------------- SAC ALGORITHM PARAMETER ---------------
@@ -71,7 +71,7 @@ REWARD_B = 0.006 #reward_based_all_agents_danger
 REWARD_D = 4 #reward_based_penalty
 REWARD_K = 1 #reward_penalty_collsion
 REWARD_J = 0 #reward_based_all_agents_danger_root
-REWARD_FIXED = -1
+REWARD_FIXED = -2
 
 REWARD_I = 0 #reward_based_alived_root
 REWARD_C = 0 #reward_based_gain
@@ -79,7 +79,7 @@ REWARD_E = 0 #reward_based_evacuated_with_robot
 REWARD_F = 0 #reward_based_distance_from_near_agents
 REWARD_G = 0 #reward_based_distance_from_near_agent_gain
 REWARD_H = 0 #reward_based_gain_with_time_bonus
-FINISHED_BONUS = 100
+FINISHED_BONUS = 0
 
 
 USING_TRAINED_MODEL = True
