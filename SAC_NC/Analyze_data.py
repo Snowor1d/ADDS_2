@@ -13,7 +13,7 @@ import colorsys
 # =========================
 # 전역 파라미터
 # =========================
-ROOT_DIR = os.path.expanduser("~/Result_data_experiment_250903")
+ROOT_DIR = os.path.expanduser("~/Result_data_Experiment2")
 OUT_DIR  = ROOT_DIR
 
 # --- 그림/폰트 ---
@@ -23,12 +23,12 @@ FONT_SIZES = {"title": 16, "axes": 13, "ticks": 11, "legend": 11}
 
 # --- 제목/축 레이블 ---
 TITLE_MAP_FORMAT   = "Map {map_id} - {plot_name}"
-TITLE_EVAC_NAME    = "Evacuation 100"
-TITLE_EPISODE_NAME = "Episode Log"
+TITLE_EVAC_NAME    = "Time to Evacuate overall Crowds"
+TITLE_EPISODE_NAME = "Remained Agents per Step"
 XLABEL_EVAC        = "Robot Version"
-YLABEL_EVAC        = "Evacuation 100 Time (steps)"
+YLABEL_EVAC        = "Timestep"
 XLABEL_EPISODE     = "Step"
-YLABEL_EPISODE     = "# Alive agents"
+YLABEL_EPISODE     = "Remained evacuaee"
 
 # --- 저장 ---
 SAVE_DPI    = 220
