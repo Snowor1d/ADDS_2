@@ -34,6 +34,39 @@ import torch.nn.functional as F
 
 from ADDS_AS_reinforcement import SACAgent, ReplayBuffer, PolicyNetwork, QNetwork, ACTION_SCALE, FrameStack
 from Start_training import *
+# from continous_renderer import ContinuousRenderer
+
+# def continuous_snapshot(self, renderer: ContinuousRenderer | None = None,
+#                         show_axes: bool = False):
+#     """
+#     현재 상태를 '연속 좌표계'로 렌더링하여 RGB numpy(HxWx3)를 반환.
+#     학습용 50x50 라스터와 분리되어, 논문/데모용으로 사용.
+#     """
+#     if renderer is None:
+#         renderer = ContinuousRenderer(world_size=(float(self.width), float(self.height)),
+#                                       show_axes=show_axes)
+#     # 로봇/군중의 xy가 실수 좌표(연속)라는 점을 그대로 사용
+#     # 장애물/출구는 self.obstacles / self.exit_list를 폴리곤으로 사용
+#     return renderer.draw(self)
+
+# def save_continuous_video(self, path="continuous_demo.mp4",
+#                           steps=600, fps=20, show_axes=False):
+#     """
+#     간단한 데모 비디오 저장 유틸. (시뮬레이터 루프가 외부일 경우엔 필요 없음)
+#     현재 모델을 steps번 진행하며 비디오를 저장.
+#     """
+#     import matplotlib.animation as animation
+#     renderer = ContinuousRenderer(world_size=(float(self.width), float(self.height)),
+#                                   show_axes=show_axes)
+#     writer = animation.FFMpegWriter(fps=fps, bitrate=4000)
+#     fig = renderer.fig
+#     with writer.saving(fig, path, dpi=renderer.dpi):
+#         for _ in range(steps):
+#             # (선택) 로봇이 정책으로 움직이는 경우는 기존 step() 로직 그대로
+#             self.step()
+#             renderer.draw(self)
+#             writer.grab_frame()
+
 def _point_on_segment(p: Tuple[int, int],
                       a: Tuple[int, int],
                       b: Tuple[int, int]) -> bool:

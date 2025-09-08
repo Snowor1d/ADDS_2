@@ -83,6 +83,7 @@ FINISHED_BONUS = 0
 
 
 USING_TRAINED_MODEL = True
+SHOW_CONTROLLED_CROWD = False
 
 # --------------- crowd evacuation parameter -----------------
 K1 = 1 # distance weight
