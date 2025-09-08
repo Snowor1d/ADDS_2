@@ -988,7 +988,7 @@ if __name__ == "__main__":
         if not os.path.exists(total_lifetime_file):
             open(total_lifetime_file, "w").close()
 
-        if (episode_num) % 50 == 0:
+        if (episode_num) % 200 == 0:
             model_filename = os.path.join(log_dir, f"sac_checkpoint_ep_{episode_num}.pth")
             agent.save_model(model_filename)
             replay_buffer_filename = "replay_buffer.npz"
