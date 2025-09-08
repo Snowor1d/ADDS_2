@@ -815,19 +815,47 @@ class FightingModel(Model):
             self.obstacles.append([[10, 40], [20, 49], [10, 49]])
 
         elif map_num == 21:
-                    self.obstacles.append([[10, 10], [20, 10], [20, 15], [20, 20]])
-                    self.obstacles.append([[25, 10], [35, 10], [35, 15], [25, 15]])
-                    self.obstacles.append([[35, 20], [40, 20], [40, 35], [35, 30]])
-                    self.obstacles.append([[20, 25], [25, 25], [25, 40], [20, 40]])
-                    self.obstacles.append([[10, 30], [15, 30], [15, 40], [10, 40]])
+            self.obstacles.append([[10, 10], [20, 10], [20, 15], [20, 20]])
+            self.obstacles.append([[25, 10], [35, 10], [35, 15], [25, 15]])
+            self.obstacles.append([[35, 20], [40, 20], [40, 35], [35, 30]])
+            self.obstacles.append([[20, 25], [25, 25], [25, 40], [20, 40]])
+            self.obstacles.append([[10, 30], [15, 30], [15, 40], [10, 40]])
 
         elif map_num == 22:
-                    self.obstacles.append([[10, 10], [15, 20], [10, 20]])
-                    self.obstacles.append([[20, 10], [40, 10], [40, 15], [40, 15]])     
-                    self.obstacles.append([[20, 20], [40, 20], [20, 25]])
-                    self.obstacles.append([[30, 35], [40, 35], [40, 40], [30, 40]])
-                    self.obstacles.append([[10, 30], [25, 30], [25, 40], [10, 40]]) 
+            self.obstacles.append([[10, 10], [15, 20], [10, 20]])
+            self.obstacles.append([[20, 10], [40, 10], [40, 15], [40, 15]])     
+            self.obstacles.append([[20, 20], [40, 20], [20, 25]])
+            self.obstacles.append([[30, 35], [40, 35], [40, 40], [30, 40]])
+            self.obstacles.append([[10, 30], [25, 30], [25, 40], [10, 40]]) 
 
+        elif map_num == 23:
+            self.obstacles.append([[10, 15], [35, 15], [35, 25], [10, 25]])
+            self.obstacles.append([[0, 35], [20, 35], [20, 40], [0, 40]])
+            self.obstacles.append([[30, 35], [35, 30], [35, 35]])
+
+        elif map_num == 24:
+            self.obstacles.append([[10, 30], [15, 30], [15, 40], [10, 40]])
+            self.obstacles.append([[30, 20], [40, 20], [40, 35], [30, 35]])
+
+        elif map_num == 25:
+            self.obstacles.append([[15, 5], [40, 5], [40, 20]])
+            self.obstacles.append([[20, 25], [25, 25], [25, 20], [20, 20]])
+            #self.obstacles.append([[6, 25], [10, 25], [10, 40], [6, 40]])
+            self.obstacles.append([[11, 32], [40, 32], [40, 40], [11, 40]])
+        elif map_num == 26:
+            self.obstacles.append([[20, 15], [35, 30], [30, 35], [15, 20]])
+            self.obstacles.append([[20, 0], [30, 0], [30, 10]])
+            self.obstacles.append([[10, 40], [20, 40], [20, 35], [10, 35]])
+
+        elif map_num == 27: #오른쪽 하단
+            self.obstacles.append([[8, 8], [25, 8], [25, 13], [8, 13]])
+            self.obstacles.append([[8, 16], [14, 16], [14, 25], [8, 25]])
+            self.obstacles.append([[20, 16], [25, 16], [25, 34], [20, 34]])
+            self.obstacles.append([[33, 16], [40, 16], [40, 34], [33, 34]])
+            self.obstacles.append([[8, 40], [13, 40], [13, 45], [8, 45]])
+            self.obstacles.append([[18, 40], [35, 40], [35, 45], [18, 45]])
+
+        
         
             
 
@@ -1046,6 +1074,14 @@ class FightingModel(Model):
         elif (self.map_num == 21):
             index = 2
         elif (self.map_num == 22):
+            index = 1
+        elif (self.map_num == 23):
+            index = 2
+        elif (self.map_num == 24):
+            index = 0
+        elif (self.map_num == 25):
+            index = 0
+        elif (self.map_num == 26):
             index = 1
         
         self.exit_list = [all_exits[index]]

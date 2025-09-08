@@ -664,11 +664,11 @@ class CrowdAgent(Agent):
             robot_d = 9999999999
         else:
             robot_d = math.sqrt(pow(self.xy[0]-self.model.robot.xy[0], 2) + pow(self.xy[1]-self.model.robot.xy[1], 2))
-        if(robot_d >= ROBOT_R and self.type==0):
+        if(robot_d >= ROBOT_R and self.type==0 ):
             self.decision_flag = 0
         if(self.decision_flag == 0 or robot_d < ROBOT_R): 
             #print(f"Agent{self.unique_id} 는 새로운 결정을 내리기로 했습니다.")
-            if(robot_d < ROBOT_R and self.model.robot_mode == "GUIDE"):
+            if(robot_d < ROBOT_R and self.model.robot_mode == "GUIDE" and self.point_to_point_distance(self.model.robot.xy, self.xy)<2.3*ROBOT_R):
                 if random.random() < P_robot_following:
                     #print(f"Agent{self.unique_id} 는 로봇을 따라갑니다!")
                     self.type = 0

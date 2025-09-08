@@ -57,7 +57,7 @@ reward_log_file = os.path.join(log_dir, "total_reward_imitation.txt")
 # 실험/기록 파라미터
 ############################
 # 맵/로봇 버전 (모델에는 'Q'로 넘기되, 폴더명 표기는 'H'로 구분)
-MAP_NUM_FOR_RUN = 8         # 원하는 맵 번호(-1은 내부 랜덤 로직)
+MAP_NUM_FOR_RUN = 3         # 원하는 맵 번호(-1은 내부 랜덤 로직)
 ROBOT_VERSION_FOR_MODEL = 'Q' # 인간 조작이지만 모델 로직은 'Q'로 유지(수동 action 전달)
 ROBOT_VERSION_FOR_LOG   = 'H' # 결과 폴더명에만 'H'로 기록해 비교군 명확화
 
