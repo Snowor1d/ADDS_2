@@ -7,6 +7,8 @@ import numpy as np
 import faulthandler
 faulthandler.enable()
 
+from typing import Optional  # ✅ Py3.8 호환: Optional 사용
+
 from continuous_renderer import ContinuousRenderer
 import matplotlib
 import matplotlib.pyplot as plt
@@ -213,7 +215,7 @@ def save_continuous_mp4(frames_rgb, out_path, fps=20):
 #     finally:
 #         del env
 
-def run_one_episode(map_id: int, saver: GridStateSaver | None = None):
+def run_one_episode(map_id: int, saver: Optional[GridStateSaver] = None):  # ✅ Py3.8 호환
     step_num = 0
     env = model.FightingModel(
         number_of_agents,
@@ -248,7 +250,6 @@ def run_one_episode(map_id: int, saver: GridStateSaver | None = None):
         annotate_fontsize = ANNOTATE_FONTSIZE
     )
 
-
     save_rgb_every = (visualization_mode == 'cont_png_every')
     save_mp4 = (visualization_mode == 'cont_mp4')
     save_last_png = (visualization_mode == 'cont_png')
@@ -270,7 +271,6 @@ def run_one_episode(map_id: int, saver: GridStateSaver | None = None):
             if visualization_mode != 'off':
                 if save_mp4:
                     # 메모리 아끼려면 VIS_SAVE_EVERY 간격으로만 수집해도 OK
-
                     rgb = renderer.draw(env, step=step_num)
                     collected_frames.append(rgb)
                 elif save_rgb_every and (step_num % VIS_SAVE_EVERY == 0 or alive < 1):
@@ -338,79 +338,7 @@ def aggregate_episode_logs(logs):
 # def main():
 #     result_root = init_result_root(EXP_NAME)
 #     print(f"[INFO] Result root at: {result_root}")
-
-#     global_test_index = 0
-
-#     for j in range(run_iteration):
-#         print(f"\n=== Iteration {j+1}/{run_iteration} ===")
-#         for map_id in map_list:
-#             map_dir = os.path.join(result_root, f"Result_{map_id}")
-#             ensure_dir(map_dir)
-
-#             map_robot_dir = os.path.join(map_dir, f"Result_{map_id}_{robot_version}")
-#             ensure_dir(map_robot_dir)
-
-#             evac_times, life_times, episode_logs = [], [], []
-
-#             for test_i in range(test_num):
-#                 unique_test_i = global_test_index
-#                 test_dirname = f"Result_{map_id}_{robot_version}_{unique_test_i}"
-#                 test_dir = os.path.join(map_robot_dir, test_dirname)
-
-#                 # 세부폴더는 항상 새로 생성
-#                 recreate_dir(test_dir)
-
-#                 steps, evacuated_all, all_life, ep_log, vis_frames = run_one_episode(map_id)
-
-#                 evacuation_100_time = steps if evacuated_all else max_step_num
-#                 all_agents_life_time = all_life
-
-#                 evac_times.append(evacuation_100_time)
-#                 life_times.append(all_agents_life_time)
-#                 episode_logs.append(ep_log)
-
-#                 write_txt(
-#                     os.path.join(test_dir, "metrics.txt"),
-#                     f"evacuation_100_time={evacuation_100_time}\nall_agents_life_time={all_agents_life_time}\n"
-#                 )
-#                 write_list_txt(os.path.join(test_dir, "episode_log.txt"), ep_log)
-
-#                 print(f"[Map {map_id}] Test {unique_test_i} -> steps={steps}, evacuated_all={evacuated_all}")
-
-
-#                 if visualization_mode == 'cont_mp4':
-#                     out_mp4 = os.path.join(test_dir, "continous.mp4")
-#                     save_continuous_mp4(vis_frames, out_mp4, fps=20)
-#                 elif visualization_mode == 'cont_png_every':
-#                     png_dir = os.path.join(test_dir, "continous_pngs")
-#                     os.makedirs(png_dir, exist_ok = True)
-#                     for tag, step_num, rgb in vis_frames:
-#                         if tag != 'PNG':
-#                             continue
-#                         plt.imsave(os.path.join(png_dir, f"frame_{step_id:05d}.png"), rgb)
-#                 elif visualization_mode == 'cont_png':
-#                     if vis_frames:
-#                         _, step_id, rgb = vis_frames[-1]
-#                         out_png = os.path.join(test_dir, f"continous_last_{step_id:05d}.png")
-#                         plt.imsave(out_png, rgb)
-                
-#                 print(f"[Map {map_id}] Test {unique_test_i} visualization saved.")
-
-#                 global_test_index += 1
-
-#             avg_evac = float(np.mean(evac_times)) if evac_times else float('nan')
-#             avg_life = float(np.mean(life_times)) if life_times else float('nan')
-#             write_txt(
-#                 os.path.join(map_robot_dir, "avg_metrics.txt"),
-#                 f"avg_evacuation_100_time={avg_evac}\navg_all_agents_life_time={avg_life}\n"
-#             )
-
-#             mean_series, min_series, max_series = aggregate_episode_logs(episode_logs)
-#             save_step_series(os.path.join(map_robot_dir, "episode_log_mean.txt"), mean_series)
-#             save_step_series(os.path.join(map_robot_dir, "episode_log_min.txt"), min_series)
-#             save_step_series(os.path.join(map_robot_dir, "episode_log_max.txt"), max_series)
-
-#             print(f"[Map {map_id}] Summary saved at {map_robot_dir}")
+#     ...
 
 def main():
     result_root = init_result_root(EXP_NAME)

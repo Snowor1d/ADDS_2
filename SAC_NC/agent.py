@@ -664,12 +664,12 @@ class CrowdAgent(Agent):
             robot_d = 9999999999
         else:
             robot_d = math.sqrt(pow(self.xy[0]-self.model.robot.xy[0], 2) + pow(self.xy[1]-self.model.robot.xy[1], 2))
-        if(robot_d >= ROBOT_R and self.type==0 ):
+        if(robot_d >= ROBOT_R and self.type==0 ): ### 로봇을 따라가던 애가 반경을 벗어나면 flag = 0
             self.decision_flag = 0
         if(self.decision_flag == 0 or robot_d < ROBOT_R): 
             #print(f"Agent{self.unique_id} 는 새로운 결정을 내리기로 했습니다.")
-            if(robot_d < ROBOT_R and self.model.robot_mode == "GUIDE" and self.point_to_point_distance(self.model.robot.xy, self.xy)<2.3*ROBOT_R):
-                if random.random() < P_robot_following:
+            if(robot_d < ROBOT_R and self.model.robot_mode == "GUIDE" and self.point_to_point_distance(self.model.robot.xy, self.xy)<2.3*ROBOT_R):  ####### 2.3*ROBOT_R 뭐임?
+                if random.random() < P_robot_following: 
                     #print(f"Agent{self.unique_id} 는 로봇을 따라갑니다!")
                     self.type = 0
                     self.now_goal = self.model.robot_xy[:]
@@ -683,7 +683,7 @@ class CrowdAgent(Agent):
                 for n in neighbors:
                     if (n.type != 2): #서로가 서로를 따라갈 수는 없음
                         followable_neighbors.append(n)
-                if(len(followable_neighbors) == 0):
+                if(len(followable_neighbors) == 0): ########## 이 경우는 마지막 agent에만 해당되는 거?
                     #print(f"Agent{self.unique_id} 는 주위에 아무것도 없습니다. - My Way")
                     self.type = 1 #따라갈 군중이 없으니 my-way
                 else: # 따라갈 군중이 있음
