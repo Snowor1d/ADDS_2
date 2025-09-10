@@ -21,10 +21,10 @@ import model  # FightingModel 이 여기 있다고 가정
 
 # ------------------------- #
 # 실험 파라미터
-visualization_mode = 'cont_mp4' # 'off', 'cont_mp4', 'cont_png_every', 'cont_png'
+visualization_mode = 'cont_png' # 'off', 'cont_mp4', 'cont_png_every', 'cont_png'
 run_iteration      = 1
 number_of_agents   = 20
-max_step_num       = 2000
+max_step_num       = 200
 robot_version      = 'R' # 'T' : direct to goal, 'R' : 가장 먼 agent와 출구 사이를 왔다갔다, 'Q' : 학습된 모델 사용
 robot_learned_model = 'sac_checkpoint_ep_15000.pth'
 test_num           = 1
@@ -33,7 +33,7 @@ map_list           = [7]
 MAP_WIDTH  = 50
 MAP_HEIGHT = 50
 
-EXP_NAME = "try1"   # 최상위 결과 폴더 이름
+EXP_NAME = "making_image"   # 최상위 결과 폴더 이름
 # 빨강 : "#FF0000", 파랑 : "#0000FF", 초록 : "#00FF00"
 # 노랑 : "#FFFF00", 보라 : "#FF00FF", 청록 : "#00FFFF"
 # 주황 : "#FFA500", 갈색 : "#A52A2A", 분홍 : "#FFC0CB"
@@ -42,11 +42,11 @@ EXP_NAME = "try1"   # 최상위 결과 폴더 이름
 CROWD_COLOR = "#0000FF"
 ROBOT_COLOR = "#FF0000"
 SINGLE_COLOR_EDGES = True # 선/채움 통일
-SHOW_AGENT_HEADING = True # 군중 화살표 끄기
-SHOW_ROBOT_HEADING = True
+SHOW_AGENT_HEADING = False # 군중 화살표 끄기
+SHOW_ROBOT_HEADING = False
 ROBOT_HEADING_SCALE = 1.2
 
-TRAIL_TARGET = "robot" # "none" | "crowd" | "robot" | "both"
+TRAIL_TARGET = "none" # "none" | "crowd" | "robot" | "both"
 TRAIL_STYLE = "persist" # "persist" or "fade"
 MAX_TRAIL = 2000
 ROBOT_STYLE = "circle" # "circle" or "image"
@@ -62,7 +62,7 @@ ANNOTATE_STYLE = "subway" # "number" | "subway" | "frame"
 ANNOTATE_FONTSIZE = 10
 
 SAVE_GRID_ENABLE = True
-SAVE_GRID_EVERY = 25
+SAVE_GRID_EVERY = 4
 
 
 

@@ -472,9 +472,9 @@ class CrowdAgent(Agent):
         dt  = AGENT_TIME_STEP         # [s]
         A_MAX = 1.0                   # [cell/s^2] accel clip (≈4 m/s^2 @ 0.5 m/cell)
         V_MAX_MULT = 1.05             # speed clip multiplier relative to desired
-        K_AGENT = 8.0                 # agent-agent repulse (exp)
+        K_AGENT = 2                 # agent-agent repulse (exp)
         LAMBDA_A = 1.5                # decay length for exp model
-        K_WALL  = 60.0                # wall repulse (inverse-square)
+        K_WALL  = 3                # wall repulse (exp)
         F_REP_LIM = self.mass * 1.2   # 반발력 자체도 제한(≈1.2 cell/s^2)
         GOAL_RADIUS = 0.6             # 목표 근접 시 정지
         EPS = 1e-6
@@ -559,19 +559,24 @@ class CrowdAgent(Agent):
             ux, uy = dx/d, dy/d  # (neighbor -> self) outward
             if nb.type in (11, 9):   # walls/obstacles
                 # inverse-square so braking starts earlier
-                mag = K_WALL / (d*d + EPS)
+                mag = K_WALL * math.exp(-d / LAMBDA_A)
+                #print(mag)
                 F_rep_x += mag * ux
                 F_rep_y += mag * uy
+                #print("wall과 충돌함")
 
             elif nb.type in (0,1,2,3):  # agents & robot
                 mag = K_AGENT * math.exp(-d / LAMBDA_A)
+                #print(mag)
                 F_rep_x += mag * ux
                 F_rep_y += mag * uy
+                #print("agent와 충돌함")
 
             
             # type==12: virtual wall → ignore
 
         F_rep_x, F_rep_y = soft_clip_vec(F_rep_x, F_rep_y, F_REP_LIM)
+        #print("soft_clip_vec : ", F_rep_x, " ", F_rep_y)
 
         # --- Helbing desired "force" ---
         F_des_x = self.mass * (v_des_x - self.vel[0]) / tau
