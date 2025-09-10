@@ -32,6 +32,8 @@ model_load = 3
 
 home_dir = os.path.expanduser("~")
 log_dir = os.path.join(home_dir, LOG_DIR)
+BY_MAP_DIR = os.path.join(log_dir, "by_map")
+os.makedirs(BY_MAP_DIR, exist_ok = True)
 os.makedirs(log_dir, exist_ok=True)
 os.makedirs(log_dir, exist_ok=True)
 
@@ -93,6 +95,15 @@ def monitor_metric(metric_file, metric_name, tb_log_dir):
             print(f"Monitoring for {metric_file} interrupted by user.")
         finally:
             writer.close()
+
+def ensure_file(path: str):
+    if not os.path.exists(path):
+        open(path, "w").close()
+
+def map_metric_path(metric_name: str, map_num: int) -> str:
+    # metric_name: "reward" | "evacuation_100"
+    fname = f"{metric_name}_map_{map_num}.txt"
+    return os.path.join(BY_MAP_DIR, fname)
 
 def alpha_decay_schedule(parameter_start: float,
                    parameter_end: float,
@@ -725,6 +736,28 @@ if __name__ == "__main__":
     )
     monitor_thread_lifetime.start()
 
+    # === (NEW) launch per-map monitors ===
+    # 이미 heat_logger.known_maps = MAP_NUM_RANDOM 을 쓰고 있으니 동일 세트 사용
+    for m in MAP_NUM_RANDOM:
+        # 맵별 reward 모니터
+        reward_map_file = map_metric_path("reward", m)
+        ensure_file(reward_map_file)
+        threading.Thread(
+            target=monitor_metric,
+            args=(reward_map_file, f"Reward/map_{m}", tb_log_dir),
+            daemon=True
+        ).start()
+
+        # 맵별 evacuation_100 모니터
+        evac100_map_file = map_metric_path("evacuation_100", m)
+        ensure_file(evac100_map_file)
+        threading.Thread(
+            target=monitor_metric,
+            args=(evac100_map_file, f"Evacuation Time 100/map_{m}", tb_log_dir),
+            daemon=True
+        ).start()
+
+
 
     # hyperparams
     max_episodes = 9999999
@@ -972,6 +1005,21 @@ if __name__ == "__main__":
         
         print("-----------------------------------------------")
         
+
+        this_map = env_model.map_num 
+
+        # 보장: 파일 존재
+        ensure_file(map_metric_path("reward", this_map))
+        ensure_file(map_metric_path("evacuation_100", this_map))
+
+        if abnormal_reward != 1:
+            # 맵별 reward
+            with open(map_metric_path("reward", this_map), "a") as f:
+                f.write(f"{total_reward}\n")
+
+            # 맵별 evacuation_100
+            with open(map_metric_path("evacuation_100", this_map), "a") as f:
+                f.write(f"{evacuation_time_100}\n")
         # print("now_epsilon_long : ", agent.epsilon_long)
         # Save model occasionally
 
@@ -987,6 +1035,8 @@ if __name__ == "__main__":
             open(evacuation_time_100_file_path, "w").close()
         if not os.path.exists(total_lifetime_file):
             open(total_lifetime_file, "w").close()
+
+
 
         if (episode_num) % 200 == 0:
             model_filename = os.path.join(log_dir, f"sac_checkpoint_ep_{episode_num}.pth")
