@@ -960,7 +960,7 @@ if __name__ == "__main__":
 
         # Possibly update epsilon, or do other logging
 
-        agent.epsilon = epsilon_scheduler.get_epsilon(agent.epsilon, episode_num)
+        agent.epsilon = max(epsilon_scheduler.get_epsilon(agent.epsilon, episode_num), EPSILON_MIN)
         #print("writing.. ", PORT_NUM)
         print("-----------------------------------------------")
         print("Total reward:", total_reward)
