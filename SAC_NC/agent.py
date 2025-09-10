@@ -456,65 +456,50 @@ class CrowdAgent(Agent):
                     number_a += 1
         return number_a
 
-    
 
-        
     def agent_modeling(self):
         """
-        Helbing-style: m dv/dt = m (v_des - v)/tau + sum(F_rep)
-        Units inside: cells, seconds. desired_speed_a is in [cells/second].
+        Helbing + Contact (penalty) model
+        - 비관통(원-원) 접촉: 탄성(스프링) + 점성 감쇠 + 접선 마찰
+        - 공기저항 형태 속도 감쇠로 관성 억제
         """
         import math
         global random_disperse
 
-        # --- Tunables (start conservative, then tune) ---
-        tau = 0.9                     # [s] relaxation time
-        dt  = AGENT_TIME_STEP         # [s]
-        A_MAX = 1.0                   # [cell/s^2] accel clip (≈4 m/s^2 @ 0.5 m/cell)
-        V_MAX_MULT = 1.05             # speed clip multiplier relative to desired
-        K_AGENT = 2                 # agent-agent repulse (exp)
-        LAMBDA_A = 1.5                # decay length for exp model
-        K_WALL  = 3                # wall repulse (exp)
-        F_REP_LIM = self.mass * 1.2   # 반발력 자체도 제한(≈1.2 cell/s^2)
-        GOAL_RADIUS = 0.6             # 목표 근접 시 정지
-        EPS = 1e-6
+        # ====== 기본 파라미터 (필요하면 수치만 조정) ======
+        dt   = AGENT_TIME_STEP
+        tau  = 1                   
+        A_MAX = 1.5                    # 가속 클립 ↑ 약간 강화
+        V_MAX_MULT = 1.00              # 목표속도보다 과속 안하게
+        BODY_RADIUS = 0.5             # 군중 몸 반지름 [cell] 0.25m로 설정 -> 0.5칸이 되어야 0.25
+        ROBOT_BODY_RADIUS = 1       # 로봇 몸 반지름 [cell] 0.25m로 설정 ->0.5칸이 되어야 0.25
+        WALL_RADIUS = 1             # 격자벽을 둥근 장애물로 근사
+        # 접촉(법선) 스프링/감쇠, 접선 마찰
+        KN = 1.2e5                   # 법선 스프링 상수, modified crowd simulation 논문에선 1.2*10^5
+        CN =  1000                     # 법선 점성(접근속도 감쇠)
+        MU_T = 2.5e5                    # 접선 마찰(미끄럼 속도 감쇠) modifided crowd simulation 논문에선 2.4*10^5
+        # 지수형 반발은 약화(근거리에서만 의미)
+        K_AGENT = 200 # modified 참고
+        K_WALL  = 200 # modified 참고
+        LAMBDA_A = 0.2 # modifided 참고
+        # 공기저항(속도 감쇠) → 둥둥 뜨는 느낌 제거
+        BETA = 0                     # F_drag = -BETA * v
+
+        # ---- 유틸 ----
+        def get_radius(agent):
+            if getattr(agent, "type", None) == 3:
+                return ROBOT_BODY_RADIUS
+            elif getattr(agent, "type", None) in (9, 11):  # 벽/장애물
+                return WALL_RADIUS
+            else:
+                return BODY_RADIUS
 
         def soft_clip_vec(x, y, lim):
             n = math.hypot(x, y)
             if n <= lim: return x, y
-            s = math.tanh(n/lim) / (n/lim)   # 부드러운 스케일
+            s = math.tanh(n/lim) / (n/lim)
             return x*s, y*s
-        
-        # --- helper: swept move with sub-steps & axis-separated resolve ---
-        def swept_move(xy, vel, dt):
-            nx, ny = xy[0], xy[1]
-            # Subdivide so that each micro step disp <= 0.5 cell
-            max_disp = max(abs(vel[0]*dt), abs(vel[1]*dt))
-            steps = max(1, int(math.ceil(max_disp / 0.5)))
-            sdt = dt / steps
 
-            for _ in range(steps):
-                tx = nx + vel[0]*sdt
-                ty = ny + vel[1]*sdt
-
-                ix, iy = int(round(tx)), int(round(ty))
-                if self.model.valid_space.get((ix, iy), False):
-                    nx, ny = tx, ty
-                    continue
-
-                # axis-separated trials
-                ix_only = int(round(nx + vel[0]*sdt))
-                if self.model.valid_space.get((ix_only, int(round(ny))), False):
-                    nx = nx + vel[0]*sdt
-
-                iy_only = int(round(ny + vel[1]*sdt))
-                if self.model.valid_space.get((int(round(nx)), iy_only), False):
-                    ny = ny + vel[1]*sdt
-
-                # if neither axis worked, stop this substep (simple stick)
-            return [nx, ny]
-
-        # --- neighborhood scan (keep your existing logic) ---
         x = int(round(self.xy[0])); y = int(round(self.xy[1]))
         temp_loc = [(x-1,y),(x+1,y),(x,y+1),(x,y-1),
                     (x+1,y+1),(x+1,y-1),(x-1,y+1),(x-1,y-1),
@@ -528,77 +513,114 @@ class CrowdAgent(Agent):
             if contents:
                 near_agents_list.extend(contents)
 
-        # --- goal direction ---
-        goal_x = self.now_goal[0] - self.xy[0]
-        goal_y = self.now_goal[1] - self.xy[1]
-        goal_d = math.hypot(goal_x, goal_y)
-        if goal_d > 0:
-            dir_x, dir_y = goal_x/goal_d, goal_y/goal_d
+        # ---- 목표 방향 ----
+        gx = self.now_goal[0] - self.xy[0]
+        gy = self.now_goal[1] - self.xy[1]
+        gd = math.hypot(gx, gy)
+        if gd > 0:
+            dir_x, dir_y = gx/gd, gy/gd
         else:
             dir_x, dir_y = 0.0, 0.0
 
-        # --- desired velocity (cells/s) ---
+        # ---- 원하는 속도 → Helbing desired force ----
         v_des_x = self.desired_speed_a * dir_x
         v_des_y = self.desired_speed_a * dir_y
+        F_des_x = self.mass * (v_des_x - self.vel[0]) / tau
+        F_des_y = self.mass * (v_des_y - self.vel[1]) / tau
 
-        # --- repulsive forces ---
+        # ---- 기존의 약한(원거리) 반발력 (지수) ----
         F_rep_x = 0.0; F_rep_y = 0.0
+
+        # ---- 접촉(비관통) + 마찰 모델(핵심 추가) ----
+        F_contact_x = 0.0; F_contact_y = 0.0
+        F_fric_x    = 0.0; F_fric_y    = 0.0
+
+        r_i = BODY_RADIUS
+        # 자기 상태 (속도)
+        v_ix, v_iy = self.vel[0], self.vel[1]
+
         for nb in near_agents_list:
-            if nb is self or nb.dead: 
+            if nb is self or getattr(nb, "dead", False):
                 continue
+
             dx = self.xy[0] - nb.xy[0]
             dy = self.xy[1] - nb.xy[1]
             d  = math.hypot(dx, dy)
             if d == 0:
-                if random_disperse:
-                    F_rep_x += 1.0; F_rep_y += -1.0; random_disperse = 0
-                else:
-                    F_rep_x += -1.0; F_rep_y += 1.0; random_disperse = 1
+                # 완전 겹침 초기 해소(랜덤 툭 치기)
+                jx, jy = (1.0, -1.0) if random.random() < 0.5 else (-1.0, 1.0)
+                F_contact_x += jx * KN * 0.01
+                F_contact_y += jy * KN * 0.01
                 continue
 
-            ux, uy = dx/d, dy/d  # (neighbor -> self) outward
-            if nb.type in (11, 9):   # walls/obstacles
-                # inverse-square so braking starts earlier
-                mag = K_WALL * math.exp(-d / LAMBDA_A)
-                #print(mag)
+            ux, uy = dx/d, dy/d  # (nb -> self) 법선 방향
+            r_j = get_radius(nb)
+            r_sum = r_i + r_j
+
+            # 1) 원거리 지수 반발(부드러운 회피)
+            if getattr(nb, "type", None) in (11, 9):
+                mag = K_WALL * math.exp((r_sum - d) / LAMBDA_A)
                 F_rep_x += mag * ux
                 F_rep_y += mag * uy
-                #print("wall과 충돌함")
-
-            elif nb.type in (0,1,2,3):  # agents & robot
-                mag = K_AGENT * math.exp(-d / LAMBDA_A)
-                #print(mag)
+            else:
+                mag = K_AGENT * math.exp((r_sum - d) / LAMBDA_A)
                 F_rep_x += mag * ux
                 F_rep_y += mag * uy
-                #print("agent와 충돌함")
 
-            
-            # type==12: virtual wall → ignore
+            # 2) 근거리 접촉(비관통) + 점성 감쇠 + 접선 마찰
+            if d < r_sum:
+                # 침투량(양수면 겹침)
+                penetration = (r_sum - d)
+                # (a) 법선 스프링
+                Fn_k = KN * penetration
+                # (b) 상대속도에 대한 법선 감쇠
+                v_jx = getattr(nb, "vel", [0,0])[0] if hasattr(nb, "vel") else 0.0
+                v_jy = getattr(nb, "vel", [0,0])[1] if hasattr(nb, "vel") else 0.0
+                rel_vx, rel_vy = (v_ix - v_jx), (v_iy - v_jy)
+                v_n = rel_vx*ux + rel_vy*uy        # 법선 성분
+                
+                if v_n < 0:
+                    restitution = 0.2
+                    drop = (1.0-restitution)*v_n
+                    self.vel[0] -= drop*ux
+                    self.vel[1] -= drop*uy
 
-        F_rep_x, F_rep_y = soft_clip_vec(F_rep_x, F_rep_y, F_REP_LIM)
-        #print("soft_clip_vec : ", F_rep_x, " ", F_rep_y)
+                Fn_c = -CN * v_n                   # 접근할수록(음수) + 방향은 법선
+                Fn = max(Fn_k + Fn_c, 0.0)         # 법선 힘은 음수가 되지 않게
 
-        # --- Helbing desired "force" ---
-        F_des_x = self.mass * (v_des_x - self.vel[0]) / tau
-        F_des_y = self.mass * (v_des_y - self.vel[1]) / tau
+                F_contact_x += Fn * ux
+                F_contact_y += Fn * uy
 
-        # total force
-        F_x = F_des_x + F_rep_x
-        F_y = F_des_y + F_rep_y
+                # (c) 접선 방향(미끄럼) 마찰: v_t = rel_v - v_n n
+                vt_x = rel_vx - v_n*ux
+                vt_y = rel_vy - v_n*uy
+                F_fric_x += -MU_T * vt_x
+                F_fric_y += -MU_T * vt_y
+        
+        BETA=0
+        decay = 0.95
+        self.vel[0] *= decay
+        self.vel[1] *= decay
+        # ---- 공기저항(속도 감쇠) ----
+        F_drag_x = -BETA * self.vel[0]
+        F_drag_y = -BETA * self.vel[1]
 
-        # --- integrate with clips ---
+        # ---- 총합 힘 ----
+        F_x = F_des_x + F_rep_x + F_contact_x + F_fric_x + F_drag_x
+        F_y = F_des_y + F_rep_y + F_contact_y + F_fric_y + F_drag_y
+
+        # ---- 가속도 계산 + 클립 ----
         a_x = F_x / self.mass
         a_y = F_y / self.mass
         a_x, a_y = soft_clip_vec(a_x, a_y, A_MAX)
 
         self.acc[0], self.acc[1] = a_x, a_y
 
+        # ---- 속도 업데이트 ----
         self.vel[0] += a_x * dt
         self.vel[1] += a_y * dt
 
-        # print(f"Agent {self.unique_id} - vel: {self.vel}, acc: {self.acc}, xy: {self.xy}, goal: {self.now_goal}")
-
-        # speed clip (vector-norm)
+        # 속도 클립 (벡터 노름)
         v_des_scalar = max(self.desired_speed_a, 1e-6)
         V_MAX = V_MAX_MULT * v_des_scalar
         spd = math.hypot(self.vel[0], self.vel[1])
@@ -606,18 +628,202 @@ class CrowdAgent(Agent):
             s = V_MAX / spd
             self.vel[0] *= s; self.vel[1] *= s
 
-        # swept move to avoid tunneling
+        # ---- 스윕 이동(터널링 방지) ----
+        def swept_move(xy, vel, dt):
+            nx, ny = xy[0], xy[1]
+            max_disp = max(abs(vel[0]*dt), abs(vel[1]*dt))
+            steps = max(1, int(math.ceil(max_disp / 0.5)))
+            sdt = dt / steps
+            for _ in range(steps):
+                tx = nx + vel[0]*sdt
+                ty = ny + vel[1]*sdt
+                ix, iy = int(round(tx)), int(round(ty))
+                if self.model.valid_space.get((ix, iy), False):
+                    nx, ny = tx, ty
+                    continue
+                # 축 분리 시도
+                ix_only = int(round(nx + vel[0]*sdt))
+                if self.model.valid_space.get((ix_only, int(round(ny))), False):
+                    nx = nx + vel[0]*sdt
+                iy_only = int(round(ny + vel[1]*sdt))
+                if self.model.valid_space.get((int(round(nx)), iy_only), False):
+                    ny = ny + vel[1]*sdt
+            return [nx, ny]
+
         self.xy = swept_move(self.xy, self.vel, dt)
 
-        # bounds clamp
+        # 경계 클램프
         self.xy[0] = min(max(self.xy[0], 1), self.model.width-1)
         self.xy[1] = min(max(self.xy[1], 1), self.model.height-1)
 
         next_x = int(round(self.xy[0])); next_y = int(round(self.xy[1]))
         self.direction = [self.vel[0], self.vel[1]]
         self.robot_guide = 0
-        #print(f"Agent {self.unique_id} - next_xy: ({next_x}, {next_y}), vel: {self.vel}, acc: {self.acc}, direction: {self.direction}")
         return (next_x, next_y)
+
+    
+
+        
+    # def agent_modeling(self):
+    #     """
+    #     Helbing-style: m dv/dt = m (v_des - v)/tau + sum(F_rep)
+    #     Units inside: cells, seconds. desired_speed_a is in [cells/second].
+    #     """
+    #     import math
+    #     global random_disperse
+
+    #     # --- Tunables (start conservative, then tune) ---
+    #     tau = 0.5                     # [s] relaxation time
+    #     dt  = AGENT_TIME_STEP         # [s]
+    #     A_MAX = 1.0                   # [cell/s^2] accel clip (≈4 m/s^2 @ 0.5 m/cell)
+    #     V_MAX_MULT = 1.05             # speed clip multiplier relative to desired
+    #     K_AGENT = 100                 # agent-agent repulse (exp)
+    #     BODY_RADIUS = 0.25
+    #     LAMBDA_A = 0.05                # decay length for exp model
+    #     K_WALL  = 100                # wall repulse (exp)
+    #     F_REP_LIM = self.mass * 2   # 반발력 자체도 제한(≈1.2 cell/s^2)
+    #     GOAL_RADIUS = 0.6             # 목표 근접 시 정지
+    #     EPS = 1e-6
+
+    #     def soft_clip_vec(x, y, lim):
+    #         n = math.hypot(x, y)
+    #         if n <= lim: return x, y
+    #         s = math.tanh(n/lim) / (n/lim)   # 부드러운 스케일
+    #         return x*s, y*s
+        
+    #     # --- helper: swept move with sub-steps & axis-separated resolve ---
+    #     def swept_move(xy, vel, dt):
+    #         nx, ny = xy[0], xy[1]
+    #         # Subdivide so that each micro step disp <= 0.5 cell
+    #         max_disp = max(abs(vel[0]*dt), abs(vel[1]*dt))
+    #         steps = max(1, int(math.ceil(max_disp / 0.5)))
+    #         sdt = dt / steps
+
+    #         for _ in range(steps):
+    #             tx = nx + vel[0]*sdt
+    #             ty = ny + vel[1]*sdt
+
+    #             ix, iy = int(round(tx)), int(round(ty))
+    #             if self.model.valid_space.get((ix, iy), False):
+    #                 nx, ny = tx, ty
+    #                 continue
+
+    #             # axis-separated trials
+    #             ix_only = int(round(nx + vel[0]*sdt))
+    #             if self.model.valid_space.get((ix_only, int(round(ny))), False):
+    #                 nx = nx + vel[0]*sdt
+
+    #             iy_only = int(round(ny + vel[1]*sdt))
+    #             if self.model.valid_space.get((int(round(nx)), iy_only), False):
+    #                 ny = ny + vel[1]*sdt
+
+    #             # if neither axis worked, stop this substep (simple stick)
+    #         return [nx, ny]
+
+    #     # --- neighborhood scan (keep your existing logic) ---
+    #     x = int(round(self.xy[0])); y = int(round(self.xy[1]))
+    #     temp_loc = [(x-1,y),(x+1,y),(x,y+1),(x,y-1),
+    #                 (x+1,y+1),(x+1,y-1),(x-1,y+1),(x-1,y-1),
+    #                 (x-2,y),(x+2,y),(x,y+2),(x,y-2)]
+    #     near_loc = [(i,j) for (i,j) in temp_loc
+    #                 if (i>0 and j>0 and i<self.model.grid.width and j<self.model.grid.height)]
+
+    #     near_agents_list = []
+    #     for cell in near_loc:
+    #         contents = self.model.grid.get_cell_list_contents([cell])
+    #         if contents:
+    #             near_agents_list.extend(contents)
+
+    #     # --- goal direction ---
+    #     goal_x = self.now_goal[0] - self.xy[0]
+    #     goal_y = self.now_goal[1] - self.xy[1]
+    #     goal_d = math.hypot(goal_x, goal_y)
+    #     if goal_d > 0:
+    #         dir_x, dir_y = goal_x/goal_d, goal_y/goal_d
+    #     else:
+    #         dir_x, dir_y = 0.0, 0.0
+
+    #     # --- desired velocity (cells/s) ---
+    #     v_des_x = self.desired_speed_a * dir_x
+    #     v_des_y = self.desired_speed_a * dir_y
+
+    #     # --- repulsive forces ---
+    #     F_rep_x = 0.0; F_rep_y = 0.0
+    #     for nb in near_agents_list:
+    #         if nb is self or nb.dead: 
+    #             continue
+    #         dx = self.xy[0] - nb.xy[0]
+    #         dy = self.xy[1] - nb.xy[1]
+    #         d  = math.hypot(dx, dy)
+    #         if d == 0:
+    #             if random_disperse:
+    #                 F_rep_x += 1.0; F_rep_y += -1.0; random_disperse = 0
+    #             else:
+    #                 F_rep_x += -1.0; F_rep_y += 1.0; random_disperse = 1
+    #             continue
+
+    #         ux, uy = dx/d, dy/d  # (neighbor -> self) outward
+    #         if nb.type in (11, 9):   # walls/obstacles
+    #             # inverse-square so braking starts earlier
+    #             mag = K_WALL * math.exp((BODY_RADIUS-d) / LAMBDA_A)
+    #             #print(mag)
+    #             F_rep_x += mag * ux
+    #             F_rep_y += mag * uy
+    #             #print("wall과 충돌함")
+
+    #         elif nb.type in (0,1,2,3):  # agents & robot
+    #             mag = K_AGENT * math.exp((BODY_RADIUS*2-d) / LAMBDA_A)
+    #             #print(mag)
+    #             F_rep_x += mag * ux
+    #             F_rep_y += mag * uy
+    #             #print("agent와 충돌함")
+
+            
+    #         # type==12: virtual wall → ignore
+
+    #     F_rep_x, F_rep_y = soft_clip_vec(F_rep_x, F_rep_y, F_REP_LIM)
+    #     print("soft_clip_vec : ", F_rep_x, " ", F_rep_y)
+
+    #     # --- Helbing desired "force" ---
+    #     F_des_x = self.mass * (v_des_x - self.vel[0]) / tau
+    #     F_des_y = self.mass * (v_des_y - self.vel[1]) / tau
+
+    #     # total force
+    #     F_x = F_des_x + F_rep_x
+    #     F_y = F_des_y + F_rep_y
+
+    #     # --- integrate with clips ---
+    #     a_x = F_x / self.mass
+    #     a_y = F_y / self.mass
+    #     a_x, a_y = soft_clip_vec(a_x, a_y, A_MAX)
+
+    #     self.acc[0], self.acc[1] = a_x, a_y
+
+    #     self.vel[0] += a_x * dt
+    #     self.vel[1] += a_y * dt
+
+    #     # print(f"Agent {self.unique_id} - vel: {self.vel}, acc: {self.acc}, xy: {self.xy}, goal: {self.now_goal}")
+
+    #     # speed clip (vector-norm)
+    #     v_des_scalar = max(self.desired_speed_a, 1e-6)
+    #     V_MAX = V_MAX_MULT * v_des_scalar
+    #     spd = math.hypot(self.vel[0], self.vel[1])
+    #     if spd > V_MAX:
+    #         s = V_MAX / spd
+    #         self.vel[0] *= s; self.vel[1] *= s
+
+    #     # swept move to avoid tunneling
+    #     self.xy = swept_move(self.xy, self.vel, dt)
+
+    #     # bounds clamp
+    #     self.xy[0] = min(max(self.xy[0], 1), self.model.width-1)
+    #     self.xy[1] = min(max(self.xy[1], 1), self.model.height-1)
+
+    #     next_x = int(round(self.xy[0])); next_y = int(round(self.xy[1]))
+    #     self.direction = [self.vel[0], self.vel[1]]
+    #     self.robot_guide = 0
+    #     #print(f"Agent {self.unique_id} - next_xy: ({next_x}, {next_y}), vel: {self.vel}, acc: {self.acc}, direction: {self.direction}")
+    #     return (next_x, next_y)
 
  
 
@@ -649,6 +855,7 @@ class CrowdAgent(Agent):
         neighbors = [ag for ag in self.model.crowds
                     if (ag is not self) and not ag.dead
                     and self.point_to_point_distance(self.xy, ag.xy) < AGENT_R]
+
 
         for nb in neighbors:
             if nb.exit_belief:
