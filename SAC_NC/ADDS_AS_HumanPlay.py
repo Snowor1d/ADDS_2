@@ -20,10 +20,9 @@ from matplotlib.animation import FFMpegWriter
 ############################
 # 실험/기록 파라미터
 ############################
-MAP_NUM_FOR_RUN = 6           # 원하는 맵 번호(-1은 내부 랜덤 로직)
+MAP_NUM_FOR_RUN = 1          # 원하는 맵 번호(-1은 내부 랜덤 로직)
 ROBOT_VERSION_FOR_MODEL = 'Q' # 모델에는 'Q'로 넘기되, 사람이 직접 action 전달
 ROBOT_VERSION_FOR_LOG   = 'H' # 결과 폴더명에는 'H'로 기록해 비교군 명확화
-
 EXP_NAME   = "human_play_image_making"        # 최상위 결과 폴더 접미사: Result_data_{EXP_NAME}
 MAX_STEPS  = 3000             # 실패 시 스텝 상한
 MAX_EPISODES = 1
@@ -38,6 +37,7 @@ RENDER_EVERY      = max(1, TARGET_SIM_FPS // TARGET_RENDER_FPS)  # 2
 
 ############################
 # 레이아웃 / 화면
+
 ############################
 SCREEN_WIDTH  = 1000
 SCREEN_HEIGHT = 1000

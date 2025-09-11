@@ -888,6 +888,29 @@ class FightingModel(Model):
             self.obstacles.append([[8, 40], [13, 40], [13, 45], [8, 45]])
             self.obstacles.append([[18, 40], [35, 40], [35, 45], [18, 45]])
 
+        elif map_num == 28: #오른쪽 하단
+            self.obstacles.append([[8, 8], [25, 8], [25, 13], [8, 13]])
+            #self.obstacles.append([[8, 16], [14, 16], [14, 25], [8, 25]])
+            self.obstacles.append([[20, 28], [25, 28], [25, 34], [20, 34]])
+            self.obstacles.append([[33, 16], [40, 16], [40, 34], [33, 34]])
+            #self.obstacles.append([[8, 40], [13, 40], [13, 45], [8, 45]])
+            self.obstacles.append([[18, 40], [35, 40], [35, 45], [18, 45]])
+
+        elif map_num == 29: #왼쪽 하단
+            self.obstacles.append([[15, 8], [20, 8], [20, 10], [15, 15]])
+            self.obstacles.append([[20, 21], [20, 28], [15, 28]])
+            self.obstacles.append([[35, 8], [43, 8], [43, 15], [35, 15]])
+            self.obstacles.append([[35, 21], [43, 21], [43, 28], [35, 28]])
+            self.obstacles.append([[20, 36], [36, 36], [36, 42], [20, 42]])
+
+        elif map_num == 30:
+            self.obstacles.append([[10, 10], [15, 10], [15, 20], [10, 20]])
+            self.obstacles.append([[20, 10], [23, 10], [23, 20], [20, 20]])
+            self.obstacles.append([[35, 10], [40, 10], [40, 20], [35, 20]])
+            self.obstacles.append([[10, 35], [20, 35], [20, 40], [10, 40]])
+            self.obstacles.append([[35, 35], [40, 30], [40, 35]])
+
+
         
         
             
@@ -1087,7 +1110,7 @@ class FightingModel(Model):
         elif (self.map_num == 8) : #우하단
             index = 1
         elif (self.map_num == 1):
-            index = 0
+            index = 3
         elif (self.map_num == 2):
             index = 1
         elif (self.map_num == 3):
@@ -1116,6 +1139,15 @@ class FightingModel(Model):
             index = 0
         elif (self.map_num == 26):
             index = 1
+        elif (self.map_num == 27):
+            index = 1
+        elif (self.map_num == 28):
+            index = 1
+        elif (self.map_num == 29):
+            index = 0
+        elif (self.map_num == 30):
+            index = 2
+
         
         self.exit_list = [all_exits[index]]
         self.exit_point = [all_exit_points[index]]

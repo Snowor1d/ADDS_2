@@ -31,7 +31,8 @@ GAMMA_SCHEDULE_STEP = 1000
 CROWD_NUMBER_MIN = 20
 CROWD_NUMBER_MAX = 20
 MAP_NUM = -1 #if not used, -2, if random, -1
-MAP_NUM_RANDOM = [1, 2, 3, 6, 7, 8, 23, 24, 25, 26]
+#MAP_NUM_RANDOM = [1, 2, 3, 6, 7, 8, 23, 24, 25, 26]
+MAP_NUM_RANDOM = [1, 28, 29, 6, 7, 8, 30, 24, 25, 26]
 SCALE_CHECK = 0 # want to check reward scale?
 ACTION_SCALE = 4
 MAX_STEPS = 4000
@@ -51,6 +52,7 @@ START_DECAY_STEP = 500
 EXPLORATION_TYPE = 0
 LONG_EPSILON_MIN = 0
 START_LONG_EPSILON = 0
+
 
 # -------------- PATH -------------------
 LOG_DIR = "Log_SAC_NC_6007"
