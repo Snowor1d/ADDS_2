@@ -20,7 +20,7 @@ from matplotlib.animation import FFMpegWriter
 ############################
 # 실험/기록 파라미터
 ############################
-MAP_NUM_FOR_RUN = 1          # 원하는 맵 번호(-1은 내부 랜덤 로직)
+MAP_NUM_FOR_RUN = 26          # 원하는 맵 번호(-1은 내부 랜덤 로직)
 ROBOT_VERSION_FOR_MODEL = 'Q' # 모델에는 'Q'로 넘기되, 사람이 직접 action 전달
 ROBOT_VERSION_FOR_LOG   = 'H' # 결과 폴더명에는 'H'로 기록해 비교군 명확화
 EXP_NAME   = "human_play_image_making"        # 최상위 결과 폴더 접미사: Result_data_{EXP_NAME}
@@ -98,10 +98,10 @@ CONT_BITRATE = 8000                # mp4 인코딩 비트레이트
 CONT_CROWD_COLOR = "#4e79a7"
 CONT_ROBOT_COLOR = "#e15759"
 CONT_SINGLE_COLOR_EDGES = True
-CONT_SHOW_AGENT_HEADING = False
-CONT_SHOW_ROBOT_HEADING = True
+CONT_SHOW_AGENT_HEADING = True
+CONT_SHOW_ROBOT_HEADING = False
 CONT_ROBOT_HEADING_SCALE = 1.2
-CONT_TRAIL_TARGET = "none"        # "none"|"crowd"|"robot"|"both"
+CONT_TRAIL_TARGET = "robot"        # "none"|"crowd"|"robot"|"both"
 CONT_TRAIL_STYLE = "persist"       # "persist"|"fade"
 CONT_MAX_TRAIL = 2000
 CONT_ROBOT_STYLE = "circle"        # "circle"|"image"
@@ -341,9 +341,24 @@ def main():
             renderer = ContinuousRenderer(
                 world_size=(50.0, 50.0),
                 crowd_colors={0:CONT_CROWD_COLOR, 1:CONT_CROWD_COLOR, 2:CONT_CROWD_COLOR},
+
+                # ▼ 화살표 보이기 + 크기
+                show_agent_heading=True,
+                agent_heading_scale=1.8,              # 화살표 길이(벡터 스케일)
+
+                # ▼ 화살표 색: 전체 공통 색 또는 타입별 dict 가능
+                # 예1) 전체를 보라색으로
+                agent_heading_color="#000000",
+                # 예2) 타입별(원한다면)
+                # agent_heading_color={0:"#7e57c2", 1:"#26a69a", 2:"#ef5350"},
+
+                # ▼ 선 두께/화살촉 크기
+                agent_heading_linewidth=1.5,          # 선 두께
+                agent_heading_mutation_scale=9.0,    # 화살촉(머리) 크기
+
+                # (나머지 기존 옵션 그대로)
                 robot_color=CONT_ROBOT_COLOR,
                 single_color_edges=CONT_SINGLE_COLOR_EDGES,
-                show_agent_heading=CONT_SHOW_AGENT_HEADING,
                 show_robot_heading=CONT_SHOW_ROBOT_HEADING,
                 robot_heading_scale=CONT_ROBOT_HEADING_SCALE,
                 trail_target=CONT_TRAIL_TARGET,
@@ -360,7 +375,6 @@ def main():
                 annotate_style=CONT_ANNOTATE_STYLE,
                 annotate_fontsize=CONT_ANNOTATE_FONTSIZE,
             )
-
         step_count = 0
         total_reward = 0.0
         done = False

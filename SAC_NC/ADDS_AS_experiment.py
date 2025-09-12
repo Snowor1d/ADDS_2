@@ -21,7 +21,7 @@ import model  # FightingModel 이 여기 있다고 가정
 
 # ------------------------- #
 # 실험 파라미터
-visualization_mode = 'cont_png' # 'off', 'cont_mp4', 'cont_png_every', 'cont_png'
+visualization_mode = 'cont_mp4' # 'off', 'cont_mp4', 'cont_png_every', 'cont_png'
 run_iteration      = 1
 number_of_agents   = 20
 max_step_num       = 200
@@ -42,7 +42,7 @@ EXP_NAME = "making_image"   # 최상위 결과 폴더 이름
 CROWD_COLOR = "#0000FF"
 ROBOT_COLOR = "#FF0000"
 SINGLE_COLOR_EDGES = True # 선/채움 통일
-SHOW_AGENT_HEADING = False # 군중 화살표 끄기
+SHOW_AGENT_HEADING = True # 군중 화살표 끄기
 SHOW_ROBOT_HEADING = False
 ROBOT_HEADING_SCALE = 1.2
 
@@ -247,7 +247,12 @@ def run_one_episode(map_id: int, saver: Optional[GridStateSaver] = None):  # ✅
         annotate_mode=ANNOTATE_MODE,
         annotate_every=ANNOTATE_EVERY,
         annotate_style = ANNOTATE_STYLE,
-        annotate_fontsize = ANNOTATE_FONTSIZE
+        annotate_fontsize = ANNOTATE_FONTSIZE,
+
+        agent_heading_scale = 1.8,
+        agent_heading_color = "#000000",
+        agent_heading_linewidth = 1.5,
+        agent_heading_mutation_scale = 9.0
     )
 
     save_rgb_every = (visualization_mode == 'cont_png_every')

@@ -57,8 +57,12 @@ class ContinuousRenderer:
         # ===== Heading arrows =====
         show_agent_heading: bool = True,
         show_robot_heading: bool = True,
-        agent_heading_scale: float = 0.6,
+        agent_heading_scale: float = 1.5,
         robot_heading_scale: float = 1.0,
+
+        agent_heading_color: str | Dict[int, str] | None = None,
+        agent_heading_linewidth: float = 1.0,
+        agent_heading_mutation_scale: float = 9,
 
         # ===== Filtering =====
         hide_dead: bool = True,
@@ -109,6 +113,11 @@ class ContinuousRenderer:
             "trail": "#ff9896",     # 기본 trail 색 (single_color_edges=False일 때 crowd trail 용)
             "dead": "#7f7f7f",
         }
+
+        self.agent_heading_color = agent_heading_color
+        self.agent_heading_linewidth = float(agent_heading_linewidth)
+        self.agent_heading_mutation_scale = float(agent_heading_mutation_scale)
+
         self.single_color_edges = single_color_edges
         if crowd_colors is None:
             self.crowd_colors = {0:"#4e79a7", 1:"#4e79a7", 2:"#76b7b2", "else":" #59a14f"}
@@ -287,15 +296,25 @@ class ContinuousRenderer:
             if self.hide_dead and getattr(ag, "dead", False): continue
 
             x, y = float(ag.xy[0]), float(ag.xy[1])
-            color = self._crowd_color(t if t is not None else -1)
+            body_col = self._crowd_color(t if t is not None else -1)
 
+            # 몸체
             self.ax.add_patch(Circle((x, y), radius=self.crowd_r,
-                                     facecolor=color, edgecolor=color,
+                                     facecolor=body_col, edgecolor=body_col,
                                      linewidth=0.6, antialiased=True))
+
+            # ▼▼▼ 화살표 (색/두께/화살촉크기 외부값 사용)
             if self.show_agent_heading and hasattr(ag, "vel"):
                 vx, vy = ag.vel
-                self._arrow(x, y, vx, vy, scale=self.agent_heading_scale,
-                            color=color, alpha=0.9, width=0.06)
+                head_col = self._agent_heading_col(t, body_col)
+                self._arrow(
+                    x, y, vx, vy,
+                    scale=self.agent_heading_scale,
+                    color=head_col,
+                    alpha=0.9,
+                    linewidth=self.agent_heading_linewidth,
+                    mutation_scale=self.agent_heading_mutation_scale
+                )
 
             if draw_trail:
                 key = id(ag)
@@ -359,14 +378,15 @@ class ContinuousRenderer:
             a = alpha_base * (i + 1) / (n - 1)  # 최근일수록 진하게
             self.ax.plot([x1, x2], [y1, y2], linewidth=linewidth, alpha=a, color=color)
 
-    def _arrow(self, x, y, vx, vy, scale=1.0, color="black", alpha=0.8, width=0.05):
+    def _arrow(self, x, y, vx, vy, scale=1.0, color="black",
+               alpha=0.8, linewidth=1.0, mutation_scale=9.0):
         L = math.hypot(vx, vy)
         if L < _EPS: return
         dx, dy = (vx/L)*scale, (vy/L)*scale
         self.ax.add_patch(FancyArrowPatch(
             (x, y), (x + dx, y + dy),
-            arrowstyle="-|>", mutation_scale=9,
-            linewidth=1.0, color=color, alpha=alpha
+            arrowstyle="-|>", mutation_scale=mutation_scale,
+            linewidth=linewidth, color=color, alpha=alpha
         ))
 
     def _annotate_robot_trail(self, trail_xyz: List[Tuple[float,float,int]], color: str):
@@ -425,3 +445,11 @@ class ContinuousRenderer:
             for ag in model.schedule.agents:
                 if getattr(ag, "type", None) == 3: return ag
         return None
+
+    def _agent_heading_col(self, t: int, fallback: str):
+        c = self.agent_heading_color
+        if c is None:
+            return fallback
+        if isinstance(c, dict):
+            return c.get(t, fallback)
+        return str(c)

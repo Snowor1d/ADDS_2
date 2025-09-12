@@ -1066,16 +1066,21 @@ class FightingModel(Model):
     def make_exit(self):
         exit_width = 5
         exit_height = 5
-        self.exit_list = [[(0,0), (exit_width, 0), (exit_width, exit_height), (0, exit_height)],
-                         [(self.width-exit_width-1,0), (self.width-1, 0), (self.width-1, exit_height), (self.width-exit_width-1, exit_height)],
-                         [(0, self.height-exit_height-2), (exit_width, self.height-exit_height-2), (exit_width, self.height-1), (0, self.height-1)],
-                         [(self.width-exit_width-1, self.height-exit_height-2), (self.width-1, self.height-exit_height-2), (self.width-1, self.height-1), (self.width-exit_width-1, self.height-1)]
-                        ]
-        self.exit_point = [[(exit_width)/2, (exit_height)/2],
-                           [(self.width-exit_width-1+self.width-1)/2, (exit_height)/2],
-                           [(exit_width)/2, (self.height-exit_height-1+self.height-1)/2],
-                           [(self.width-exit_width-1+self.width-1)/2, (self.height-exit_height-1+self.height-1)/2]
-                           ]
+        # self.exit_list = [[(0,0), (exit_width, 0), (exit_width, exit_height), (0, exit_height)],
+        #                  [(self.width-exit_width-1,0), (self.width-1, 0), (self.width-1, exit_height), (self.width-exit_width-1, exit_height)],
+        #                  [(0, self.height-exit_height-2), (exit_width, self.height-exit_height-2), (exit_width, self.height-1), (0, self.height-1)],
+        #                  [(self.width-exit_width-1, self.height-exit_height-2), (self.width-1, self.height-exit_height-2), (self.width-1, self.height-1), (self.width-exit_width-1, self.height-1)]
+        #                 ]
+        # self.exit_list = [[(0,0), (exit_width, 0), (exit_width, exit_height), (0, exit_height)],
+        #                   [(self.width-exit_width-1,0), (self.width-1, 0), (self.width-1, exit_height), (self.width-exit_width-1, exit_height)],
+        #                   [(0, self.height-exit_height-1), (exit_width, self.height-exit_height-2), (exit_width, self.height-1), (0, self.height-1)],
+        #                   [(self.width-exit_width-1, self.height-exit_height-2), (self.width-1, self.height-exit_height-2), (self.width-1, self.height-1), (self.width-exit_width-1, self.height-1)]
+        #                  ]
+        # self.exit_point = [[(exit_width)/2, (exit_height)/2],
+        #                    [(self.width-exit_width-1+self.width-1)/2, (exit_height)/2],
+        #                    [(exit_width)/2, (self.height-exit_height-1+self.height-1)/2],
+        #                    [(self.width-exit_width-1+self.width-1)/2, (self.height-exit_height-1+self.height-1)/2]
+        #                    ]
         
         
         return 0
@@ -1092,13 +1097,13 @@ class FightingModel(Model):
             [(0, self.height-exit_height-2), (exit_width, self.height-exit_height-2), (exit_width, self.height-1), (0, self.height-1)],  #  왼위
           
         ]
-        
+            
         all_exit_points = [
-                    [(exit_width)/2, (exit_height)/2],  # 왼쪽 아래
-                    [(self.width-exit_width-1+self.width-1)/2, (exit_height)/2],  # 오른쪽 아래
-                    [(self.width-exit_width-1+self.width-1)/2, (self.height-exit_height-1+self.height-1)/2],  # 오른쪽 위
-                    [(exit_width)/2, (self.height-exit_height-1+self.height-1)/2]  # 왼쪽 위
-                ]
+            (exit_width/2,                 exit_height/2                ),  # 왼아  (2.5, 2.5)
+            (self.width - exit_width/2,    exit_height/2                ),  # 오아  (47.5, 2.5)
+            (self.width - exit_width/2,    self.height - exit_height/2  ),  # 오위 (47.5, 47.5)
+            (exit_width/2,                 self.height - exit_height/2  ),  # 왼위 (2.5, 47.5)
+        ]
         
         # 랜덤하게 출구 선택
         index = random.randint(0, len(all_exits) - 1)
