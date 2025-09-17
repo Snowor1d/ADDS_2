@@ -55,7 +55,7 @@ class ContinuousRenderer:
         robot_trail_alpha: float = 0.7,
 
         # ===== Heading arrows =====
-        show_agent_heading: bool = True,
+        show_agent_heading: bool = False,
         show_robot_heading: bool = True,
         agent_heading_scale: float = 1.5,
         robot_heading_scale: float = 1.0,

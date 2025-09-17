@@ -20,12 +20,12 @@ from matplotlib.animation import FFMpegWriter
 ############################
 # 실험/기록 파라미터
 ############################
-MAP_NUM_FOR_RUN = 26          # 원하는 맵 번호(-1은 내부 랜덤 로직)
+MAP_NUM_FOR_RUN = 31          # 원하는 맵 번호(-1은 내부 랜덤 로직)
 ROBOT_VERSION_FOR_MODEL = 'Q' # 모델에는 'Q'로 넘기되, 사람이 직접 action 전달
 ROBOT_VERSION_FOR_LOG   = 'H' # 결과 폴더명에는 'H'로 기록해 비교군 명확화
-EXP_NAME   = "human_play_image_making"        # 최상위 결과 폴더 접미사: Result_data_{EXP_NAME}
+EXP_NAME   = "test_0917"        # 최상위 결과 폴더 접미사: Result_data_{EXP_NAME}
 MAX_STEPS  = 3000             # 실패 시 스텝 상한
-MAX_EPISODES = 1
+MAX_EPISODES = 5
 
 
 ############################
@@ -88,7 +88,7 @@ reward_log_file = os.path.join(log_dir, "total_reward_imitation.txt")
 # 연속 공간 렌더 옵션
 ############################
 USE_CONTINUOUS_RENDERER = True     # False면 격자 렌더(draw_environment)
-CONT_VIS_MODE = "mp4"             # "live" | "mp4" | "png_every" | "png_last"
+CONT_VIS_MODE = "live"             # "live" | "mp4" | "png_every" | "png_last"
 CONT_SAVE_EVERY = 1                # png_every/mp4 수집 간격(스텝)
 CONT_FPS = 20                      # mp4 저장 FPS(프레임 stride 보정과 함께 사용)
 CONT_OUT_DPI = 200                 # mp4/PNG 저장 해상도
@@ -98,7 +98,7 @@ CONT_BITRATE = 8000                # mp4 인코딩 비트레이트
 CONT_CROWD_COLOR = "#4e79a7"
 CONT_ROBOT_COLOR = "#e15759"
 CONT_SINGLE_COLOR_EDGES = True
-CONT_SHOW_AGENT_HEADING = True
+CONT_SHOW_AGENT_HEADING = False
 CONT_SHOW_ROBOT_HEADING = False
 CONT_ROBOT_HEADING_SCALE = 1.2
 CONT_TRAIL_TARGET = "robot"        # "none"|"crowd"|"robot"|"both"
@@ -109,7 +109,7 @@ CONT_ROBOT_IMAGE_PATH = "assets/robot.png"
 CONT_ROBOT_IMAGE_SCALE = 4
 CONT_EXIT_SIZE = 5.0
 CONT_SNAP_EXIT_TO_BOUNDARY = True
-CONT_ANNOTATE_PATH = True
+CONT_ANNOTATE_PATH = False
 CONT_ANNOTATE_MODE = "every_n"     # "all"|"endpoints"|"every_n"
 CONT_ANNOTATE_EVERY = 10
 CONT_ANNOTATE_STYLE = "subway"     # "number"|"subway"|"frame"
@@ -343,7 +343,7 @@ def main():
                 crowd_colors={0:CONT_CROWD_COLOR, 1:CONT_CROWD_COLOR, 2:CONT_CROWD_COLOR},
 
                 # ▼ 화살표 보이기 + 크기
-                show_agent_heading=True,
+                show_agent_heading=CONT_SHOW_AGENT_HEADING,
                 agent_heading_scale=1.8,              # 화살표 길이(벡터 스케일)
 
                 # ▼ 화살표 색: 전체 공통 색 또는 타입별 dict 가능

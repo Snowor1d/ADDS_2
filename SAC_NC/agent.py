@@ -209,7 +209,7 @@ class CrowdAgent(Agent):
         if self.type == 3: # robot mass는 3으로 고정
             self.mass = 30
 
-        self.desired_speed_a = np.random.normal(3, 0.2) # agent의 desired_speed, 평균 1.5m/s, 표준 편차 0.2m/s
+        self.desired_speed_a = np.random.normal(3, 0.2)*1.2 # agent의 desired_speed, 평균 1.5m/s, 표준 편차 0.2m/s
         self.previous_goal = [0,0]
 
         self.now_action = ["UP", "GUIDE"]

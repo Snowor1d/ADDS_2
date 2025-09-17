@@ -911,6 +911,14 @@ class FightingModel(Model):
             self.obstacles.append([[35, 35], [40, 30], [40, 35]])
 
 
+        elif map_num == 31:
+            self.obstacles.append([[10, 30], [19, 30], [24, 40], [10, 40]])
+            self.obstacles.append([[30, 10], [35, 10], [35, 30], [30, 30]])
+            self.obstacles.append([[10, 10], [15, 10], [15, 15], [10, 15]])
+            self.obstacles.append([[15, 20], [20, 20], [20, 25], [15, 25]])
+            self.obstacles.append([[37, 35], [42, 35], [42, 40], [37, 40]])
+
+
         
         
             
@@ -1152,6 +1160,8 @@ class FightingModel(Model):
             index = 0
         elif (self.map_num == 30):
             index = 2
+        elif (self.map_num == 31):
+            index = 0
 
         
         self.exit_list = [all_exits[index]]
