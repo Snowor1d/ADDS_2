@@ -8,7 +8,12 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Tuple, Optional
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib as mpl
 import colorsys
+from matplotlib import font_manager as fm
+
+from matplotlib.lines import Line2D
+from matplotlib.patches import Patch
 
 # =========================
 # 전역 파라미터
@@ -17,15 +22,22 @@ ROOT_DIR = os.path.expanduser("~/Result_data_test_0918")
 OUT_DIR  = ROOT_DIR
 
 # --- 그림/폰트 ---
-FIGSIZE_EVAC   = (8, 5)
-FIGSIZE_EPISOD = (8, 5)
-FONT_SIZES = {"title": 16, "axes": 13, "ticks": 11, "legend": 11}
+FIGSIZE_EVAC   = (15, 5)
+FIGSIZE_EPISOD = (15, 5)
+FONT_SIZES = {"title": 20, "axes": 20, "ticks": 20, "legend": 20}
+
+FONT_MODE = "serif"          # 논문용 로마자 느낌이면 "serif"
+FONT_FAMILY = "DejaVu Serif"  # MODE="custom"일 때만 사용 (정확한 폰트 이름)
+# 한국어/한자 혼용 대비를 위한 폴백(시스템에 있는 것만 적용됨)
+FONT_FALLBACKS = [
+
+]
 
 # --- 제목/축 레이블 ---
 TITLE_MAP_FORMAT   = "Map {map_id} - {plot_name}"
-TITLE_EVAC_NAME    = "Time to Evacuate overall Crowds"
+TITLE_EVAC_NAME    = ""
 TITLE_EPISODE_NAME = "Remained Agents per Step"
-XLABEL_EVAC        = "Robot Version"
+XLABEL_EVAC        = ""
 YLABEL_EVAC        = "Timestep"
 XLABEL_EPISODE     = "Step"
 YLABEL_EPISODE     = "Remained evacuaee"
@@ -114,8 +126,8 @@ JITTER_WIDTH   = 0.55
 # evac100: 모델별 선 굵기 (없으면 DEFAULT 사용)
 DEFAULT_EVAC_LINEWIDTH = 2.0
 EVAC_LINEWIDTHS: Dict[str, float] = {
-    "Q": 3.0,   # 강조 라인 더 두껍게
-    "H": 3.0,
+    "Q": 7.0,   # 강조 라인 더 두껍게
+    "H": 7.0,
     "T": 1.4,
     "N": 1.4,
 }
@@ -123,17 +135,26 @@ EVAC_LINEWIDTHS: Dict[str, float] = {
 # episode 로그: 모델별 선 굵기
 DEFAULT_EPISODE_LINEWIDTH = 2.2
 EPISODE_LINEWIDTHS: Dict[str, float] = {
-    "Q": 3,   # 필요시 조정
-    "H": 2.5,
-    "T": 2.5,
-    "N": 2.5,
+    "Q": 4.5,   # 필요시 조정
+    "H": 3.5,
+    "T": 3.5,
+    "N": 3.5,
 }
+
+DISPLAY_MAP_MAP = {6: 1, 7: 2, 8: 3, 24: 4, 25: 5, 26: 6}
+INVERSE_DISPLAY_MAP = {v: k for k, v in DISPLAY_MAP_MAP.items()}
+
+def display_id_of(map_id: int) -> int:
+    # 폴더의 실제 map_id를 표기용 번호(1..6)로 바꿔서 보여줌
+    return DISPLAY_MAP_MAP.get(map_id, map_id)
 
 def lw_for_robot_evacu(rv: str) -> float:
     return EVAC_LINEWIDTHS.get(rv, DEFAULT_EVAC_LINEWIDTH)
 
 def lw_for_robot_episode(rv: str) -> float:
     return EPISODE_LINEWIDTHS.get(rv, DEFAULT_EPISODE_LINEWIDTH)
+
+
 
 # =========================
 # 내부 데이터 구조
@@ -157,6 +178,159 @@ class MapData:
 # =========================
 METRICS_FILE = "metrics.txt"
 EPISODE_LOG_FILE = "episode_log.txt"
+
+# =========================
+# 맵 합본(가로 2열: Robot | Human) evac100 패널
+# =========================
+def _get_evac_values_for_map_robot(maps: Dict[int, MapData], real_map_id: int, robot_ver: str) -> List[float]:
+    mdata = maps.get(real_map_id)
+    if not mdata:
+        return []
+    group = mdata.robots.get(robot_ver)
+    if not group or not group.runs:
+        return []
+    vals = [r.evacuation_100_time for r in group.runs]
+    return [v for v in vals if v < MAX_TIMESTEP]
+
+def plot_evacuation_single_axes_pairs(
+    maps: Dict[int, MapData],
+    subset_disp_ids: List[int],
+    out_dir: str,
+    name_suffix: str,
+    robot_codes: Tuple[str, str] = ("Q", "H"),
+    pair_gap: float = 0.7,   # 같은 맵 내 (Q↔H) 간격
+    map_gap: float = 1.20,   # 맵 사이 간격
+    cat_width: float = 0.6,  # 카테고리 평균선/밴드 가로폭
+    xtick_style: str = "map",   # "pair"(기본) | "map"
+):
+    """
+    하나의 axes 안에: Map1-Q, Map1-H, [map_gap], Map2-Q, Map2-H, ...
+    - pair_gap: 같은 맵(Q,H) 간격
+    - map_gap : 맵 사이 간격
+    - xtick_style:
+        "pair" → Map1-Q, Map1-H ... (기존)
+        "map"  → Map1, Map2 ... (중앙에 하나만)
+    """
+    real_map_ids = [INVERSE_DISPLAY_MAP.get(d, d) for d in subset_disp_ids]
+    left_rv, right_rv = robot_codes
+    left_label  = label_for_robot(left_rv)
+    right_label = label_for_robot(right_rv)
+
+    # === x 포지션 계산 ===
+    x_positions = []  # [(disp_id, rv, x), ...]
+    xtick_labels_pair = []
+    base_x = 0.0
+    for disp_id in subset_disp_ids:
+        x_q = base_x
+        x_h = base_x + pair_gap
+        x_positions.extend([(disp_id, left_rv, x_q), (disp_id, right_rv, x_h)])
+        xtick_labels_pair.extend([f"Map {disp_id}\n{left_label}", f"Map {disp_id}\n{right_label}"])
+        base_x = x_h + map_gap
+
+    # === y축 범위 ===
+    all_vals = []
+    for disp_id, real_id in zip(subset_disp_ids, real_map_ids):
+        all_vals.extend(_get_evac_values_for_map_robot(maps, real_id, left_rv))
+        all_vals.extend(_get_evac_values_for_map_robot(maps, real_id, right_rv))
+    if YLIM_EVAC is not None:
+        y_min, y_max = YLIM_EVAC
+    else:
+        if all_vals:
+            y_min, y_max = float(np.min(all_vals)), float(np.max(all_vals))
+            if y_min == y_max:
+                y_min -= 1.0; y_max += 1.0
+            pad = 0.05 * (y_max - y_min)
+            y_min -= pad; y_max += pad
+        else:
+            y_min, y_max = 0.0, 1.0
+
+    # === 그림/axes ===
+    fig_h = 4.0 if len(subset_disp_ids) <= 3 else 5.0
+    fig_w = max(8.0, 1.0 * len(x_positions) + 0.8 * (len(subset_disp_ids)-1))
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
+
+    # === 데이터 플롯 ===
+    for (disp_id, rv, x_pos) in x_positions:
+        real_id = INVERSE_DISPLAY_MAP.get(disp_id, disp_id)
+        color = color_for_robot(rv, 0 if rv == left_rv else 1)
+        vals = _get_evac_values_for_map_robot(maps, real_id, rv)
+
+        half_w = cat_width / 2.0
+        left, right = x_pos - half_w, x_pos + half_w
+
+        if EVAC_SHOW_MEAN and vals:
+            vmin, vmean, vmax = np.min(vals), np.mean(vals), np.max(vals)
+            ax.hlines(vmean, left, right, color=color, linewidth=lw_for_robot_evacu(rv))
+            if EVAC_SHOW_BAND:
+                ax.fill_between([left, right], [vmin, vmin], [vmax, vmax], color=color, alpha=BAND_ALPHA)
+
+        if EVAC_SHOW_POINTS and vals:
+            if JITTER_POINTS:
+                jitter = (np.random.rand(len(vals)) - 0.5) * (cat_width * JITTER_WIDTH)
+                ax.scatter(x_pos + jitter, vals, color=color, alpha=0.45, s=18)
+            else:
+                ax.scatter([x_pos] * len(vals), vals, color=color, alpha=0.45, s=18)
+
+        if not vals:
+            ax.text(x_pos, (y_min + y_max) / 2.0, "No data", ha="center", va="center",
+                    fontsize=10, alpha=0.6)
+
+    # === 구분 띠 (optional) ===
+    if len(subset_disp_ids) > 1:
+        sep_alpha = 0.00
+        for i in range(len(subset_disp_ids)-1):
+            cur_q_x = x_positions[2*i][2]
+            cur_h_x = x_positions[2*i+1][2]
+            next_q_x = x_positions[2*(i+1)][2]
+            mid_left  = (cur_q_x + cur_h_x)/2 + pair_gap/2
+            mid_right = (cur_h_x + next_q_x)/2
+            if mid_right > mid_left:
+                ax.axvspan(mid_left, mid_right, color="#000000", alpha=sep_alpha, zorder=0)
+
+    # === xticks 스타일 적용 ===
+    if xtick_style.lower() == "map":
+        map_centers = []
+        for i in range(len(subset_disp_ids)):
+            x_q = x_positions[2*i][2]
+            x_h = x_positions[2*i+1][2]
+            map_centers.append(((x_q + x_h) * 0.5, f"Map {subset_disp_ids[i]}"))
+        xtick_pos = [c for c, _ in map_centers]
+        xtick_labels = [lab for _, lab in map_centers]
+    else:
+        xtick_pos = [xp for (_, _, xp) in x_positions]
+        xtick_labels = xtick_labels_pair
+
+    # === 축/레이아웃 ===
+    ax.set_ylim(y_min, y_max)
+    ax.set_ylabel(YLABEL_EVAC, fontsize=FONT_SIZES["axes"])
+    ax.set_xticks(xtick_pos, xtick_labels, fontsize=FONT_SIZES["ticks"])
+    ax.tick_params(labelsize=FONT_SIZES["ticks"])
+    if SHOW_GRID:
+        ax.grid(**GRID_STYLE, axis="y")
+
+    # === 범례 추가 ===
+    legend_handles = []
+    for rv, idx, label in [(left_rv, 0, left_label), (right_rv, 1, right_label)]:
+        color = color_for_robot(rv, idx)
+        legend_handles.append(
+            Line2D([], [], color=color, linewidth=lw_for_robot_evacu(rv), label=label)
+        )
+    ax.legend(handles=legend_handles,
+              fontsize=FONT_SIZES["legend"],
+              title="",
+              frameon=False,
+              loc="upper right")
+
+    subset_str = _format_id_ranges(subset_disp_ids)
+    #ax.set_title(f"Maps {subset_str} – {TITLE_EVAC_NAME}", fontsize=FONT_SIZES["title"])
+    fig.tight_layout()
+
+    os.makedirs(out_dir, exist_ok=True)
+    path = os.path.join(out_dir, f"evac100_singleaxes_pairs_{name_suffix}.{SAVE_FORMAT}")
+    fig.savefig(path, dpi=SAVE_DPI)
+    plt.close(fig)
+    print(f"[Saved] {path}")
+
 
 def normalize_band_mode(mode):
     if mode is None:
@@ -321,14 +495,15 @@ def apply_axes_style(ax, ylim: Optional[Tuple[float, float]]):
         ax.set_ylim(*ylim)
 
 def title_for(map_id: int, plot_name: str) -> str:
-    return TITLE_MAP_FORMAT.format(map_id=map_id, plot_name=plot_name)
+    disp_id = display_id_of(map_id)  # ← 실제 id → 표시용 id 로 매핑
+    return TITLE_MAP_FORMAT.format(map_id=disp_id, plot_name=plot_name)
 
 # =========================
 # 플롯: Evacuation 100
 # =========================
 def plot_evacuation_per_map(map_id: int, mdata: MapData, out_dir: str):
     fig, ax = plt.subplots(figsize=FIGSIZE_EVAC)
-    ax.set_title(title_for(map_id, TITLE_EVAC_NAME), fontsize=FONT_SIZES["title"])
+    #ax.set_title(title_for(map_id, TITLE_EVAC_NAME), fontsize=FONT_SIZES["title"])
     ax.set_xlabel(XLABEL_EVAC, fontsize=FONT_SIZES["axes"])
     ax.set_ylabel(YLABEL_EVAC, fontsize=FONT_SIZES["axes"])
 
@@ -396,7 +571,7 @@ def plot_evacuation_per_map(map_id: int, mdata: MapData, out_dir: str):
 def plot_episode_log_padded(map_id: int, mdata: MapData, out_dir: str, band_mode: Optional[str]):
     title_mode = band_mode if band_mode is not None else "no-band"
     fig, ax = plt.subplots(figsize=FIGSIZE_EPISOD)
-    ax.set_title(title_for(map_id, f"{TITLE_EPISODE_NAME} ({title_mode})"), fontsize=FONT_SIZES["title"])
+    #ax.set_title(title_for(map_id, f"{TITLE_EPISODE_NAME}"), fontsize=FONT_SIZES["title"])
     ax.set_xlabel(XLABEL_EPISODE, fontsize=FONT_SIZES["axes"])
     ax.set_ylabel(YLABEL_EPISODE, fontsize=FONT_SIZES["axes"])
 
@@ -429,10 +604,124 @@ def plot_episode_log_padded(map_id: int, mdata: MapData, out_dir: str, band_mode
     plt.close(fig)
     print(f"[Saved] {path}")
 
+def _installed_family_names() -> set:
+    # 시스템에 등록된 폰트 패밀리 이름 집합
+    return {f.name for f in fm.fontManager.ttflist}
+
+def _filter_installed(cands: List[str]) -> List[str]:
+    inst = _installed_family_names()
+    return [c for c in cands if c in inst]
+
+def _base_candidates_for_mode() -> List[str]:
+    mode = (FONT_MODE or "").lower()
+    if mode in ("serif", "serifed"):
+        # 리눅스 기본이 잘 있는 순서 먼저 배치
+        return ["DejaVu Serif", "Times New Roman", "Times"]
+    if mode in ("sans", "sans-serif"):
+        return ["DejaVu Sans", "Helvetica", "Arial"]
+    if mode in ("mono", "monospace"):
+        return ["DejaVu Sans Mono", "Consolas", "Menlo"]
+    # custom: FONT_FAMILY가 '이름'일 수도, '.ttf 경로'일 수도 있음
+    if FONT_FAMILY and FONT_FAMILY.lower().endswith((".ttf", ".otf")):
+        # 파일 경로를 넣은 경우
+        if os.path.isfile(FONT_FAMILY):
+            try:
+                fm.fontManager.addfont(FONT_FAMILY)
+                prop = fm.FontProperties(fname=FONT_FAMILY)
+                return [prop.get_name()]
+            except Exception:
+                pass
+        # 등록 실패 시 아래에서 안전 폴백 사용
+        return []
+    # 파일 경로가 아니라 '이름'이면 그대로 후보에 넣기
+    return [FONT_FAMILY] if FONT_FAMILY else []
+
+def _resolve_font_list() -> List[str]:
+    # 1) 모드 기반 기본 후보 + 사용자가 준 폴백을 합치고
+    base = _base_candidates_for_mode()
+    cands = base + list(FONT_FALLBACKS)
+    # 2) 시스템에 실제로 설치된 것만 남긴다
+    used = _filter_installed([c for c in cands if c])
+    # 3) 하나도 없으면 모드별 안전 폴백(DejaVu 계열) 강제
+    mode = (FONT_MODE or "").lower()
+    if not used:
+        if mode in ("serif", "serifed", "custom"):
+            used = ["DejaVu Serif"]
+        elif mode in ("mono", "monospace"):
+            used = ["DejaVu Sans Mono"]
+        else:
+            used = ["DejaVu Sans"]
+    # 중복 제거(순서 보존)
+    seen, out = set(), []
+    for name in used:
+        if name not in seen:
+            out.append(name); seen.add(name)
+    return out
+
+def _math_fontset_for_mode() -> str:
+    mode = (FONT_MODE or "").lower()
+    if mode in ("serif", "serifed", "custom"):
+        return "dejavuserif"  # 필요시 "cm"로 교체 가능
+    return "dejavusans"
+
+def apply_font_settings():
+    families = _resolve_font_list()
+
+    # 가족군 우선순위를 설정: family ‘이름 목록’을 바로 넣을 수도 있지만,
+    # 경고 최소화를 위해 family 그룹과 세부 리스트를 함께 세팅
+    mode = (FONT_MODE or "").lower()
+    if mode in ("serif", "serifed", "custom"):
+        mpl.rcParams["font.family"] = "serif"
+        mpl.rcParams["font.serif"] = families
+    elif mode in ("mono", "monospace"):
+        mpl.rcParams["font.family"] = "monospace"
+        mpl.rcParams["font.monospace"] = families
+    else:
+        mpl.rcParams["font.family"] = "sans-serif"
+        mpl.rcParams["font.sans-serif"] = families
+
+    # 크기
+    mpl.rcParams["axes.titlesize"] = FONT_SIZES["title"]
+    mpl.rcParams["axes.labelsize"] = FONT_SIZES["axes"]
+    mpl.rcParams["xtick.labelsize"] = FONT_SIZES["ticks"]
+    mpl.rcParams["ytick.labelsize"] = FONT_SIZES["ticks"]
+    mpl.rcParams["legend.fontsize"] = FONT_SIZES["legend"]
+
+    # 수식 렌더링 셋
+    mpl.rcParams["mathtext.fontset"] = _math_fontset_for_mode()
+    mpl.rcParams["axes.unicode_minus"] = False
+
+    # 폰트 캐시 꼬임 방지(필요시 1회)
+    try:
+        fm._rebuild()
+    except Exception:
+        pass
+
+def _format_id_ranges(ids: List[int]) -> str:
+    """[1,2,3,4,5,6] -> '1~6', [1,2,3] -> '1~3', [4,5,6] -> '4~6'
+       비연속 구간이 섞이면 '1~3, 5, 7~9' 이런 식으로 표기"""
+    if not ids:
+        return ""
+    s = sorted(ids)
+    ranges = []
+    start = prev = s[0]
+    for x in s[1:]:
+        if x == prev + 1:      # 연속이면 이어가기
+            prev = x
+            continue
+        # 구간 닫기
+        ranges.append(f"{start}" if start == prev else f"{start}~{prev}")
+        start = prev = x
+    # 마지막 구간 닫기
+    ranges.append(f"{start}" if start == prev else f"{start}~{prev}")
+    return ", ".join(ranges)
+
+
 # =========================
 # 메인
 # =========================
 def main():
+    apply_font_settings()
     maps = load_data(ROOT_DIR)
     if not maps:
         print(f"[WARN] No maps found under: {ROOT_DIR}")
@@ -441,6 +730,12 @@ def main():
         plot_evacuation_per_map(map_id, mdata, OUT_DIR)
         plot_episode_log_padded(map_id, mdata, OUT_DIR, band_mode=BAND_MODE)
     print(f"[DONE] Plots saved to: {os.path.abspath(OUT_DIR)}")
+
+    # ===== 추가: 단일 축에 (맵×2카테고리) 모두 배치한 버전 3장 =====
+    plot_evacuation_single_axes_pairs(maps, [1, 2, 3], OUT_DIR, name_suffix="maps_1_2_3")
+    plot_evacuation_single_axes_pairs(maps, [4, 5, 6], OUT_DIR, name_suffix="maps_4_5_6")
+    plot_evacuation_single_axes_pairs(maps, [1, 2, 3, 4, 5, 6], OUT_DIR, name_suffix="maps_1_6")
+
 
 if __name__ == "__main__":
     main()
