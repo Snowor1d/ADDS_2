@@ -22,7 +22,7 @@ DPI            = 220       # 저장 해상도
 # 기본 컬러맵(Non-agent 파일)
 CMAP              = "jet"          # 예: "Reds", "viridis", "jet"...
 # agent_* 파일 전용 컬러맵(0=검정, >0는 흰→빨강)
-CMAP_AGENT        = "viridis"    # "black_red" 또는 Matplotlib 내장 이름
+CMAP_AGENT        = "jet"    # "black_red" 또는 Matplotlib 내장 이름
 
 # ── 제목/폰트/스타일 설정 ───────────────────────────────
 TITLE_PREFIX      = ""             # 제목 앞에 붙일 문자열 (예: "Heatmap · ")

@@ -20,7 +20,7 @@ import numpy as np
 # ──────────────────────────────────────────────────────────
 # Start_training.LOG_DIR 가져오기 (없으면 무시)
 try:
-    from Start_training import LOG_DIR as _DEFAULT_LOG_DIR
+    from config import LOG_DIR as _DEFAULT_LOG_DIR
 except ModuleNotFoundError:
     _DEFAULT_LOG_DIR = None
 

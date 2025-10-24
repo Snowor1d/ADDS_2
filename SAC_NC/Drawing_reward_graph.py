@@ -21,8 +21,8 @@ EVAC_FILE   = "evacuation_100.txt"
 # FIGURE / SAVE OPTIONS
 # =========================
 # ▶ 그림 크기(인치). 그래프별로 따로 지정 가능
-FIGSIZE_REWARD = (18, 5)   # (width, height)
-FIGSIZE_EVAC   = (18, 5)
+FIGSIZE_REWARD = (15, 10)   # (width, height)
+FIGSIZE_EVAC   = (15, 10)
 
 # ▶ 전역 스케일(배율). 1.2면 가로/세로 모두 20% 커짐
 FIGSIZE_SCALE = 1.0
@@ -40,7 +40,7 @@ SAVE_TRANSPARENT = False         # True면 투명 배경으로 저장
 # =========================
 # FONTS / STYLE
 # =========================
-FONT_SIZES = {"title": 23, "axes": 23, "ticks": 23, "legend": 25}
+FONT_SIZES = {"title": 30, "axes": 35, "ticks": 35, "legend": 35}
 FONT_FAMILY = "serif"   # ← 여기서 로마자(serif) 선택
 SHOW_GRID  = True
 GRID_STYLE = dict(linestyle="--", alpha=0.3)

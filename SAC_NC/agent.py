@@ -352,6 +352,71 @@ class CrowdAgent(Agent):
         distance += math.sqrt(pow(now_mesh_middle[0]-point2[0],2)+pow(now_mesh_middle[1]-point2[1],2))
         
         return distance
+    
+    def point_to_point_distance_correction(self, point1, point2):
+        import math
+
+        # 1) 양 점이 속한 삼각형
+        m1 = self.choice_safe_mesh(point1)
+        m2 = self.choice_safe_mesh(point2)
+        if m1 is None or m2 is None:
+            return 9e12
+
+        # 같은 삼각형이면 직선
+        if m1 == m2:
+            return math.hypot(point2[0]-point1[0], point2[1]-point1[1])
+
+        # 2) 삼각형 경로 복원 (next_vertex_matrix 따라가기)
+        nxt = self.model.next_vertex_matrix
+        if nxt[m1][m2] is None:
+            return 9e12
+
+        path_meshes = [m1]
+        cur = m1
+        # 무한루프 방지: 최대 N번(경로 길이 상한)만 따라감
+        guard = 0
+        N = max(1, len(getattr(self.model, "mesh_list", [])))
+        while cur != m2 and guard <= N:
+            cur = nxt[cur][m2]
+            if cur is None:
+                return 9e12
+            path_meshes.append(cur)
+            guard += 1
+        if path_meshes[-1] != m2:
+            return 9e12
+
+        # 3) 포털(공유변) 중점들을 추출
+        portal_mids = []
+        for a, b in zip(path_meshes, path_meshes[1:]):
+            # 공유변 찾기: 공통 꼭짓점 2개
+            common = list(set(a) & set(b))
+            if len(common) == 2:
+                (x1, y1), (x2, y2) = common[0], common[1]
+                mid = ((x1 + x2) / 2.0, (y1 + y2) / 2.0)
+                portal_mids.append(mid)
+            else:
+                # 드문 예외(부동/정렬 문제 등)엔 b의 센트로이드로 폴백
+                (bx0, by0), (bx1, by1), (bx2, by2) = b
+                cxb = (bx0 + bx1 + bx2) / 3.0
+                cyb = (by0 + by1 + by2) / 3.0
+                portal_mids.append((cxb, cyb))
+
+        # 4) 거리 계산: p1 -> 첫 포털중점 -> ... -> 마지막 포털중점 -> p2
+        if not portal_mids:
+            # 인접하지만 공유변 못 찾은 극히 예외 케이스: 직선으로 폴백
+            return math.hypot(point2[0]-point1[0], point2[1]-point1[1])
+
+        dist = 0.0
+        # 시작 → 첫 포털
+        dist += math.hypot(portal_mids[0][0] - point1[0], portal_mids[0][1] - point1[1])
+        # 포털들 사이
+        for p, q in zip(portal_mids, portal_mids[1:]):
+            dist += math.hypot(q[0] - p[0], q[1] - p[1])
+        # 마지막 포털 → 목표
+        dist += math.hypot(point2[0] - portal_mids[-1][0], point2[1] - portal_mids[-1][1])
+
+        return dist
+        
 
     
     def change_learning_state(self, learning):

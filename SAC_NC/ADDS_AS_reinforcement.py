@@ -701,15 +701,30 @@ if __name__ == "__main__":
     import time
     import model  # Your environment code (model.FightingModel)
 
+    learn_step_file = os.path.join(log_dir, "learn_step.txt")
+    if os.path.exists(learn_step_file):
+        try:
+            with open(learn_step_file, "r") as f:
+                LEARN_STEP = int(f.read().strip())
+        except Exception:
+            LEARN_STEP = 0
+    else:
+        LEARN_STEP = 0
 
     # TensorBoard 로그 경로 및 total_reward.txt 경로 설정
     total_reward_file = os.path.join(log_dir, "total_reward.txt")
     tb_log_dir = os.path.join(log_dir, "tensorboard_logs")
     evacuation_time_80_file = os.path.join(log_dir, "evacuation_80.txt")
     evacuation_time_100_file = os.path.join(log_dir, "evacuation_100.txt")
+
+    reward_vs_ls_file = os.path.join(log_dir, "reward_vs_learnstep.txt")
+    evac100_vs_ls_file = os.path.join(log_dir, "evac100_vs_learnstep.txt")
+
     total_lifetime_file = os.path.join(log_dir, "total_lifetime.txt")
 
     tb_process = launch_tensorboard(tb_log_dir, port=PORT_NUM)
+    step_writer = SummaryWriter(log_dir=tb_log_dir)
+
     # 별도 스레드에서 total_reward.txt 모니터링 시작
     monitor_thread = threading.Thread(target=monitor_total_reward, args=(total_reward_file, tb_log_dir), daemon=True)
     monitor_thread.start()
@@ -735,6 +750,22 @@ if __name__ == "__main__":
         daemon=True
     )
     monitor_thread_lifetime.start()
+
+    monitor_thread_100_vs_ls = threading.Thread(
+        target=monitor_metric, 
+        args=(evac100_vs_ls_file, "Evacuation Time 100 vs learning step", tb_log_dir),
+        daemon=True
+    )
+    monitor_thread_100_vs_ls.start()
+
+    monitor_thread_reward_vs_ls = threading.Thread(
+        target=monitor_metric, 
+        args=(reward_vs_ls_file, "Reward vs learning step", tb_log_dir),
+        daemon=True
+    )
+    monitor_thread_reward_vs_ls.start()
+
+    
 
     # === (NEW) launch per-map monitors ===
     # 이미 heat_logger.known_maps = MAP_NUM_RANDOM 을 쓰고 있으니 동일 세트 사용
@@ -857,7 +888,9 @@ if __name__ == "__main__":
         try:
             for step in range(max_steps):
                 # 1) Select action
-            
+                
+                prev_learn_step = LEARN_STEP
+
                 if(step%ACTION_SCALE==0):
                     
                     if step > 0:
@@ -970,6 +1003,8 @@ if __name__ == "__main__":
                     agent.update()
                     learn_timer.stop()
 
+                    LEARN_STEP += 1
+
                     state = next_state
 
 
@@ -1020,12 +1055,36 @@ if __name__ == "__main__":
             # 맵별 evacuation_100
             with open(map_metric_path("evacuation_100", this_map), "a") as f:
                 f.write(f"{evacuation_time_100}\n")
+
         # print("now_epsilon_long : ", agent.epsilon_long)
         # Save model occasionally
 
         reward_file_path = os.path.join(log_dir, "total_reward.txt")
         evacuation_time_80_file_path = os.path.join(log_dir, "evacuation_80.txt")
         evacuation_time_100_file_path = os.path.join(log_dir, "evacuation_100.txt")
+        reward_file_vs_ls_path = os.path.join(log_dir, "reward_vs_learnstep.txt")
+        evacuation_time_100_file_vs_ls_path = os.path.join(log_dir, "evac100_vs_learnstep.txt")
+        try:
+            with open(learn_step_file, "w") as f:
+                f.write(str(LEARN_STEP))
+        except Exception as e:
+            print("Failed to persist LEARN_STEP:", e)
+        step_writer.add_scalar("EpisodeReward_vsLearnStep/total_reward",    total_reward,       LEARN_STEP)
+        step_writer.add_scalar("Evacuation_vsLearnStep/evac_time_100",      evacuation_time_100, LEARN_STEP)
+        step_writer.flush()
+        
+        # 없으면 헤더 추가해서 생성
+        if not os.path.exists(reward_vs_ls_file):
+            open(reward_vs_ls_file, "w").close()
+
+        if not os.path.exists(evac100_vs_ls_file):
+            open(evac100_vs_ls_file, "w").close()        
+
+
+        if not os.path.exists(evac100_vs_ls_file):
+            with open(evac100_vs_ls_file, "w") as f:
+                f.write(f"{LEARN_STEP} {evacuation_time_100}\n")
+
         if not os.path.exists(reward_file_path):
             # 파일이 없으면 빈 파일 생성
             open(reward_file_path, "w").close()
@@ -1035,6 +1094,11 @@ if __name__ == "__main__":
             open(evacuation_time_100_file_path, "w").close()
         if not os.path.exists(total_lifetime_file):
             open(total_lifetime_file, "w").close()
+        if not os.path.exists(reward_file_vs_ls_path):
+            open(reward_file_vs_ls_path, "w").close()
+        if not os.path.exists(evacuation_time_100_file_vs_ls_path):
+            open(evacuation_time_100_file_vs_ls_path, "w").close()
+
 
 
 
@@ -1054,6 +1118,14 @@ if __name__ == "__main__":
                 f.write(f"{evacuation_time_80}\n")
         with open(evacuation_time_100_file_path, "a") as f:
                 f.write(f"{evacuation_time_100}\n")
+
+        with open(reward_file_vs_ls_path, "a") as f:
+            if(abnormal_reward != 1):
+                f.write(f"{LEARN_STEP} {total_reward}\n")
+                
+        with open(evacuation_time_100_file_vs_ls_path, "a") as f:
+            if(abnormal_reward != 1):
+                f.write(f"{LEARN_STEP} {evacuation_time_100}\n")
 
         with open(epsilon_path, "w") as f:
             f.write(str(agent.epsilon)+"\n")

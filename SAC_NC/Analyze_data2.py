@@ -14,6 +14,7 @@ from matplotlib import font_manager as fm
 
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
+from matplotlib import patheffects as pe  # legend/markers halo 효과용 (선택)
 
 # =========================
 # 전역 파라미터
@@ -21,10 +22,12 @@ from matplotlib.patches import Patch
 ROOT_DIR = os.path.expanduser("~/Result_data_test_0918")
 OUT_DIR  = ROOT_DIR
 
+SHOW_EPISODE_LEGEND = False  # episode 플롯 범례 표시 여부
+
 # --- 그림/폰트 ---
-FIGSIZE_EVAC   = (15, 5)
-FIGSIZE_EPISOD = (15, 5)
-FONT_SIZES = {"title": 20, "axes": 20, "ticks": 20, "legend": 20}
+FIGSIZE_EVAC   = (15, 7)
+FIGSIZE_EPISOD = (10, 6)
+FONT_SIZES = {"title": 25, "axes": 30, "ticks": 28, "legend": 28}
 
 FONT_MODE = "serif"          # 논문용 로마자 느낌이면 "serif"
 FONT_FAMILY = "DejaVu Serif"  # MODE="custom"일 때만 사용 (정확한 폰트 이름)
@@ -40,7 +43,7 @@ TITLE_EPISODE_NAME = "Remained Agents per Step"
 XLABEL_EVAC        = ""
 YLABEL_EVAC        = "Timestep"
 XLABEL_EPISODE     = "Step"
-YLABEL_EPISODE     = "Remained evacuaee"
+YLABEL_EPISODE     = "Non-Evacuated Agents"
 
 # --- 저장 ---
 SAVE_DPI    = 220
@@ -66,36 +69,24 @@ YLIM_EPISODE: Optional[Tuple[float, float]] = None
 # --- timeout 기준 ---
 MAX_TIMESTEP = 1500  # 이 값 이상이면 timeout
 
-H_BLUE   = 202/360.0  # Okabe–Ito Blue
-H_ORANGE =  41/360.0  # Okabe–Ito Orange
-H_TEAL   = 164/360.0  # Okabe–Ito Green/Teal
-H_RED    =  26/360.0  # Okabe–Ito Vermilion (Red-Orange)
-H_PURPLE = 327/360.0  # Okabe–Ito Reddish Purple
+# --- Hue (in [0,1]) for Okabe–Ito palette anchors ---
+H_BLUE   = 203/360.0  # Okabe–Ito Blue (#0072B2)
+H_ORANGE =  41/360.0  # Okabe–Ito Orange (#E69F00)
+H_TEAL   = 164/360.0  # Okabe–Ito Green/Teal (#009E73)
+H_RED    =  26/360.0  # Okabe–Ito Vermilion (#D55E00)
+H_PURPLE = 327/360.0  # Okabe–Ito Reddish Purple (#CC79A7)
 H_CYAN   = 195/360.0  # Tol-ish Cyan / Sky-ish
 
-# --- 색상(HSL) ---
+# --- 색상(HSL): (Hue, Saturation, Lightness) ---
+# 정확히 #0072B2, #E69F00 톤을 반영하도록 S/L을 미세 조정함
 ROBOT_HSL: Dict[str, Tuple[float, float, float]] = {
-    "Q": (H_BLUE, 1.00, 0.35),  # 강조(블루, 기본)
-    "H": (H_ORANGE,   1.00, 0.45),  # 회색(연)
-    "T": (0.00,   0.00, 0.65),  # 회색(중)
-    "N": (0.00,   0.00, 0.55),  # 회색(진)
-
-    # --- 대안 강조색 (Q 라인을 다른 색으로 바꾸고 싶을 때 아래 중 하나로 교체) ---
-    # "Q": (H_ORANGE, 1.00, 0.45),  # 오렌지
-    # "Q": (H_TEAL,   1.00, 0.31),  # 초록/틸
-    # "Q": (H_RED,    1.00, 0.42),  # 빨강(버밀리온)
-    # "Q": (H_PURPLE, 0.45, 0.64),  # 보라(채도 낮춤)
-    # "Q": (H_CYAN,   0.80, 0.66),  # 시안/스카이블루(연함)
-    # "Q": (0.00,     0.00, 0.00),  # 블랙(흑백 인쇄용)
+    "Q": (H_BLUE,   1.00, 0.35),  # RL-Trained (Okabe–Ito Blue, #0072B2)
+    "H": (H_ORANGE, 1.00, 0.45),  # Human Control (Okabe–Ito Orange, #E69F00)
+    "T": (0.00,     0.00, 0.65),  # Direct-to-Goal (중간 회색)
+    "N": (0.00,     0.00, 0.55),  # No Robot (진한 회색)
 }
 
-# --- 여러 모델을 컬러로 구분해야 할 때(회색 대신 컬러 세트 예시) ---
-# ROBOT_HSL = {
-#     "Q": (H_BLUE,   1.00, 0.35),
-#     "H": (H_ORANGE, 1.00, 0.45),
-#     "T": (H_TEAL,   1.00, 0.31),
-#     "N": (H_PURPLE, 0.45, 0.64),
-# }
+# 컬러 사이클(미지정 로봇 대비)
 COLOR_CYCLE_HUES = [0.00, 0.58, 0.33, 0.12, 0.75, 0.46, 0.90, 0.20]
 DEFAULT_S = 0.70
 DEFAULT_L = 0.48
@@ -114,7 +105,6 @@ ROBOT_LABELS = {
     "Q": "RL-Trained",
     "N": "No Robot",
     "H": "Human Control",
-    # "Human": "Human (Joystick Baseline)",
 }
 ROBOT_ORDER: List[str] = ["Q", "H", "T", "N"]
 
@@ -132,14 +122,36 @@ EVAC_LINEWIDTHS: Dict[str, float] = {
     "N": 1.4,
 }
 
-# episode 로그: 모델별 선 굵기
-DEFAULT_EPISODE_LINEWIDTH = 2.2
+# episode 로그: “마커 OFF + 얇은 점/파선” 스타일
+DEFAULT_EPISODE_LINEWIDTH = 2.0
 EPISODE_LINEWIDTHS: Dict[str, float] = {
-    "Q": 4.5,   # 필요시 조정
-    "H": 3.5,
-    "T": 3.5,
-    "N": 3.5,
+    "Q": 4.0,
+    "H": 4.0,
+    "T": 4.0,
+    "N": 4.0,
 }
+
+# --- episode: 마커 대신 라인스타일 기반 구분 ---
+EPISODE_USE_MARKERS = True      # 마커 끄기
+EPISODE_LINESTYLE_FIXED = None   # 실선 고정 해제 → 로봇별 스타일 사용
+
+# 로봇별 라인스타일(얇은 점선/파선)
+EPISODE_LINESTYLES: Dict[str, str] = {
+    "Q": "-",  # RL-Trained → 점선
+    "H": "-",  # Human Control → 파점선
+    "T": ":",   # Direct-to-Goal → 점점선
+    "N": "-.",  # No Robot → 점선 (원하면 ":" 로 변경 가능)
+}
+
+EPISODE_MARKERS: Dict[str, str] = {
+    "Q": "",   # 사용 안 함 (마커 OFF)
+    "H": "",
+    "T": "",
+    "N": "",
+}
+EPISODE_MARKER_SIZE = 7.5
+EPISODE_MARKER_EDGE_W = 1.2
+EPISODE_MARKER_TARGET_COUNT = 60   # 각 곡선에 약 이 개수만큼 마커가 보이도록 간격 자동 조절
 
 DISPLAY_MAP_MAP = {6: 1, 7: 2, 8: 3, 24: 4, 25: 5, 26: 6}
 INVERSE_DISPLAY_MAP = {v: k for k, v in DISPLAY_MAP_MAP.items()}
@@ -154,7 +166,11 @@ def lw_for_robot_evacu(rv: str) -> float:
 def lw_for_robot_episode(rv: str) -> float:
     return EPISODE_LINEWIDTHS.get(rv, DEFAULT_EPISODE_LINEWIDTH)
 
-
+def ls_for_robot_episode(rv: str) -> str:
+    # 고정 스타일이 지정되어 있으면 그것을 사용, 아니면 로봇별 스타일
+    if EPISODE_LINESTYLE_FIXED:
+        return EPISODE_LINESTYLE_FIXED
+    return EPISODE_LINESTYLES.get(rv, "--")
 
 # =========================
 # 내부 데이터 구조
@@ -322,7 +338,7 @@ def plot_evacuation_single_axes_pairs(
               loc="upper right")
 
     subset_str = _format_id_ranges(subset_disp_ids)
-    #ax.set_title(f"Maps {subset_str} – {TITLE_EVAC_NAME}", fontsize=FONT_SIZES["title"])
+    # ax.set_title(f"Maps {subset_str} – {TITLE_EVAC_NAME}", fontsize=FONT_SIZES["title"])
     fig.tight_layout()
 
     os.makedirs(out_dir, exist_ok=True)
@@ -330,7 +346,6 @@ def plot_evacuation_single_axes_pairs(
     fig.savefig(path, dpi=SAVE_DPI)
     plt.close(fig)
     print(f"[Saved] {path}")
-
 
 def normalize_band_mode(mode):
     if mode is None:
@@ -386,7 +401,7 @@ def load_data(root: str) -> Dict[int, MapData]:
 
     for map_name in sorted(os.listdir(root)):
         m = map_dir_pat.match(map_name)
-        if not m: 
+        if not m:
             continue
         map_id = int(m.group(1))
         maps.setdefault(map_id, MapData())
@@ -394,32 +409,32 @@ def load_data(root: str) -> Dict[int, MapData]:
 
         for rv_name in sorted(os.listdir(map_dir)):
             m2 = robot_dir_pat.match(rv_name)
-            if not m2: 
+            if not m2:
                 continue
             map_id2 = int(m2.group(1))
-            if map_id2 != map_id: 
+            if map_id2 != map_id:
                 continue
             robot_ver = m2.group(2)
             rv_dir = os.path.join(map_dir, rv_name)
-            if not os.path.isdir(rv_dir): 
+            if not os.path.isdir(rv_dir):
                 continue
 
             maps[map_id].robots.setdefault(robot_ver, RobotGroup())
 
             for td in sorted(os.listdir(rv_dir)):
                 m3 = test_dir_pat.match(td)
-                if not m3: 
+                if not m3:
                     continue
                 map_id3 = int(m3.group(1))
                 robot_ver3 = m3.group(2)
-                if map_id3 != map_id or robot_ver3 != robot_ver: 
+                if map_id3 != map_id or robot_ver3 != robot_ver:
                     continue
                 tdir = os.path.join(rv_dir, td)
-                if not os.path.isdir(tdir): 
+                if not os.path.isdir(tdir):
                     continue
 
                 evac, life = read_metrics(os.path.join(tdir, METRICS_FILE))
-                if evac is None or life is None: 
+                if evac is None or life is None:
                     continue
                 elog = read_episode_log(os.path.join(tdir, EPISODE_LOG_FILE))
                 maps[map_id].robots[robot_ver].runs.append(
@@ -485,6 +500,47 @@ def per_step_stats_from_matrix(M: np.ndarray, mode: Optional[str]) -> Tuple[np.n
         return mean, M.min(axis=0), M.max(axis=0)
 
 # =========================
+# 마커/색상 헬퍼 (episode용)
+# =========================
+def _hex_to_rgb01(hexstr: str) -> Tuple[float, float, float]:
+    hexstr = hexstr.lstrip("#")
+    r = int(hexstr[0:2], 16) / 255.0
+    g = int(hexstr[2:4], 16) / 255.0
+    b = int(hexstr[4:6], 16) / 255.0
+    return (r, g, b)
+
+def _darken_hex(hexstr: str, factor: float = 0.75) -> Tuple[float, float, float]:
+    r, g, b = _hex_to_rgb01(hexstr)
+    return (max(0, r*factor), max(0, g*factor), max(0, b*factor))
+
+def _lighten_hex(hexstr: str, factor: float = 0.7) -> Tuple[float, float, float]:
+    """factor∈(0,1): 1에 가까울수록 더 흰색에 가까움"""
+    r, g, b = _hex_to_rgb01(hexstr)
+    return (1 - (1 - r)*factor, 1 - (1 - g)*factor, 1 - (1 - b)*factor)
+
+def _with_alpha(rgb: Tuple[float, float, float], alpha: float) -> Tuple[float, float, float, float]:
+    return (rgb[0], rgb[1], rgb[2], alpha)
+
+def _marker_for_robot(rv: str, idx: int) -> str:
+    cycle = ["o", "s", "^", "D", "v", "P", "*"]
+    return EPISODE_MARKERS.get(rv, cycle[idx % len(cycle)])
+
+def _compute_markevery(length: int, target: int = EPISODE_MARKER_TARGET_COUNT) -> int:
+    if length <= 0:
+        return 1
+    step = int(np.ceil(length / float(max(1, target))))
+    return max(1, step)
+
+def _legend_proxy_line(marker: str, color: str, lw: float, msize: float, mew: float):
+    """라인+마커가 함께 보이는 범례용 프록시 핸들"""
+    return Line2D(
+        [], [], color=color, linewidth=lw,
+        marker=marker, markersize=msize*0.9,
+        markerfacecolor="white",  # 속 흰색
+        markeredgecolor=color, markeredgewidth=mew
+    )
+
+# =========================
 # 공통 스타일
 # =========================
 def apply_axes_style(ax, ylim: Optional[Tuple[float, float]]):
@@ -503,7 +559,7 @@ def title_for(map_id: int, plot_name: str) -> str:
 # =========================
 def plot_evacuation_per_map(map_id: int, mdata: MapData, out_dir: str):
     fig, ax = plt.subplots(figsize=FIGSIZE_EVAC)
-    #ax.set_title(title_for(map_id, TITLE_EVAC_NAME), fontsize=FONT_SIZES["title"])
+    # ax.set_title(title_for(map_id, TITLE_EVAC_NAME), fontsize=FONT_SIZES["title"])
     ax.set_xlabel(XLABEL_EVAC, fontsize=FONT_SIZES["axes"])
     ax.set_ylabel(YLABEL_EVAC, fontsize=FONT_SIZES["axes"])
 
@@ -539,7 +595,7 @@ def plot_evacuation_per_map(map_id: int, mdata: MapData, out_dir: str):
             ax.hlines(
                 vmean, left, right,
                 color=color,
-                linewidth=lw_for_robot_evacu(rv),     # ✅ 모델별 굵기 적용
+                linewidth=lw_for_robot_evacu(rv),
                 label=f"{disp_label} (mean)"
             )
             if EVAC_SHOW_BAND:
@@ -566,14 +622,17 @@ def plot_evacuation_per_map(map_id: int, mdata: MapData, out_dir: str):
     print(f"[Saved] {path}")
 
 # =========================
-# 플롯: Episode (0-패딩 + 밴드)
+# 플롯: Episode (얇은 점/파선, 마커 없음)
 # =========================
 def plot_episode_log_padded(map_id: int, mdata: MapData, out_dir: str, band_mode: Optional[str]):
     title_mode = band_mode if band_mode is not None else "no-band"
     fig, ax = plt.subplots(figsize=FIGSIZE_EPISOD)
-    #ax.set_title(title_for(map_id, f"{TITLE_EPISODE_NAME}"), fontsize=FONT_SIZES["title"])
+    # ax.set_title(title_for(map_id, f"{TITLE_EPISODE_NAME}"), fontsize=FONT_SIZES["title"])
     ax.set_xlabel(XLABEL_EPISODE, fontsize=FONT_SIZES["axes"])
     ax.set_ylabel(YLABEL_EPISODE, fontsize=FONT_SIZES["axes"])
+
+    # 범례용 프록시 핸들 (마커 사용 시에만 필요)
+    legend_handles, legend_labels = [], []
 
     for i, (rv, group) in enumerate(ordered_robot_items(mdata.robots)):
         disp_label = label_for_robot(rv)
@@ -591,11 +650,38 @@ def plot_episode_log_padded(map_id: int, mdata: MapData, out_dir: str, band_mode
         mean_curve, lower, upper = per_step_stats_from_matrix(M, mode=band_mode)
 
         x = np.arange(L)
-        ax.plot(x, mean_curve, label=disp_label, color=color, linewidth=lw_for_robot_episode(rv))
-        if lower is not None and upper is not None:
-            ax.fill_between(x, lower, upper, color=color, alpha=BAND_ALPHA)
 
-    ax.legend(fontsize=FONT_SIZES["legend"])
+        # 1) 평균 곡선: 얇은 점/파선
+        ax.plot(
+            x, mean_curve,
+            label=disp_label,
+            color=color,
+            linewidth=lw_for_robot_episode(rv),
+            linestyle=ls_for_robot_episode(rv),
+            zorder=2
+        )
+
+        # 2) 밴드: 외곽선 제거(깔끔하게 채움만)
+        if lower is not None and upper is not None:
+            ax.fill_between(
+                x, lower, upper,
+                color=color,
+                alpha=BAND_ALPHA,
+                edgecolor=None,
+                linewidth=0.0,
+                zorder=1
+            )
+
+        # 3) (마커는 사용하지 않음) — EPISODE_USE_MARKERS=False
+
+    # 범례: 마커 프록시가 없으면 라벨 기반 자동 생성
+    if SHOW_EPISODE_LEGEND:
+        if legend_handles:
+            ax.legend(legend_handles, legend_labels,
+                      fontsize=FONT_SIZES["legend"], frameon=False)
+        else:
+            ax.legend(fontsize=FONT_SIZES["legend"], frameon=False)
+
     apply_axes_style(ax, YLIM_EPISODE)
     fig.tight_layout()
     os.makedirs(out_dir, exist_ok=True)
@@ -667,8 +753,7 @@ def _math_fontset_for_mode() -> str:
 def apply_font_settings():
     families = _resolve_font_list()
 
-    # 가족군 우선순위를 설정: family ‘이름 목록’을 바로 넣을 수도 있지만,
-    # 경고 최소화를 위해 family 그룹과 세부 리스트를 함께 세팅
+    # 가족군 우선순위를 설정
     mode = (FONT_MODE or "").lower()
     if mode in ("serif", "serifed", "custom"):
         mpl.rcParams["font.family"] = "serif"
@@ -690,6 +775,11 @@ def apply_font_settings():
     # 수식 렌더링 셋
     mpl.rcParams["mathtext.fontset"] = _math_fontset_for_mode()
     mpl.rcParams["axes.unicode_minus"] = False
+
+    # 라인 렌더링 품질 소폭 개선 (선택)
+    mpl.rcParams["lines.antialiased"] = True
+    mpl.rcParams["lines.solid_joinstyle"] = "round"
+    mpl.rcParams["lines.solid_capstyle"]  = "round"
 
     # 폰트 캐시 꼬임 방지(필요시 1회)
     try:
@@ -716,7 +806,6 @@ def _format_id_ranges(ids: List[int]) -> str:
     ranges.append(f"{start}" if start == prev else f"{start}~{prev}")
     return ", ".join(ranges)
 
-
 # =========================
 # 메인
 # =========================
@@ -729,13 +818,12 @@ def main():
     for map_id, mdata in sorted(maps.items(), key=lambda x: x[0]):
         plot_evacuation_per_map(map_id, mdata, OUT_DIR)
         plot_episode_log_padded(map_id, mdata, OUT_DIR, band_mode=BAND_MODE)
-    print(f"[DONE] Plots saved to: {os.path.abspath(OUT_DIR)}")
+    print(f("[DONE] Plots saved to: {abs_path}") if (abs_path := os.path.abspath(OUT_DIR)) else "[DONE]")
 
     # ===== 추가: 단일 축에 (맵×2카테고리) 모두 배치한 버전 3장 =====
     plot_evacuation_single_axes_pairs(maps, [1, 2, 3], OUT_DIR, name_suffix="maps_1_2_3")
     plot_evacuation_single_axes_pairs(maps, [4, 5, 6], OUT_DIR, name_suffix="maps_4_5_6")
     plot_evacuation_single_axes_pairs(maps, [1, 2, 3, 4, 5, 6], OUT_DIR, name_suffix="maps_1_6")
-
 
 if __name__ == "__main__":
     main()

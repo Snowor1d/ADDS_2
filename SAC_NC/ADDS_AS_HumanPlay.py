@@ -20,12 +20,12 @@ from matplotlib.animation import FFMpegWriter
 ############################
 # 실험/기록 파라미터
 ############################
-MAP_NUM_FOR_RUN = 6         # 원하는 맵 번호(-1은 내부 랜덤 로직) #6,7,8,24,25,26
+MAP_NUM_FOR_RUN = 26         # 원하는 맵 번호(-1은 내부 랜덤 로직) #6,7,8,24,25,26
 ROBOT_VERSION_FOR_MODEL = 'Q' # 모델에는 'Q'로 넘기되, 사람이 직접 action 전달
 ROBOT_VERSION_FOR_LOG   = 'H' # 결과 폴더명에는 'H'로 기록해 비교군 명확화
 #EXP_NAME   = "test_0917_2"        # 최상위 결과 폴더 접미사: Result_data_{EXP_NAME}
 EXP_NAME = "test_0918"
-MAX_STEPS  = 3000             # 실패 시 스텝 상한
+MAX_STEPS  = 3000             # 실패 시 스텝 상한tance
 MAX_EPISODES = 5
 
 
@@ -102,7 +102,7 @@ CONT_SINGLE_COLOR_EDGES = True
 CONT_SHOW_AGENT_HEADING = False
 CONT_SHOW_ROBOT_HEADING = True
 CONT_ROBOT_HEADING_SCALE = 3
-CONT_TRAIL_TARGET = "robot"        # "none"|"crowd"|"robot"|"both"
+CONT_TRAIL_TARGET = "none"        # "none"|"crowd"|"robot"|"both"
 CONT_TRAIL_STYLE = "persist"       # "persist"|"fade"
 CONT_MAX_TRAIL = 2000
 CONT_ROBOT_STYLE = "circle"        # "circle"|"image"
@@ -115,6 +115,10 @@ CONT_ANNOTATE_MODE = "every_n"     # "all"|"endpoints"|"every_n"
 CONT_ANNOTATE_EVERY = 10
 CONT_ANNOTATE_STYLE = "subway"     # "number"|"subway"|"frame"
 CONT_ANNOTATE_FONTSIZE = 12
+
+SHOW_AGENT_EXIT_DISTANCE = False
+SHOW_MESH = True
+NUMBER_OF_AGENTS = 30
 
 ############################
 # 결과 기록 유틸
@@ -327,7 +331,7 @@ def main():
     while running and episode_count < MAX_EPISODES:
         # 새로운 episode 시작
         env_model = FightingModel(
-            number_agents=20,
+            number_agents=NUMBER_OF_AGENTS,
             width=50,
             height=50,
             model_num=MAP_NUM_FOR_RUN,
@@ -375,6 +379,9 @@ def main():
                 annotate_every=CONT_ANNOTATE_EVERY,
                 annotate_style=CONT_ANNOTATE_STYLE,
                 annotate_fontsize=CONT_ANNOTATE_FONTSIZE,
+
+                show_agent_exit_distance = SHOW_AGENT_EXIT_DISTANCE,
+                show_mesh = SHOW_MESH
             )
         step_count = 0
         total_reward = 0.0

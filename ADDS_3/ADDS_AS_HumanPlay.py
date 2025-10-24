@@ -11,7 +11,7 @@ import numpy as np
 # model.py, ADDS_AS_reinforcement.py (동일 폴더 or 경로 맞춰 수정)
 from model import FightingModel
 from ADDS_AS_reinforcement import ReplayBuffer
-from Start_training import *
+from config import *
 from continuous_renderer import ContinuousRenderer
 
 import matplotlib.pyplot as plt

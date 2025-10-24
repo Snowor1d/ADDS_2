@@ -5,10 +5,11 @@ from core import RandomActivation, DataCollector
 from space import ContinuousSpace
 
 from shapely.geometry import Polygon, MultiPolygon, Point
+from shapely.strtree import STRtree
 from shapely.ops import triangulate
 import matplotlib.tri as mtri
 
-import agent
+from core import Model, Agent
 from agent import WallAgent
 import random
 import copy
@@ -22,6 +23,7 @@ import triangle as tr
 import os
 from collections import deque
 from typing import List, Tuple
+from visibility_atlas import VisibilityAtlas
 #import cv2
 
 import torch
@@ -30,7 +32,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 from ADDS_AS_reinforcement import SACAgent, ReplayBuffer, PolicyNetwork, QNetwork, ACTION_SCALE, FrameStack
-from Start_training import *
+from config import *
 
 
 def _point_on_segment(p: Tuple[int, int],
@@ -274,6 +276,9 @@ class FightingModel(Model):
     def __init__(self, number_agents: int, width: int, height: int, model_num = -1, robot = 'Q'):
         #print("model_num :", model_num)
         super().__init__()
+        self.width = width
+        self.height = height      
+        self.space = ContinuousSpace(self.width, self.height, cell_size=10.0, torus=False)  
         self.frame_stack = FrameStack(stack_len=4)
         self._first_step = True
         self.robot_version = robot
@@ -294,8 +299,6 @@ class FightingModel(Model):
 
         self.using_model = False
         self.total_agents = number_agents
-        self.width = width
-        self.height = height      
         self.obstacle_mesh = []
         self.adjacent_mesh = {}
         # map_ran_num = 2
@@ -312,26 +315,18 @@ class FightingModel(Model):
                 self.extract_map_50(self.map_num)    
         else :
             self.extract_map_50(self.map_num)
+
         self.distance = {}  
         self.schedule = RandomActivation(self)
         self.running = (
             True
         )
         self.next_vertex_matrix = {}
-        self.exit_grid = np.zeros((self.width, self.height))
         self.pure_mesh = []
         self.mesh_danger = {}
         self.match_grid_to_mesh = {}
         self.match_mesh_to_grid = {}
         self.valid_space = {}
-        
-        self.space = ContinuousSpace(self.width, self.height, cell_size=2.0 torus=False)
-        self._obstacle_polys = [Polygon(ob) for ob in self.obstacles]
-        self._exit_polys = [Polygon(poly) for poly in self.exit_list]
-        self._mesh_polys = [Polygon(t) for t in self.mesh_list]
-        self._mesh_poly2tri = {poly: tri for poly, tri in zip(self._mesh_polys, self.mesh_list)}
-        self._mesh_index = STRtree(self._mesh_polys)
-
         self.fill_outwalls(width, height)
         self.mesh_map()
         self.make_random_exit()
@@ -341,8 +336,6 @@ class FightingModel(Model):
         self.random_agent_distribute_outdoor(number_agents, 1)
         if (self.robot_version != 'N'):
             self.make_robot()
-        self.robot_xy = [0, 0]
-        self.robot_mode = "GUIDE"
         self.step_count = 0
 
         self.now_evacuated = 0
@@ -355,6 +348,22 @@ class FightingModel(Model):
         self.minimum_distance = 0
         self.new_founded_agent_danger = 0
 
+            
+        self._obstacle_polys = [Polygon(ob) for ob in self.obstacles]
+        print(self._obstacle_polys)
+        self._exit_polys = [Polygon(poly) for poly in self.exit_list]
+        self._mesh_polys = [Polygon(t) for t in self.mesh_list]
+        self._mesh_poly2tri = {poly: tri for poly, tri in zip(self._mesh_polys, self.mesh_list)}
+        self._mesh_index = STRtree(self._mesh_polys)
+
+        self.obstacles_version = 0
+        self.vision_atlas = VisibilityAtlas(world_w=width, world_h=height, region_cells=2.0)
+        
+        SENSOR_R_AGENT = AGENT_VISION  # 네가 쓰는 값으로 맞춰줘
+        SENSOR_R_ROBOT = ROBOT_VISION  # 로봇이 다르면 따로
+        self.vision_atlas.rebuild_obstacles(self._obstacle_polys, self.obstacles_version)
+        self.vision_atlas.set_radii([AGENT_VISION])
+        self.vision_atlas.precompute(rays_per_poly=64, bsearch_iters=6)
         self.exit_meta = [
         {"idx":i,
          "center": tuple(self.exit_point[i]),
@@ -396,10 +405,37 @@ class FightingModel(Model):
         return False
 
     def find_mesh(self, xy):
-        p = Point(xy[0], xy[1])
-        for poly in self._mesh_index.query(p):
-            if poly.contains(p) or poly.touches(p):
-                return self._mesh_poly2tri[poly]
+        p = Point(float(xy[0]), float(xy[1]))
+
+        hits = self._mesh_index.query(p)  # Shapely 2.x: indices (np.array), 1.8: list of geometries
+        if hits is None:
+            return None
+
+        # 호환 처리: 결과가 정수(인덱스)인지, geometry인지 구분
+        def _is_index(x):
+            try:
+                import numpy as _np
+                return isinstance(x, (int, _np.integer))
+            except Exception:
+                return isinstance(x, int)
+
+        if isinstance(hits, (list, tuple)) and hits and not _is_index(hits[0]):
+            # Shapely 1.8 스타일: geometry 리스트
+            for poly in hits:
+                # 경계도 포함하려면 covers 권장 (contains는 경계 제외)
+                if poly.covers(p):
+                    # poly -> tri 매핑
+                    return self._mesh_poly2tri[poly]
+        else:
+            # Shapely 2.x 스타일: 인덱스 배열/리스트
+            hits = np.atleast_1d(hits)
+            for i in hits:
+                i = int(i)
+                poly = self._mesh_polys[i]
+                if poly.covers(p):
+                    # poly를 키로 쓰는 게 불안하면, 인덱스 기반 매핑을 따로 유지하세요.
+                    return self._mesh_poly2tri[poly]
+
         return None
 
     def next_mesh_from_to(self, m_from, m_to):
@@ -748,6 +784,11 @@ class FightingModel(Model):
         elif map_num == 6:
             self.obstacles.append([[10, 10], [20, 10], [20, 20], [10, 20]])
             self.obstacles.append([[10, 30], [40, 30], [40, 40], [10, 40]])
+            
+            self.obstacles.append([[60, 60], [70, 60], [70, 70], [60, 70]])
+            self.obstacles.append([[10, 80], [40, 80], [40, 90], [10, 90]])
+            self.obstacles.append([[60, 30], [90, 30], [90, 40], [60, 40]])
+
 
 
         elif map_num == 7:
@@ -1078,6 +1119,7 @@ class FightingModel(Model):
             self.schedule.add(self.robot)
             # ✨ 연속 공간에 배치
             self.space.place_agent(self.robot, (x, y))
+            self.agents.append(self.robot)
     
 
     # 군중 배치 교체 (연속 좌표 사용)
@@ -1109,6 +1151,7 @@ class FightingModel(Model):
             self.agent_num += 1
             self.schedule.add(a)
             self.space.place_agent(a, (x, y))
+            self.agents.append(a)
             self._occupied_positions.append((x, y))
 
 
@@ -1150,6 +1193,7 @@ class FightingModel(Model):
         return path
     
     def exit_score(self, agent, exit_idx, alpha):
+        
         """식 (12)를 그대로 구현 – distance·density·width 3요소."""
         # (i) 거리
         d_s  = agent.point_to_point_distance(agent.xy, self.exit_point[exit_idx])
@@ -1163,7 +1207,6 @@ class FightingModel(Model):
 
         # (iii) 폭 – 이미 exit_meta에 내장됨
         d_w = self.exit_meta[exit_idx]["width"]
-
         base = (K1*np.exp(-d_s) + K2*np.exp(-d_e) + K3*(1-np.exp(-d_w)))
         score = np.exp(-alpha) * base/(K1+K2+K3)
         return score
@@ -1214,16 +1257,16 @@ class FightingModel(Model):
 
             if(self.using_model and self.step_n%ACTION_SCALE==(ACTION_SCALE-1) and SCALE_CHECK):
                 print("reward_based_alived : ", self.reward_based_alived() * REWARD_A)
-                print("reward_based_all_agents_danger : ", self.reward_based_all_agents_danger() * REWARD_B)
-                print("reward_based_gain : ", self.reward_based_gain() * REWARD_C)
-                print("reward_penalty : ", self.reward_penalty() * REWARD_D)
-                print("reward_based_evacuated_with_robot : ", self.reward_based_evacuated_with_robot() * REWARD_E)
-                print("reward_based_distance_from_near_agents : ", self.reward_based_distance_from_near_agents() * REWARD_F)
-                print("reward_based_distance_from_near_agent_gain : ", self.reward_based_distance_from_near_agent_gain() * REWARD_G)
-                print("reward_based_gain_with_time_bonus :", self.reward_based_gain_with_time_bonus() * REWARD_H)
-                print("reward_based_alived_root : ", self.reward_based_alived_root() * REWARD_I)
-                print("reward_based_all_agents_danger_log : ", self.reward_based_all_agents_danger_log() * REWARD_J)
-                print("reward_penalty_collision : ", self.reward_penalty_collision() * REWARD_K)        
+                #print("reward_based_all_agents_danger : ", self.reward_based_all_agents_danger() * REWARD_B)
+                #print("reward_based_gain : ", self.reward_based_gain() * REWARD_C)
+                #print("reward_penalty : ", self.reward_penalty() * REWARD_D)
+                #print("reward_based_evacuated_with_robot : ", self.reward_based_evacuated_with_robot() * REWARD_E)
+                #print("reward_based_distance_from_near_agents : ", self.reward_based_distance_from_near_agents() * REWARD_F)
+                #print("reward_based_distance_from_near_agent_gain : ", self.reward_based_distance_from_near_agent_gain() * REWARD_G)
+                #print("reward_based_gain_with_time_bonus :", self.reward_based_gain_with_time_bonus() * REWARD_H)
+                #print("reward_based_alived_root : ", self.reward_based_alived_root() * REWARD_I)
+                #print("reward_based_all_agents_danger_log : ", self.reward_based_all_agents_danger_log() * REWARD_J)
+                #print("reward_penalty_collision : ", self.reward_penalty_collision() * REWARD_K)        
 
         elif (self.robot_version == 'T'):
             self.robot.robot_policy_going_exit()      
@@ -1258,14 +1301,7 @@ class FightingModel(Model):
     def reward_based_evacuated_with_robot(self):
         return (self.now_evacuated_with_robot - self.previous_evacuated_with_robot)
     
-    def reward_distance_from_all_agents(self):
-        reward = 0
-        for agent in self.crowds:
-            if(agent.type == 0 or agent.type == 1 or agent.type == 2) and (agent.dead == False):
-                reward += self.robot.point_to_point_distance(agent.xy, self.robot.xy)
-                # print(self.robot.point_to_point_distance(agent.xy, self.robot.xy))
-        return -reward
-    
+
     def reward_based_all_agents_danger(self):
         
         reward = 0
@@ -1485,6 +1521,7 @@ class FightingModel(Model):
                 continue
             ix, iy = to_px(ag.xy[0], ag.xy[1])
             img[iy, ix] = 140 if ag.type == 0 else 100
+            
 
         # 로봇
         for rb in getattr(self, "robots", []):
@@ -1493,6 +1530,13 @@ class FightingModel(Model):
 
         return img
     
+    def update_obstacles(self, new_polys):
+        self._obstacle_polys = new_polys
+        self.obstacles_version += 1
+        self.vision_atlas.rebuild_obstacles(self._obstacle_polys, self.obstacles_version)
+        print("[vision] obs polys:", len(self._polys))
+
+        self.vision_atlas.precompute(rays_per_poly=32, bsearch_iters=8)
     def choice_random_waypoint(self):
         return [random.randint(0, self.width-1), random.randint(0, self.height-1)]
 

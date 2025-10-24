@@ -6,6 +6,7 @@ from matplotlib.patches import Polygon as MplPolygon, Rectangle, Circle, FancyAr
 from matplotlib.transforms import Affine2D
 from typing import Iterable, Tuple, Dict, List, Optional
 import matplotlib.patheffects as pe
+from matplotlib.colors import to_rgba
 
 _EPS = 1e-6
 
@@ -90,6 +91,13 @@ class ContinuousRenderer:
         annotate_edge_width: float = 1.6,            # 아이콘 테두리 두께
         annotate_min_gap: int = 1,                   # 라벨 재사용 최소 갯수(겹침 방지용 간단 옵션)
 
+        # ==== Vision overlay ====
+        show_agent_vision: bool = True,
+        show_robot_vision: bool = False,
+        agent_vision_color: str = "#4e79a7",
+        robot_vision_color: str = "#e15759",
+        vision_alpha: float = 0.15,
+        vision_edge_alpha: float = 0.35
         
     ):
         # ===== Canvas =====
@@ -113,6 +121,14 @@ class ContinuousRenderer:
             "trail": "#ff9896",     # 기본 trail 색 (single_color_edges=False일 때 crowd trail 용)
             "dead": "#7f7f7f",
         }
+
+        # ===== Vision overlay (store) =====
+        self.show_agent_vision = show_agent_vision
+        self.show_robot_vision = show_robot_vision
+        self.agent_vision_color = agent_vision_color
+        self.robot_vision_color = robot_vision_color
+        self.vision_alpha = vision_alpha
+        self.vision_edge_alpha = vision_edge_alpha
 
         self.agent_heading_color = agent_heading_color
         self.agent_heading_linewidth = float(agent_heading_linewidth)
@@ -187,6 +203,9 @@ class ContinuousRenderer:
             self._draw_outer_wall()
 
         self._draw_obstacles(getattr(model, "obstacles", []))
+
+        self._draw_vision(model)
+
         self._draw_exits(model)
         self._draw_crowds(getattr(model, "crowds", []))
         self._draw_robot(self._find_robot(model), step=step)
@@ -463,3 +482,56 @@ class ContinuousRenderer:
         if isinstance(c, dict):
             return c.get(t, fallback)
         return str(c)
+
+    def _draw_vision(self, model):
+        """
+        사전계산된 vision_atlas에서 폴리곤을 '조회'해서 연하게 칠한다.
+        - 장애물 버전이 맞지 않거나 atlas가 없으면 아무 것도 안 함.
+        - 반경은 센서 반경(sensor_R)로: 기본은 3 + agent.vision_radius
+        """
+        if not hasattr(model, "vision_atlas"):
+            return
+        atlas = model.vision_atlas
+        obs_ver = getattr(model, "obstacles_version", 0)
+
+        # 에이전트 시야
+        if self.show_agent_vision and hasattr(model, "crowds"):
+            for ag in (model.crowds or []):
+                if self.hide_dead and getattr(ag, "dead", False):
+                    continue
+                # 센서 반경(사전계산 때 등록한 값과 동일해야 함)
+                R = float(getattr(ag, "vision_radius", 0.0))
+                poly = atlas.polygon_at(float(ag.xy[0]), float(ag.xy[1]), R, obs_ver)
+                if getattr(poly, "is_empty", True):
+                    continue
+                coords = list(poly.exterior.coords)
+                self.ax.add_patch(
+                    MplPolygon(
+                        coords, closed=True,
+                        facecolor=self.agent_vision_color,
+                        edgecolor=to_rgba(self.agent_vision_color, self.vision_edge_alpha),  # ← 수정
+                        linewidth=0.6,
+                        alpha=self.vision_alpha,
+                        zorder=1
+                    )
+                )
+
+        # 로봇 시야
+        if self.show_robot_vision:
+            rb = self._find_robot(model)
+            if rb is not None:
+                Rr = float(getattr(rb, "vision_radius", 0.0))
+                poly_r = atlas.polygon_at(float(rb.xy[0]), float(rb.xy[1]), Rr, obs_ver)
+                if getattr(poly_r, "is_empty", True):
+                    return
+                coords_r = list(poly_r.exterior.coords)
+                self.ax.add_patch(
+                    MplPolygon(
+                        coords_r, closed=True,
+                        facecolor=self.robot_vision_color,
+                        edgecolor=to_rgba(self.robot_vision_color, self.vision_edge_alpha),  # ← 수정
+                        linewidth=0.8,
+                        alpha=self.vision_alpha,
+                        zorder=1
+                    )
+                )

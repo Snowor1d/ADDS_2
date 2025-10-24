@@ -89,6 +89,7 @@ class Model:
         self.time: int = 0
         self.running: bool = True
         self.schedule = RandomActivation(self)
+        self.agents = []
 
     def step(self) -> None:
         """Advance one tick. Override in subclass if needed.

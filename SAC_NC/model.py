@@ -532,7 +532,7 @@ class FightingModel(Model):
 
     def mesh_map(self):
 
-        D = 20
+        D = 10
         map_boundary = [[0, 0], [self.width, 0], [self.width, self.height], [0, self.height]]
         obstacle_hulls = []
 
