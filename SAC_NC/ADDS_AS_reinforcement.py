@@ -1030,8 +1030,10 @@ if __name__ == "__main__":
 
 
         # Possibly update epsilon, or do other logging
-
-        agent.epsilon = max(epsilon_scheduler.get_epsilon(agent.epsilon, episode_num), EPSILON_MIN)
+        if DECAY_MODE == "learning_step":
+            agent.epsilon = max(epsilon_scheduler.get_epsilon(agent.epsilon, LEARN_STEP), EPSILON_MIN)
+        else:            
+            agent.epsilon = max(epsilon_scheduler.get_epsilon(agent.epsilon, episode_num), EPSILON_MIN)
         #print("writing.. ", PORT_NUM)
         print("-----------------------------------------------")
         print("Total reward:", total_reward)
