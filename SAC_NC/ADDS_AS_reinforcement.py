@@ -705,7 +705,7 @@ if __name__ == "__main__":
         try:
             with open(learn_step_file, "r") as f:
                 LEARN_STEP = int(f.read().strip())
-                GLOBAL_STEP = LEARN_STEP * ACTION_SCALE * START_LEARNING_STEP
+                GLOBAL_STEP = LEARN_STEP * ACTION_SCALE + START_LEARNING_STEP
         except Exception:
             LEARN_STEP = 0
     else:

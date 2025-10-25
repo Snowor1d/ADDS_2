@@ -12,7 +12,7 @@ def print_banner():
 ██║  ██║██████╔╝██████╔╝███████║
 ╚═╝  ╚═╝╚═════╝ ╚═════╝ ╚══════╝
 """)
-
+ACTION_SCALE = 4
 
 # ------------- BASIC PARAMETERS ------------------
 LR = 2e-4
@@ -21,7 +21,7 @@ BATCH_SIZE = 128
 INTRINSIC_ETA = 0.1 #intrinsic reward
 START_BATCH_TIMES = 1
 START_UPDATE_STEP = 1
-START_LEARNING_STEP = 500 * 750
+START_LEARNING_STEP = 500 * 750 * ACTION_SCALE
 DEVICE = "cpu"
 
 GAMMA_START = 0.99
@@ -35,7 +35,6 @@ MAP_NUM = -1 #if not used, -2, if random, -1
 MAP_NUM_RANDOM = [6, 7, 8]
 #MAP_NUM_RANDOM = [25, 26, 30]
 SCALE_CHECK = 0 # want to check reward scale?
-ACTION_SCALE = 4
 MAX_STEPS = 4000
 PARTIAL_OBSERVATION_RADIUS = 20
 
