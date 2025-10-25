@@ -16,9 +16,7 @@ from torch.utils.tensorboard import SummaryWriter
 import subprocess
 import webbrowser
 from typing import Tuple, Any, Union
-from Start_training import START_DECAY_STEP, START_EPSILON, EPSILON_MIN, SCHEDULER_TYPE, DECAY_VALUE, REWARD_A, REWARD_B, REWARD_C, REWARD_D, REWARD_E, REWARD_F, REWARD_G, REWARD_H, REWARD_I, REWARD_J, REWARD_K, CROWD_NUMBER_MIN, CROWD_NUMBER_MAX, LINEARLY_DECAY_STEP, START_UPDATE_STEP, LOG_DIR, FINISHED_BONUS, REWARD_FIXED, MAP_NUM, EXPLORATION_TYPE, \
-                            LR, BUFFER_SIZE, BATCH_SIZE, LOG_STD_MAX, LOG_STD_MIN, ALPHA_START, ALPHA_END, ALPHA_DECAY_STEPS, DEVICE, SCALE_CHECK, ACTION_SCALE, START_BATCH_TIMES, MAX_STEPS, PORT_NUM, LONG_EPSILON_MIN, START_LONG_EPSILON, \
-                            GAMMA_START, GAMMA_SCHEDULE_STEP, GAMMA_END, MAP_NUM_RANDOM
+from Start_training import *
 from heat_map import HeatMapLogger #@for heat_map
 # Timer instances
 sim_timer = Timer() 
@@ -700,12 +698,14 @@ if __name__ == "__main__":
 
     import time
     import model  # Your environment code (model.FightingModel)
-
+    LEARN_STEP = 0
+    GLOBAL_STEP = 0
     learn_step_file = os.path.join(log_dir, "learn_step.txt")
     if os.path.exists(learn_step_file):
         try:
             with open(learn_step_file, "r") as f:
                 LEARN_STEP = int(f.read().strip())
+                GLOBAL_STEP = LEARN_STEP * ACTION_SCALE * START_LEARNING_STEP
         except Exception:
             LEARN_STEP = 0
     else:
@@ -851,8 +851,10 @@ if __name__ == "__main__":
 
     abnormal_reward = 0
     max_steps = MAX_STEPS
-
-    epsilon_scheduler = EpsilonScheduler(start_epsilon=start_epsilon, epsilon_min = EPSILON_MIN, start_decay_step = START_DECAY_STEP, scheduler_type=SCHEDULER_TYPE, decay_value=DECAY_VALUE, linear_decay_steps = LINEARLY_DECAY_STEP)
+    if DECAY_MODE == "learning_step":
+        epsilon_scheduler = EpsilonScheduler(start_epsilon=start_epsilon, epsilon_min = EPSILON_MIN, start_decay_step = START_DECAY_LEARNING_STEP, scheduler_type=SCHEDULER_TYPE, decay_value=DECAY_VALUE, linear_decay_steps = LINEARLY_DECAY_LEARNING_STEP)
+    else:
+        epsilon_scheduler = EpsilonScheduler(start_epsilon=start_epsilon, epsilon_min = EPSILON_MIN, start_decay_step = START_DECAY_STEP, scheduler_type=SCHEDULER_TYPE, decay_value=DECAY_VALUE, linear_decay_steps = LINEARLY_DECAY_STEP)
 
     for episode in range(max_episodes):
         episode_num = start_episode+episode
@@ -888,7 +890,7 @@ if __name__ == "__main__":
         try:
             for step in range(max_steps):
                 # 1) Select action
-                
+                GLOBAL_STEP += 1
                 prev_learn_step = LEARN_STEP
 
                 if(step%ACTION_SCALE==0):
@@ -998,7 +1000,8 @@ if __name__ == "__main__":
                     reward = 0
 
                 # 7) Update agent
-                if(step%ACTION_SCALE==(ACTION_SCALE-1) and episode_num>=START_UPDATE_STEP):
+                
+                if(step%ACTION_SCALE==(ACTION_SCALE-1) and episode_num>=START_UPDATE_STEP and GLOBAL_STEP>=START_LEARNING_STEP):
                     learn_timer.start()
                     agent.update()
                     learn_timer.stop()

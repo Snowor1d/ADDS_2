@@ -7,13 +7,23 @@ Multi-series Evacuation-100 Plotter (with hard cutoff at episode 15000)
 - Each txt: one number per line (evacuation_100_time per episode index)
 - Always truncates series to episodes <= 15000
 - Plots all series on ONE figure with optional smoothing (MA/EMA)
-- Rich customization: fonts, colors (HSL), linewidths, legend, grid, y-clip, raw-trace overlay, aliases, per-series style overrides
+- Rich customization: fonts, colors/modes, linewidths, legend, grid, y-clip, raw-trace overlay, aliases, per-series style overrides
+
+Display modes:
+- LUMA_ONLY_MODE: grayscale luminance only, solid lines (Ours stays dark-blue solid)
+- BLACKWHITE_MODE: grayscale + varied dash patterns
+- else: color mode
+
+Markers:
+- MARKERS_ENABLE: add markers to plotted lines (legend reflects markers)
+- MARKER_MODE: "uniform" or "varied"
+- Marker style is print-friendly: white fill + colored/gray edge
 """
 
 import os
 import re
 from dataclasses import dataclass
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Union
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
@@ -21,7 +31,7 @@ import colorsys
 from matplotlib import font_manager as fm
 from matplotlib.lines import Line2D
 
-# --- 범례 순서(표시명 기준; resolve_display_name 적용 후의 name) ---
+# --- Legend order (display names after resolve_display_name) ---
 LEGEND_ORDER = [
     "Ours",
     "Epsilon = 0",
@@ -32,81 +42,113 @@ LEGEND_ORDER = [
 ]
 
 # =========================
-# 전역 설정
+# Global
 # =========================
 HOME_DIR   = os.path.expanduser("~")
-ROOT_DIR   = os.path.join(HOME_DIR, "evacuation_100s")   # 입력 폴더
-OUT_DIR    = ROOT_DIR                                    # 저장 폴더(동일)
-SAVE_NAME  = "evac100_multi"                             # 저장 파일명 prefix
+ROOT_DIR   = os.path.join(HOME_DIR, "evacuation_100s")
+OUT_DIR    = ROOT_DIR
+SAVE_NAME  = "evac100_multi"
 SAVE_DPI   = 300
 SAVE_FORMAT= "png"
 
-# --- 하드 컷오프(항상 적용) ---
-MAX_EPISODE = 15000  # 15000 초과는 항상 잘라냄
+MAX_EPISODE = 15000
 
-# --- 그림/폰트 ---
+# --- Figure / fonts ---
 FIGSIZE = (15, 10)
-FONT_SIZES = {"title": 30, "axes": 30, "ticks": 30, "legend": 30}
+FONT_SIZES = {"title": 30, "axes": 35, "ticks": 30, "legend": 30}
 FONT_MODE = "serif"              # "serif" | "sans" | "mono" | "custom"
-FONT_FAMILY = "DejaVu Serif"     # MODE="custom"일 때만 사용 (또는 .ttf 경로)
-FONT_FALLBACKS: List[str] = []   # ["Noto Sans CJK KR", "NanumGothic"] 등 설치 시 추가
+FONT_FAMILY = "DejaVu Serif"
+FONT_FALLBACKS: List[str] = []
 
-# --- 제목/축/범례 ---
+# --- Titles / axes / legend ---
 PLOT_TITLE      = ""
 XLABEL          = "Training Episode"
 YLABEL          = "Time Step"
 LEGEND_TITLE    = ""
-LEGEND_LOC      = "upper right"  # "best", "upper left", ...
+LEGEND_LOC      = "upper right"
 SHOW_GRID       = True
-GRID_STYLE      = dict(linestyle="--", alpha=0.3)
+GRID_STYLE      = dict(linestyle="--", alpha=0.5)
 
-# --- 데이터 표시 옵션 ---
-# 원본(raw)도 희미하게 같이 그릴지(스무딩 선 대비)
+# --- Raw trace overlay ---
 SHOW_RAW_TRACE      = False
 RAW_TRACE_ALPHA     = 0.18
-RAW_TRACE_LINEWIDTH = 1.2
+RAW_TRACE_LINEWIDTH = 1
 
-# Y축 클립(보기 좋게 제한하고 싶을 때 설정. None이면 자동)
+# --- Y clipping ---
 CLIP_Y_MIN: Optional[float] = None
 CLIP_Y_MAX: Optional[float] = None
 
-# --- 스무딩 옵션 ---
-# method: "ma"(이동평균) | "ema"(지수이동평균) | None
-SMOOTH_METHOD   = "ma"
-MA_WINDOW       = 101          # 이동평균 창 크기 (>=1, 클수록 더 매끈)
-EMA_ALPHA       = 0.1         # 지수이동평균 알파(0~1, 작을수록 더 매끈)
+# --- Unified smoothing controls ---
+SMOOTH_ENABLE    = True
+SMOOTH_KIND      = "ma"    # "ma" | "ema"
+SMOOTH_STRENGTH  = 0.60    # 0.0 ~ 1.0 (higher → stronger smoothing)
 
-# --- 라인 스타일/색 ---
-DEFAULT_LINEWIDTH = 3.2
-H_BLUE   = 253/360.0  # Okabe–Ito Blue (그대로)
-H_ORANGE = 30/360.0   # 선명한 오렌지
-H_GREEN  = 120/360.0  # 그린
-H_RED    = 0/360.0    # 레드
-H_PURPLE = 280/360.0  # 보라
-H_YELLOW = 55/360.0   # 노랑
+MA_WINDOW_MIN    = 5
+MA_WINDOW_MAX    = 301
+EMA_ALPHA_MIN    = 0.05
+EMA_ALPHA_MAX    = 0.50
+
+# --- Lines ---
+DEFAULT_LINEWIDTH = 2
+H_BLUE   = 253/360.0
+H_ORANGE = 30/360.0
+H_GREEN  = 120/360.0
+H_RED    = 0/360.0
+H_PURPLE = 280/360.0
+H_YELLOW = 55/360.0
 
 COLOR_CYCLE_HUES = [H_RED, H_ORANGE, H_PURPLE, H_YELLOW, H_GREEN, H_GREEN, 0.58, 0.33, 0.12, 0.75, 0.5, 0.5]
-DEFAULT_S = 0.90
+DEFAULT_S = 0.75
 DEFAULT_L = 0.42
-GLOBAL_S_SCALE = 1.00
+GLOBAL_S_SCALE = 0.9
 GLOBAL_L_SCALE = 1.00
 GLOBAL_H_SHIFT = 0.00
 
-# 개별 시리즈 스타일 오버라이드(파일 표시명 기준)
-# e.g., {"RL-Trained": {"linewidth": 4.5, "color": "#3366cc"}}
-SERIES_STYLE_OVERRIDES: Dict[str, Dict[str, object]] = {"Ours": {"linewidth": 5, "color": "#3366cc"}}
+SERIES_STYLE_OVERRIDES: Dict[str, Dict[str, object]] = {"Ours": {"linewidth": 5}}
 
-# --- 파일명 → 표시명 매핑 ---
-# 비워두면 파일명(확장자 제외)을 그대로 사용
-# 예: {"Q_set.txt":"RL-Trained", "H_set.txt":"Human Control"}
-FILENAME_ALIASES: Dict[str, str] = {"eva100_A0":"R_alived = 0", "eva100_B0":"R_danger = 0", "eva100_P0" : "R_penalty = 0", "eva100_F0" : "R_base = 0", "eva100_E0":"Epsilon = 0", "eva100_SOTA" : "Ours"}
+FILENAME_ALIASES: Dict[str, str] = {
+    "eva100_A0":"R_alived = 0",
+    "eva100_B0":"R_danger = 0",
+    "eva100_P0":"R_penalty = 0",
+    "eva100_F0":"R_base = 0",
+    "eva100_E0":"Epsilon = 0",
+    "eva100_SOTA":"Ours"
+}
 
-# --- 파일 필터 ---
-INCLUDE_REGEX: Optional[str] = r".*\.txt$"  # 포함 정규식
-EXCLUDE_REGEX: Optional[str] = None          # 제외 정규식
+INCLUDE_REGEX: Optional[str] = r".*\.txt$"
+EXCLUDE_REGEX: Optional[str] = None
 
+# --- Display modes ---
+LUMA_ONLY_MODE   = False   # grayscale luminance only (solid lines)
+BLACKWHITE_MODE  = False    # grayscale + varied dash (ignored if LUMA_ONLY_MODE=True)
+
+# --- Dash patterns (offset, on_off_seq) or string ---
+LINE_STYLES: List[Union[str, Tuple[int, Tuple[int, ...]]]] = [
+    "solid",
+    (0, (5, 5)),
+    (0, (2, 4)),
+    (0, (8, 6, 2, 6)),
+    (0, (2, 2, 10, 2)),
+    (0, (1, 3)),
+    (0, (10, 2, 2, 2, 2, 2)),
+    (0, (3, 3, 1, 3)),
+]
+
+# --- Markers ---
+MARKERS_ENABLE  = True
+MARKER_MODE     = "varied"   # "uniform" | "varied"
+MARKER_SIZE_PT  = 15       # points (mpl Line2D markersize)
+MARKER_EVERY: Union[int, str] = "auto"  # int (e.g., 50) or "auto"
+MARKER_EDGEWIDTH = 1.4       # markeredgewidth
+UNIFORM_MARKER  = "o"        # used when MARKER_MODE="uniform"
+
+MARKER_CYCLE = [
+    "o", "s", "^", "D", "v", "P", "X", "*", ">", "<", "h", "H", "1", "2", "3", "4"
+]
+
+EXCLUDE_MARKER_NAMES = {"Ours"}
 # =========================
-# 폰트 유틸
+# Font utils
 # =========================
 def _installed_family_names() -> set:
     return {f.name for f in fm.fontManager.ttflist}
@@ -154,13 +196,10 @@ def _resolve_font_list() -> List[str]:
 
 def resolve_display_name(fn: str) -> str:
     base = os.path.splitext(fn)[0]
-    # 1) 확장자 포함 키 우선
     if fn in FILENAME_ALIASES:
         return FILENAME_ALIASES[fn]
-    # 2) 확장자 제거 키
     if base in FILENAME_ALIASES:
         return FILENAME_ALIASES[base]
-    # 3) 기본: 확장자 제거 이름
     return base
 
 def _math_fontset_for_mode() -> str:
@@ -195,7 +234,7 @@ def apply_font_settings():
         pass
 
 # =========================
-# 색상 유틸
+# Colors
 # =========================
 def hsl_to_rgb_hex(h: float, s: float, l: float) -> str:
     h = (h + GLOBAL_H_SHIFT) % 1.0
@@ -209,7 +248,7 @@ def color_from_cycle(idx: int) -> str:
     return hsl_to_rgb_hex(h, DEFAULT_S, DEFAULT_L)
 
 # =========================
-# 데이터 구조/로딩
+# Data
 # =========================
 @dataclass
 class Series:
@@ -224,7 +263,6 @@ def read_txt_series(path: str) -> List[float]:
     lines = [ln.strip() for ln in raw.splitlines() if ln.strip() != ""]
     vals: List[float] = []
     for ln in lines:
-        # 숫자 한 개/여러 개 모두 지원
         tokens = re.split(r"[,\s]+", ln)
         for tok in tokens:
             if tok:
@@ -241,8 +279,7 @@ def load_all_series(root: str) -> List[Series]:
     inc_re = re.compile(INCLUDE_REGEX) if INCLUDE_REGEX else None
     exc_re = re.compile(EXCLUDE_REGEX) if EXCLUDE_REGEX else None
 
-    files = [fn for fn in os.listdir(root)
-             if os.path.isfile(os.path.join(root, fn))]
+    files = [fn for fn in os.listdir(root) if os.path.isfile(os.path.join(root, fn))]
     files.sort()
 
     series_list: List[Series] = []
@@ -260,22 +297,31 @@ def load_all_series(root: str) -> List[Series]:
         x = np.arange(1, len(y_list)+1, dtype=float)
         y = np.asarray(y_list, dtype=float)
 
-        # === 항상 15000 초과를 잘라냄 ===
         mask = x <= MAX_EPISODE
         if not np.any(mask):
-            # 전부 컷오프 밖이면 스킵
             continue
         x = x[mask]
         y = y[mask]
 
-        #name = FILENAME_ALIASES.get(fn, os.path.splitext(fn)[0])
         name = resolve_display_name(fn)
         series_list.append(Series(name=name, x=x, y=y))
     return series_list
 
 # =========================
-# 스무딩
+# Smoothing
 # =========================
+def _compute_ma_window_from_strength(strength: float) -> int:
+    s = float(np.clip(strength, 0.0, 1.0))
+    win = int(round(MA_WINDOW_MIN + s * (MA_WINDOW_MAX - MA_WINDOW_MIN)))
+    if win % 2 == 0:
+        win += 1
+    return max(1, win)
+
+def _compute_ema_alpha_from_strength(strength: float) -> float:
+    s = float(np.clip(strength, 0.0, 1.0))
+    alpha = EMA_ALPHA_MAX - s * (EMA_ALPHA_MAX - EMA_ALPHA_MIN)
+    return float(np.clip(alpha, 1e-6, 1.0))
+
 def moving_average(y: np.ndarray, window: int) -> np.ndarray:
     window = max(1, int(window))
     if window == 1 or len(y) < 2:
@@ -297,25 +343,25 @@ def ema(y: np.ndarray, alpha: float) -> np.ndarray:
     return out
 
 def apply_smoothing(series: Series) -> Series:
-    m = (SMOOTH_METHOD or "").lower()
-    if m in ("", "none", "off", None):
+    if not SMOOTH_ENABLE:
         series.y_smooth = None
         return series
-    if m == "ma":
-        series.y_smooth = moving_average(series.y, MA_WINDOW)
-    elif m == "ema":
-        series.y_smooth = ema(series.y, EMA_ALPHA)
+
+    kind = (SMOOTH_KIND or "").lower()
+    if kind == "ma":
+        win = _compute_ma_window_from_strength(SMOOTH_STRENGTH)
+        series.y_smooth = moving_average(series.y, win)
+    elif kind == "ema":
+        alpha = _compute_ema_alpha_from_strength(SMOOTH_STRENGTH)
+        series.y_smooth = ema(series.y, alpha)
     else:
         series.y_smooth = None
     return series
 
+# =========================
+# Legend ordering
+# =========================
 def _apply_legend_order(ax, handles: List[Line2D], order: List[str]) -> List[Line2D]:
-    """
-    handles를 주어진 라벨 순서(order)에 맞춰 재배열하고,
-    같은 라벨이 여러 번 있으면 마지막 것만 남김.
-    order에 없는 라벨은 원래 등장 순서를 유지하여 뒤에 붙임.
-    """
-    # 1) 같은 라벨 중복 제거(마지막 handle이 살아남도록)
     last_by_label: Dict[str, Line2D] = {}
     for h in handles:
         lab = h.get_label()
@@ -323,10 +369,6 @@ def _apply_legend_order(ax, handles: List[Line2D], order: List[str]) -> List[Lin
             continue
         last_by_label[lab] = h
 
-    # 2) 우선순위 사전
-    prio = {lab: i for i, lab in enumerate(order)}
-
-    # 3) 우선순위 핸들(존재하는 것만)
     ordered: List[Line2D] = []
     seen = set()
     for lab in order:
@@ -335,19 +377,75 @@ def _apply_legend_order(ax, handles: List[Line2D], order: List[str]) -> List[Lin
             ordered.append(h)
             seen.add(lab)
 
-    # 4) 나머지(원래 handles 등장 순서 유지)
     for h in handles:
         lab = h.get_label()
         if not lab or lab == "_nolegend_" or lab in seen:
             continue
         ordered.append(h)
         seen.add(lab)
-
     return ordered
 
+# =========================
+# Style resolution
+# =========================
+def _series_color_and_lw(idx: int, name: str) -> Tuple[str, float, Union[str, Tuple[int, Tuple[int, ...]]]]:
+    lw = float(SERIES_STYLE_OVERRIDES.get(name, {}).get("linewidth", DEFAULT_LINEWIDTH))
+    OURS_COLOR = "#1f3b8b"
+
+    if name == "Ours":
+        return OURS_COLOR, lw, "solid"
+
+    if LUMA_ONLY_MODE:
+        gray_levels = np.linspace(0.20, 0.75, 10)
+        color = f"{gray_levels[idx % len(gray_levels)]:.2f}"
+        return color, lw, "solid"
+
+    if BLACKWHITE_MODE:
+        gray_levels = np.linspace(0.15, 0.70, 8)
+        color = f"{gray_levels[idx % len(gray_levels)]:.2f}"
+        dash_pattern = LINE_STYLES[idx % len(LINE_STYLES)]
+        return color, lw, dash_pattern
+
+    # Color mode
+    color = color_from_cycle(idx)
+    if "color" in SERIES_STYLE_OVERRIDES.get(name, {}):
+        color = SERIES_STYLE_OVERRIDES[name]["color"]
+    return color, lw, "solid"
+
+def _series_marker(idx: int, name: str) -> str:
+    if MARKER_MODE == "uniform":
+        return UNIFORM_MARKER
+    # Make "Ours" circle by default for emphasis
+    if name == "Ours":
+        return "o"
+    return MARKER_CYCLE[idx % len(MARKER_CYCLE)]
+
+def _marker_every_for_length(n_points: int) -> int:
+    """
+    Determine how often to draw markers.
+    Larger values → fewer markers.
+    Adjust MULTIPLIER to control overall spacing.
+    """
+    if isinstance(MARKER_EVERY, int) and MARKER_EVERY > 0:
+        return MARKER_EVERY
+
+    # 자동 계산 (기존보다 훨씬 널찍하게)
+    MAX_MARKERS = 15         # 전체 그래프에 찍힐 최대 마커 수
+    spacing = max(1, int(round(n_points / MAX_MARKERS)))
+    return spacing
+
+def _marker_face_edge_colors(line_color: str) -> Tuple[str, str]:
+    """
+    Print-friendly: white fill + colored/gray edge.
+    For grayscale (line_color like '0.35'), keep edge=line_color.
+    For hex color, edge=line_color.
+    """
+    mfc = "white"
+    mec = line_color
+    return mfc, mec
 
 # =========================
-# 플로팅
+# Plotting
 # =========================
 def apply_axes_style(ax, ylim: Optional[Tuple[float, float]]):
     ax.tick_params(labelsize=FONT_SIZES["ticks"])
@@ -356,31 +454,15 @@ def apply_axes_style(ax, ylim: Optional[Tuple[float, float]]):
     if ylim is not None:
         ax.set_ylim(*ylim)
 
-def _series_color_and_lw(idx: int, name: str) -> Tuple[str, float]:
-    color = color_from_cycle(idx)
-    lw = DEFAULT_LINEWIDTH
-    if name in SERIES_STYLE_OVERRIDES:
-        if "color" in SERIES_STYLE_OVERRIDES[name]:
-            color = SERIES_STYLE_OVERRIDES[name]["color"]  # type: ignore
-        if "linewidth" in SERIES_STYLE_OVERRIDES[name]:
-            lw = float(SERIES_STYLE_OVERRIDES[name]["linewidth"])  # type: ignore
-    return color, lw
-
-def _diagnose_and_plot(ax, s, color, lw):
-    """
-    문제 시리즈를 잡아내기 위한 안전 그리기 + 상세 로그
-    - 길이 불일치 자동 보정
-    - 로그 스케일에서 비양수 자동 처리(옵션)
-    - NaN/inf 마스킹 후 잔여 개수 보고
-    """
-    ADD_EPS_FOR_LOG = True     # 로그 스케일에서 전부 ≤0이면 ε로 shift
+def _diagnose_and_plot(ax, s: Series, color: str, lw: float,
+                       dash_pattern: Union[str, Tuple[int, Tuple[int, ...]]]
+                       ) -> Optional[Line2D]:
+    ADD_EPS_FOR_LOG = True
     LOG_EPS = 1e-12
 
-    # 1) 스무딩 적용
     stmp = apply_smoothing(s)
     ydraw = stmp.y_smooth if (stmp.y_smooth is not None) else s.y
 
-    # 2) 길이 맞추기
     xarr = np.asarray(s.x, dtype=float)
     yarr = np.asarray(ydraw, dtype=float)
     n = min(len(xarr), len(yarr))
@@ -389,29 +471,24 @@ def _diagnose_and_plot(ax, s, color, lw):
     xarr = xarr[:n]
     yarr = yarr[:n]
 
-    # 3) 클리핑
     if CLIP_Y_MIN is not None:
         yarr = np.maximum(yarr, CLIP_Y_MIN)
     if CLIP_Y_MAX is not None:
         yarr = np.minimum(yarr, CLIP_Y_MAX)
 
-    # 4) 로그 스케일 보호
     use_log = (hasattr(ax, "get_yscale") and ax.get_yscale() == "log")
     if use_log:
         pos_mask = yarr > 0
         if not np.any(pos_mask) and ADD_EPS_FOR_LOG:
             shift = (np.nanmax(yarr) if np.isfinite(np.nanmax(yarr)) else 0.0)
-            # 전부 ≤0이면 ε로 치환
             yarr = np.full_like(yarr, LOG_EPS if shift <= 0 else max(shift*1e-6, LOG_EPS))
-            print(f"[diag] '{s.name}': log-scale 비양수만 존재 → ε로 치환하여 강제 표시")
+            print(f"[diag] '{s.name}': log-scale 비양수만 존재 → ε로 치환")
         else:
             yarr = np.where(pos_mask, yarr, np.nan)
 
-    # 5) 유효성 마스크
     finite_mask = np.isfinite(yarr)
     valid = np.count_nonzero(finite_mask)
 
-    # 6) 요약 통계
     def _safe_minmax(v):
         vv = v[np.isfinite(v)]
         return (float(np.min(vv)), float(np.max(vv))) if vv.size else (np.nan, np.nan)
@@ -425,44 +502,77 @@ def _diagnose_and_plot(ax, s, color, lw):
         print(f"[warn] '{s.name}': 유효 y가 없어 skip")
         return None
 
-    # 7) 안전 그리기(마커도 찍어서 보이는지 확인)
-    line, = ax.plot(xarr[finite_mask], yarr[finite_mask],
-                    color=color, linewidth=lw, label=s.name)
-    ax.scatter(xarr[finite_mask], yarr[finite_mask], s=6, alpha=0.35, label="_nolegend_")
+    # Marker config
+    marker_kwargs = {}
+    if MARKERS_ENABLE and (s.name not in EXCLUDE_MARKER_NAMES):  # ★ 여기 추가
+        marker = _series_marker(i, s.name)
+        mfc, mec = _marker_face_edge_colors(color)
+        marker_kwargs.update(dict(
+            marker=marker,
+            markersize=MARKER_SIZE_PT,
+            markerfacecolor=mfc,
+            markeredgecolor=mec,
+            markeredgewidth=MARKER_EDGEWIDTH,
+            markevery=_marker_every_for_length(len(s.x))
+        ))
+    line, = ax.plot(
+        xarr[finite_mask], yarr[finite_mask],
+        color=color, linewidth=lw, label=s.name,
+        linestyle=dash_pattern,
+        **marker_kwargs
+    )
     return line
-
 
 def plot_all(series_list: List[Series], out_dir: str):
     fig, ax = plt.subplots(figsize=FIGSIZE)
-
     handles: List[Line2D] = []
 
     for i, s in enumerate(series_list):
-        color, lw = _series_color_and_lw(i, s.name)
+        color, lw, dash_pattern = _series_color_and_lw(i, s.name)
 
-        # 원본 trace (희미)
+        # Raw trace (no markers)
         if SHOW_RAW_TRACE:
-            
-            ax.plot(s.x, s.y, color=color, linewidth=RAW_TRACE_LINEWIDTH, alpha=RAW_TRACE_ALPHA)
+            ax.plot(
+                s.x, s.y,
+                color=color,
+                linewidth=RAW_TRACE_LINEWIDTH,
+                alpha=RAW_TRACE_ALPHA,
+                linestyle=dash_pattern
+            )
 
-        # --- 문제 진단 + 안전 그리기 ---
-        line = _diagnose_and_plot(ax, s, color, lw)
-        if line is not None:
-            handles.append(line)
-        else:
-            # 마지막 수단: y가 상수이면 아주 작은 jitter를 넣어 선을 보이게
-            try:
-                y = np.asarray(s.y, float)
-                if np.isfinite(y).any() and (np.nanmax(y) == np.nanmin(y)):
-                    x = np.asarray(s.x, float)
-                    n = min(len(x), len(y))
-                    if n > 1:
-                        yj = y[:n] + (np.linspace(0, 1e-9, n))
-                        line2, = ax.plot(x[:n], yj, color=color, linewidth=lw, label="_nolegend_")
-                        handles.append(line2)
-                        print(f"[diag] '{s.name}': 상수 시퀀스 → jitter로 강제 표시")
-            except Exception as e:
-                print(f"[diag] '{s.name}': fallback 실패 - {e}")
+        # Prepare marker kwargs with correct idx
+        marker_kwargs = {}
+        if MARKERS_ENABLE and (s.name not in EXCLUDE_MARKER_NAMES):  # ← 예외 추가!
+            marker = _series_marker(i, s.name)
+            mfc, mec = _marker_face_edge_colors(color)
+            marker_kwargs.update(dict(
+                marker=marker,
+                markersize=MARKER_SIZE_PT,
+                markerfacecolor=mfc,
+                markeredgecolor=mec,
+                markeredgewidth=MARKER_EDGEWIDTH,
+                markevery=_marker_every_for_length(len(s.x))
+            ))
+        # Smooth & plot safely
+        stmp = apply_smoothing(s)
+        ydraw = stmp.y_smooth if (stmp.y_smooth is not None) else s.y
+        xarr = np.asarray(s.x, dtype=float)
+        yarr = np.asarray(ydraw, dtype=float)
+        n = min(len(xarr), len(yarr))
+        xarr = xarr[:n]; yarr = yarr[:n]
+
+        if CLIP_Y_MIN is not None:
+            yarr = np.maximum(yarr, CLIP_Y_MIN)
+        if CLIP_Y_MAX is not None:
+            yarr = np.minimum(yarr, CLIP_Y_MAX)
+
+        line, = ax.plot(
+            xarr, yarr,
+            color=color, linewidth=lw, label=s.name,
+            linestyle=dash_pattern,
+            **marker_kwargs
+        )
+        handles.append(line)
 
     ax.set_xlabel(XLABEL, fontsize=FONT_SIZES["axes"])
     ax.set_ylabel(YLABEL, fontsize=FONT_SIZES["axes"])
@@ -476,7 +586,7 @@ def plot_all(series_list: List[Series], out_dir: str):
 
     if PLOT_TITLE:
         ax.set_title(PLOT_TITLE, fontsize=FONT_SIZES["title"])
-    # 교체:
+
     if handles:
         ordered = _apply_legend_order(ax, handles, LEGEND_ORDER)
         ax.legend(handles=ordered, title=LEGEND_TITLE, frameon=False, loc=LEGEND_LOC)
@@ -489,7 +599,7 @@ def plot_all(series_list: List[Series], out_dir: str):
     print(f"[Saved] {out_path}")
 
 # =========================
-# 메인
+# Main
 # =========================
 def main():
     apply_font_settings()
