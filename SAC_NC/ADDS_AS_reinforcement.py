@@ -300,9 +300,10 @@ class EpsilonScheduler:
             return max(epsilon, self.epsilon_min)
         elif self.scheduler_type == "l":
             # 선형적으로 감소: 감쇠 시작부터 linear_decay_steps 동안 선형적으로 감소
-            fraction = min(1 / self.linear_decay_steps, 1.0)
-            epsilon = now_epsilon-fraction
-            return epsilon
+            # fraction = min(1 / self.linear_decay_steps, 1.0)
+            # epsilon = now_epsilon-fraction
+            epsilon = 1 - (episode-self.start_decay_step)/self.linear_decay_steps
+            return min(epsilon, 1)
         else:
             raise ValueError("scheduler_type must be either 'exponential' or 'linear'")
         
