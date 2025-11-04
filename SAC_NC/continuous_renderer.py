@@ -106,7 +106,7 @@ class ContinuousRenderer:
         distance_line_alpha: float = 0.85,
         distance_line_width: float = 1.2,
         distance_line_color: str = "#222222",
-        distance_label_fontsize: int = 10,
+        distance_label_fontsize: int = 15,
         distance_label_color: str = "black",
         distance_max_agents: int = 9999,          # 너무 복잡하면 상한으로 컷
 
@@ -838,5 +838,4 @@ class ContinuousRenderer:
             self.ax.text(lx, ly, label_text,
                         fontsize=self.distance_label_fontsize if hasattr(self, "distance_label_fontsize") else 8,
                         color=dist_color,
-                        ha="center", va="bottom", zorder=5.0,
-                        path_effects=[pe.withStroke(linewidth=2.0, foreground="white")])
+                        ha="center", va="bottom", zorder=5.0)

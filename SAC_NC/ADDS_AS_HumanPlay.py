@@ -20,7 +20,7 @@ from matplotlib.animation import FFMpegWriter
 ############################
 # 실험/기록 파라미터
 ############################
-MAP_NUM_FOR_RUN = 26         # 원하는 맵 번호(-1은 내부 랜덤 로직) #6,7,8,24,25,26
+MAP_NUM_FOR_RUN = 7         # 원하는 맵 번호(-1은 내부 랜덤 로직) #6,7,8,24,25,26
 ROBOT_VERSION_FOR_MODEL = 'Q' # 모델에는 'Q'로 넘기되, 사람이 직접 action 전달
 ROBOT_VERSION_FOR_LOG   = 'H' # 결과 폴더명에는 'H'로 기록해 비교군 명확화
 #EXP_NAME   = "test_0917_2"        # 최상위 결과 폴더 접미사: Result_data_{EXP_NAME}
@@ -116,9 +116,9 @@ CONT_ANNOTATE_EVERY = 10
 CONT_ANNOTATE_STYLE = "subway"     # "number"|"subway"|"frame"
 CONT_ANNOTATE_FONTSIZE = 12
 
-SHOW_AGENT_EXIT_DISTANCE = False
+SHOW_AGENT_EXIT_DISTANCE = True
 SHOW_MESH = True
-NUMBER_OF_AGENTS = 30
+NUMBER_OF_AGENTS = 5
 
 ############################
 # 결과 기록 유틸

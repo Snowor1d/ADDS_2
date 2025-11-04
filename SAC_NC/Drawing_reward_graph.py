@@ -53,7 +53,7 @@ YLABEL_REW   = "Total Reward"
 YLABEL_EVAC  = "Timestep"
 LEGEND_TITLE = ""
 LEGEND_RAW   = "Raw"
-LEGEND_SMO   = "Smoothed"
+LEGEND_SMO   = ""
 
 # 원시 데이터 표시 방식: "points" | "line" | "none"
 DRAW_RAW_SERIES = "none"   # ← 점/선 모두 끄고, 스무딩+음영만 보이게
@@ -246,14 +246,14 @@ def plot_curve(y: List[float], title: str, ylabel: str, save_path: str, figsize:
         ax.grid(**GRID_STYLE)
 
     # 범례: raw를 안 그리면 'Smoothed'만 표시됨
-    leg = ax.legend(
-        title=LEGEND_TITLE,
-        fontsize=FONT_SIZES["legend"],
-        loc="lower right",   # ← 원하는 위치로 변경
-        frameon=True       # (선택) 범례 박스 테두리 없애기
-    )
-    if leg and leg.get_title():
-        leg.get_title().set_fontsize(FONT_SIZES["legend"])
+    # leg = ax.legend(
+    #     title=LEGEND_TITLE,
+    #     fontsize=FONT_SIZES["legend"],
+    #     loc="lower right",   # ← 원하는 위치로 변경
+    #     frameon=True       # (선택) 범례 박스 테두리 없애기
+    # )
+    # if leg and leg.get_title():
+    #     leg.get_title().set_fontsize(FONT_SIZES["legend"])
 
     if XTICK_STEP > 0 and len(x) > 0:
         ticks = np.arange(1, len(x)+1, XTICK_STEP)

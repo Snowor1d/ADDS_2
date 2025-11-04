@@ -17,7 +17,7 @@ Display modes:
 Markers:
 - MARKERS_ENABLE: add markers to plotted lines (legend reflects markers)
 - MARKER_MODE: "uniform" or "varied"
-- Marker style is print-friendly: white fill + colored/gray edge
+- Marker style is print-friendly
 """
 
 import os
@@ -66,8 +66,10 @@ XLABEL          = "Training Episode"
 YLABEL          = "Time Step"
 LEGEND_TITLE    = ""
 LEGEND_LOC      = "upper right"
+
 SHOW_GRID       = True
-GRID_STYLE      = dict(linestyle="--", alpha=0.5)
+# ★ Grid 커스텀(더 잘 보이게)
+GRID_STYLE = dict(color="#AAAAAA", linestyle="--", linewidth=0.8, alpha=0.7)
 
 # --- Raw trace overlay ---
 SHOW_RAW_TRACE      = False
@@ -120,7 +122,7 @@ EXCLUDE_REGEX: Optional[str] = None
 
 # --- Display modes ---
 LUMA_ONLY_MODE   = False   # grayscale luminance only (solid lines)
-BLACKWHITE_MODE  = False    # grayscale + varied dash (ignored if LUMA_ONLY_MODE=True)
+BLACKWHITE_MODE  = False   # grayscale + varied dash (ignored if LUMA_ONLY_MODE=True)
 
 # --- Dash patterns (offset, on_off_seq) or string ---
 LINE_STYLES: List[Union[str, Tuple[int, Tuple[int, ...]]]] = [
@@ -137,9 +139,9 @@ LINE_STYLES: List[Union[str, Tuple[int, Tuple[int, ...]]]] = [
 # --- Markers ---
 MARKERS_ENABLE  = True
 MARKER_MODE     = "varied"   # "uniform" | "varied"
-MARKER_SIZE_PT  = 15       # points (mpl Line2D markersize)
+MARKER_SIZE_PT  = 15
 MARKER_EVERY: Union[int, str] = "auto"  # int (e.g., 50) or "auto"
-MARKER_EDGEWIDTH = 1.4       # markeredgewidth
+MARKER_EDGEWIDTH = 1.4
 UNIFORM_MARKER  = "o"        # used when MARKER_MODE="uniform"
 
 MARKER_CYCLE = [
@@ -147,6 +149,7 @@ MARKER_CYCLE = [
 ]
 
 EXCLUDE_MARKER_NAMES = {"Ours"}
+
 # =========================
 # Font utils
 # =========================
@@ -222,7 +225,7 @@ def apply_font_settings():
         mpl.rcParams["font.sans-serif"] = families
 
     mpl.rcParams["axes.titlesize"] = FONT_SIZES["title"]
-    mpl.rcParams["axes.labelsize"] = FONT_SIZES["axes"]
+    mpl.rcParams["axes.labelsize"]  = FONT_SIZES["axes"]
     mpl.rcParams["xtick.labelsize"] = FONT_SIZES["ticks"]
     mpl.rcParams["ytick.labelsize"] = FONT_SIZES["ticks"]
     mpl.rcParams["legend.fontsize"] = FONT_SIZES["legend"]
@@ -415,7 +418,6 @@ def _series_color_and_lw(idx: int, name: str) -> Tuple[str, float, Union[str, Tu
 def _series_marker(idx: int, name: str) -> str:
     if MARKER_MODE == "uniform":
         return UNIFORM_MARKER
-    # Make "Ours" circle by default for emphasis
     if name == "Ours":
         return "o"
     return MARKER_CYCLE[idx % len(MARKER_CYCLE)]
@@ -424,23 +426,19 @@ def _marker_every_for_length(n_points: int) -> int:
     """
     Determine how often to draw markers.
     Larger values → fewer markers.
-    Adjust MULTIPLIER to control overall spacing.
     """
     if isinstance(MARKER_EVERY, int) and MARKER_EVERY > 0:
         return MARKER_EVERY
-
-    # 자동 계산 (기존보다 훨씬 널찍하게)
-    MAX_MARKERS = 15         # 전체 그래프에 찍힐 최대 마커 수
+    MAX_MARKERS = 15
     spacing = max(1, int(round(n_points / MAX_MARKERS)))
     return spacing
 
 def _marker_face_edge_colors(line_color: str) -> Tuple[str, str]:
     """
-    Print-friendly: white fill + colored/gray edge.
-    For grayscale (line_color like '0.35'), keep edge=line_color.
-    For hex color, edge=line_color.
+    ★ 마커 내부와 테두리를 모두 선 색으로 통일
+    (grayscale 문자열에도 동일 적용)
     """
-    mfc = "white"
+    mfc = line_color
     mec = line_color
     return mfc, mec
 
@@ -450,78 +448,12 @@ def _marker_face_edge_colors(line_color: str) -> Tuple[str, str]:
 def apply_axes_style(ax, ylim: Optional[Tuple[float, float]]):
     ax.tick_params(labelsize=FONT_SIZES["ticks"])
     if SHOW_GRID:
+        # ★ grid를 라인 위로 올려 더 잘 보이게
+        ax.set_axisbelow(False)
         ax.grid(**GRID_STYLE)
+        # 필요시 y축만: ax.yaxis.grid(True, **GRID_STYLE); ax.xaxis.grid(False)
     if ylim is not None:
         ax.set_ylim(*ylim)
-
-def _diagnose_and_plot(ax, s: Series, color: str, lw: float,
-                       dash_pattern: Union[str, Tuple[int, Tuple[int, ...]]]
-                       ) -> Optional[Line2D]:
-    ADD_EPS_FOR_LOG = True
-    LOG_EPS = 1e-12
-
-    stmp = apply_smoothing(s)
-    ydraw = stmp.y_smooth if (stmp.y_smooth is not None) else s.y
-
-    xarr = np.asarray(s.x, dtype=float)
-    yarr = np.asarray(ydraw, dtype=float)
-    n = min(len(xarr), len(yarr))
-    if len(xarr) != len(yarr):
-        print(f"[diag] '{s.name}': len(x)={len(xarr)}, len(y)={len(yarr)} → {n}로 맞춤")
-    xarr = xarr[:n]
-    yarr = yarr[:n]
-
-    if CLIP_Y_MIN is not None:
-        yarr = np.maximum(yarr, CLIP_Y_MIN)
-    if CLIP_Y_MAX is not None:
-        yarr = np.minimum(yarr, CLIP_Y_MAX)
-
-    use_log = (hasattr(ax, "get_yscale") and ax.get_yscale() == "log")
-    if use_log:
-        pos_mask = yarr > 0
-        if not np.any(pos_mask) and ADD_EPS_FOR_LOG:
-            shift = (np.nanmax(yarr) if np.isfinite(np.nanmax(yarr)) else 0.0)
-            yarr = np.full_like(yarr, LOG_EPS if shift <= 0 else max(shift*1e-6, LOG_EPS))
-            print(f"[diag] '{s.name}': log-scale 비양수만 존재 → ε로 치환")
-        else:
-            yarr = np.where(pos_mask, yarr, np.nan)
-
-    finite_mask = np.isfinite(yarr)
-    valid = np.count_nonzero(finite_mask)
-
-    def _safe_minmax(v):
-        vv = v[np.isfinite(v)]
-        return (float(np.min(vv)), float(np.max(vv))) if vv.size else (np.nan, np.nan)
-    ymin, ymax = _safe_minmax(yarr)
-
-    print(f"[diag] '{s.name}': n={n}, finite={valid}, "
-          f"min={ymin:.4g}, max={ymax:.4g}, "
-          f"raw_minmax=({_safe_minmax(np.asarray(s.y, float))})")
-
-    if valid == 0:
-        print(f"[warn] '{s.name}': 유효 y가 없어 skip")
-        return None
-
-    # Marker config
-    marker_kwargs = {}
-    if MARKERS_ENABLE and (s.name not in EXCLUDE_MARKER_NAMES):  # ★ 여기 추가
-        marker = _series_marker(i, s.name)
-        mfc, mec = _marker_face_edge_colors(color)
-        marker_kwargs.update(dict(
-            marker=marker,
-            markersize=MARKER_SIZE_PT,
-            markerfacecolor=mfc,
-            markeredgecolor=mec,
-            markeredgewidth=MARKER_EDGEWIDTH,
-            markevery=_marker_every_for_length(len(s.x))
-        ))
-    line, = ax.plot(
-        xarr[finite_mask], yarr[finite_mask],
-        color=color, linewidth=lw, label=s.name,
-        linestyle=dash_pattern,
-        **marker_kwargs
-    )
-    return line
 
 def plot_all(series_list: List[Series], out_dir: str):
     fig, ax = plt.subplots(figsize=FIGSIZE)
@@ -540,9 +472,9 @@ def plot_all(series_list: List[Series], out_dir: str):
                 linestyle=dash_pattern
             )
 
-        # Prepare marker kwargs with correct idx
+        # Marker config
         marker_kwargs = {}
-        if MARKERS_ENABLE and (s.name not in EXCLUDE_MARKER_NAMES):  # ← 예외 추가!
+        if MARKERS_ENABLE and (s.name not in EXCLUDE_MARKER_NAMES):
             marker = _series_marker(i, s.name)
             mfc, mec = _marker_face_edge_colors(color)
             marker_kwargs.update(dict(
@@ -553,7 +485,8 @@ def plot_all(series_list: List[Series], out_dir: str):
                 markeredgewidth=MARKER_EDGEWIDTH,
                 markevery=_marker_every_for_length(len(s.x))
             ))
-        # Smooth & plot safely
+
+        # Smooth & plot
         stmp = apply_smoothing(s)
         ydraw = stmp.y_smooth if (stmp.y_smooth is not None) else s.y
         xarr = np.asarray(s.x, dtype=float)
