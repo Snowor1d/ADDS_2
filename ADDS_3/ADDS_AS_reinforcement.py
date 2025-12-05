@@ -20,6 +20,11 @@ from config import START_DECAY_STEP, START_EPSILON, EPSILON_MIN, SCHEDULER_TYPE,
                             LR, BUFFER_SIZE, BATCH_SIZE, LOG_STD_MAX, LOG_STD_MIN, ALPHA_START, ALPHA_END, ALPHA_DECAY_STEPS, DEVICE, SCALE_CHECK, ACTION_SCALE, START_BATCH_TIMES, MAX_STEPS, PORT_NUM, LONG_EPSILON_MIN, START_LONG_EPSILON, \
                             GAMMA_START, GAMMA_SCHEDULE_STEP, GAMMA_END, MAP_NUM_RANDOM
 from heat_map import HeatMapLogger #@for heat_map
+
+MAP_H, MAP_W = 50, 50
+STATE_SHAPE = (4, MAP_H, MAP_W)
+
+
 # Timer instances
 sim_timer = Timer() 
 learn_timer = Timer()
@@ -39,9 +44,43 @@ os.makedirs(log_dir, exist_ok=True)
 
 heat_logger = HeatMapLogger(   #@for heat_map
     save_root = os.path.join(log_dir, "heat_maps"),
-    map_size = (50, 50),
+    map_size = (MAP_W, MAP_H),
     known_maps = MAP_NUM_RANDOM
 )
+
+
+def downsample_map_2x(obs: np.ndarray, factor: int = 2) -> np.ndarray:
+    """
+    obs: (H, W) or (C, H, W) numpy array (100x100 기준)
+    factor: 2 -> 100→50으로 줄이기
+
+    2x2 블록에 대해 max-pooling (binary/occupancy 맵에 적합)
+    """
+    if factor <= 1:
+        return obs
+
+    if obs.ndim == 2:
+        H, W = obs.shape
+        H2 = (H // factor) * factor
+        W2 = (W // factor) * factor
+        cropped = obs[:H2, :W2]
+        # (H2//f, f, W2//f, f) -> f축에 대해 max
+        out = cropped.reshape(H2 // factor, factor, W2 // factor, factor)
+        out = out.max(axis=(1, 3))
+        return out
+
+    elif obs.ndim == 3:
+        C, H, W = obs.shape
+        H2 = (H // factor) * factor
+        W2 = (W // factor) * factor
+        cropped = obs[:, :H2, :W2]   # (C,H2,W2)
+        # (C, H2//f, f, W2//f, f) -> f축에 대해 max
+        out = cropped.reshape(C, H2 // factor, factor, W2 // factor, factor)
+        out = out.max(axis=(2, 4))
+        return out
+
+    else:
+        raise ValueError(f"Unsupported obs ndim: {obs.ndim}")
 
 def launch_tensorboard(tb_log_dir, port=6006):
     """
@@ -159,7 +198,7 @@ class ReplayBuffer:
     def __init__(
         self,
         capacity: int,
-        state_shape = (4, 50, 50),
+        state_shape = STATE_SHAPE,
         action_dim = 2,
         device=None,
         state_dtype: np.dtype = np.uint8,
@@ -313,7 +352,7 @@ class EpsilonScheduler:
 # 3) Critic (Q) Network
 ##########################################################################
 class QNetwork(nn.Module):
-    def __init__(self, input_shape=(50,50), action_dim=2):
+    def __init__(self, input_shape=(MAP_H, MAP_W), action_dim=2):
         super(QNetwork, self).__init__()
         # CNN feature extractor
         self.conv1 = nn.Conv2d(4, 32, kernel_size=5, stride=2, padding=2)
@@ -786,7 +825,7 @@ if __name__ == "__main__":
         start_epsilon_long = START_LONG_EPSILON  # 기본값 설정
         print("No start_epsilon.txt found. Initializing values to defaults.")
     
-    agent = SACAgent(input_shape=(50,50), alpha=ALPHA_START, lr=float(LR), start_epsilon=start_epsilon, start_epsilon_long = float(START_LONG_EPSILON), long_epsilon_min=float(LONG_EPSILON_MIN), batch_size=int(BATCH_SIZE), replay_size=int(BUFFER_SIZE), device=DEVICE)
+    agent = SACAgent(input_shape=(MAP_H, MAP_W), alpha=ALPHA_START, lr=float(LR), start_epsilon=start_epsilon, start_epsilon_long = float(START_LONG_EPSILON), long_epsilon_min=float(LONG_EPSILON_MIN), batch_size=int(BATCH_SIZE), replay_size=int(BUFFER_SIZE), device=DEVICE)
     print(f"Agent initialized, lr={LR}, alpha={agent.alpha}, batch_size={BATCH_SIZE}, replay_size={BUFFER_SIZE}")
     replay_buffer_path = os.path.join(log_dir, "replay_buffer.npz")
 
@@ -835,12 +874,13 @@ if __name__ == "__main__":
                 else:
                     number_of_agents = random.randint(CROWD_NUMBER_MIN, CROWD_NUMBER_MAX)
                  
-                env_model = model.FightingModel(number_of_agents, 50, 50, model_num = -1, robot = 'Q')
+                env_model = model.FightingModel(number_of_agents, MAP_W, MAP_H, model_num = -1, robot = 'Q')
                 break
             except Exception as e:
                 print(e, "Retrying environment creation...")
         
-        first_frame = env_model.return_current_image()
+        first_frame = downsample_map_2x(env_model.return_current_image(), factor=2)
+
         frame_stack = FrameStack(4)
         state = frame_stack.reset(first_frame)
         total_reward = 0
@@ -883,7 +923,7 @@ if __name__ == "__main__":
                     heat_logger.update(env_model.map_num, hx, hy) 
 
                 
-                curr_frame = env_model.return_current_image()
+                curr_frame = downsample_map_2x(env_model.return_current_image(), factor=2)
                 next_state = frame_stack.peek_with(curr_frame)
                 sim_timer.stop()
                 reward = 0

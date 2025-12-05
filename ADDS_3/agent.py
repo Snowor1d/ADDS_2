@@ -113,7 +113,7 @@ class CrowdAgent(Agent):
         if self.dead and not self.buried:
             self.dead_count += 1
             return
-        
+
         if(self.type != 3): #robot은 죽지 않는다
             if self.model.in_exit(self.xy, tol=0.3):
                 self.dead = True
@@ -123,6 +123,56 @@ class CrowdAgent(Agent):
 
 
         self.move()
+
+
+    def choice_safe_mesh(self, point):
+        point_grid = (int(round(point[0])), int(round(point[1])))
+        x = point_grid[0]
+        y = point_grid[1]
+        while_checking = 0
+
+        candidates = [(x+1,y+1), (x+1, y), (x, y+1), (x-1, y-1), (x-1, y), (x, y-1), (x+1, y-1), (x-1, y+1)]
+        while (point_grid not in self.model.match_grid_to_mesh.keys()) or (self.model.match_grid_to_mesh[point_grid] not in self.model.pure_mesh):
+            while_checking += 1
+            if(while_checking == 50):
+                raise Exception("safe mesh를 찾지 못하였습니다.")
+            point_grid = candidates[random.randint(0, len(candidates)-1)]
+        return self.model.match_grid_to_mesh[point_grid]
+
+
+    def mesh_to_mesh_distance(self, point1, point2):
+        point1_mesh = self.choice_safe_mesh(point1)
+        point2_mesh = self.choice_safe_mesh(point2)
+
+        return self.model.distance[point1_mesh][point2_mesh]
+
+    def point_to_point_distance(self, point1, point2):
+
+        point1_mesh = self.choice_safe_mesh(point1)
+        point2_mesh = self.choice_safe_mesh(point2)
+        if self.model.next_vertex_matrix[point1_mesh][point2_mesh] == None:
+            return 99999999999
+        
+        distance = 0
+        now_mesh = point1_mesh
+
+        if (self.model.next_vertex_matrix[now_mesh][point2_mesh] == point2_mesh):
+            return math.sqrt(pow(point1[0]-point2[0],2)+pow(point1[1]-point2[1],2))
+
+        now_mesh = self.model.next_vertex_matrix[now_mesh][point2_mesh]
+        now_mesh_middle = ((now_mesh[0][0]+now_mesh[1][0]+now_mesh[2][0])/3, (now_mesh[0][1]+now_mesh[1][1]+now_mesh[2][1])/3)
+        distance += math.sqrt(pow(now_mesh_middle[0]-point1[0],2)+pow(point1[1]-now_mesh_middle[1],2))
+
+        while(self.model.next_vertex_matrix[now_mesh][point2_mesh] != point2_mesh):
+            distance += self.model.distance[now_mesh][self.model.next_vertex_matrix[now_mesh][point2_mesh]]
+            now_mesh = self.model.next_vertex_matrix[now_mesh][point2_mesh]
+        
+        now_mesh_middle = ((now_mesh[0][0]+now_mesh[1][0]+now_mesh[2][0])/3, (now_mesh[0][1]+now_mesh[1][1]+now_mesh[2][1])/3)    
+
+        distance += math.sqrt(pow(now_mesh_middle[0]-point2[0],2)+pow(now_mesh_middle[1]-point2[1],2))
+        
+        return distance
+
 
     def _neighbors(self, radius):
         # 1) 기존처럼 반경 후보
@@ -150,48 +200,6 @@ class CrowdAgent(Agent):
                     out.append(ref)
 
         return out
-
-    def choice_safe_mesh(self, point):
-        m = self.model.find_mesh(point)
-        if m is None:
-        # 소폭 난수 지터로 재시도
-            for _ in range(6):
-                jitter = (random.uniform(-0.4,0.4), random.uniform(-0.4,0.4))
-                m = self.model.find_mesh((point[0]+jitter[0], point[1]+jitter[1]))
-                if m is not None:
-                    break
-        if m is None:
-            raise RuntimeError("safe mesh를 찾지 못했습니다.")
-        return m
-
-
-
-    def mesh_to_mesh_distance(self, point1, point2):
-        point1_mesh = self.choice_safe_mesh(point1)
-        point2_mesh = self.choice_safe_mesh(point2)
-
-        return self.model.distance[point1_mesh][point2_mesh]
-
-    def point_to_point_distance(self, p1, p2):
-        m1 = self.choice_safe_mesh(p1)
-        m2 = self.choice_safe_mesh(p2)
-        if self.model.next_mesh_from_to(m1, m2) is None:
-            return 1e12
-        dist = 0.0
-        cur = m1
-        c1 = ((cur[0][0]+cur[1][0]+cur[2][0])/3.0, (cur[0][1]+cur[1][1]+cur[2][1])/3.0)
-        dist += math.hypot(p1[0]-c1[0], p1[1]-c1[1])
-        while cur != m2:
-            nxt = self.model.next_mesh_from_to(cur, m2)
-            c0 = ((cur[0][0]+cur[1][0]+cur[2][0])/3.0, (cur[0][1]+cur[1][1]+cur[2][1])/3.0)
-            cN = ((nxt[0][0]+nxt[1][0]+nxt[2][0])/3.0, (nxt[0][1]+nxt[1][1]+nxt[2][1])/3.0)
-            dist += math.hypot(cN[0]-c0[0], cN[1]-c0[1])
-            cur = nxt
-        c2 = ((cur[0][0]+cur[1][0]+cur[2][0])/3.0, (cur[0][1]+cur[1][1]+cur[2][1])/3.0)
-        dist += math.hypot(p2[0]-c2[0], p2[1]-c2[1])
-        return dist
-            
-
     
     def move(self) -> None:
         """Handles the movement behavior.
@@ -226,28 +234,6 @@ class CrowdAgent(Agent):
             self.pos = (round(self.xy[0]), round(self.xy[1]))
             new_pos  = self.agent_modeling()      # ← 내부에서 predict_collision() 포함
             self.pos = (self.xy[0], self.xy[1])
-
-    def choice_near_goal(self, pos):
-        shortest_distance = float('inf')
-        near_goal = None
-        for i in self.model.exit_point:
-            distance = self.mesh_to_mesh_distance(i, pos)
-            for i in self.model.exit_point:
-                d = self.mesh_to_mesh_distance(i, pos)
-                if d < shortest_distance:
-                    shortest_distance = d
-                    near_goal = i
-        return near_goal  
-
-    def choice_near_exit(self):
-        shortest_distance = 9999999999
-        near_exit = None
-        for i in self.model.exit_point:
-            if (self.mesh_to_mesh_distance(self.xy, i) < shortest_distance):
-                shortest_distance = self.mesh_to_mesh_distance(self.xy, i)
-                near_exit = i
-        return near_exit
-
     
     def _wall_repulsion(self):
         from shapely.geometry import Point
@@ -331,6 +317,10 @@ class CrowdAgent(Agent):
             s = math.tanh(n/lim) / (n/lim)
             return x*s, y*s
         
+        self.danger = 1e9
+        for i in self.model.exit_point:
+            self.danger = min(self.danger, self.point_to_point_distance([self.xy[0], self.xy[1]], i))
+        
 
         # 이웃 상호작용 (사람/로봇)
         sensor_R = self.vision_radius
@@ -354,78 +344,81 @@ class CrowdAgent(Agent):
         F_des_y = self.mass * (v_des_y - self.vel[1]) / tau
 
         # ---- 기존의 약한(원거리) 반발력 (지수) ----
-        F_rep_x = 0.0; F_rep_y = 0.0
+        F_rep_x = 0.0
+        F_rep_y = 0.0
 
         # ---- 접촉(비관통) + 마찰 모델(핵심 추가) ----
-        F_contact_x = 0.0; F_contact_y = 0.0
-        F_fric_x    = 0.0; F_fric_y    = 0.0
+        F_contact_x = 0.0
+        F_contact_y = 0.0
+        F_fric_x    = 0.0
+        F_fric_y    = 0.0
 
         r_i = BODY_RADIUS
         # 자기 상태 (속도)
         v_ix, v_iy = self.vel[0], self.vel[1]
         
-        # for nb in near_agents:
-        #     if nb is self or getattr(nb, "dead", False):
-        #         continue
+        for nb in near_agents:
+            if nb is self or getattr(nb, "dead", False):
+                continue
 
-        #     dx = self.xy[0] - nb.xy[0]
-        #     dy = self.xy[1] - nb.xy[1]
-        #     d  = math.hypot(dx, dy)
-        #     if d < 1e-9:
-        #         # 완전 겹침 초기 해소(랜덤 툭 치기)
-        #         jx, jy = (1.0, -1.0) if random.random() < 0.5 else (-1.0, 1.0)
-        #         F_contact_x += jx * KN * 0.01
-        #         F_contact_y += jy * KN * 0.01
-        #         continue
+            dx = self.xy[0] - nb.xy[0]
+            dy = self.xy[1] - nb.xy[1]
+            d  = math.hypot(dx, dy)
+            if d < 1e-9:
+                # 완전 겹침 초기 해소(랜덤 툭 치기)
+                jx, jy = (1.0, -1.0) if random.random() < 0.5 else (-1.0, 1.0)
+                F_contact_x += jx * KN * 0.01
+                F_contact_y += jy * KN * 0.01
+                continue
 
-        #     ux, uy = dx/d, dy/d  # (nb -> self) 법선 방향
-        #     nb_R = getattr(nb, "radius", BODY_RADIUS)
-        #     r_sum = self.radius + nb_R
+            ux, uy = dx/d, dy/d  # (nb -> self) 법선 방향
+            nb_R = getattr(nb, "radius", BODY_RADIUS)
+            r_sum = self.body_radius + nb_R
 
-        #     # 원거리 지수 반발
-        #     mag = K_AGENT * math.exp((r_sum-d) / max(LAMBDA_A, 1e-6))
-        #     F_rep_x += mag * ux
-        #     F_rep_y += mag * uy
+            # 원거리 지수 반발
+            mag = K_AGENT * math.exp((r_sum-d) / max(LAMBDA_A, 1e-6))
+            F_rep_x += mag * ux
+            F_rep_y += mag * uy
 
-        #     # # 1) 원거리 지수 반발(부드러운 회피)
-        #     # if getattr(nb, "type", None) in (11, 9):
-        #     #     mag = K_WALL * math.exp((r_sum - d) / LAMBDA_A)
-        #     #     F_rep_x += mag * ux
-        #     #     F_rep_y += mag * uy
-        #     # else:
-        #     #     mag = K_AGENT * math.exp((r_sum - d) / LAMBDA_A)
-        #     #     F_rep_x += mag * ux
-        #     #     F_rep_y += mag * uy
+            # # 1) 원거리 지수 반발(부드러운 회피)
+            # if getattr(nb, "type", None) in (11, 9):
+            #     mag = K_WALL * math.exp((r_sum - d) / LAMBDA_A)
+            #     F_rep_x += mag * ux
+            #     F_rep_y += mag * uy
+            # else:
+            #     mag = K_AGENT * math.exp((r_sum - d) / LAMBDA_A)
+            #     F_rep_x += mag * ux
+            #     F_rep_y += mag * uy
 
-        #     # 2) 근거리 접촉(비관통) + 점성 감쇠 + 접선 마찰
-        #     if d < r_sum:
-        #         # 침투량(양수면 겹침)
-        #         penetration = (r_sum - d)
-        #         # (a) 법선 스프링
-        #         Fn_k = KN * penetration
-        #         # (b) 상대속도에 대한 법선 감쇠
-        #         v_jx = getattr(nb, "vel", [0,0])[0] if hasattr(nb, "vel") else 0.0
-        #         v_jy = getattr(nb, "vel", [0,0])[1] if hasattr(nb, "vel") else 0.0
-        #         rel_vx, rel_vy = (v_ix - v_jx), (v_iy - v_jy)
-        #         v_n = rel_vx*ux + rel_vy*uy        # 법선 성분
+            # 2) 근거리 접촉(비관통) + 점성 감쇠 + 접선 마찰
+            if d < r_sum:
+                # 침투량(양수면 겹침)
+                penetration = (r_sum - d)
+                # (a) 법선 스프링
+                Fn_k = KN * penetration
+                # (b) 상대속도에 대한 법선 감쇠
+                v_jx = getattr(nb, "vel", [0,0])[0] if hasattr(nb, "vel") else 0.0
+                v_jy = getattr(nb, "vel", [0,0])[1] if hasattr(nb, "vel") else 0.0
+                rel_vx, rel_vy = (v_ix - v_jx), (v_iy - v_jy)
+                v_n = rel_vx*ux + rel_vy*uy        # 법선 성분
                 
-        #         if v_n < 0:
-        #             restitution = 0.2
-        #             drop = (1.0-restitution)*v_n
-        #             self.vel[0] -= drop*ux
-        #             self.vel[1] -= drop*uy
+                if v_n < 0:
+                    restitution = 0.2
+                    drop = (1.0-restitution)*v_n
+                    self.vel[0] -= drop*ux
+                    self.vel[1] -= drop*uy
 
-        #         Fn_c = -CN * v_n                   # 접근할수록(음수) + 방향은 법선
-        #         Fn = max(Fn_k + Fn_c, 0.0)         # 법선 힘은 음수가 되지 않게
+                Fn_c = -CN * v_n                   # 접근할수록(음수) + 방향은 법선
+                Fn = max(Fn_k + Fn_c, 0.0)         # 법선 힘은 음수가 되지 않게
 
-        #         F_contact_x += Fn * ux
-        #         F_contact_y += Fn * uy
+                F_contact_x += Fn * ux
+                F_contact_y += Fn * uy
 
-        #         # (c) 접선 방향(미끄럼) 마찰: v_t = rel_v - v_n n
-        #         vt_x = rel_vx - v_n*ux
-        #         vt_y = rel_vy - v_n*uy
-        #         F_fric_x += -MU_T * vt_x
-        #         F_fric_y += -MU_T * vt_y
+                # (c) 접선 방향(미끄럼) 마찰: v_t = rel_v - v_n n
+                vt_x = rel_vx - v_n*ux
+                vt_y = rel_vy - v_n*uy
+                F_fric_x += -MU_T * vt_x
+                F_fric_y += -MU_T * vt_y
         
         BETA=0
         decay = 0.95
@@ -484,15 +477,25 @@ class CrowdAgent(Agent):
         P_robot_following = 1 #로봇을 따라갈 확률
         P_neighbor_following = 0.7 #군중을 따라갈 확률
 
+        best_idx = None
+        best_score = -float("inf")
+
         # ─ 0단계: 직접 출구를 보면 α=0 정보 기록 ─
         for idx, center in enumerate(self.model.exit_point):
-            #print(f"센터 : {center}")
-            #print(f"거리 : {idx}", self.point_to_point_distance(self.xy, center))
-            #if self.point_to_point_distance(self.xy, center) < VISION_R:
-            if math.sqrt(pow(self.xy[0]-center[0], 2) + pow(self.xy[1]-center[1], 2)) < EXIT_CONFIRM_R:
-                s = self.model.exit_score(self, idx, alpha=0)
-                self.exit_belief = {"idx": idx, "score": s, "alpha": 0}
+            dx = self.xy[0] - center[0]
+            dy = self.xy[1] - center[1]
+            dist = math.sqrt(dx*dx + dy*dy)
 
+            if dist < EXIT_CONFIRM_R:
+                s = self.model.exit_score(self, idx, alpha=0)
+                if (s > best_score):
+                    best_score = s
+                    best_idx = idx
+            
+        if best_idx is not None:
+            self.exit_belief = {"idx" : best_idx, "score": best_score, "alpha": 0}
+        else:
+            self.exit_belief = None
         for nb in neighbors:
             if nb.exit_belief:
                 alpha = nb.exit_belief["alpha"] + 1
@@ -516,6 +519,7 @@ class CrowdAgent(Agent):
             self.decision_flag = 0
         if(self.decision_flag == 0 or robot_d < ROBOT_R): 
             #print(f"Agent{self.unique_id} 는 새로운 결정을 내리기로 했습니다.")
+
             if(robot_d < ROBOT_R and self.model.robot_mode == "GUIDE" and self.point_to_point_distance(self.model.robot.xy, self.xy)<2.3*ROBOT_R):  ####### 2.3*ROBOT_R 뭐임?
                 if random.random() < P_robot_following: 
                     #print(f"Agent{self.unique_id} 는 로봇을 따라갑니다!")
@@ -543,7 +547,7 @@ class CrowdAgent(Agent):
                         self.follow_agent_id = followable_neighbors[0].unique_id # 이제 가장 믿을만한 이웃을 고를거임, 일단 초기화
                         max_score = -99999
                         for n in followable_neighbors:
-                            dist = self.point_to_point_distance
+                            dist = self.point_to_point_distance(self.xy, n.xy)
                             score = 0
                             if (n.exit_belief):
                                 score = n.exit_belief["score"]
@@ -780,6 +784,10 @@ class RobotAgent(CrowdAgent):
                 continue
             neighbors.append(ref)
         # 현재 로봇은 군중한테 물리적 영향을 받지 않음 -> 아래 코드 주석처리
+
+        F_rep_x = 0
+        F_rep_y = 0
+
         # for nb in neighbors:
         #     dx = self.xy[0] - nb.xy[0]
         #     dy = self.xy[1] - nb.xy[1]
@@ -793,7 +801,7 @@ class RobotAgent(CrowdAgent):
 
         #     ux, uy = dx/d, dy/d
         #     nb_r = getattr(nb, "radius", 0.5)
-        #     r_sum = self.radius + nb_r
+        #     r_sum = self.body_radius + nb_r
 
         #     # 원거리 지수 반발
         #     mag = K_AGENT * math.exp((r_sum - d) / max(LAMBDA_A, 1e-6))

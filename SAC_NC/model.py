@@ -1460,17 +1460,17 @@ class FightingModel(Model):
                 self.robot.receive_action([dx, dy])
 
             if(self.using_model and self.step_n%ACTION_SCALE==(ACTION_SCALE-1) and SCALE_CHECK):
-                print("reward_based_alived : ", self.reward_based_alived() * REWARD_A)
+                #print("reward_based_alived : ", self.reward_based_alived() * REWARD_A)
                 print("reward_based_all_agents_danger : ", self.reward_based_all_agents_danger() * REWARD_B)
-                print("reward_based_gain : ", self.reward_based_gain() * REWARD_C)
-                print("reward_penalty : ", self.reward_penalty() * REWARD_D)
-                print("reward_based_evacuated_with_robot : ", self.reward_based_evacuated_with_robot() * REWARD_E)
-                print("reward_based_distance_from_near_agents : ", self.reward_based_distance_from_near_agents() * REWARD_F)
-                print("reward_based_distance_from_near_agent_gain : ", self.reward_based_distance_from_near_agent_gain() * REWARD_G)
-                print("reward_based_gain_with_time_bonus :", self.reward_based_gain_with_time_bonus() * REWARD_H)
-                print("reward_based_alived_root : ", self.reward_based_alived_root() * REWARD_I)
-                print("reward_based_all_agents_danger_log : ", self.reward_based_all_agents_danger_log() * REWARD_J)
-                print("reward_penalty_collision : ", self.reward_penalty_collision() * REWARD_K)        
+                #print("reward_based_gain : ", self.reward_based_gain() * REWARD_C)
+                #print("reward_penalty : ", self.reward_penalty() * REWARD_D)
+                #print("reward_based_evacuated_with_robot : ", self.reward_based_evacuated_with_robot() * REWARD_E)
+                #print("reward_based_distance_from_near_agents : ", self.reward_based_distance_from_near_agents() * REWARD_F)
+                #print("reward_based_distance_from_near_agent_gain : ", self.reward_based_distance_from_near_agent_gain() * REWARD_G)
+                #print("reward_based_gain_with_time_bonus :", self.reward_based_gain_with_time_bonus() * REWARD_H)
+                #print("reward_based_alived_root : ", self.reward_based_alived_root() * REWARD_I)
+                #print("reward_based_all_agents_danger_log : ", self.reward_based_all_agents_danger_log() * REWARD_J)
+                #print("reward_penalty_collision : ", self.reward_penalty_collision() * REWARD_K)        
 
         elif (self.robot_version == 'T'):
             self.robot.robot_policy_going_exit()      

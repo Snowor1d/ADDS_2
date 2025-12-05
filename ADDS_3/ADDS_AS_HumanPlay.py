@@ -43,9 +43,9 @@ RENDER_EVERY      = max(1, TARGET_SIM_FPS // TARGET_RENDER_FPS)  # 2
 SCREEN_WIDTH  = 1000
 SCREEN_HEIGHT = 1000
 
-CELL_SIZE = 15
-MAP_W = 50 * CELL_SIZE
-MAP_H = 50 * CELL_SIZE
+CELL_SIZE = 7.5
+MAP_W = 100 * CELL_SIZE
+MAP_H = 100 * CELL_SIZE
 
 PANEL_RIGHT_WIDTH = 200   # 우측 HUD/조이스틱 패널 폭
 PADDING = 10              # 좌측 여백
@@ -328,8 +328,8 @@ def main():
         # 새로운 episode 시작
         env_model = FightingModel(
             number_agents=20,
-            width=50,
-            height=50,
+            width=100,
+            height=100,
             model_num=MAP_NUM_FOR_RUN,
             robot=ROBOT_VERSION_FOR_MODEL   # 내부 로직은 'Q'로, 사람이 직접 action을 보냄
         )
@@ -340,7 +340,7 @@ def main():
         collected_frames = []
         if USE_CONTINUOUS_RENDERER:
             renderer = ContinuousRenderer(
-                world_size=(50.0, 50.0),
+                world_size=(100.0, 100.0),
                 crowd_colors={0:CONT_CROWD_COLOR, 1:CONT_CROWD_COLOR, 2:CONT_CROWD_COLOR},
 
                 # ▼ 화살표 보이기 + 크기

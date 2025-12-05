@@ -97,7 +97,9 @@ class ContinuousRenderer:
         agent_vision_color: str = "#4e79a7",
         robot_vision_color: str = "#e15759",
         vision_alpha: float = 0.15,
-        vision_edge_alpha: float = 0.35
+        vision_edge_alpha: float = 0.35,
+        vision_drawing: bool = False
+
         
     ):
         # ===== Canvas =====
@@ -189,6 +191,8 @@ class ContinuousRenderer:
         # 로봇은 step 함께 저장: (x, y, step)
         self.trails_robot: Dict[int, List[Tuple[float,float,int]]] = {}
 
+        self.vision_drawing = vision_drawing
+
         # ===== Matplotlib fig/ax =====
         self.fig, self.ax = plt.subplots(figsize=(6, 6), dpi=self.dpi)
         self._setup_axes()
@@ -203,8 +207,8 @@ class ContinuousRenderer:
             self._draw_outer_wall()
 
         self._draw_obstacles(getattr(model, "obstacles", []))
-
-        self._draw_vision(model)
+        if self.vision_drawing:
+            self._draw_vision(model)
 
         self._draw_exits(model)
         self._draw_crowds(getattr(model, "crowds", []))
@@ -303,16 +307,23 @@ class ContinuousRenderer:
                 draw_at_center(cx, cy)
 
     def _crowd_color(self, t: int):
-        if t in self.crowd_colors: return self.crowd_colors[t]
+        if t in self.crowd_colors: 
+            return self.crowd_colors[t]
         return self.crowd_colors.get("else", "#59a14f")
 
     def _draw_crowds(self, crowds):
-        if not crowds: return
+        if not crowds: 
+            return
         draw_trail = self.trail_target in ("crowd", "both")
         for ag in crowds:
             t = getattr(ag, "type", None)
-            if t in self.exclude_types: continue
-            if self.hide_dead and getattr(ag, "dead", False): continue
+            if t in self.exclude_types: 
+                continue
+            if self.hide_dead and getattr(ag, "dead", False): 
+                continue
+
+            if ag.dead:
+                continue
 
             x, y = float(ag.xy[0]), float(ag.xy[1])
             body_col = self._crowd_color(t if t is not None else -1)
@@ -367,16 +378,6 @@ class ContinuousRenderer:
             vx, vy = robot.vel
             self._arrow(x, y, vx, vy, scale=self.robot_heading_scale,
                         color=rcol, alpha=0.95, linewidth=1.5)
-
-
-                # self._arrow(
-                #     x, y, vx, vy,
-                #     scale=self.agent_heading_scale,
-                #     color=head_col,
-                #     alpha=0.9,
-                #     linewidth=self.agent_heading_linewidth,
-                #     mutation_scale=self.agent_heading_mutation_scale
-                # )
 
         if self.trail_target in ("robot", "both"):
             key = id(robot)

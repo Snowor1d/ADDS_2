@@ -13,8 +13,6 @@ def print_banner():
 ╚═╝  ╚═╝╚═════╝ ╚═════╝ ╚══════╝
 """)
 
-#MAP_NUM_RANDOM = [1, 2, 3, 6, 7, 8, 23, 24, 25, 26]
-#MAP_NUM_RANDOM = [1, 28, 29, 6, 7, 8, 30, 24, 25, 26]
 
 def main():
     print_banner()

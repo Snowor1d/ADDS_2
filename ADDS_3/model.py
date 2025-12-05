@@ -24,6 +24,7 @@ import os
 from collections import deque
 from typing import List, Tuple
 from visibility_atlas import VisibilityAtlas
+from shadow_casting import ShadowFOV
 #import cv2
 
 import torch
@@ -308,13 +309,13 @@ class FightingModel(Model):
         self.mesh_list = list()
         if (self.map_num == -1):
             if(MAP_NUM != -2 and MAP_NUM != -1):
-                self.extract_map_50(self.map_num)
+                self.extract_map(self.map_num)
             if (MAP_NUM == -1):
                 map_num_candidates = MAP_NUM_RANDOM
                 self.map_num = random.choice(map_num_candidates)
-                self.extract_map_50(self.map_num)    
+                self.extract_map(self.map_num)    
         else :
-            self.extract_map_50(self.map_num)
+            self.extract_map(self.map_num)
 
         self.distance = {}  
         self.schedule = RandomActivation(self)
@@ -327,12 +328,13 @@ class FightingModel(Model):
         self.match_grid_to_mesh = {}
         self.match_mesh_to_grid = {}
         self.valid_space = {}
+        self.blocked = np.zeros((self.height, self.width), dtype=bool)
+        self.obstacles_grid_points = []
         self.fill_outwalls(width, height)
         self.mesh_map()
         self.make_random_exit()
         self.construct_map()
         self.calculate_mesh_danger()
-        self.exit_list = []
         self.random_agent_distribute_outdoor(number_agents, 1)
         if (self.robot_version != 'N'):
             self.make_robot()
@@ -350,20 +352,26 @@ class FightingModel(Model):
 
             
         self._obstacle_polys = [Polygon(ob) for ob in self.obstacles]
-        print(self._obstacle_polys)
+        #print(self._obstacle_polys)
         self._exit_polys = [Polygon(poly) for poly in self.exit_list]
         self._mesh_polys = [Polygon(t) for t in self.mesh_list]
         self._mesh_poly2tri = {poly: tri for poly, tri in zip(self._mesh_polys, self.mesh_list)}
         self._mesh_index = STRtree(self._mesh_polys)
 
+        self._build_blocked_grid()
+
         self.obstacles_version = 0
-        self.vision_atlas = VisibilityAtlas(world_w=width, world_h=height, region_cells=2.0)
+        self.vision_atlas = VisibilityAtlas(world_w=width, world_h=height, region_cells=4.0)
         
-        SENSOR_R_AGENT = AGENT_VISION  # 네가 쓰는 값으로 맞춰줘
-        SENSOR_R_ROBOT = ROBOT_VISION  # 로봇이 다르면 따로
+        SENSOR_R_AGENT = AGENT_VISION
+        SENSOR_R_ROBOT = ROBOT_VISION  
         self.vision_atlas.rebuild_obstacles(self._obstacle_polys, self.obstacles_version)
         self.vision_atlas.set_radii([AGENT_VISION])
         self.vision_atlas.precompute(rays_per_poly=64, bsearch_iters=6)
+
+        #self.shadow_fov = ShadowFOV(self.blocked)
+
+
         self.exit_meta = [
         {"idx":i,
          "center": tuple(self.exit_point[i]),
@@ -400,6 +408,7 @@ class FightingModel(Model):
     def in_exit(self, xy, tol=0.0):
         p = Point(xy[0], xy[1])
         for poly in self._exit_polys:
+            #print(f"{p}가 {poly}에 있는지 확인합니다")    
             if (poly.buffer(tol).contains(p)) if tol > 0 else poly.contains(p):
                 return True
         return False
@@ -655,135 +664,12 @@ class FightingModel(Model):
         width = 50
         height = 50 
         #좌하단 #우하단 #우상단 #좌상단 순으로 입력해주기
-        if map_num == 0:
-            self.obstacles.append([[10, 10], [20, 20], [10, 20]])
-            self.obstacles.append([[10, 20], [20, 20], [20,50], [10, 50]])
-            self.obstacles.append([[20, 40], [50, 40], [50, 50], [20, 50]])
-            self.obstacles.append([[40, 10], [60, 20], [40, 20]])
-
-        elif map_num == 1: # 산학협력관 + 잔디밭
-            self.obstacles.append([[15, 20], [25, 20], [25, 40], [15, 40]])
-            self.obstacles.append([[15, 45], [55, 45], [55, 55], [15, 55]])
-            self.obstacles.append([[35, 15], [55, 15], [55, 35]])
-
-            self.spaces_of_map = [[[0, 55], [15, 70]],[[15, 55], [35, 70]],[[35, 55], [55, 70]],[[55, 55], [70 ,70]]
-                                ,[[0, 40], [15, 55]],[[15, 40], [35, 45]],[[35, 35], [55, 45]],[[55, 45], [70, 55]],[[55, 35], [70, 45]]
-                                ,[[0, 20], [15, 40]],[[25, 20], [35, 40]],[[35, 15], [55, 35]],[[55, 15], [70, 35]]
-                                ,[[0, 0], [15, 20]],[[15, 0], [35, 20]],[[35, 0], [55, 15]],[[55, 0], [70, 15]]]
-            
-
-        elif map_num == 2: # 제 1공학관
-            # 윗 건물
-            self.obstacles.append([[10, 52], [60, 52], [60, 60], [10, 60]])
-            # 정원
-            self.obstacles.append([[32, 26], [44, 26], [44, 40], [32, 40]])
-            # 아래 건물
-            self.obstacles.append([[10, 8], [44, 8], [44, 16], [10, 16]])
-            #오른쪽 건물
-            self.obstacles.append([[50, 8], [56, 8], [56, 14], [50, 14]])
-            self.obstacles.append([[50, 14], [60, 14], [60, 46], [50, 46]])
-
-            self.spaces_of_map = [[[0, 60],[10, 70]],[[10, 60],[35, 70]],[[35, 60 ],[60, 70]],[[60 ,60],[70, 70]]
-                                    ,[[0, 52],[10, 60]],[[0, 40],[16, 52]],[[16, 40],[32, 52]],[[32, 40],[44, 52]],[[44, 46],[60, 52]],[[60, 46],[70, 60]]
-                                    ,[[0, 26],[16, 40]],[[16, 26],[32, 40]],[[44, 26],[50, 46]],[[60, 30],[70, 46]]
-                                    ,[[0, 16],[16, 26]],[[16, 16],[32, 26]],[[32, 16],[44, 26]],[[44, 8],[50, 26]],[[60, 14],[70, 30]]
-                                    ,[[0, 0],[10, 16]],[[10, 0],[27, 8]],[[27, 0],[44, 8]],[[44, 0],[56, 8]],[[56, 0],[70, 14]]]
-
-        elif map_num == 3: # 공학실습동 + 제 2 종합 연구동
-            # 왼쪽 건물
-            self.obstacles.append([[12, 12], [18, 12], [18, 33], [12, 33]])
-            self.obstacles.append([[12, 37], [18, 37], [18, 58], [12, 58]])
-            # 중간 건물
-            self.obstacles.append([[26, 12], [32, 12], [32, 33], [26, 33]])
-            self.obstacles.append([[26, 37], [32, 37], [32, 58], [26, 58]])
-            # 오른쪽 건물
-            self.obstacles.append([[38, 12], [48, 12], [48, 22], [38, 22]])
-            self.obstacles.append([[38, 26], [48, 26], [48, 44], [38, 44]])
-            self.obstacles.append([[38, 48], [48, 48], [48, 58], [38, 58]])
-            self.obstacles.append([[48, 12], [62, 12], [62, 18], [48, 18]])
-            self.obstacles.append([[48, 30], [62, 30], [62, 40], [48, 40]])
-            self.obstacles.append([[48, 52], [62, 52], [62, 58], [48, 58]])
-
-            self.spaces_of_map = [[[0, 58],[12, 70]],[[12, 58],[26, 70]],[[26, 58],[38, 70]],[[38, 58],[62, 70]],[[62, 52],[70, 70]]
-                                    ,[[0, 37],[12, 58]],[[18, 37],[26, 58]],[[32, 37],[38, 58]],[[38, 44],[48, 48]],[[48, 40],[62, 52]],[[62, 30],[70, 50]]
-                                    ,[[0, 33],[12, 37]],[[12, 33],[26, 37]],[[26, 33],[38, 37]]
-                                    ,[[0, 12],[12, 33]],[[18, 12],[26, 33]],[[32, 12],[38, 33]],[[38, 22],[48, 26]],[[48, 18],[62, 30]],[[62, 12],[70, 30]]
-                                    ,[[0, 0],[12, 12]],[[12, 0],[26, 12]],[[26, 0],[38, 12]],[[38, 0],[62, 12]],[[62, 0],[70, 12]]]
-        elif map_num == 4: # 벤젠고리관
-            # 아래 건물
-            self.obstacles.append([[48, 10], [58, 20], [58, 32], [44, 18]])
-            self.obstacles.append([[26, 10], [44, 10], [40, 18], [26, 18]])
-            # 중간 건물
-            self.obstacles.append([[32, 24], [50, 42], [44, 48], [26, 30]])
-            # 윗 건물
-            self.obstacles.append([[12, 28], [20, 28], [20, 42], [12, 46]])
-            self.obstacles.append([[12, 50], [20, 46], [32, 58], [26, 64]]) 
-
-            self.spaces_of_map = [[[0, 50],[20, 70]],[[20, 58],[32, 70]],[[32, 58],[44, 70]],[[44, 42],[70, 70]]
-                                    ,[[0, 18],[12, 50]],[[12, 42],[20, 50]],[[20, 30],[32, 58]],[[32, 36],[44, 58]]
-                                    ,[[12, 18],[32, 30]],[[32, 18],[44, 36]],[[44, 18],[58, 42]],[[58, 20],[70, 42]]
-                                    ,[[0, 0],[12, 18]],[[12, 0],[32, 18]],[[40, 10],[48, 18]],[[32, 0],[48, 10]],[[48, 0],[70, 20]]]
-
-        elif map_num == 5: # 경영관 + 퇴계 인문관
-            # 왼쪽 건물
-            self.obstacles.append([[18, 10], [24, 10], [24, 28], [18, 28]])
-            self.obstacles.append([[12, 20], [18, 20], [18, 26], [12, 26]])
-            # # 오른쪽 건물
-            self.obstacles.append([[34, 10], [46, 10], [46, 16], [34, 16]])
-            self.obstacles.append([[46, 10], [56, 10], [56, 28], [46, 28]])
-            # # 윗 건물
-            self.obstacles.append([[18, 34], [24, 34], [24, 60], [18, 60]])
-            self.obstacles.append([[24, 54], [38, 54], [38, 60], [24, 60]]) 
-            self.obstacles.append([[46, 40], [52, 40], [52, 48], [46, 48]]) 
-            self.obstacles.append([[24, 34], [56, 34], [56, 40], [24, 40]])
-            
-            self.spaces_of_map = [[[0, 47],[18, 70]],[[18, 60],[38, 70]],[[38, 54],[70 ,70]]
-                                    ,[[0, 34],[18, 47]],[[24, 40],[46, 54]],[[46, 40],[70, 54]]
-                                    ,[[0, 20],[18, 34]],[[18, 28],[34, 34]],[[34, 28],[56, 34]]
-                                    ,[[0, 0],[18, 20]],[[24, 10],[34, 28]],[[34, 16],[46, 28]],[[56, 10],[70, 34]]
-                                    ,[[18, 0],[34, 10]],[[34, 0],[56, 10]],[[56, 0],[70, 10]]]
-
-
-    def extract_map_50(self, map_num):
-        width = 50
-        height = 50 
-        #좌하단 #우하단 #우상단 #좌상단 순으로 입력해주기
         scale = 5/7
 
-        if map_num == 1: # 왼쪽 상단
-            self.obstacles.append([[10, 10], [16, 10], [10, 16]])
-            self.obstacles.append([[34, 10], [40, 10], [40, 16]])
-            self.obstacles.append([[10, 34], [16, 40], [10, 40]])
-            self.obstacles.append([[40, 34], [40, 40], [34, 40]])
-        
-        elif map_num == 2: #오른쪽 하단
-            self.obstacles.append([[8, 8], [25, 8], [25, 13], [8, 13]])
-            self.obstacles.append([[8, 16], [14, 16], [14, 25], [8, 25]])
-            self.obstacles.append([[20, 16], [25, 16], [25, 34], [20, 34]])
-            self.obstacles.append([[33, 16], [40, 16], [40, 34], [33, 34]])
-            self.obstacles.append([[8, 40], [13, 40], [13, 45], [8, 45]])
-            self.obstacles.append([[18, 40], [35, 40], [35, 45], [18, 45]])
-        
-        elif map_num == 3: #왼쪽 하단
-            self.obstacles.append([[15, 8], [20, 8], [20, 15], [15, 20]])
-            self.obstacles.append([[20, 21], [20, 28], [15, 28]])
-            self.obstacles.append([[35, 8], [43, 8], [43, 15], [35, 15]])
-            self.obstacles.append([[35, 21], [43, 21], [43, 28], [35, 28]])
-            self.obstacles.append([[7, 40], [40, 40], [40, 45], [7, 45]])
-
-        elif map_num == 4: #오른쪽 상단
-            self.obstacles.append([[12, 12], [18, 12], [18, 25], [12, 25]])
-            self.obstacles.append([[25, 12], [40, 12], [40, 20], [25, 20]])
-            self.obstacles.append([[12, 38], [30, 38], [30, 45], [17, 45]])
-        
-        elif map_num == 5: #오른쪽 상단
-            self.obstacles.append([[10, 10], [15, 10], [15, 35], [10, 35]])
-            self.obstacles.append([[20, 10], [25, 10], [25, 35], [20, 35]])
-
-
-        elif map_num == 6:
+        if map_num == 6:
             self.obstacles.append([[10, 10], [20, 10], [20, 20], [10, 20]])
             self.obstacles.append([[10, 30], [40, 30], [40, 40], [10, 40]])
+            
             
             self.obstacles.append([[60, 60], [70, 60], [70, 70], [60, 70]])
             self.obstacles.append([[10, 80], [40, 80], [40, 90], [10, 90]])
@@ -804,105 +690,21 @@ class FightingModel(Model):
             self.obstacles.append([[10, 15], [25, 15], [10, 40]])
             self.obstacles.append([[30, 20], [40, 20], [40, 35], [30, 35]])
 
-            
-        elif map_num == 9:
-            self.obstacles.append([[10, 15], [35, 15], [35, 25], [10, 25]])
-            self.obstacles.append([[0, 35], [20, 35], [20, 40], [0, 40]])
-            self.obstacles.append([[30, 40], [40, 30], [40, 40]])
-        
-
-        elif map_num == 10:
-            self.obstacles.append([[10, 30], [15, 30], [15, 40], [10, 40]])
-            self.obstacles.append([[30, 20], [40, 20], [40, 35], [30, 35]])
-            self.obstacles.append([[41, 10], [45, 10], [45, 25], [41, 25]])
-
-        elif map_num == 11:
-            self.obstacles.append([[10, 5], [40, 5], [40, 20]])
-            self.obstacles.append([[6, 25], [10, 25], [10, 40], [6, 40]])
-            self.obstacles.append([[11, 32], [40, 32], [40, 40], [11, 40]])
-
-        elif map_num == 12:
-            self.obstacles.append([[15, 10], [40, 35], [35, 40], [10, 15]])
-            self.obstacles.append([[20, 0], [35, 0], [35, 15]])
-            self.obstacles.append([[10, 40], [20, 49], [10, 49]])
-
-        elif map_num == 21:
-            self.obstacles.append([[10, 10], [20, 10], [20, 15], [20, 20]])
-            self.obstacles.append([[25, 10], [35, 10], [35, 15], [25, 15]])
-            self.obstacles.append([[35, 20], [40, 20], [40, 35], [35, 30]])
-            self.obstacles.append([[20, 25], [25, 25], [25, 40], [20, 40]])
-            self.obstacles.append([[10, 30], [15, 30], [15, 40], [10, 40]])
-
-        elif map_num == 22:
-            self.obstacles.append([[10, 10], [15, 20], [10, 20]])
-            self.obstacles.append([[20, 10], [40, 10], [40, 15], [40, 15]])     
-            self.obstacles.append([[20, 20], [40, 20], [20, 25]])
-            self.obstacles.append([[30, 35], [40, 35], [40, 40], [30, 40]])
-            self.obstacles.append([[10, 30], [25, 30], [25, 40], [10, 40]]) 
-
-        elif map_num == 23:
-            self.obstacles.append([[10, 15], [35, 15], [35, 25], [10, 25]])
-            self.obstacles.append([[0, 35], [20, 35], [20, 40], [0, 40]])
-            self.obstacles.append([[30, 35], [35, 30], [35, 35]])
-
-        elif map_num == 24:
-            self.obstacles.append([[10, 30], [15, 30], [15, 40], [10, 40]])
-            self.obstacles.append([[30, 20], [40, 20], [40, 35], [30, 35]])
-
-        elif map_num == 25:
-            self.obstacles.append([[15, 5], [40, 5], [40, 20]])
-            self.obstacles.append([[20, 25], [25, 25], [25, 20], [20, 20]])
-            #self.obstacles.append([[6, 25], [10, 25], [10, 40], [6, 40]])
-            self.obstacles.append([[11, 32], [40, 32], [40, 40], [11, 40]])
-        elif map_num == 26:
-            self.obstacles.append([[20, 15], [35, 30], [30, 35], [15, 20]])
-            self.obstacles.append([[20, 0], [30, 0], [30, 10]])
-            self.obstacles.append([[10, 40], [20, 40], [20, 35], [10, 35]])
-
-        elif map_num == 27: #오른쪽 하단
-            self.obstacles.append([[8, 8], [25, 8], [25, 13], [8, 13]])
-            self.obstacles.append([[8, 16], [14, 16], [14, 25], [8, 25]])
-            self.obstacles.append([[20, 16], [25, 16], [25, 34], [20, 34]])
-            self.obstacles.append([[33, 16], [40, 16], [40, 34], [33, 34]])
-            self.obstacles.append([[8, 40], [13, 40], [13, 45], [8, 45]])
-            self.obstacles.append([[18, 40], [35, 40], [35, 45], [18, 45]])
-
-        elif map_num == 28: #오른쪽 하단
-            self.obstacles.append([[8, 8], [25, 8], [25, 13], [8, 13]])
-            #self.obstacles.append([[8, 16], [14, 16], [14, 25], [8, 25]])
-            self.obstacles.append([[20, 28], [25, 28], [25, 34], [20, 34]])
-            self.obstacles.append([[33, 16], [40, 16], [40, 34], [33, 34]])
-            #self.obstacles.append([[8, 40], [13, 40], [13, 45], [8, 45]])
-            self.obstacles.append([[18, 40], [35, 40], [35, 45], [18, 45]])
-
-        elif map_num == 29: #왼쪽 하단
-            self.obstacles.append([[15, 8], [20, 8], [20, 10], [15, 15]])
-            self.obstacles.append([[20, 21], [20, 28], [15, 28]])
-            self.obstacles.append([[35, 8], [43, 8], [43, 15], [35, 15]])
-            self.obstacles.append([[35, 21], [43, 21], [43, 28], [35, 28]])
-            self.obstacles.append([[20, 36], [36, 36], [36, 42], [20, 42]])
-
-        elif map_num == 30:
-            self.obstacles.append([[10, 10], [15, 10], [15, 20], [10, 20]])
-            self.obstacles.append([[20, 10], [23, 10], [23, 20], [20, 20]])
-            self.obstacles.append([[35, 10], [40, 10], [40, 20], [35, 20]])
-            self.obstacles.append([[10, 35], [20, 35], [20, 40], [10, 40]])
-            self.obstacles.append([[35, 35], [40, 30], [40, 35]])
-
-
-        elif map_num == 31:
-            self.obstacles.append([[10, 30], [19, 30], [24, 40], [10, 40]])
-            self.obstacles.append([[30, 10], [35, 10], [35, 30], [30, 30]])
-            self.obstacles.append([[10, 10], [15, 10], [15, 15], [10, 15]])
-            self.obstacles.append([[15, 20], [20, 20], [20, 25], [15, 25]])
-            self.obstacles.append([[37, 35], [42, 35], [42, 40], [37, 40]])
 
 # --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 
     def construct_map(self):
-        pass
-    
+        for i in range(len(self.obstacles)):
+            for each_point in  get_points_within_polygon(self.obstacles[i], 1):
+                self.obstacles_grid_points.append(each_point)
+                a = WallAgent(self.agent_num, self, each_point, 9)
+                self.agent_num+=1
+                #self.schedule_e.add(a)
+                self.valid_space[(each_point[0], each_point[1]-1)] = 0
+                self.valid_space[(each_point[0], each_point[1])] = 0
+                #self.grid.place_agent(a, each_point)
+
     def is_free_point(self, x: float, y: float, padding: float = 0.0) -> bool:
         if not (0+padding <= x <= self.width-padding and 0+padding <= y <= self.height-padding):
             return False
@@ -963,65 +765,30 @@ class FightingModel(Model):
         ]
             
         all_exit_points = [
-            (exit_width/2,                 exit_height/2                ),  # 왼아  (2.5, 2.5)
-            (self.width - exit_width/2,    exit_height/2                ),  # 오아  (47.5, 2.5)
-            (self.width - exit_width/2,    self.height - exit_height/2  ),  # 오위 (47.5, 47.5)
-            (exit_width/2,                 self.height - exit_height/2  ),  # 왼위 (2.5, 47.5)
+            (exit_width/2,                 exit_height/2                ),  # 왼아  0
+            (self.width - exit_width/2,    exit_height/2                ),  # 오아  1
+            (self.width - exit_width/2,    self.height - exit_height/2  ),  # 오위  2
+            (exit_width/2,                 self.height - exit_height/2  ),  # 왼위  3
         ]
         
         # 랜덤하게 출구 선택
-        index = random.randint(0, len(all_exits) - 1)
+
+        index = []
         #print(self.map_num)
         if (self.map_num == 6): #우하단
-            index = 1
+            index = [0, 2]
         elif (self.map_num == 7): #좌하단
-            index = 0
+            index = [0]
         elif (self.map_num == 8) : #우하단
-            index = 1
-        elif (self.map_num == 1):
-            index = 3
-        elif (self.map_num == 2):
-            index = 1
-        elif (self.map_num == 3):
-            index = 0
-        elif (self.map_num == 4):
-            index = 3
-        elif (self.map_num == 5):
-            index = 2
-        elif (self.map_num == 9):
-            index = 2
-        elif (self.map_num == 10):
-            index = 0
-        elif (self.map_num == 11):
-            index = 0
-        elif (self.map_num == 12):
-            index = 1
-        elif (self.map_num == 21):
-            index = 2
-        elif (self.map_num == 22):
-            index = 1
-        elif (self.map_num == 23):
-            index = 2
-        elif (self.map_num == 24):
-            index = 0
-        elif (self.map_num == 25):
-            index = 0
-        elif (self.map_num == 26):
-            index = 1
-        elif (self.map_num == 27):
-            index = 1
-        elif (self.map_num == 28):
-            index = 1
-        elif (self.map_num == 29):
-            index = 0
-        elif (self.map_num == 30):
-            index = 2
-        elif (self.map_num == 31):
-            index = 0
+            index = [1]
+        self.exit_point = []
+        self.exit_list = []
+        for i in range(len(index)):
+            self.exit_list.append(all_exits[index[i]])
 
-        
-        self.exit_list = [all_exits[index]]
-        self.exit_point = [all_exit_points[index]]
+        for i in range(len(index)):
+            self.exit_point.append(all_exit_points[index[i]])    
+
         
         return 0
 
@@ -1041,68 +808,6 @@ class FightingModel(Model):
             return 0
         else:
             return 1
-    def way_to_exit(self):
-        visible_distance = 6
-
-        # 출구를 순회하면서 각 출구에 대한 x1, x2, y1, y2를 구합니다.
-        for exit_rec in self.exit_recs:
-            x1, x2 = float('inf'), float('-inf')
-            y1, y2 = float('inf'), float('-inf')
-            
-            # 출구의 경계좌표를 찾습니다.
-            for i in exit_rec:
-                if i[0] > x2:
-                    x2 = i[0]
-                if i[0] < x1:
-                    x1 = i[0]
-                if i[1] > y2:
-                    y2 = i[1]
-                if i[1] < y1:
-                    y1 = i[1]
-
-            # 좌표 범위에 대해 탐색
-            for j in range(y1, y2 + 1):
-                self.recur_exit(x1, j, visible_distance, "l")
-                self.recur_exit(x2, j, visible_distance, "r")
-
-            for j in range(x1, x2 + 1):
-                self.recur_exit(j, y1, visible_distance, "d")
-                self.recur_exit(j, y2, visible_distance, "u")
-
-    def recur_exit(self, x, y, visible_distance, direction):
-        # 기저 조건 확인
-        if visible_distance < 1:
-            return
-        
-        # 경계값 확인
-        max_index = len(self.grid_to_space) - 1
-        if x < 0 or y < 0 or x > max_index or y > max_index:
-            return
-        
-        # 방문한 위치가 방 내부라면 반환
-        if self.grid_to_space[x][y] in self.room_list:
-            return
-
-        # 현재 위치를 경로로 설정
-        self.exit_way_rec[x][y] = 1
-        
-        # 방향에 따른 재귀 호출
-        if direction == "l":
-            self.recur_exit(x - 1, y - 1, visible_distance - 2, "l")
-            self.recur_exit(x - 1, y, visible_distance - 1, "l")
-            self.recur_exit(x - 1, y + 1, visible_distance - 2, "l")
-        elif direction == "r":
-            self.recur_exit(x + 1, y - 1, visible_distance - 2, "r")
-            self.recur_exit(x + 1, y, visible_distance - 1, "r")
-            self.recur_exit(x + 1, y + 1, visible_distance - 2, "r")
-        elif direction == "u":
-            self.recur_exit(x - 1, y + 1, visible_distance - 2, "u")
-            self.recur_exit(x, y + 1, visible_distance - 1, "u")
-            self.recur_exit(x + 1, y + 1, visible_distance - 2, "u")
-        else:  # direction == "d"
-            self.recur_exit(x + 1, y - 1, visible_distance - 2, "d")
-            self.recur_exit(x, y - 1, visible_distance - 1, "d")
-            self.recur_exit(x - 1, y - 1, visible_distance - 2, "d")
 
 
     def robot_placement(self, n_robots: int = 1, padding: float = 1.0):
@@ -1255,9 +960,9 @@ class FightingModel(Model):
                 dx, dy = action[0], action[1]
                 self.robot.receive_action([dx, dy])
 
-            if(self.using_model and self.step_n%ACTION_SCALE==(ACTION_SCALE-1) and SCALE_CHECK):
-                print("reward_based_alived : ", self.reward_based_alived() * REWARD_A)
-                #print("reward_based_all_agents_danger : ", self.reward_based_all_agents_danger() * REWARD_B)
+            if(self.using_model and self.step_n%ACTION_SCALE==(ACTION_SCALE-1) or SCALE_CHECK):
+                #print("reward_based_alived : ", self.reward_based_alived() * REWARD_A)
+                print("reward_based_all_agents_danger : ", self.reward_based_all_agents_danger() * REWARD_B)
                 #print("reward_based_gain : ", self.reward_based_gain() * REWARD_C)
                 #print("reward_penalty : ", self.reward_penalty() * REWARD_D)
                 #print("reward_based_evacuated_with_robot : ", self.reward_based_evacuated_with_robot() * REWARD_E)
@@ -1274,8 +979,9 @@ class FightingModel(Model):
         elif (self.robot_version == 'R'):
             self.robot.robot_policy_go_and_back()  
 
+        #print(self.alived_agents())
         self.schedule.step()
-
+        
 
         self.previous_evacuated = self.now_evacuated
         self.now_evacuated = self.evacuated_agents()
@@ -1476,7 +1182,7 @@ class FightingModel(Model):
             return 0
     
     # 연속 → 라스터 (RL 프레임) 교체
-    def return_current_image(self, H: int = 50, W: int = 50):
+    def return_current_image(self, H: int = 100, W: int = 100):
         
         # 나중에 벽과 장애물은 자정되어있는 것을 쓰게 교체할 것임 (시간이슈)
 
@@ -1531,12 +1237,20 @@ class FightingModel(Model):
         return img
     
     def update_obstacles(self, new_polys):
-        self._obstacle_polys = new_polys
-        self.obstacles_version += 1
-        self.vision_atlas.rebuild_obstacles(self._obstacle_polys, self.obstacles_version)
-        print("[vision] obs polys:", len(self._polys))
+        # self._obstacle_polys = new_polys
+        # self.obstacles_version += 1
+        # self.vision_atlas.rebuild_obstacles(self._obstacle_polys, self.obstacles_version)
+        # print("[vision] obs polys:", len(self._polys))
+        
+        self.obstacles = [list(poly.exterior.coords) for poly in new_polys]
+        self._obstacle_polys = [Polygon(ob) for ob in self.obstacles]
 
-        self.vision_atlas.precompute(rays_per_poly=32, bsearch_iters=8)
+        self.obstacles_grid_points.clear()
+        self.construct_map()
+        self._build_blocked_grid()
+        self.shadow_fov = ShadowFOV(self.valid_spaces)
+
+        #self.vision_atlas.precompute(rays_per_poly=32, bsearch_iters=8)
     def choice_random_waypoint(self):
         return [random.randint(0, self.width-1), random.randint(0, self.height-1)]
 
@@ -1550,6 +1264,28 @@ class FightingModel(Model):
             if(agent.type == 0 or agent.type == 1 or agent.type == 2):
                 total_life_time += agent.life_time
         return total_life_time
+
+
+    def _build_blocked_grid(self):
+        """
+        장애물/외벽 정보를 기반으로 FOV용 blocked[y, x] 맵 생성.
+        True = 시야 막힘.
+        """
+        self.blocked = np.zeros((self.height, self.width), dtype=bool)
+
+        # 1) 외곽 벽
+        for x in range(self.width):
+            self.blocked[0, x] = True
+            self.blocked[self.height - 1, x] = True
+        for y in range(self.height):
+            self.blocked[y, 0] = True
+            self.blocked[y, self.width - 1] = True
+
+        # 2) construct_map 에서 만든 장애물 grid 포인트
+        for (gx, gy) in self.obstacles_grid_points:
+            if 0 <= gx < self.width and 0 <= gy < self.height:
+                self.blocked[gy, gx] = True
+
 
     
 

@@ -15,6 +15,7 @@ import pygame
 
 from model import FightingModel
 from continuous_renderer import ContinuousRenderer
+from config import *
 
 # =========================
 # 화면/월드 설정
@@ -54,15 +55,24 @@ def make_renderer(world_w, world_h):
         snap_exit_to_boundary=True,
     )
 
-WHITE=(255,255,255); BLACK=(0,0,0); GREY=(210,210,210)
-DARK=(40,40,42); ACCENT=(18,136,255)
+WHITE=(255,255,255)
+BLACK=(0,0,0)
+GREY=(210,210,210)
+DARK=(40,40,42)
+ACCENT=(18,136,255)
+
+
 
 # ====== 간단 GUI 위젯 ======
 class UIButton:
     def __init__(self, rect, label, on_click, font, bg=(240,240,240), fg=DARK):
-        self.rect = pygame.Rect(rect); self.label = label
-        self.on_click = on_click; self.font = font
-        self.bg = bg; self.fg = fg; self.hover=False
+        self.rect = pygame.Rect(rect)
+        self.label = label
+        self.on_click = on_click
+        self.font = font
+        self.bg = bg
+        self.fg = fg
+        self.hover=False
     def draw(self, surf):
         color = (248,248,248) if self.hover else self.bg
         pygame.draw.rect(surf, color, self.rect, border_radius=8)
@@ -75,9 +85,11 @@ class UIButton:
             self.on_click()
 
 class UISlider:
+
     def __init__(self, rect, vmin, vmax, value, on_change):
         self.rect = pygame.Rect(rect); self.vmin=vmin; self.vmax=vmax
         self.value=float(value); self.on_change=on_change; self.drag=False
+
     def draw(self, surf):
         track = self.rect.inflate(0,-14); track.centery=self.rect.centery
         pygame.draw.rect(surf,(230,230,230),track,border_radius=6)
@@ -86,6 +98,7 @@ class UISlider:
         knob_x = track.left + int(t*track.width)
         pygame.draw.circle(surf, ACCENT, (knob_x,track.centery), 8)
         pygame.draw.circle(surf, (255,255,255), (knob_x,track.centery), 8, 2)
+
     def handle(self, e):
         def set_from_x(mx):
             track = self.rect.inflate(0,-14); track.centery=self.rect.centery
@@ -93,50 +106,74 @@ class UISlider:
             self.value = self.vmin + t*(self.vmax-self.vmin); self.on_change(self.value)
         if e.type==pygame.MOUSEBUTTONDOWN and e.button==1 and self.rect.collidepoint(e.pos):
             self.drag=True; set_from_x(e.pos[0])
-        elif e.type==pygame.MOUSEBUTTONUP and e.button==1: self.drag=False
-        elif e.type==pygame.MOUSEMOTION and self.drag: set_from_x(e.pos[0])
+        elif e.type==pygame.MOUSEBUTTONUP and e.button==1: 
+            self.drag=False
+        elif e.type==pygame.MOUSEMOTION and self.drag: 
+            set_from_x(e.pos[0])
 
 class UIStepper:
     def __init__(self,label,x,y,w,value,step,on_change,font,min_val=0):
-        self.label=label; self.value=int(value); self.step=int(step)
-        self.on_change=on_change; self.font=font; self.min_val=min_val
+        self.label=label; 
+        self.value=int(value); 
+        self.step=int(step)
+        self.on_change=on_change; 
+        self.font=font; 
+        self.min_val=min_val
         self.rect_label=pygame.Rect(x,y,w,20)
         self.btn_minus=pygame.Rect(x,y+20,32,26)
         self.box=pygame.Rect(x+36,y+20,w-72,26)
         self.btn_plus=pygame.Rect(x+w-32,y+20,32,26)
+
     def draw(self,s):
         s.blit(self.font.render(self.label,True,DARK),(self.rect_label.left,self.rect_label.top))
+
         for btn,sym in ((self.btn_minus,"-"),(self.btn_plus,"+")):
             pygame.draw.rect(s,(242,242,242),btn,border_radius=6)
             pygame.draw.rect(s,(200,200,200),btn,1,border_radius=6)
             s.blit(self.font.render(sym,True,DARK),btn.move(10,2))
+
         pygame.draw.rect(s,(250,250,250),self.box,border_radius=6)
         pygame.draw.rect(s,(200,200,200),self.box,1,border_radius=6)
         s.blit(self.font.render(str(self.value),True,DARK), self.font.render(str(self.value),True,DARK).get_rect(center=self.box.center))
+    
     def handle(self,e):
         if e.type==pygame.MOUSEBUTTONDOWN and e.button==1:
             if self.btn_minus.collidepoint(e.pos):
-                self.value=max(self.min_val,self.value-self.step); self.on_change(self.value)
+                self.value=max(self.min_val,self.value-self.step)
+                self.on_change(self.value)
             elif self.btn_plus.collidepoint(e.pos):
-                self.value=self.value+self.step; self.on_change(self.value)
+                self.value=self.value+self.step
+                self.on_change(self.value)
 
 class UIInputNumber:
     def __init__(self,label,x,y,w,value,on_change,font,min_val=0):
-        self.label=label; self.font=font; self.text=str(int(value))
-        self.rect_label=pygame.Rect(x,y,w,20); self.box=pygame.Rect(x,y+20,w,26)
-        self.focus=False; self.on_change=on_change; self.min_val=min_val
-        self._blink_t=0.0; self._show_caret=True
+        self.label=label
+        self.font=font
+        self.text=str(int(value))
+        self.rect_label=pygame.Rect(x,y,w,20)
+        self.box=pygame.Rect(x,y+20,w,26)
+        self.focus=False
+        self.on_change=on_change
+        self.min_val=min_val
+        self._blink_t=0.0
+        self._show_caret=True
+
     def draw(self,s):
         s.blit(self.font.render(self.label,True,DARK),(self.rect_label.left,self.rect_label.top))
         pygame.draw.rect(s,(250,250,250),self.box,border_radius=6)
         pygame.draw.rect(s,(120,180,255) if self.focus else (200,200,200),self.box,1,border_radius=6)
         txtsurf=self.font.render(self.text,True,DARK)
-        r=txtsurf.get_rect(midleft=(self.box.left+8,self.box.centery)); s.blit(txtsurf,r)
+        r=txtsurf.get_rect(midleft=(self.box.left+8,self.box.centery))
+        s.blit(txtsurf,r)
         if self.focus:
             self._blink_t+=1/60
-            if self._blink_t>=0.5: self._blink_t=0.0; self._show_caret=not self._show_caret
+            if self._blink_t>=0.5: 
+                self._blink_t=0.0
+            self._show_caret=not self._show_caret
             if self._show_caret:
-                cx=r.right+2; pygame.draw.line(s,DARK,(cx,self.box.top+5),(cx,self.box.bottom-5),1)
+                cx=r.right+2
+                pygame.draw.line(s,DARK,(cx,self.box.top+5),(cx,self.box.bottom-5),1)
+
     def handle(self,e):
         if e.type==pygame.MOUSEBUTTONDOWN and e.button==1:
             self.focus=self.box.collidepoint(e.pos)
@@ -227,65 +264,109 @@ def main():
     font = pygame.font.SysFont("Arial", 18); font_small = pygame.font.SysFont("Arial", 16)
 
     # 상태
-    paused=False; step_once=False; speed=1.0
-    pending_map=6; pending_agents=20
+
+    paused=False
+    step_once=False
+    speed=1.0
+
+    if MAP_NUM != -1:
+        pending_map = MAP_NUM
+    else:
+        pending_map = np.random.choice(MAP_NUM_RANDOM)
+
+    pending_agents= np.random.randint(CROWD_NUMBER_MIN, CROWD_NUMBER_MAX+1)
     world_w, world_h = GRID_W, GRID_H   # ← 여기를 크게 바꿔도 화면에 맞춰서 그려짐!
 
     env, renderer = create_env_and_renderer(pending_map, pending_agents, world_w, world_h)
     curr_map, curr_agents = pending_map, pending_agents
-    step_count=0; last=time.perf_counter(); acc_steps=0.0
-    last_render_ms=0.0; target_frame_ms=1000.0/TARGET_RENDER_FPS
+    step_count=0
+    last=time.perf_counter() 
+    acc_steps=0.0
+    last_render_ms=0.0
+    target_frame_ms=1000.0/TARGET_RENDER_FPS
     substep_limit = ADAPTIVE_SUBSTEP_INIT
 
     # ─ GUI 배치 ─
     panel_x = SCREEN_WIDTH - PANEL_RIGHT_WIDTH + 12
     panel_w = PANEL_RIGHT_WIDTH - 24
-    y=10; title_rect = pygame.Rect(panel_x,y,panel_w,24); y+=28
-    BTN_H=28; GAP=6; btn_w=(panel_w - GAP*2)//3
-    def toggle_pause(): nonlocal paused; paused=not paused
+    y=10
+    title_rect = pygame.Rect(panel_x,y,panel_w,24); 
+    y+=28
+    BTN_H=28 
+    GAP=6
+    btn_w=(panel_w - GAP*2)//3
+
+    def toggle_pause(): 
+        nonlocal paused 
+        paused=not paused
     btn_pause = UIButton((panel_x,y,btn_w,BTN_H), lambda:"▶ Resume" if paused else "⏸ Pause", toggle_pause, font_small)
-    def do_step(): nonlocal step_once; 
+
+    def do_step(): 
+        nonlocal step_once; 
     def do_step():
         nonlocal step_once
-        if paused: step_once=True
+        if paused: 
+            step_once=True
     btn_step  = UIButton((panel_x+btn_w+GAP,y,btn_w,BTN_H), "Step ➜", do_step, font_small)
+    
     def do_reset():
         nonlocal env, renderer, curr_map, curr_agents, step_count, acc_steps, paused
         env, renderer = create_env_and_renderer(pending_map, pending_agents, world_w, world_h)
         curr_map, curr_agents = pending_map, pending_agents
-        step_count=0; acc_steps=0.0; paused=False
+        step_count=0
+        acc_steps=0.0
+        paused=False
+    
     btn_reset = UIButton((panel_x+(btn_w+GAP)*2,y,btn_w,BTN_H), "Reset ⟲", do_reset, font_small)
-    y+=BTN_H+10
+    y += BTN_H+10
 
-    speed_label_rect = pygame.Rect(panel_x,y,panel_w,18); y+=18
-    slider = UISlider((panel_x,y,panel_w,28), SPEED_MIN, SPEED_MAX, speed, on_change=lambda v: None); y+=34
+    speed_label_rect = pygame.Rect(panel_x,y,panel_w,18)
+    y += 18
+    slider = UISlider((panel_x,y,panel_w,28), SPEED_MIN, SPEED_MAX, speed, on_change=lambda v: None)
+    y += 34
 
-    def on_map_change(v): nonlocal pending_map; pending_map=int(v)
-    input_map = UIInputNumber("Map ID (*)", panel_x, y, panel_w, pending_map, on_change=on_map_change, font=font_small, min_val=0); y+=52
-    def on_agents_change(v): nonlocal pending_agents; pending_agents=int(v)
-    step_agents = UIStepper("Agents (*)", panel_x, y, panel_w, pending_agents, 5, on_change=on_agents_change, font=font_small, min_val=0); y+=52
+    def on_map_change(v): 
+        nonlocal pending_map
+        pending_map=int(v)
+    input_map = UIInputNumber("Map ID (*)", panel_x, y, panel_w, pending_map, on_change=on_map_change, font=font_small, min_val=0) 
+    y += 52
+    
+    def on_agents_change(v): 
+        nonlocal pending_agents
+        pending_agents=int(v)
 
-    widgets=[btn_pause,btn_step,btn_reset,slider,input_map,step_agents]
+    step_agents = UIStepper("Agents (*)", panel_x, y, panel_w, pending_agents, 5, on_change=on_agents_change, font=font_small, min_val=0)
+    y += 52
+
+    widgets=[btn_pause, btn_step, btn_reset, slider, input_map, step_agents]
 
     running=True
     while running:
         for e in pygame.event.get():
-            if e.type==pygame.QUIT: running=False
-            elif e.type==pygame.KEYDOWN and e.key in (pygame.K_ESCAPE, pygame.K_q): running=False
-            elif e.type==pygame.KEYDOWN and e.key==pygame.K_SPACE: paused=not paused
+            if e.type==pygame.QUIT: 
+                running = False
+            elif e.type==pygame.KEYDOWN and e.key in (pygame.K_ESCAPE, pygame.K_q): 
+                running = False
+            elif e.type==pygame.KEYDOWN and e.key==pygame.K_SPACE: 
+                paused = not paused
             elif e.type==pygame.KEYDOWN and e.key==pygame.K_RIGHT:
-                if paused: step_once=True
+                if paused: 
+                    step_once = True
             elif e.type==pygame.KEYDOWN and e.key==pygame.K_UP:
-                speed=min(SPEED_MAX,speed*2.0); slider.value=speed
+                speed = min(SPEED_MAX,speed*2.0)
+                slider.value = speed
             elif e.type==pygame.KEYDOWN and e.key==pygame.K_DOWN:
-                speed=max(SPEED_MIN,speed/2.0); slider.value=speed
+                speed = max(SPEED_MIN,speed/2.0)
+                slider.value = speed
             for w in widgets:
                 if hasattr(w,"handle"): w.handle(e)
 
         speed=slider.value
 
         # 누적을 'step' 단위로
-        now=time.perf_counter(); dt=now-last; last=now
+        now=time.perf_counter()
+        dt=now-last
+        last=now
         if not paused or step_once:
             acc_steps += (dt*speed)/SIM_TIMESTEP
             acc_steps = min(acc_steps, MAX_ACCUM_STEPS)
@@ -296,21 +377,28 @@ def main():
         elif last_render_ms < target_frame_ms*0.60:
             substep_limit = min(MAX_SUBSTEPS_PER_FRAME_HARD, substep_limit+1)
 
-        did_step=False; substeps=0
+        did_step=False
+        substeps=0
         while (acc_steps>=1.0) and (not paused or step_once) and (substeps<substep_limit):
             if ROBOT_CONTROL_MODE=="external":
                 act=policy_fn(env, SIM_TIMESTEP)
-                try: env.robot.receive_action(act.tolist())
-                except Exception: env.robot.receive_action([float(act[0]), float(act[1])])
+                try: 
+                    env.robot.receive_action(act.tolist())
+                except Exception: 
+                    env.robot.receive_action([float(act[0]), float(act[1])])
             env.step()
             step_count+=1; acc_steps-=1.0; substeps+=1; did_step=True
-            if step_once: step_once=False; break
+            if step_once: 
+                step_once=False
+                break
 
         # 자동 재시작
         alive = alive_agents(env)
         if (alive<=0) or (step_count>=MAX_STEPS):
             env, renderer = create_env_and_renderer(curr_map, curr_agents, world_w, world_h)
-            step_count=0; acc_steps=0.0; paused=False
+            step_count=0
+            acc_steps=0.0
+            paused=False
             alive = alive_agents(env)
 
         # ==== DRAW (항상 화면 안에 들어오도록) ====

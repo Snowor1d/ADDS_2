@@ -20,15 +20,15 @@ GAMMA_SCHEDULE_STEP = 1000
 CROWD_NUMBER_MIN = 20
 CROWD_NUMBER_MAX = 20
 MAP_NUM = -1 #if not used, -2, if random, -1
-MAP_NUM_RANDOM = [6, 7, 8]
+MAP_NUM_RANDOM = [6]
 SCALE_CHECK = 0 # want to check reward scale?
 ACTION_SCALE = 4
 MAX_STEPS = 4000
 
 ROBOT_BODY_RADIUS = 1
 AGENT_BODY_RADIUS = 0.5
-ROBOT_VISION = 20
-AGENT_VISION = 20
+ROBOT_VISION = 10
+AGENT_VISION = 10
 EXIT_CONFIRM_RADIUS = 20
 
 # --------------- EPSILON-EXPLORATION ------------------
@@ -44,7 +44,7 @@ START_LONG_EPSILON = 0
 
 
 # -------------- PATH -------------------
-LOG_DIR = "Log_SAC_NC_6007"
+LOG_DIR = "Log_SAC_ADDS3_6007"
 PORT_NUM = 6007
 
 # --------------- SAC ALGORITHM PARAMETER ---------------
