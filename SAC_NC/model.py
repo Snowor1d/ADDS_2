@@ -1452,12 +1452,7 @@ class FightingModel(Model):
                     
             # if(self.using_model):
             #     self.checking_reward += self.reward_based_evacuated_with_robot()
-            if(self.using_model and self.step_n%ACTION_SCALE==0):
-                if(np.random.rand() < 0.04):
-                    self.robot.now_exploration = 0
-                action, _ = self.sac_agent.select_action(state, True)
-                dx, dy = action[0], action[1]
-                self.robot.receive_action([dx, dy])
+
 
             if(self.using_model and self.step_n%ACTION_SCALE==(ACTION_SCALE-1) and SCALE_CHECK):
                 #print("reward_based_alived : ", self.reward_based_alived() * REWARD_A)
