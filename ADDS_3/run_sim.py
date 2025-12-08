@@ -25,7 +25,7 @@ PANEL_RIGHT_WIDTH = 300                     # 우측 패널 고정 폭
 PADDING = 10                                # 좌/우/상/하 패딩
 
 # 기본 월드 크기(리셋 시 사용). 더 크게 바꿔도 화면 내에 자동으로 맞춰 그려짐
-GRID_W, GRID_H = 100, 100
+GRID_W, GRID_H = MAP_W, MAP_H
 
 SIM_TIMESTEP = 0.25
 TARGET_RENDER_FPS = 10
@@ -35,19 +35,20 @@ MAX_ACCUM_STEPS = 12
 MAX_SUBSTEPS_PER_FRAME_HARD = 6
 ADAPTIVE_SUBSTEP_INIT = 4
 
-ROBOT_CONTROL_MODE = "external"   # "external" | "internal"
+ROBOT_CONTROL_MODE = "RL"   # "RL", "Human"
 ROBOT_VERSION_FOR_MODEL = "Q"
+MODEL_NAME = "sac"
 
 USE_CONTINUOUS_RENDERER = True
 def make_renderer(world_w, world_h):
     return ContinuousRenderer(
         world_size=(float(world_w), float(world_h)),
-        crowd_colors={0:"#4e79a7",1:"#4e79a7",2:"#4e79a7"},
+        crowd_colors={0:"#ffa500",1:"#4e79a7",2:"#4e79a7"},
         robot_color="#e15759",
         show_agent_heading=False,
-        show_robot_heading=True,
+        show_robot_heading=False,
         robot_heading_scale=3,
-        trail_target="robot",
+        trail_target="none",
         trail_style="fade",
         max_trail=2000,
         single_color_edges=True,
@@ -278,7 +279,12 @@ def main():
     world_w, world_h = GRID_W, GRID_H   # ← 여기를 크게 바꿔도 화면에 맞춰서 그려짐!
 
     env, renderer = create_env_and_renderer(pending_map, pending_agents, world_w, world_h)
+
+    if( ROBOT_CONTROL_MODE == "RL"):
+        env.use_model(MODEL_NAME)
+    
     curr_map, curr_agents = pending_map, pending_agents
+
     step_count=0
     last=time.perf_counter() 
     acc_steps=0.0
@@ -380,12 +386,7 @@ def main():
         did_step=False
         substeps=0
         while (acc_steps>=1.0) and (not paused or step_once) and (substeps<substep_limit):
-            if ROBOT_CONTROL_MODE=="external":
-                act=policy_fn(env, SIM_TIMESTEP)
-                try: 
-                    env.robot.receive_action(act.tolist())
-                except Exception: 
-                    env.robot.receive_action([float(act[0]), float(act[1])])
+
             env.step()
             step_count+=1; acc_steps-=1.0; substeps+=1; did_step=True
             if step_once: 

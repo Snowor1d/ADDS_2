@@ -49,7 +49,7 @@ class ContinuousRenderer:
         snap_exit_to_boundary: bool = True,
 
         # ===== Trails =====
-        trail_target: str = "both",                  # "none" | "crowd" | "robot" | "both"
+        trail_target: str = "none",                  # "none" | "crowd" | "robot" | "both"
         trail_style: str = "fade",                   # "fade" | "persist"
         max_trail: int = 40,
         crowd_trail_alpha: float = 0.55,
@@ -57,7 +57,7 @@ class ContinuousRenderer:
 
         # ===== Heading arrows =====
         show_agent_heading: bool = False,
-        show_robot_heading: bool = True,
+        show_robot_heading: bool = False,
         agent_heading_scale: float = 1.5,
         robot_heading_scale: float = 4,
 
@@ -73,10 +73,10 @@ class ContinuousRenderer:
         robot_style: str = "circle",                 # "circle" | "image"
         robot_image_path: Optional[str] = None,      # png 등
         robot_image_scale: float = 1.6,              # 반지름 대비 이미지 스케일
-        robot_image_rotate_by_velocity: bool = True,
+        robot_image_rotate_by_velocity: bool = False,
 
         # ===== Robot path annotations =====
-        annotate_robot_path: bool = True,            # 표기 켜기/끄기
+        annotate_robot_path: bool = False,            # 표기 켜기/끄기
         annotate_mode: str = "every_n",              # "every_n" | "all" | "endpoints"
         annotate_every: int = 10,                    # 간격
         annotate_style: str = "number",              # "number" | "subway" | "frame"

@@ -16,13 +16,11 @@ from torch.utils.tensorboard import SummaryWriter
 import subprocess
 import webbrowser
 from typing import Tuple, Any, Union
-from config import START_DECAY_STEP, START_EPSILON, EPSILON_MIN, SCHEDULER_TYPE, DECAY_VALUE, REWARD_A, REWARD_B, REWARD_C, REWARD_D, REWARD_E, REWARD_F, REWARD_G, REWARD_H, REWARD_I, REWARD_J, REWARD_K, CROWD_NUMBER_MIN, CROWD_NUMBER_MAX, LINEARLY_DECAY_STEP, START_UPDATE_STEP, LOG_DIR, FINISHED_BONUS, REWARD_FIXED, MAP_NUM, EXPLORATION_TYPE, \
-                            LR, BUFFER_SIZE, BATCH_SIZE, LOG_STD_MAX, LOG_STD_MIN, ALPHA_START, ALPHA_END, ALPHA_DECAY_STEPS, DEVICE, SCALE_CHECK, ACTION_SCALE, START_BATCH_TIMES, MAX_STEPS, PORT_NUM, LONG_EPSILON_MIN, START_LONG_EPSILON, \
-                            GAMMA_START, GAMMA_SCHEDULE_STEP, GAMMA_END, MAP_NUM_RANDOM
+from config import *
 from heat_map import HeatMapLogger #@for heat_map
 
-MAP_H, MAP_W = 50, 50
-STATE_SHAPE = (4, MAP_H, MAP_W)
+STATE_SHAPE = (4, 50, 50)
+INPUT_MAP_SIZE = 50
 
 
 # Timer instances
@@ -48,39 +46,69 @@ heat_logger = HeatMapLogger(   #@for heat_map
     known_maps = MAP_NUM_RANDOM
 )
 
-
-def downsample_map_2x(obs: np.ndarray, factor: int = 2) -> np.ndarray:
+def normalize_map_to_50(obs: np.ndarray, target: int = 50) -> np.ndarray:
     """
-    obs: (H, W) or (C, H, W) numpy array (100x100 기준)
-    factor: 2 -> 100→50으로 줄이기
-
-    2x2 블록에 대해 max-pooling (binary/occupancy 맵에 적합)
+    obs : (H, W) 또는 (C, H, W) numpy array
+    목표 크기 target x target으로 downsample (기본 50x50)
+    
+    obs가 더 크면 자동 downsample.
+    obs가 target보다 작으면 그대로 반환.
     """
-    if factor <= 1:
-        return obs
-
+    # -------------------------
+    # 1) obs shape 추출
+    # -------------------------
     if obs.ndim == 2:
         H, W = obs.shape
-        H2 = (H // factor) * factor
-        W2 = (W // factor) * factor
-        cropped = obs[:H2, :W2]
-        # (H2//f, f, W2//f, f) -> f축에 대해 max
-        out = cropped.reshape(H2 // factor, factor, W2 // factor, factor)
-        out = out.max(axis=(1, 3))
-        return out
-
+        C = None
     elif obs.ndim == 3:
         C, H, W = obs.shape
-        H2 = (H // factor) * factor
-        W2 = (W // factor) * factor
-        cropped = obs[:, :H2, :W2]   # (C,H2,W2)
-        # (C, H2//f, f, W2//f, f) -> f축에 대해 max
-        out = cropped.reshape(C, H2 // factor, factor, W2 // factor, factor)
-        out = out.max(axis=(2, 4))
+    else:
+        raise ValueError("obs must be 2D or 3D array.")
+
+    # -------------------------
+    # 2) 이미 target이면 그대로 반환
+    # -------------------------
+    if H == target and W == target:
+        return obs
+
+    # -------------------------
+    # 3) 더 작은 경우 → 모델이 원하면 패딩 처리 가능, 일단 그대로 반환
+    # -------------------------
+    if H < target or W < target:
+        return obs
+
+    # -------------------------
+    # 4) downsample factor 계산
+    # 예: H=100 → factor = 100/50 = 2
+    # -------------------------
+    if H % target != 0 or W % target != 0:
+        raise ValueError(
+            f"Cannot evenly downsample: obs=({H},{W}), target={target}. "
+            "크기가 target의 정수배여야 함."
+        )
+    factor_h = H // target
+    factor_w = W // target
+
+    if factor_h != factor_w:
+        raise ValueError("비율이 맞지 않아 정방형 scaling 불가")
+
+    factor = factor_h  # 예: 2
+
+    # -------------------------
+    # 5) 실제 downsample (max-pooling)
+    # -------------------------
+    if obs.ndim == 2:
+        cropped = obs[:factor*target, :factor*target]
+        reshaped = cropped.reshape(target, factor, target, factor)
+        out = reshaped.max(axis=(1, 3))
         return out
 
-    else:
-        raise ValueError(f"Unsupported obs ndim: {obs.ndim}")
+    else:  # C, H, W
+        cropped = obs[:, :factor*target, :factor*target]
+        reshaped = cropped.reshape(C, target, factor, target, factor)
+        out = reshaped.max(axis=(2, 4))
+        return out
+
 
 def launch_tensorboard(tb_log_dir, port=6006):
     """
@@ -352,7 +380,7 @@ class EpsilonScheduler:
 # 3) Critic (Q) Network
 ##########################################################################
 class QNetwork(nn.Module):
-    def __init__(self, input_shape=(MAP_H, MAP_W), action_dim=2):
+    def __init__(self, input_shape=(50, 50), action_dim=2):
         super(QNetwork, self).__init__()
         # CNN feature extractor
         self.conv1 = nn.Conv2d(4, 32, kernel_size=5, stride=2, padding=2)
@@ -673,16 +701,31 @@ class SACAgent:
 
     def load_model(self, filepath):
         filepath = os.path.join(log_dir, filepath)
-        ckpt = torch.load(filepath)
-        self.q1.load_state_dict(ckpt['q1'])
-        self.q2.load_state_dict(ckpt['q2'])
-        self.q1_target.load_state_dict(ckpt['q1_target'])
-        self.q2_target.load_state_dict(ckpt['q2_target'])
-        self.policy.load_state_dict(ckpt['policy'])
-        self.q1_optimizer.load_state_dict(ckpt['q1_opt'])
-        self.q2_optimizer.load_state_dict(ckpt['q2_opt'])
-        self.policy_optimizer.load_state_dict(ckpt['policy_opt'])
-        print(f"Model loaded from {filepath}")
+
+        if not os.path.exists(filepath):
+            print(f"[Warning] Model checkpoint not found: {filepath} — skipping loading.")
+            return
+
+        try:
+            ckpt = torch.load(filepath, map_location=self.device)
+        except Exception as e:
+            print(f"[Warning] Failed to load model from {filepath}: {e}")
+            return
+
+        try:
+            self.q1.load_state_dict(ckpt['q1'])
+            self.q2.load_state_dict(ckpt['q2'])
+            self.q1_target.load_state_dict(ckpt['q1_target'])
+            self.q2_target.load_state_dict(ckpt['q2_target'])
+            self.policy.load_state_dict(ckpt['policy'])
+            self.q1_optimizer.load_state_dict(ckpt['q1_opt'])
+            self.q2_optimizer.load_state_dict(ckpt['q2_opt'])
+            self.policy_optimizer.load_state_dict(ckpt['policy_opt'])
+            print(f"[Info] Model successfully loaded from {filepath}")
+        except KeyError as e:
+            print(f"[Warning] Missing key in checkpoint ({e}). The model may be incompatible.")
+        except Exception as e:
+            print(f"[Warning] Unexpected error while loading model: {e}")
 
     def reset(self):
         pass
@@ -825,7 +868,7 @@ if __name__ == "__main__":
         start_epsilon_long = START_LONG_EPSILON  # 기본값 설정
         print("No start_epsilon.txt found. Initializing values to defaults.")
     
-    agent = SACAgent(input_shape=(MAP_H, MAP_W), alpha=ALPHA_START, lr=float(LR), start_epsilon=start_epsilon, start_epsilon_long = float(START_LONG_EPSILON), long_epsilon_min=float(LONG_EPSILON_MIN), batch_size=int(BATCH_SIZE), replay_size=int(BUFFER_SIZE), device=DEVICE)
+    agent = SACAgent(input_shape=(INPUT_MAP_SIZE, INPUT_MAP_SIZE), alpha=ALPHA_START, lr=float(LR), start_epsilon=start_epsilon, start_epsilon_long = float(START_LONG_EPSILON), long_epsilon_min=float(LONG_EPSILON_MIN), batch_size=int(BATCH_SIZE), replay_size=int(BUFFER_SIZE), device=DEVICE)
     print(f"Agent initialized, lr={LR}, alpha={agent.alpha}, batch_size={BATCH_SIZE}, replay_size={BUFFER_SIZE}")
     replay_buffer_path = os.path.join(log_dir, "replay_buffer.npz")
 
@@ -879,7 +922,7 @@ if __name__ == "__main__":
             except Exception as e:
                 print(e, "Retrying environment creation...")
         
-        first_frame = downsample_map_2x(env_model.return_current_image(), factor=2)
+        first_frame = normalize_map_to_50(env_model.return_current_image(MAP_H, MAP_W))
 
         frame_stack = FrameStack(4)
         state = frame_stack.reset(first_frame)
@@ -923,7 +966,7 @@ if __name__ == "__main__":
                     heat_logger.update(env_model.map_num, hx, hy) 
 
                 
-                curr_frame = downsample_map_2x(env_model.return_current_image(), factor=2)
+                curr_frame = normalize_map_to_50(env_model.return_current_image(MAP_H, MAP_W))
                 next_state = frame_stack.peek_with(curr_frame)
                 sim_timer.stop()
                 reward = 0

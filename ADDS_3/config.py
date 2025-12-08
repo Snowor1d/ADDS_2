@@ -1,20 +1,17 @@
-# ------------- ??? -------------
-K1 = 1
-K2 = 1
-K3 = 1
-
 # ------------- BASIC PARAMETERS ------------------
 LR = 2e-4
 BUFFER_SIZE = 1000000
 BATCH_SIZE = 128
 INTRINSIC_ETA = 0.1 #intrinsic reward
 START_BATCH_TIMES = 1
-START_UPDATE_STEP = 500
-DEVICE = "cuda"
+START_UPDATE_STEP = 10
+DEVICE = "cpu"
 
 GAMMA_START = 0.99
 GAMMA_END = 0.99
 GAMMA_SCHEDULE_STEP = 1000
+MAP_H = 50
+MAP_W = 50
 
 # ---------------- SIMULATION ENVIRONMENT ---------------------
 CROWD_NUMBER_MIN = 20

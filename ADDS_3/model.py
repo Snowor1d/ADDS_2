@@ -398,6 +398,9 @@ class FightingModel(Model):
             }
         )
 
+        self.static_grid = np.zeros((self.height, self.width), dtype = np.uint8)
+        self._render_static_map(self.height, self.width)
+
     def is_free(self, xy):
         x, y = xy
         if x < 0 or y < 0 or x > self.width or y > self.height:
@@ -776,7 +779,7 @@ class FightingModel(Model):
         index = []
         #print(self.map_num)
         if (self.map_num == 6): #우하단
-            index = [0, 2]
+            index = [1]
         elif (self.map_num == 7): #좌하단
             index = [0]
         elif (self.map_num == 8) : #우하단
@@ -929,7 +932,7 @@ class FightingModel(Model):
 
         #state = self.return_current_image()
 
-        frame = self.return_current_image()
+        frame = self.return_current_image(self.height, self.width)
 
         is_boundary = ((self.step_n - 1) % ACTION_SCALE == 0)
 
@@ -1115,8 +1118,8 @@ class FightingModel(Model):
         return None
     
     def use_model(self, file_path):
-        from Start_training import USING_TRAINED_MODEL
-        input_shape = (50, 50)
+        from config import USING_TRAINED_MODEL
+        input_shape = (self.height, self.width)
         num_actions = 4
 
         self.sac_agent = SACAgent(input_shape, start_epsilon=0)
@@ -1186,40 +1189,13 @@ class FightingModel(Model):
         
         # 나중에 벽과 장애물은 자정되어있는 것을 쓰게 교체할 것임 (시간이슈)
 
-        img = np.zeros((H, W), dtype=np.uint8)
+        img = self.static_grid.copy()
 
         def to_px(x, y):
             # (0,width)×(0,height) → (0..W-1, 0..H-1)
             ix = int(np.clip(x / self.width  * W, 0, W-1))
             iy = int(np.clip(y / self.height * H, 0, H-1))
             return ix, iy
-
-        # 벽/장애물: 폴리곤을 rasterize (경량화: 경계 bbox만 순회)
-        for poly in self.obstacles:
-            P = Polygon(poly)
-            minx, miny, maxx, maxy = P.bounds
-            gx0, gy0 = to_px(minx, miny)
-            gx1, gy1 = to_px(maxx, maxy)
-            for ix in range(min(gx0, gx1), max(gx0, gx1)+1):
-                for iy in range(min(gy0, gy1), max(gy0, gy1)+1):
-                    # 픽셀 중심 좌표를 월드 좌표로 역변환
-                    x = (ix + 0.5) * self.width / W
-                    y = (iy + 0.5) * self.height / H
-                    if P.contains(Point(x, y)):
-                        img[iy, ix] = 20  # 벽/장애물
-
-        # 출구
-        for epoly in self.exit_list:
-            P = Polygon(epoly)
-            minx, miny, maxx, maxy = P.bounds
-            gx0, gy0 = to_px(minx, miny)
-            gx1, gy1 = to_px(maxx, maxy)
-            for ix in range(min(gx0, gx1), max(gx0, gx1)+1):
-                for iy in range(min(gy0, gy1), max(gy0, gy1)+1):
-                    x = (ix + 0.5) * self.width / W
-                    y = (iy + 0.5) * self.height / H
-                    if P.contains(Point(x, y)):
-                        img[iy, ix] = max(img[iy, ix], 60)
 
         # 군중
         for ag in self.crowds:
@@ -1287,7 +1263,41 @@ class FightingModel(Model):
                 self.blocked[gy, gx] = True
 
 
-    
+    def _render_static_map(self, H : int=100, W : int=100):
+
+        def to_px(x, y):
+            # (0,width)×(0,height) → (0..W-1, 0..H-1)
+            ix = int(np.clip(x / self.width  * W, 0, W-1))
+            iy = int(np.clip(y / self.height * H, 0, H-1))
+            return ix, iy
+
+        # 벽/장애물: 폴리곤을 rasterize (경량화: 경계 bbox만 순회)
+        for poly in self.obstacles:
+            P = Polygon(poly)
+            minx, miny, maxx, maxy = P.bounds
+            gx0, gy0 = to_px(minx, miny)
+            gx1, gy1 = to_px(maxx, maxy)
+            for ix in range(min(gx0, gx1), max(gx0, gx1)+1):
+                for iy in range(min(gy0, gy1), max(gy0, gy1)+1):
+                    # 픽셀 중심 좌표를 월드 좌표로 역변환
+                    x = (ix + 0.5) * self.width / W
+                    y = (iy + 0.5) * self.height / H
+                    if P.contains(Point(x, y)):
+                        self.static_grid[iy, ix] = 20  # 벽/장애물
+
+        # 출구
+        for epoly in self.exit_list:
+            P = Polygon(epoly)
+            minx, miny, maxx, maxy = P.bounds
+            gx0, gy0 = to_px(minx, miny)
+            gx1, gy1 = to_px(maxx, maxy)
+            for ix in range(min(gx0, gx1), max(gx0, gx1)+1):
+                for iy in range(min(gy0, gy1), max(gy0, gy1)+1):
+                    x = (ix + 0.5) * self.width / W
+                    y = (iy + 0.5) * self.height / H
+                    if P.contains(Point(x, y)):
+                        self.static_grid[iy, ix] = max(self.static_grid[iy, ix], 60)
+        
 
 
 
