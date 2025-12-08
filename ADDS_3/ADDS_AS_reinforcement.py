@@ -254,9 +254,20 @@ class ReplayBuffer:
         done: bool,
     ) -> None:
         i = self.ptr
+        
+        if state.dtype != self.state_dtype:
+            state_uint8 = np.clip(state * 255.0, 0, 255).astype(self.state_dtype)
+        else:
+            state_uint8 = state
+
+        if next_state.dtype != self.state_dtype:
+            next_state_uint8 = np.clip(next_state * 255.0, 0, 255).astype(self.state_dtype)
+        else:
+            next_state_uint8 = next_state
+
         # dtype 변환 및 저장
-        self.states[i] = state.astype(self.state_dtype, copy=False)
-        self.next_states[i] = next_state.astype(self.state_dtype, copy=False)
+        self.states[i] = state_uint8
+        self.next_states[i] = next_state_uint8
         self.actions[i] = action
         self.rewards[i] = reward
         self.dones[i] = done
@@ -268,8 +279,9 @@ class ReplayBuffer:
     def sample(self, batch_size: int):
         idx = np.random.choice(self.size, batch_size, replace=False)
         # NumPy -> torch.Tensor 변환 (float32)
-        batch_states = torch.from_numpy(self.states[idx].astype(np.float32)).to(self.device)
-        batch_next_states = torch.from_numpy(self.next_states[idx].astype(np.float32)).to(self.device)
+        batch_states = torch.from_numpy(self.states[idx].astype(np.float32) / 255.0).to(self.device)
+        batch_next_states = torch.from_numpy(self.next_states[idx].astype(np.float32) / 255.0).to(self.device)
+
         batch_actions = torch.from_numpy(self.actions[idx]).to(self.device)
         batch_rewards = torch.from_numpy(self.rewards[idx]).to(self.device)
         batch_dones = torch.from_numpy(self.dones[idx].astype(np.float32)).to(self.device)
@@ -499,17 +511,20 @@ class FrameStack:
 
     def reset(self, first_frame):
         self.frames.clear()
+        first_frame = first_frame.astype(np.float32)
         for _ in range(self.stack_len):
             self.frames.append(np.copy(first_frame))
         return np.stack(list(self.frames)[::-1], axis=0)   # (4,H,W)
 
     def append(self, frame):
         """deque에 실제 push & 최신 스택 반환"""
+        frame = frame.astype(np.float32)
         self.frames.append(np.copy(frame))
         return np.stack(list(self.frames)[::-1], axis=0)
 
     def peek_with(self, frame):
         """frame을 push 했다고 가정한 결과 스택 반환( deque 내용은 그대로 )"""
+        frame = frame.astype(np.float32)
         tmp = list(self.frames) + [frame]
         return np.stack(tmp[-self.stack_len:][::-1], axis=0)
 
@@ -921,11 +936,13 @@ if __name__ == "__main__":
                 break
             except Exception as e:
                 print(e, "Retrying environment creation...")
-        
-        first_frame = normalize_map_to_50(env_model.return_current_image(MAP_H, MAP_W))
+        raw_img = env_model.return_current_image(MAP_H, MAP_W)
+        down_img = normalize_map_to_50(raw_img)
+        first_frame = down_img.astype(np.float32) / 255.0
 
         frame_stack = FrameStack(4)
         state = frame_stack.reset(first_frame)
+
         total_reward = 0
         reward = 0
         evacuation_time_80 = max_steps
@@ -967,6 +984,7 @@ if __name__ == "__main__":
 
                 
                 curr_frame = normalize_map_to_50(env_model.return_current_image(MAP_H, MAP_W))
+                curr_frame = curr_frame.astype(np.float32) / 255.0
                 next_state = frame_stack.peek_with(curr_frame)
                 sim_timer.stop()
                 reward = 0
