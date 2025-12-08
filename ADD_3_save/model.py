@@ -270,72 +270,7 @@ def generate_segments_with_points(vertices, segments, D):
         new_segments.append([last_index, seg[1]])
     return new_vertices, new_segments
 
-
-def normalize_map_to_50(obs: np.ndarray, target: int = 50) -> np.ndarray:
-    """
-    obs : (H, W) 또는 (C, H, W) numpy array
-    목표 크기 target x target으로 downsample (기본 50x50)
-    
-    obs가 더 크면 자동 downsample.
-    obs가 target보다 작으면 그대로 반환.
-    """
-    # -------------------------
-    # 1) obs shape 추출
-    # -------------------------
-    if obs.ndim == 2:
-        H, W = obs.shape
-        C = None
-    elif obs.ndim == 3:
-        C, H, W = obs.shape
-    else:
-        raise ValueError("obs must be 2D or 3D array.")
-
-    # -------------------------
-    # 2) 이미 target이면 그대로 반환
-    # -------------------------
-    if H == target and W == target:
-        return obs
-
-    # -------------------------
-    # 3) 더 작은 경우 → 모델이 원하면 패딩 처리 가능, 일단 그대로 반환
-    # -------------------------
-    if H < target or W < target:
-        return obs
-
-    # -------------------------
-    # 4) downsample factor 계산
-    # 예: H=100 → factor = 100/50 = 2
-    # -------------------------
-    if H % target != 0 or W % target != 0:
-        raise ValueError(
-            f"Cannot evenly downsample: obs=({H},{W}), target={target}. "
-            "크기가 target의 정수배여야 함."
-        )
-    factor_h = H // target
-    factor_w = W // target
-
-    if factor_h != factor_w:
-        raise ValueError("비율이 맞지 않아 정방형 scaling 불가")
-
-    factor = factor_h  # 예: 2
-
-    # -------------------------
-    # 5) 실제 downsample (max-pooling)
-    # -------------------------
-    if obs.ndim == 2:
-        cropped = obs[:factor*target, :factor*target]
-        reshaped = cropped.reshape(target, factor, target, factor)
-        out = reshaped.max(axis=(1, 3))
-        return out
-
-    else:  # C, H, W
-        cropped = obs[:, :factor*target, :factor*target]
-        reshaped = cropped.reshape(C, target, factor, target, factor)
-        out = reshaped.max(axis=(2, 4))
-        return out
  
-
-
 class FightingModel(Model):
     """A model with some number of agents."""
 
@@ -542,7 +477,6 @@ class FightingModel(Model):
         return evacuated_agents_with_robot
 
     
-    
     def write_log(self):
         
         evacuated_agent_num = 0
@@ -564,7 +498,6 @@ class FightingModel(Model):
         for j in range(h):
             self.walls.append((0, j))
             self.walls.append((w-1, j))
-
     def choice_safe_mesh_visualize(self, point):
         point_grid = (int(point[0]), int(point[1]))
         x = point_grid[0]
@@ -997,12 +930,8 @@ class FightingModel(Model):
         self.step_count += 1
 
         #state = self.return_current_image()
-        #print(self.return_current_robot_state())
-        raw_frame = self.return_current_image(self.height, self.width)
-        frame = normalize_map_to_50(raw_frame)
-        frame = frame.astype(np.float32) / 255.0
 
-        state = None
+        frame = self.return_current_image(self.height, self.width)
 
         is_boundary = ((self.step_n - 1) % ACTION_SCALE == 0)
 
@@ -1014,17 +943,22 @@ class FightingModel(Model):
             state = self.frame_stack.append(frame)
 
         if(self.robot_version == 'Q'):
-            
-            # Action Scale 주기에 도달했을 때만 AI가 개입
-            if self.using_model and ((self.step_n-1) % ACTION_SCALE == 0):
-                
-                if state is None:
-                    state = self.frame_stack.peek_with(frame)
+            if self.step_n % ACTION_SCALE == 0:
+                if self._first_step:
+                    state = self.frame_stack.reset(frame)
+                    self._first_step = False
+                else:
+                    state = self.frame_stack.append(frame)
 
-                robot_state = np.array(self.return_current_robot_state(), dtype=np.float32)
-
-                action, _ = self.sac_agent.select_action(state, robot_state, deterministic=True)
-                
+            if self.using_model and is_boundary:
+                action, _ = self.sac_agent.select_action(state, True)
+                dx, dy = action[0], action[1]
+                self.robot.receive_action([dx, dy])
+                    
+            if(self.using_model and self.step_n%ACTION_SCALE==0):
+                if(np.random.rand() < 0.04):
+                    self.robot.now_exploration = 0
+                action, _ = self.sac_agent.select_action(state, True)
                 dx, dy = action[0], action[1]
                 self.robot.receive_action([dx, dy])
 
@@ -1114,14 +1048,6 @@ class FightingModel(Model):
             return -1
         return 0
     
-    def agents_near_robot_num(self):
-        agent_total = 0
-        for agent in self.crowds:
-            if (agent.type == 0 and agent.dead == False):
-                agent_total += 1
-        return agent_total
-
-    
     def reward_based_distance_from_near_agent_gain(self):
         guided_num = 0
         for agent in self.crowds:
@@ -1174,6 +1100,9 @@ class FightingModel(Model):
         reward = -math.sqrt(self.alived_agents()/self.total_agents)
 
         return reward
+    
+
+
 
     def reward_evacuation(self):
         if(self.step_n<3):
@@ -1253,9 +1182,6 @@ class FightingModel(Model):
             return -1
         else :
             return 0
-
-    def return_current_robot_state(self):
-        return (self.robot.xy[0]/MAP_H, self.robot.xy[1]/MAP_W, self.agents_near_robot_num()/self.total_agents, self.robot.danger/(2*self.width))
     
     # 연속 → 라스터 (RL 프레임) 교체
     def return_current_image(self, H: int = 100, W: int = 100):

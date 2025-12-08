@@ -21,8 +21,7 @@ from heat_map import HeatMapLogger #@for heat_map
 
 STATE_SHAPE = (4, 50, 50)
 INPUT_MAP_SIZE = 50
-ROBOT_STATE_EMBEDDING = True
-ROBOT_STATE_DIM = 4
+
 
 # Timer instances
 sim_timer = Timer() 
@@ -228,27 +227,17 @@ class ReplayBuffer:
         self,
         capacity: int,
         state_shape = STATE_SHAPE,
-        action_dim : int = 2,
-        robot_dim : int = 4,
+        action_dim = 2,
         device=None,
         state_dtype: np.dtype = np.uint8,
     ) -> None:
         self.capacity = capacity
         self.device = device
-        self.state_dtype = state_dtype
-        self.robot_dim = robot_dim
+        self.state_dtype = np.uint8
 
         # 고정 크기 NumPy 배열 할당
         self.states = np.zeros((capacity, *state_shape), dtype=state_dtype)
         self.next_states = np.zeros((capacity, *state_shape), dtype=state_dtype)
-
-        if self.robot_dim > 0:
-            self.robot_states = np.zeros((capacity, robot_dim), dtype=np.float32)
-            self.next_robot_states = np.zeros((capacity, robot_dim), dtype=np.float32)
-        else:
-            self.robot_states = None
-            self.next_robot_states = None
-
         self.actions = np.zeros((capacity, action_dim), dtype=np.float32)
         self.rewards = np.zeros((capacity,), dtype=np.float32)
         self.dones = np.zeros((capacity,), dtype=bool)
@@ -259,11 +248,9 @@ class ReplayBuffer:
     def push(
         self,
         state: np.ndarray,
-        robot_state : np.ndarray,
         action: np.ndarray,
         reward: float,
         next_state: np.ndarray,
-        next_robot_state : np.ndarray,
         done: bool,
     ) -> None:
         i = self.ptr
@@ -281,14 +268,6 @@ class ReplayBuffer:
         # dtype 변환 및 저장
         self.states[i] = state_uint8
         self.next_states[i] = next_state_uint8
-
-        #robot 상태 저장
-        if self.robot_dim > 0:
-            if robot_state is None or next_robot_state is None:
-                raise ValueError("Buffer initialized with robot_dim > 0, but robot_state is None.")
-            self.robot_states[i] = robot_state
-            self.next_robot_states[i] = next_robot_state
-
         self.actions[i] = action
         self.rewards[i] = reward
         self.dones[i] = done
@@ -303,63 +282,40 @@ class ReplayBuffer:
         batch_states = torch.from_numpy(self.states[idx].astype(np.float32) / 255.0).to(self.device)
         batch_next_states = torch.from_numpy(self.next_states[idx].astype(np.float32) / 255.0).to(self.device)
 
-        if self.robot_dim > 0:
-            batch_robot_states = torch.from_numpy(self.robot_states[idx]).to(self.device)
-            batch_next_robot_states = torch.from_numpy(self.next_robot_states[idx]).to(self.device)
-        else:
-            batch_robot_states = None
-            batch_next_robot_states = None
-
-
         batch_actions = torch.from_numpy(self.actions[idx]).to(self.device)
         batch_rewards = torch.from_numpy(self.rewards[idx]).to(self.device)
         batch_dones = torch.from_numpy(self.dones[idx].astype(np.float32)).to(self.device)
 
-        return batch_states, batch_robot_states, batch_actions, batch_rewards, batch_next_states, batch_next_robot_states, batch_dones
+        return batch_states, batch_actions, batch_rewards, batch_next_states, batch_dones
 
     def __len__(self) -> int:
         return self.size
     
     def save(self, filepath: Union[str, bytes, os.PathLike]) -> None:
-        """압축된 npz 파일로 버퍼를 저장 (현재 size 만큼만 포함)."""    
-        save_dict = {
-            "states": self.states[: self.size],
-            "next_states": self.next_states[: self.size],
-            "actions": self.actions[: self.size],
-            "rewards": self.rewards[: self.size],
-            "dones": self.dones[: self.size],
-            "size": self.size,
-            "ptr": self.ptr,
-            "capacity": self.capacity,
-            "state_dtype": np.dtype(self.state_dtype).name,
-            "robot_dim": self.robot_dim  # 저장 시 robot_dim 정보도 포함
-        }
+        """압축된 npz 파일로 버퍼를 저장 (현재 size 만큼만 포함)."""
+        np.savez_compressed(
+            filepath,
+            states=self.states[: self.size],
+            next_states=self.next_states[: self.size],
+            actions=self.actions[: self.size],
+            rewards=self.rewards[: self.size],
+            dones=self.dones[: self.size],
+            size=self.size,
+            ptr=self.ptr,
+            capacity=self.capacity,
+            state_dtype=np.dtype(self.state_dtype).name
+        )
 
-        # 로봇 상태가 있으면 사전에 추가
-        if self.robot_dim > 0:
-            save_dict["robot_states"] = self.robot_states[: self.size]
-            save_dict["next_robot_states"] = self.next_robot_states[: self.size]
-
-        np.savez_compressed(filepath, **save_dict)
-    
     def load(self, filepath: Union[str, bytes, os.PathLike]) -> None:
         """저장된 npz 파일을 읽어 버퍼 상태를 복원."""
         data = np.load(filepath, allow_pickle=False)
-        
-        # 메타데이터 확인 및 재할당
-
-        cap = int(data["capacity"]) if "capacity" in data.files else self.capacity
-        prev_robot_dim = int(data["robot_dim"]) if "robot_dim" in data.files else 0
-
-
-        # Capacity나 Robot dim이 다르면 새로 초기화
-        if cap != self.capacity or prev_robot_dim != self.robot_dim:
+        cap = int(data.get("capacity", self.capacity))
+        if cap != self.capacity:
+            # 새 capacity 에 맞춰 새로운 배열 할당 후 복사
             prev_dtype = np.dtype(data["state_dtype"])
             prev_shape = self.states.shape[1:]
             prev_action_dim = self.actions.shape[1]
-            # 재초기화
-            self.__init__(cap, prev_shape, prev_action_dim, prev_robot_dim, self.device, prev_dtype)
-        
+            self.__init__(cap, prev_shape, prev_action_dim, self.device, prev_dtype)
         self.size = int(data["size"])
         self.ptr = int(data["ptr"])
 
@@ -369,12 +325,6 @@ class ReplayBuffer:
         self.actions[: self.size] = data["actions"]
         self.rewards[: self.size] = data["rewards"]
         self.dones[: self.size] = data["dones"]
-        
-        # 로봇 상태 복사
-        if self.robot_dim > 0 and "robot_states" in data:
-            self.robot_states[: self.size] = data["robot_states"]
-            self.next_robot_states[: self.size] = data["next_robot_states"]
-
 
 
 class ResidualBlock(nn.Module):
@@ -442,9 +392,8 @@ class EpsilonScheduler:
 # 3) Critic (Q) Network
 ##########################################################################
 class QNetwork(nn.Module):
-    def __init__(self, input_shape=(50, 50), action_dim=2, robot_state_embedding: bool = True):
+    def __init__(self, input_shape=(50, 50), action_dim=2):
         super(QNetwork, self).__init__()
-        self.use_robot_state = robot_state_embedding
         # CNN feature extractor
         self.conv1 = nn.Conv2d(4, 32, kernel_size=5, stride=2, padding=2)
         self.bn1   = nn.BatchNorm2d(32)
@@ -455,28 +404,11 @@ class QNetwork(nn.Module):
         
         # conv_out_size 계산 (flatten 전 feature 크기)
         conv_out_size = self._get_conv_out(input_shape)
-        self.conv_out_size = conv_out_size
-        robot_feat_dim = 0
-
-        if self.use_robot_state:
-            robot_input_dim = 4
-            robot_embed_dim = 32
-
-            self.robot_fc = nn.Sequential(
-                nn.Linear(robot_input_dim, robot_embed_dim),
-                nn.LeakyReLU(0.1)
-            )
-            robot_feat_dim = robot_embed_dim
-        else:
-            self.robot_fc = None
-            robot_feat_dim = 0
         
-        fusion_dim = self.conv_out_size + robot_feat_dim + action_dim
-
-        self.fc1 = nn.Linear(fusion_dim, 512)
+        # FC layers
+        self.fc1 = nn.Linear(conv_out_size + action_dim, 512)
         self.fc2 = nn.Linear(512, 256)
         self.q_out = nn.Linear(256, 1)
-        
 
     def _get_conv_out(self, shape):
         dummy = torch.zeros(1, 4, *shape)  # (batch, channel=1, H, W)
@@ -485,28 +417,16 @@ class QNetwork(nn.Module):
         o = F.leaky_relu(self.bn3(self.conv3(o)), negative_slope=0.01)
         return int(np.prod(o.size()[1:]))
 
-    def forward(self, img, action, robot_state = None):
-        x = F.leaky_relu(self.bn1(self.conv1(img)), negative_slope=0.01)
+    def forward(self, state, action):
+        x = F.leaky_relu(self.bn1(self.conv1(state)), negative_slope=0.01)
         x = F.leaky_relu(self.bn2(self.conv2(x)), negative_slope=0.01)
         x = F.leaky_relu(self.bn3(self.conv3(x)), negative_slope=0.01)
         x = x.view(x.size(0), -1)
-
-        feature_list = [x]
-
-        if self.use_robot_state :
-            if robot_state is None:
-                raise ValueError("Model requires robot_state, but input is None.")
-            
-            r = self.robot_fc(robot_state)
-            feature_list.append(r)
-        
-        feature_list.append(action)
-        combined = torch.cat(feature_list, dim=1)
-
-        out = F.leaky_relu(self.fc1(combined), negative_slope = 0.01)
-        out = F.leaky_relu(self.fc2(out), negative_slope = 0.01)
-        q_val = self.q_out(out)
-
+        # 행동 정보를 이미지 feature와 concat
+        x = torch.cat([x, action], dim=1)
+        x = F.leaky_relu(self.fc1(x), negative_slope=0.01)
+        x = F.leaky_relu(self.fc2(x), negative_slope=0.01)
+        q_val = self.q_out(x)
         return q_val
 
 
@@ -514,11 +434,10 @@ class QNetwork(nn.Module):
 # 4) Policy (Actor) Network
 ##########################################################################
 class PolicyNetwork(nn.Module):
-    def __init__(self, input_shape=(50,50), robot_state_embedding: bool = True):
+    def __init__(self, input_shape=(50,50)):
         super(PolicyNetwork, self).__init__()
         self.log_std_min = LOG_STD_MIN
         self.log_std_max = LOG_STD_MAX
-        self.use_robot_state = robot_state_embedding
 
         # --- 여기서 conv1, bn1 선언 ---
         self.conv1 = nn.Conv2d(4, 32, kernel_size=5, stride=2, padding=2)
@@ -530,25 +449,8 @@ class PolicyNetwork(nn.Module):
         
         # fc_backbone
         conv_out_size = self._get_conv_out(input_shape)
-        self.conv_out_size = conv_out_size
-
-        self.robot_feat_dim = 0
-        if self.use_robot_state :
-            robot_input_dim = 4
-            robot_embed_dim = 32
-            self.robot_fc = nn.Sequential(
-                nn.Linear(robot_input_dim, robot_embed_dim),
-                nn.LeakyReLU(0.1)
-            )
-            self.robot_feat_dim = robot_embed_dim
-        else :
-            self.robot_fc = None
-
-        fusion_dim = self.conv_out_size + self.robot_feat_dim
-
-
         self.fc_backbone = nn.Sequential(
-            nn.Linear(fusion_dim, 512),
+            nn.Linear(conv_out_size, 512),
             nn.LeakyReLU(0.01, inplace=True),
             nn.Linear(512, 256),
             nn.LeakyReLU(0.01, inplace=True),
@@ -560,7 +462,7 @@ class PolicyNetwork(nn.Module):
         self.mean_head = nn.Linear(64, 2)
         self.log_std_head = nn.Linear(64, 2)
 
-    def _get_conv_out(self, shape, robot_state = None):
+    def _get_conv_out(self, shape):
         dummy = torch.zeros(1, 4, *shape)
         x = F.leaky_relu(self.bn1(self.conv1(dummy)), negative_slope=0.01)
         x = F.leaky_relu(self.bn2(self.conv2(x)), negative_slope=0.01)
@@ -568,31 +470,24 @@ class PolicyNetwork(nn.Module):
         x = x.view(x.size(0), -1)
         return int(np.prod(x.size()[1:]))
 
-    def backbone(self, state, robot_state = None):
+    def backbone(self, state):
         x = F.leaky_relu(self.bn1(self.conv1(state)), negative_slope=0.01)
         x = F.leaky_relu(self.bn2(self.conv2(x)), negative_slope=0.01)
         x = F.leaky_relu(self.bn3(self.conv3(x)), negative_slope=0.01)
         x = x.view(x.size(0), -1)
-        if self.use_robot_state:
-            if robot_state is None:
-                raise ValueError("Policy requires robot_state, but input is None.")
-            r = self.robot_fc(robot_state)
-            x = torch.cat([x, r], dim=1)
-
         feat = self.fc_backbone(x)
         return feat
 
-
-    def forward(self, state, robot_state=None):
-        feat = self.backbone(state, robot_state)
+    def forward(self, state):
+        feat = self.backbone(state)
         mean = self.mean_head(feat)
         log_std = self.log_std_head(feat)
         log_std = torch.clamp(log_std, self.log_std_min, self.log_std_max)
         return mean, log_std
 
-    def sample_action(self, state, robot_state=None, temperature=1.0):
+    def sample_action(self, state, temperature=1.0):
         B = state.size(0)
-        mean, log_std = self.forward(state, robot_state)
+        mean, log_std = self.forward(state)
         std = log_std.exp()
         eps = torch.randn_like(mean) * temperature
         u = mean + std * eps
@@ -648,27 +543,18 @@ class SACAgent:
         self.epsilon_long = start_epsilon_long
         self.epsilon_long_min = long_epsilon_min
 
-        # Multimodal Flag
-        self.use_robot_state = ROBOT_STATE_EMBEDDING
-        self.robot_dim = ROBOT_STATE_DIM if self.use_robot_state else 0
-
         # Replay buffer
-        self.replay_buffer = ReplayBuffer(
-            capacity=int(replay_size), 
-            state_shape=(4, *input_shape), # 4 Channel
-            action_dim=2,
-            robot_dim=self.robot_dim,
-            device=self.device
-        )
+        self.replay_buffer = ReplayBuffer(capacity=int(replay_size), device =self.device)
+        
 
         # Critic networks
-        self.q1 = QNetwork(input_shape, action_dim=2, robot_state_embedding = self.use_robot_state).to(self.device)
-        self.q2 = QNetwork(input_shape, action_dim=2, robot_state_embedding = self.use_robot_state).to(self.device) #Q값의 과대평가 문제 줄이기 위해 double Q 도입
+        self.q1 = QNetwork(input_shape, action_dim=2).to(self.device)
+        self.q2 = QNetwork(input_shape, action_dim=2).to(self.device) #Q값의 과대평가 문제 줄이기 위해 double Q 도입
         # self.q1, self.q2 -> 현재 상태 s와 행동 a에 대해 Q-value를 근사하는 네트워크
         # predicted Q와 target Q의 차이를 줄이자
 
-        self.q1_target = QNetwork(input_shape, action_dim=2, robot_state_embedding = self.use_robot_state).to(self.device)
-        self.q2_target = QNetwork(input_shape, action_dim=2, robot_state_embedding = self.use_robot_state).to(self.device)
+        self.q1_target = QNetwork(input_shape, action_dim=2).to(self.device)
+        self.q2_target = QNetwork(input_shape, action_dim=2).to(self.device)
         # self.q1_target, self.q2_target -> Q의 Ground Truth 근사치 제공
         # q-network 업데이트 시 사용하는 Target 값을 제공
 
@@ -676,7 +562,7 @@ class SACAgent:
         self.q2_target.load_state_dict(self.q2.state_dict())
 
         # Policy network
-        self.policy = PolicyNetwork(input_shape, robot_state_embedding=self.use_robot_state).to(self.device)
+        self.policy = PolicyNetwork(input_shape).to(self.device)
 
         # Optimizers
         self.q1_optimizer = optim.Adam(self.q1.parameters(), lr=lr) #parameter optimizaing
@@ -697,14 +583,14 @@ class SACAgent:
     # ------------------------------------------------- #
     # Store experience
     # ------------------------------------------------- #
-    def store_transition(self, s, robot_s, a, r, s_next, robot_s_next, done):
+    def store_transition(self, s, a, r, s_next, done):
         # if -20 <= a[0] <= 20 and -20 <= a[1] <= 20:
-        self.replay_buffer.push(s, robot_s, a, r, s_next, robot_s_next, done)
+        self.replay_buffer.push(s, a, r, s_next, done)
 
     # ------------------------------------------------- #
     # Select action
     # ------------------------------------------------- #
-    def select_action(self, state_np, robot_state_np=None, deterministic=False):
+    def select_action(self, state_np, deterministic=False):
         """
         state_np: shape (H, W) or (1, H, W)
         returns action_np shape (4,) = [dx, dy, mode0, mode1]
@@ -724,21 +610,14 @@ class SACAgent:
         state_t = torch.FloatTensor(state_np).unsqueeze(0).to(self.device)  # (1,1,H,W)
         # state_np는 2D 배열인데, 차원을 추가하여 모델 입력에 적합한 차원으로 만들려는 것
 
-        if self.use_robot_state:
-            if robot_state_np is None:
-                raise ValueError("Agent requires robot_state, but None provided.")
-            robot_state_t = torch.FloatTensor(robot_state_np).unsqueeze(0).to(self.device)
-        else :
-            robot_state_t = None
-
         with torch.no_grad():
             if deterministic:
                 # 결정적 행동 선택: mean에 대해 바로 sigmoid 변환.
-                mean, _ = self.policy.forward(state_t, robot_state_t)
+                mean, _ = self.policy.forward(state_t)
                 action_t = 4*torch.sigmoid(mean)-2
             else:
                 # 비결정적 선택: sample_action에서 샘플링 (자코비안 보정 포함)
-                action_t, log_prob = self.policy.sample_action(state_t, robot_state_t)
+                action_t, log_prob = self.policy.sample_action(state_t)
         action_np = action_t.cpu().numpy()[0]
         print(action_np)
 
@@ -763,24 +642,24 @@ class SACAgent:
         #states, actions, rewards, next_states, dones = self.replay_buffer.sample(self.batch_size)
 
         # 1. Replay Buffer에서 샘플 가져오기
-        states, robot_states, actions, rewards, next_states, next_robot_states, dones = self.replay_buffer.sample(self.batch_size)
+        states, actions, rewards, next_states, dones = self.replay_buffer.sample(self.batch_size)
 
 
         # (B,1,H,W), (B,4), (B,), (B,1,H,W), (B,)
         # Q target:
         with torch.no_grad():
             # next action, next log prob
-            next_action, next_log_prob = self.policy.sample_action(next_states, next_robot_states) #update 할때 최적 정책으로 update -> off policy !!
+            next_action, next_log_prob = self.policy.sample_action(next_states) #update 할때 최적 정책으로 update -> off policy !!
             # compute target Q
-            q1_next = self.q1_target(next_states, next_action, next_robot_states)
-            q2_next = self.q2_target(next_states, next_action, next_robot_states)
+            q1_next = self.q1_target(next_states, next_action)
+            q2_next = self.q2_target(next_states, next_action)
             q_next = torch.min(q1_next, q2_next).squeeze(-1)  # (B,)
             # soft state value
             q_target = rewards + self.gamma * (1 - dones) * (q_next - self.alpha * next_log_prob)
 
         # ----- Update Q1, Q2 -----
-        q1_val = self.q1(states, actions, robot_states).squeeze(-1)  # (B,) #q value를 scalar 값으로
-        q2_val = self.q2(states, actions, robot_states).squeeze(-1)
+        q1_val = self.q1(states, actions).squeeze(-1)  # (B,) #q value를 scalar 값으로
+        q2_val = self.q2(states, actions).squeeze(-1)
         loss_q1 = F.mse_loss(q1_val, q_target) # q의 실제와 예측 차이 계산
         loss_q2 = F.mse_loss(q2_val, q_target)
         max_grad_norm = 1.0
@@ -799,9 +678,9 @@ class SACAgent:
 
         # ----- Update Policy -----
         # re-sample action from current policy
-        new_action, log_prob = self.policy.sample_action(states, robot_states)
-        q1_new = self.q1(states, new_action, robot_states)
-        q2_new = self.q2(states, new_action, robot_states)
+        new_action, log_prob = self.policy.sample_action(states)
+        q1_new = self.q1(states, new_action)
+        q2_new = self.q2(states, new_action)
         q_new = torch.min(q1_new, q2_new).squeeze(-1)  # (B,)
 
         # policy loss = alpha * log_prob - Q
@@ -1064,8 +943,6 @@ if __name__ == "__main__":
         frame_stack = FrameStack(4)
         state = frame_stack.reset(first_frame)
 
-        robot_state = np.array(env_model.return_current_robot_state(), dtype=np.float32)
-
         total_reward = 0
         reward = 0
         evacuation_time_80 = max_steps
@@ -1073,7 +950,6 @@ if __name__ == "__main__":
         agent_total_lifetime = 0
 
         buffered_state = state
-        buffered_robot_state = robot_state
         buffered_action = None
         abnormal_reward = 0
         agent.update_alpha(ALPHA_START, ALPHA_END, ALPHA_DECAY_STEPS, episode_num)
@@ -1086,14 +962,13 @@ if __name__ == "__main__":
                     
                     if step > 0:
                         state = frame_stack.append(curr_frame)
-                    action_np, _ = agent.select_action(state, robot_state)
+                    action_np, _ = agent.select_action(state)
                     dx, dy = action_np[0], action_np[1]
                     real_action = env_model.robot.receive_action([dx, dy])
                     action_np[0] = real_action[0]
                     action_np[1] = real_action[1]
 
                     buffered_state = np.copy(state)
-                    buffered_robot_state = np.copy(robot_state)
                     buffered_action = action_np
 
                 
@@ -1111,8 +986,6 @@ if __name__ == "__main__":
                 curr_frame = normalize_map_to_50(env_model.return_current_image(MAP_H, MAP_W))
                 curr_frame = curr_frame.astype(np.float32) / 255.0
                 next_state = frame_stack.peek_with(curr_frame)
-                next_robot_state = np.array(env_model.return_current_robot_state(), dtype=np.float32)
-
                 sim_timer.stop()
                 reward = 0
                 r_k = 0
@@ -1183,15 +1056,13 @@ if __name__ == "__main__":
 
                     agent.store_transition(    
                         buffered_state,
-                        buffered_robot_state,
                         buffered_action,
                         reward, 
                         next_state, 
-                        next_robot_state,
                         float(done)
                     )
-
                     total_reward += reward
+
                     reward = 0
 
                 # 7) Update agent
@@ -1201,13 +1072,6 @@ if __name__ == "__main__":
                     learn_timer.stop()
 
                     state = next_state
-                    robot_state = next_robot_state
-                
-                # state는 위에서 frame_stack.append로 갱신되거나 next_state로 갱신됨.
-                # robot_state도 매 스텝 next_robot_state로 최신화 필요 (단, ACTION_SCALE 고려)
-                if step % ACTION_SCALE != (ACTION_SCALE-1):
-                     # 중간 스텝에서도 최신 상태를 유지해야 다음 Action Select때 반영됨
-                     robot_state = next_robot_state
 
 
                 if (env_model.alived_agents() < env_model.total_agents * 0.2 and evacuation_time_80 == max_steps):
@@ -1218,21 +1082,9 @@ if __name__ == "__main__":
                     agent_total_lifetime = env_model.calculate_all_agents_life_time()
                     break
         except Exception as e:
-            print(f"Error occurred: {e}. Retrying environment...")
-            import traceback
-            traceback.print_exc()
-            
-            # [수정 3] 에러 복구 시 State들 초기화
+            print(e)
+            print("error occured. retry.")
             env_model = model.FightingModel(number_of_agents, 50, 50, -1, 'Q')
-            
-            raw_img = env_model.return_current_image(MAP_H, MAP_W)
-            down_img = normalize_map_to_50(raw_img)
-            first_frame = down_img.astype(np.float32) / 255.0
-            
-            frame_stack = FrameStack(4) # 스택도 초기화
-            state = frame_stack.reset(first_frame)
-            robot_state = np.array(env_model.return_current_robot_state(), dtype=np.float32) # 벡터도 초기화
-            
             abnormal_reward = 1
 
         heat_logger.flush_episode() #@for heatmap
