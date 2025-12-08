@@ -21,19 +21,19 @@ import model  # FightingModel 이 여기 있다고 가정
 
 # ------------------------- #
 # 실험 파라미터
-visualization_mode = 'off' # 'off', 'cont_mp4', 'cont_png_every', 'cont_png'
+visualization_mode = 'cont_mp4' # 'off', 'cont_mp4', 'cont_png_every', 'cont_png'
 run_iteration      = 1
 number_of_agents   = 20
 max_step_num       = 1500
-robot_version      = 'N' # 'T' : direct to goal, 'R' : 가장 먼 agent와 출구 사이를 왔다갔다, 'Q' : 학습된 모델 사용
+robot_version      = 'Q' # 'T' : direct to goal, 'R' : 가장 먼 agent와 출구 사이를 왔다갔다, 'Q' : 학습된 모델 사용
 robot_learned_model = 'sac_checkpoint_ep_15000.pth'
 test_num           = 20
-map_list           = [6, 7, 8, 24, 25, 26]
+map_list           = [6, 7, 8]
 
 MAP_WIDTH  = 50
 MAP_HEIGHT = 50
 
-EXP_NAME = "test_0918"   # 최상위 결과 폴더 이름
+EXP_NAME = "test_1209"   # 최상위 결과 폴더 이름
 # 빨강 : "#FF0000", 파랑 : "#0000FF", 초록 : "#00FF00"
 # 노랑 : "#FFFF00", 보라 : "#FF00FF", 청록 : "#00FFFF"
 # 주황 : "#FFA500", 갈색 : "#A52A2A", 분홍 : "#FFC0CB"
@@ -42,7 +42,7 @@ EXP_NAME = "test_0918"   # 최상위 결과 폴더 이름
 CROWD_COLOR = "#0000FF"
 ROBOT_COLOR = "#FF0000"
 SINGLE_COLOR_EDGES = True # 선/채움 통일
-SHOW_AGENT_HEADING = True # 군중 화살표 끄기
+SHOW_AGENT_HEADING = False # 군중 화살표 끄기
 SHOW_ROBOT_HEADING = False
 ROBOT_HEADING_SCALE = 1.2
 
@@ -53,7 +53,7 @@ ROBOT_STYLE = "circle" # "circle" or "image"
 ROBOT_IMAGE_PATH = "assets/robot.png"
 ROBOT_IMAGE_SCALE = 5
 EXIT_SIZE = 5.0
-SNAP_EXIT_TO_BOUNDARY = True
+SNAP_EXIT_TO_BOUNDARY = False
 
 ANNOTATE_ROBOT_PATH = False
 ANNOTATE_MODE = "every_n" #'all', 'endpoints'

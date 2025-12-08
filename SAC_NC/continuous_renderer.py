@@ -56,7 +56,7 @@ class ContinuousRenderer:
 
         # ===== Heading arrows =====
         show_agent_heading: bool = False,
-        show_robot_heading: bool = True,
+        show_robot_heading: bool = False,
         agent_heading_scale: float = 1.5,
         robot_heading_scale: float = 4,
 
@@ -72,10 +72,10 @@ class ContinuousRenderer:
         robot_style: str = "circle",                 # "circle" | "image"
         robot_image_path: Optional[str] = None,      # png 등
         robot_image_scale: float = 1.6,              # 반지름 대비 이미지 스케일
-        robot_image_rotate_by_velocity: bool = True,
+        robot_image_rotate_by_velocity: bool = False,
 
         # ===== Robot path annotations =====
-        annotate_robot_path: bool = True,            # 표기 켜기/끄기
+        annotate_robot_path: bool = False,            # 표기 켜기/끄기
         annotate_mode: str = "every_n",              # "every_n" | "all" | "endpoints"
         annotate_every: int = 10,                    # 간격
         annotate_style: str = "number",              # "number" | "subway" | "frame"
@@ -91,7 +91,7 @@ class ContinuousRenderer:
         annotate_min_gap: int = 1,                   # 라벨 재사용 최소 갯수(겹침 방지용 간단 옵션)
 
         # ===== NEW: Mesh viz =====
-        show_mesh: bool = True,
+        show_mesh: bool = False,
         mesh_use_only_pure: bool = True,          # obstacle_mesh는 제외
         mesh_face_a: str = "#8ecae6",             # 교차색 A
         mesh_face_b: str = "#219ebc",             # 교차색 B
