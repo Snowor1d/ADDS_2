@@ -135,6 +135,7 @@ class CrowdAgent(Agent):
         while (point_grid not in self.model.match_grid_to_mesh.keys()) or (self.model.match_grid_to_mesh[point_grid] not in self.model.pure_mesh):
             while_checking += 1
             if(while_checking == 50):
+                print(f"{x}, {y} 지점에서 오류 발생")
                 raise Exception("safe mesh를 찾지 못하였습니다.")
             point_grid = candidates[random.randint(0, len(candidates)-1)]
         return self.model.match_grid_to_mesh[point_grid]
@@ -428,9 +429,45 @@ class CrowdAgent(Agent):
         F_drag_x = -BETA * self.vel[0]
         F_drag_y = -BETA * self.vel[1]
 
+
+        # ---- 외곽 지대 나가지 않게 ----
+
+        # 🔹 (추가) 맵 outer wall 반발력
+        W = self.model.width
+        H = self.model.height
+        MARGIN = 1.0         # 이 거리 안으로 들어오면 힘 발생
+        K_BORDER = 200.0     # 경계 힘 세기 (필요하면 조절)
+        F_wx = 0
+        F_wy = 0
+        # left 벽 (x = 0 부근)
+        dx = max(0.0, MARGIN - self.xy[0])
+        if dx > 0.0:
+            # 왼쪽 벽에 가까우면 +x 방향으로 민다
+            F_wx += K_BORDER * dx
+
+        # right 벽 (x = W 부근)
+        dx = max(0.0, self.xy[0] - (W - MARGIN))
+        if dx > 0.0:
+            # 오른쪽 벽에 가까우면 -x 방향으로 민다
+            F_wx -= K_BORDER * dx
+
+        # bottom 벽 (y = 0 부근)
+        dy = max(0.0, MARGIN - self.xy[1])
+        if dy > 0.0:
+            # 아래쪽 벽에 가까우면 +y 방향
+            F_wy += K_BORDER * dy
+
+        # top 벽 (y = H 부근)
+        dy = max(0.0, self.xy[1] - (H - MARGIN))
+        if dy > 0.0:
+            # 위쪽 벽에 가까우면 -y 방향
+            F_wy -= K_BORDER * dy
+
+
+
         # ---- 총합 힘 ----
-        F_x = F_des_x + F_rep_x + F_contact_x + F_fric_x + F_drag_x
-        F_y = F_des_y + F_rep_y + F_contact_y + F_fric_y + F_drag_y
+        F_x = F_des_x + F_rep_x + F_contact_x + F_fric_x + F_drag_x + F_wx
+        F_y = F_des_y + F_rep_y + F_contact_y + F_fric_y + F_drag_y + F_wy
 
         # ---- 가속도 계산 + 클립 ----
         a_x = F_x / self.mass
@@ -862,6 +899,45 @@ class RobotAgent(CrowdAgent):
 
         F_x += F_wx
         F_y += F_wy
+
+        # ---- 외곽지대 나가지 않게 ----
+        # left 벽 (x = 0 부근)
+        W = self.model.width
+        H = self.model.height
+        MARGIN = 1.0         # 이 거리 안으로 들어오면 힘 발생
+        K_BORDER = 200.0     # 경계 힘 세기 (필요하면 조절)
+        F_wx = 0
+        F_wy = 0
+        
+        dx = max(0.0, MARGIN - self.xy[0])
+        if dx > 0.0:
+            # 왼쪽 벽에 가까우면 +x 방향으로 민다
+            F_wx += K_BORDER * dx
+
+        # right 벽 (x = W 부근)
+        dx = max(0.0, self.xy[0] - (W - MARGIN))
+        if dx > 0.0:
+            # 오른쪽 벽에 가까우면 -x 방향으로 민다
+            F_wx -= K_BORDER * dx
+
+        # bottom 벽 (y = 0 부근)
+        dy = max(0.0, MARGIN - self.xy[1])
+        if dy > 0.0:
+            # 아래쪽 벽에 가까우면 +y 방향
+            F_wy += K_BORDER * dy
+
+        # top 벽 (y = H 부근)
+        dy = max(0.0, self.xy[1] - (H - MARGIN))
+        if dy > 0.0:
+            # 위쪽 벽에 가까우면 -y 방향
+            F_wy -= K_BORDER * dy
+        F_x += F_wx
+        F_y += F_wy
+ 
+
+
+
+
         vel = [0,0]
         vel[0] = F_x/self.mass
         vel[1] = F_y/self.mass

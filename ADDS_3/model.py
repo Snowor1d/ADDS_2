@@ -664,10 +664,9 @@ class FightingModel(Model):
         return path
 
     def extract_map(self, map_num):
-        width = 50
-        height = 50 
+
         #좌하단 #우하단 #우상단 #좌상단 순으로 입력해주기
-        scale = 5/7
+
 
         if map_num == 6:
             self.obstacles.append([[10, 10], [20, 10], [20, 20], [10, 20]])
