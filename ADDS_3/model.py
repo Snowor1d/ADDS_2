@@ -1015,7 +1015,6 @@ class FightingModel(Model):
 
         if(self.robot_version == 'Q'):
             
-            # Action Scale 주기에 도달했을 때만 AI가 개입
             if self.using_model and ((self.step_n-1) % ACTION_SCALE == 0):
                 
                 if state is None:
@@ -1189,7 +1188,7 @@ class FightingModel(Model):
     
     def use_model(self, file_path):
         from config import USING_TRAINED_MODEL
-        input_shape = (self.height, self.width)
+        input_shape = (50, 50)
         num_actions = 4
 
         self.sac_agent = SACAgent(input_shape, start_epsilon=0)
@@ -1255,7 +1254,8 @@ class FightingModel(Model):
             return 0
 
     def return_current_robot_state(self):
-        return (self.robot.xy[0]/MAP_H, self.robot.xy[1]/MAP_W, self.agents_near_robot_num()/self.total_agents, self.robot.danger/(2*self.width))
+        agent_num = min(1, self.agents_near_robot_num()/10)
+        return (self.robot.xy[0]/MAP_H, self.robot.xy[1]/MAP_W, agent_num, self.robot.danger/(2*self.width))
     
     # 연속 → 라스터 (RL 프레임) 교체
     def return_current_image(self, H: int = 100, W: int = 100):
