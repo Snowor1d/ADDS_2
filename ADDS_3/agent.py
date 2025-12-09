@@ -11,6 +11,7 @@ import sys
 from collections import deque
 from heapq import heappush, heappop
 from shapely.geometry import Point
+from shapely.geometry import Polygon, MultiPolygon
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -133,13 +134,22 @@ class CrowdAgent(Agent):
         while_checking = 0
 
         candidates = [(x+1,y+1), (x+1, y), (x, y+1), (x-1, y-1), (x-1, y), (x, y-1), (x+1, y-1), (x-1, y+1)]
-        while (point_grid not in self.model.match_grid_to_mesh.keys()) or (self.model.match_grid_to_mesh[point_grid] not in self.model.pure_mesh):
-            while_checking += 1
-            if(while_checking == 50):
-                print(f"{x}, {y} 지점에서 오류 발생")
-                raise Exception("safe mesh를 찾지 못하였습니다.")
-            point_grid = candidates[random.randint(0, len(candidates)-1)]
+
+        if x==self.model.width and y==self.model.height: 
+            point_grid = (self.model.width -1, self.model.height -1) 
+            return self.model.match_grid_to_mesh[point_grid]
+
+        if (point_grid not in self.model.match_grid_to_mesh.keys()) or (self.model.match_grid_to_mesh[point_grid] not in self.model.pure_mesh):
+            for c in candidates:
+                if (c in self.model.match_grid_to_mesh.keys()) and (self.model.match_grid_to_mesh[c] in self.model.pure_mesh):
+                    point_grid = c
+                    return self.model.match_grid_to_mesh[point_grid]
+                
+            
+            raise Exception(f"{x}, {y} 지점에서 오류 발생, safe mesh를 찾지 못했습니다")
         return self.model.match_grid_to_mesh[point_grid]
+        
+
 
 
     def mesh_to_mesh_distance(self, point1, point2):
@@ -248,7 +258,10 @@ class CrowdAgent(Agent):
         F_contact_y = 0.0
         F_fric_x = 0.0
         F_fric_y = 0.0
-        for poly in self.model._obstacle_polys:
+        obstacle_polys = self.model._obstacle_polys.copy()
+        obstacle_polys.append(Polygon([(0,0), (self.model.width-1,0), (self.model.width-1,self.model.height-1), (0,self.model.height-1)]))  # 맵 외곽 벽 추가
+
+        for poly in obstacle_polys:
             d = poly.exterior.distance(p)
             r_sum = self.body_radius + 1  # wall radius = 1
             if d < r_sum :

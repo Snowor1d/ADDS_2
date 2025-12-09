@@ -1223,7 +1223,7 @@ if __name__ == "__main__":
             traceback.print_exc()
             
             # [수정 3] 에러 복구 시 State들 초기화
-            env_model = model.FightingModel(number_of_agents, 50, 50, -1, 'Q')
+            env_model = model.FightingModel(number_of_agents, MAP_H, MAP_W, -1, 'Q')
             
             raw_img = env_model.return_current_image(MAP_H, MAP_W)
             down_img = normalize_map_to_50(raw_img)
