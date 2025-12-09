@@ -1,0 +1,13 @@
+numpy>=1.23
+matplotlib==3.8.0
+shapely>=2.0.1
+scipy>=1.10
+scikit-learn>=1.2
+triangle==20230925
+pygame>=2.5
+torch>=2.1
+torchvision>=0.16
+torchaudio>=2.1
+argparse
+typing_extensions
+
