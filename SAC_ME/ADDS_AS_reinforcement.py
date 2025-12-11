@@ -161,7 +161,7 @@ def monitor_metric(metric_file, metric_name, tb_log_dir):
 
     # metric_file이 생성될 때까지 대기
     while not os.path.exists(metric_file):
-        print(f"Waiting for {metric_file} to be created...")
+        #print(f"Waiting for {metric_file} to be created...")
         time.sleep(2)
 
     with open(metric_file, "r") as f:
@@ -1155,7 +1155,7 @@ def monitor_total_reward(total_reward_file, tb_log_dir):
     writer = SummaryWriter(log_dir=tb_log_dir)
     # 파일 생성 대기
     while not os.path.exists(total_reward_file):
-        print(f"Waiting for {total_reward_file} to be created...")
+        #print(f"Waiting for {total_reward_file} to be created...")
         time.sleep(2)
     with open(total_reward_file, "r") as f:
         # 기존 내용 무시를 위해 파일 끝으로 이동
@@ -1171,7 +1171,7 @@ def monitor_total_reward(total_reward_file, tb_log_dir):
                         try:
                             total_reward = float(line)
                             writer.add_scalar("Total Reward", total_reward, episode)
-                            print(f"Episode {episode}: Total Reward = {total_reward}")
+                            #print(f"Episode {episode}: Total Reward = {total_reward}")
                             episode += 1
                         except ValueError:
                             print(f"Invalid value in total_reward.txt: {line}")
@@ -1198,8 +1198,8 @@ if __name__ == "__main__":
     evacuation_time_100_file = os.path.join(log_dir, "evacuation_100.txt")
     total_lifetime_file = os.path.join(log_dir, "total_lifetime.txt")
 
-    reward_vs_ls_file = os.path.join(log_dir, "reward_vs_learning_step.txt")
-    evac100_vs_ls_file = os.path.join(log_dir, "evac100_vs_learning_step.txt")
+    #reward_vs_ls_file = os.path.join(log_dir, "reward_vs_learning_step.txt")
+    #evac100_vs_ls_file = os.path.join(log_dir, "evac100_vs_learning_step.txt")
 
     tb_process = launch_tensorboard(tb_log_dir, port=PORT_NUM)
     step_writer = SummaryWriter(log_dir=tb_log_dir)
@@ -1460,7 +1460,7 @@ if __name__ == "__main__":
                 agent.save_replay_buffer("replay_buffer.npz")
 
             if ENABLE_TIMER:
-                print(f"episode {global_episode} - Total Learning Time: {learn_timer.get_time():.6f} 초")
+                print(f"Episode {global_episode} - Total Learning Time: {learn_timer.get_time():.6f} 초")
                 learn_timer.reset()
 
         if global_episode % POLICY_BORADCAST_INTERVAL == 0:
