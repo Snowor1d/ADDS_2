@@ -1243,19 +1243,19 @@ if __name__ == "__main__":
     )
     monitor_thread_lifetime.start()
 
-    monitor_thread_100_vs_ls = threading.Thread(
-        target=monitor_metric, 
-        args=(evac100_vs_ls_file, "Evacuation Time 100 vs learning step", tb_log_dir),
-        daemon=True
-    )
-    monitor_thread_100_vs_ls.start()
+    # monitor_thread_100_vs_ls = threading.Thread(
+    #     target=monitor_metric, 
+    #     args=(evac100_vs_ls_file, "Evacuation Time 100 vs learning step", tb_log_dir),
+    #     daemon=True
+    # )
+    # monitor_thread_100_vs_ls.start()
 
-    monitor_thread_reward_vs_ls = threading.Thread(
-        target=monitor_metric, 
-        args=(reward_vs_ls_file, "Reward vs learning step", tb_log_dir),
-        daemon=True
-    )
-    monitor_thread_reward_vs_ls.start()
+    # monitor_thread_reward_vs_ls = threading.Thread(
+    #     target=monitor_metric, 
+    #     args=(reward_vs_ls_file, "Reward vs learning step", tb_log_dir),
+    #     daemon=True
+    # )
+    # monitor_thread_reward_vs_ls.start()
 
     for m in MAP_NUM_RANDOM:
         # 맵별 reward 모니터
