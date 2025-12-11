@@ -327,7 +327,7 @@ def main():
     while running and episode_count < MAX_EPISODES:
         # 새로운 episode 시작
         env_model = FightingModel(
-            number_agents=20,
+            number_agents=50,
             width=100,
             height=100,
             model_num=MAP_NUM_FOR_RUN,

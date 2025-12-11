@@ -11,6 +11,7 @@ import sys
 from collections import deque
 from heapq import heappush, heappop
 from shapely.geometry import Point
+from shapely.geometry import Polygon, MultiPolygon
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -90,6 +91,7 @@ class CrowdAgent(Agent):
         self.life_time = 0
         self.body_radius = AGENT_BODY_RADIUS
         self.vision_radius = AGENT_VISION
+        self.meeting_robot = 0
 
 
     def step(self) -> None:
@@ -132,13 +134,22 @@ class CrowdAgent(Agent):
         while_checking = 0
 
         candidates = [(x+1,y+1), (x+1, y), (x, y+1), (x-1, y-1), (x-1, y), (x, y-1), (x+1, y-1), (x-1, y+1)]
-        while (point_grid not in self.model.match_grid_to_mesh.keys()) or (self.model.match_grid_to_mesh[point_grid] not in self.model.pure_mesh):
-            while_checking += 1
-            if(while_checking == 50):
-                print(f"{x}, {y} 지점에서 오류 발생")
-                raise Exception("safe mesh를 찾지 못하였습니다.")
-            point_grid = candidates[random.randint(0, len(candidates)-1)]
+
+        if x==self.model.width and y==self.model.height: 
+            point_grid = (self.model.width -1, self.model.height -1) 
+            return self.model.match_grid_to_mesh[point_grid]
+
+        if (point_grid not in self.model.match_grid_to_mesh.keys()) or (self.model.match_grid_to_mesh[point_grid] not in self.model.pure_mesh):
+            for c in candidates:
+                if (c in self.model.match_grid_to_mesh.keys()) and (self.model.match_grid_to_mesh[c] in self.model.pure_mesh):
+                    point_grid = c
+                    return self.model.match_grid_to_mesh[point_grid]
+                
+            
+            raise Exception(f"{x}, {y} 지점에서 오류 발생, safe mesh를 찾지 못했습니다")
         return self.model.match_grid_to_mesh[point_grid]
+        
+
 
 
     def mesh_to_mesh_distance(self, point1, point2):
@@ -239,16 +250,62 @@ class CrowdAgent(Agent):
     def _wall_repulsion(self):
         from shapely.geometry import Point
         Fwx = Fwy = 0.0
+        KN = 1.2e5
+        CN = 1000
+        MU_T = 2.5e5
         p = Point(self.xy[0], self.xy[1])
-        for poly in self.model._obstacle_polys:
+        F_contact_x = 0.0
+        F_contact_y = 0.0
+        F_fric_x = 0.0
+        F_fric_y = 0.0
+        obstacle_polys = self.model._obstacle_polys.copy()
+        obstacle_polys.append(Polygon([(0,0), (self.model.width-1,0), (self.model.width-1,self.model.height-1), (0,self.model.height-1)]))  # 맵 외곽 벽 추가
+
+        for poly in obstacle_polys:
             d = poly.exterior.distance(p)
-            if d < self.body_radius * 1.5:
+            r_sum = self.body_radius + 1  # wall radius = 1
+            if d < r_sum :
+                
+                q = poly.exterior.interpolate(poly.exterior.project(p))
+                dx = self.xy[0]-q.x
+                dy = self.xy[1]-q.y
+                dist = math.hypot(dx, dy) or 1e-9
+                ux, uy = dx/dist, dy/dist
+                
+
+                penetration = r_sum - d
+                Fn_k = KN * penetration
+                # (b) 상대속도에 대한 법선 감쇠
+                v_jx = 0
+                v_jy = 0
+                rel_vx, rel_vy = (self.vel[0] - v_jx), (self.vel[1] - v_jy)
+                v_n = rel_vx*ux + rel_vy*uy        # 법선 성분
+                
+                if v_n < 0:
+                    restitution = 0.2
+                    drop = (1.0-restitution)*v_n
+                    self.vel[0] -= drop*ux
+                    self.vel[1] -= drop*uy
+
+                Fn_c = -CN * v_n                   # 접근할수록(음수) + 방향은 법선
+                Fn = max(Fn_k + Fn_c, 0.0)         # 법선 힘은 음수가 되지 않게
+
+                F_contact_x += Fn * ux
+                F_contact_y += Fn * uy
+
+                # (c) 접선 방향(미끄럼) 마찰: v_t = rel_v - v_n n
+                vt_x = rel_vx - v_n*ux
+                vt_y = rel_vy - v_n*uy
+                F_fric_x += -MU_T * vt_x
+                F_fric_y += -MU_T * vt_y
+
+            if d < r_sum * 2:
                 q = poly.exterior.interpolate(poly.exterior.project(p))
                 dx = self.xy[0]-q.x
                 dy = self.xy[1]-q.y
                 dist = math.hypot(dx, dy) or 1e-9
                 nx, ny = dx/dist, dy/dist
-                mag = 200.0 * math.exp(-(d/0.2))
+                mag = 200 * math.exp(-(d/0.2))
                 Fwx += mag * nx
                 Fwy += mag * ny
         return Fwx, Fwy
@@ -357,10 +414,12 @@ class CrowdAgent(Agent):
         r_i = BODY_RADIUS
         # 자기 상태 (속도)
         v_ix, v_iy = self.vel[0], self.vel[1]
-        
+        self.meeting_robot = 0
         for nb in near_agents:
             if nb is self or getattr(nb, "dead", False):
                 continue
+            if nb.type == 3:
+                self.meeting_robot = 1
 
             dx = self.xy[0] - nb.xy[0]
             dy = self.xy[1] - nb.xy[1]
@@ -381,7 +440,7 @@ class CrowdAgent(Agent):
             F_rep_x += mag * ux
             F_rep_y += mag * uy
 
-            # # 1) 원거리 지수 반발(부드러운 회피)
+            # # # 1) 원거리 지수 반발(부드러운 회피)
             # if getattr(nb, "type", None) in (11, 9):
             #     mag = K_WALL * math.exp((r_sum - d) / LAMBDA_A)
             #     F_rep_x += mag * ux
@@ -439,6 +498,11 @@ class CrowdAgent(Agent):
         K_BORDER = 200.0     # 경계 힘 세기 (필요하면 조절)
         F_wx = 0
         F_wy = 0
+
+        W_x, W_y = self._wall_repulsion()
+        F_wx += W_x
+        F_wy += W_y
+
         # left 벽 (x = 0 부근)
         dx = max(0.0, MARGIN - self.xy[0])
         if dx > 0.0:
@@ -462,6 +526,31 @@ class CrowdAgent(Agent):
         if dy > 0.0:
             # 위쪽 벽에 가까우면 -y 방향
             F_wy -= K_BORDER * dy
+
+
+        # ---- 스윕 이동(터널링 방지) ----
+        def swept_move(xy, vel, dt):
+            nx, ny = xy[0], xy[1]
+            max_disp = max(abs(vel[0]*dt), abs(vel[1]*dt))
+            steps = max(1, int(math.ceil(max_disp / 0.5)))
+            sdt = dt / steps
+            for _ in range(steps):
+                tx = nx + vel[0]*sdt
+                ty = ny + vel[1]*sdt
+                ix, iy = int(round(tx)), int(round(ty))
+                if self.model.valid_space.get((ix, iy), False):
+                    nx, ny = tx, ty
+                    continue
+                # 축 분리 시도
+                ix_only = int(round(nx + vel[0]*sdt))
+                if self.model.valid_space.get((ix_only, int(round(ny))), False):
+                    nx = nx + vel[0]*sdt
+                iy_only = int(round(ny + vel[1]*sdt))
+                if self.model.valid_space.get((int(round(nx)), iy_only), False):
+                    ny = ny + vel[1]*sdt
+            return [nx, ny]
+
+        self.xy = swept_move(self.xy, self.vel, dt)
 
 
 
@@ -557,7 +646,7 @@ class CrowdAgent(Agent):
         if(self.decision_flag == 0 or robot_d < ROBOT_R): 
             #print(f"Agent{self.unique_id} 는 새로운 결정을 내리기로 했습니다.")
 
-            if(robot_d < ROBOT_R and self.model.robot_mode == "GUIDE" and self.point_to_point_distance(self.model.robot.xy, self.xy)<2.3*ROBOT_R):  ####### 2.3*ROBOT_R 뭐임?
+            if(self.meeting_robot and self.model.robot_mode == "GUIDE"):  ####### 2.3*ROBOT_R 뭐임?
                 if random.random() < P_robot_following: 
                     #print(f"Agent{self.unique_id} 는 로봇을 따라갑니다!")
                     self.type = 0
@@ -873,7 +962,10 @@ class RobotAgent(CrowdAgent):
         F_wx = F_wy = 0
         p = Point(self.xy[0], self.xy[1])
         self.collision_check = 0
-        for poly in self.model._obstacle_polys:
+        obstacle_polys = self.model._obstacle_polys.copy()
+        obstacle_polys.append(Polygon([(0,0), (self.model.width-1,0), (self.model.width-1,self.model.height-1), (0,self.model.height-1)]))  # 맵 외곽 벽 추가
+
+        for poly in obstacle_polys:
             # 경계선까지 최소거리
             d = poly.exterior.distance(p)
             if d <= self.body_radius * 0.8:   # 매우 근접 → 충돌 경보

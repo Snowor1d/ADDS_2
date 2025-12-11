@@ -962,11 +962,15 @@ class RobotAgent(CrowdAgent):
         F_wx = F_wy = 0
         p = Point(self.xy[0], self.xy[1])
         self.collision_check = 0
-        for poly in self.model._obstacle_polys:
+        obstacle_polys = self.model._obstacle_polys.copy()
+        obstacle_polys.append(Polygon([(0,0), (self.model.width-1,0), (self.model.width-1,self.model.height-1), (0,self.model.height-1)]))  # 맵 외곽 벽 추가
+
+        for poly in obstacle_polys:
             # 경계선까지 최소거리
             d = poly.exterior.distance(p)
             if d <= self.body_radius * 0.8:   # 매우 근접 → 충돌 경보
                 self.collision_check = 1
+                print("충돌함!")
             if d > 1.5 * self.body_radius:    # 멀면 무시
                 continue
             q = poly.exterior.interpolate(poly.exterior.project(p))

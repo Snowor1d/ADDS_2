@@ -4,20 +4,20 @@ BUFFER_SIZE = 1000000
 BATCH_SIZE = 128
 INTRINSIC_ETA = 0.1 #intrinsic reward
 START_BATCH_TIMES = 1
-START_UPDATE_STEP = 500
+START_UPDATE_EPISODE = 500
 DEVICE = "cpu"
 
 GAMMA_START = 0.99
 GAMMA_END = 0.99
 GAMMA_SCHEDULE_STEP = 1000
-MAP_H = 50
-MAP_W = 50
+MAP_H = 100
+MAP_W = 100
 
 # ---------------- SIMULATION ENVIRONMENT ---------------------
 CROWD_NUMBER_MIN = 20
 CROWD_NUMBER_MAX = 20
 MAP_NUM = -1 #if not used, -2, if random, -1
-MAP_NUM_RANDOM = [6]
+MAP_NUM_RANDOM = [6, 7, 8]
 SCALE_CHECK = 0 # want to check reward scale?
 ACTION_SCALE = 4
 MAX_STEPS = 4000
@@ -26,7 +26,7 @@ ROBOT_BODY_RADIUS = 1
 AGENT_BODY_RADIUS = 0.5
 ROBOT_VISION = 10
 AGENT_VISION = 10
-EXIT_CONFIRM_RADIUS = 20
+EXIT_CONFIRM_RADIUS = 10
 
 # --------------- EPSILON-EXPLORATION ------------------
 EPSILON_MIN = 0
@@ -38,6 +38,7 @@ START_DECAY_STEP = 500
 EXPLORATION_TYPE = 0
 LONG_EPSILON_MIN = 0
 START_LONG_EPSILON = 0
+DECAY_MODE = 'episode'
 
 
 # -------------- PATH -------------------
@@ -73,6 +74,12 @@ FINISHED_BONUS = 0
 USING_TRAINED_MODEL = True
 SHOW_CONTROLLED_CROWD = False
 ENABLE_TIMER = True
+
+N_ENVS = 8
+UPDATES_PER_TRANSITION = 1
+POLICY_BORADCAST_INTERVAL = 10
+
+
 
 # --------------- crowd evacuation parameter -----------------
 K1 = 1 # distance weight
