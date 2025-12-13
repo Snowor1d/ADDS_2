@@ -48,7 +48,7 @@ class EpisodeStatMsg:
 STATE_SHAPE = (4, 50, 50)
 INPUT_MAP_SIZE = 50
 ROBOT_STATE_EMBEDDING = True
-ROBOT_STATE_DIM = 4
+ROBOT_STATE_DIM = 3
 
 # Timer instances
 sim_timer = Timer() 
@@ -731,7 +731,7 @@ class QNetwork(nn.Module):
         robot_feat_dim = 0
 
         if self.use_robot_state:
-            robot_input_dim = 4
+            robot_input_dim = 3
             robot_embed_dim = 32
 
             self.robot_fc = nn.Sequential(
@@ -806,7 +806,7 @@ class PolicyNetwork(nn.Module):
 
         self.robot_feat_dim = 0
         if self.use_robot_state :
-            robot_input_dim = 4
+            robot_input_dim = 3
             robot_embed_dim = 32
             self.robot_fc = nn.Sequential(
                 nn.Linear(robot_input_dim, robot_embed_dim),
@@ -1344,8 +1344,8 @@ if __name__ == "__main__":
 
     # ----- 3) Queue & Worker 프로세스 시작 -----
     N_WORKERS = N_ENVS # 원하는 만큼
-    transition_queue = mp.Queue(maxsize=10000)
-    stats_queue = mp.Queue(maxsize=1000)
+    transition_queue = mp.Queue(maxsize=100*N_ENVS)
+    stats_queue = mp.Queue(maxsize=100*N_ENVS)
     param_queue = mp.Queue(maxsize=1)
 
     workers = []

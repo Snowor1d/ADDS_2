@@ -1297,8 +1297,12 @@ class FightingModel(Model):
             return 0
 
     def return_current_robot_state(self):
-        agent_num = min(1, self.agents_near_robot_num()/10)
-        return (self.robot.xy[0]/MAP_H, self.robot.xy[1]/MAP_W, agent_num, self.robot.danger/(2*self.width))
+        if (self.agents_near_robot_num() == 0):
+            agent_num = 0
+        else:
+            agent_num = 1
+
+        return (self.robot.xy[0]/MAP_H, self.robot.xy[1]/MAP_W, agent_num)
     
     # 연속 → 라스터 (RL 프레임) 교체
     def return_current_image(self, H: int = 100, W: int = 100):
