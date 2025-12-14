@@ -1307,7 +1307,7 @@ if __name__ == "__main__":
     print(f"Agent initialized, lr={LR}, alpha={agent.alpha}, batch_size={BATCH_SIZE}, replay_size={BUFFER_SIZE}")
     replay_buffer_path = os.path.join(log_dir, "replay_buffer.npz")
 
-        
+    global_episode = 0
     if model_load == 1:
         pass
     elif model_load == 2:
@@ -1327,6 +1327,7 @@ if __name__ == "__main__":
             latest_model = max(model_files, key=lambda f: int(f.split("_")[-1].split(".")[0]))
             latest_model_path = os.path.join(log_dir, latest_model)
             start_episode = int(latest_model.split("_")[-1].split(".")[0])
+            global_episode = start_episode
             print(f"Loading latest model: {latest_model}")
             agent.load_model(latest_model_path)
             if os.path.exists(replay_buffer_path):
@@ -1364,7 +1365,6 @@ if __name__ == "__main__":
         print(f"[Main] Worker {wid} started, pid={p.pid}")
 
 
-    global_episode = 0
     max_episodes = 9999999
 
     # update 비율 설정
@@ -1454,7 +1454,7 @@ if __name__ == "__main__":
                 f.write(str(agent.epsilon_long))
 
             # 체크포인트 저장
-            if global_episode % 200 == 0:
+            if global_episode % 100 == 0:
                 model_filename = os.path.join(log_dir, f"sac_checkpoint_ep_{global_episode}.pth")
                 agent.save_model(model_filename)
                 agent.save_replay_buffer("replay_buffer.npz")
