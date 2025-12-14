@@ -1071,17 +1071,20 @@ class FightingModel(Model):
                 self.robot.receive_action([dx, dy])
 
             if(self.using_model and self.step_n%ACTION_SCALE==(ACTION_SCALE-1) or SCALE_CHECK):
-                #print("reward_based_alived : ", self.reward_based_alived() * REWARD_A)
+                print("reward_based_alived : ", self.reward_based_alived() * REWARD_A)
                 print("reward_based_all_agents_danger : ", self.reward_based_all_agents_danger() * REWARD_B)
                 #print("reward_based_gain : ", self.reward_based_gain() * REWARD_C)
-                #print("reward_penalty : ", self.reward_penalty() * REWARD_D)
+                print("reward_penalty : ", self.reward_penalty() * REWARD_D)
+                print("reward_fixed : ", REWARD_FIXED)
                 #print("reward_based_evacuated_with_robot : ", self.reward_based_evacuated_with_robot() * REWARD_E)
                 #print("reward_based_distance_from_near_agents : ", self.reward_based_distance_from_near_agents() * REWARD_F)
                 #print("reward_based_distance_from_near_agent_gain : ", self.reward_based_distance_from_near_agent_gain() * REWARD_G)
                 #print("reward_based_gain_with_time_bonus :", self.reward_based_gain_with_time_bonus() * REWARD_H)
                 #print("reward_based_alived_root : ", self.reward_based_alived_root() * REWARD_I)
                 #print("reward_based_all_agents_danger_log : ", self.reward_based_all_agents_danger_log() * REWARD_J)
-                #print("reward_penalty_collision : ", self.reward_penalty_collision() * REWARD_K)        
+                #print("reward_penalty_collision : ", self.reward_penalty_collision() * REWARD_K)          
+                print("reward_based_farthest_agent_distance : ", self.reward_based_farthest_agent_distance() * REWARD_L)
+
 
         elif (self.robot_version == 'T'):
             self.robot.robot_policy_going_exit()      
@@ -1100,7 +1103,7 @@ class FightingModel(Model):
         self.now_evacuated_with_robot = self.evacuated_agents_with_robot()
 
 
-        
+        #print("farthest reward : ", self.reward_based_farthest_agent_distance())
         
         
 
@@ -1280,6 +1283,15 @@ class FightingModel(Model):
         reward = self.new_founded_agent_danger
         self.new_founded_agent_danger = 0
         return reward
+
+    def reward_based_farthest_agent_distance(self):
+        farthest_distance = 0
+        for agent in self.crowds:
+            if(agent.type == 0 or agent.type ==1 or agent.type == 2) and (agent.dead == False):
+                distance = self.robot.point_to_point_distance(self.robot.xy, agent.xy)
+                if (distance>farthest_distance):
+                    farthest_distance = distance
+        return -farthest_distance/((self.width**2 + self.height**2)**0.5)
     
     def reward_based_near_agents_exist(self):
         
@@ -1322,7 +1334,7 @@ class FightingModel(Model):
             if ag.dead:
                 continue
             ix, iy = to_px(ag.xy[0], ag.xy[1])
-            img[iy, ix] = 140 if ag.type == 0 else 100
+            img[iy, ix] = 140 if ag.type == 0 else 140
             
 
         # 로봇
