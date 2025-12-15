@@ -1464,16 +1464,21 @@ if __name__ == "__main__":
             if ENABLE_TIMER:
                 print(f"Episode {global_episode} - Total Learning Time: {learn_timer.get_time():.6f} 초")
                 learn_timer.reset()
-
-        if global_episode % POLICY_BORADCAST_INTERVAL == 0:
-            sd_gpu = agent.policy.state_dict()
-            sd_cpu = {k: v.cpu() for k, v in sd_gpu.items()}
+        
+        if global_episode % POLICY_BROADCAST_INTERVAL == 0:
+            sd_cpu = {k: v.detach().cpu() for k, v in agent.policy.state_dict().items()}
 
             for pq in param_queues:
+                # 큐를 완전히 비워서 최신만 남김
                 try:
-                    pq.get_nowait()
-                except queue.Empty:
+                    while True:
+                        pq.get_nowait()
+                except Empty:
                     pass
-                pq.put(sd_cpu)
 
-            
+                # block 방지
+                try:
+                    pq.put_nowait(sd_cpu)
+                except Full:
+                    pass   # 이번 broadcast는 스킵
+                    
