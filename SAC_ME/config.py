@@ -5,7 +5,7 @@ BATCH_SIZE = 128
 INTRINSIC_ETA = 0.1 #intrinsic reward
 START_BATCH_TIMES = 1
 START_UPDATE_EPISODE = 500
-DEVICE = "cpu"
+DEVICE = "cuda"
 
 GAMMA_START = 0.99
 GAMMA_END = 0.99
@@ -17,7 +17,7 @@ MAP_W = 100
 CROWD_NUMBER_MIN = 50
 CROWD_NUMBER_MAX = 50
 MAP_NUM = -1 #if not used, -2, if random, -1
-MAP_NUM_RANDOM = [100]
+MAP_NUM_RANDOM = [100, 101, 102]
 SCALE_CHECK = 0 # want to check reward scale?
 ACTION_SCALE = 4
 MAX_STEPS = 4000
@@ -42,7 +42,7 @@ DECAY_MODE = 'episode'
 
 
 # -------------- PATH -------------------
-LOG_DIR = "Log_100_SAC_6007"
+LOG_DIR = "Log_new100_default"
 PORT_NUM = 6007
 
 # --------------- SAC ALGORITHM PARAMETER ---------------
@@ -78,7 +78,7 @@ ENABLE_TIMER = True
 
 N_ENVS = 4
 UPDATES_PER_TRANSITION = 1
-POLICY_BORADCAST_INTERVAL = 10
+POLICY_BROADCAST_INTERVAL = 10
 
 
 
