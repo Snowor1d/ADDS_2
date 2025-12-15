@@ -133,13 +133,15 @@ class CrowdAgent(Agent):
         y = point_grid[1]
         while_checking = 0
 
-        candidates = [(x+1,y+1), (x+1, y), (x, y+1), (x-1, y-1), (x-1, y), (x, y-1), (x+1, y-1), (x-1, y+1)]
+        candidates = [(x+1,y+1), (x+1, y), (x, y+1), (x-1, y-1), (x-1, y), (x, y-1), (x+1, y-1), (x-1, y+1), (x-2, y), (x+2, y), (x, y-2), (x, y+2)]
 
         if x==self.model.width and y==self.model.height: 
             point_grid = (self.model.width -1, self.model.height -1) 
             return self.model.match_grid_to_mesh[point_grid]
-
+        
         if (point_grid not in self.model.match_grid_to_mesh.keys()) or (self.model.match_grid_to_mesh[point_grid] not in self.model.pure_mesh):
+            print("다른 후보 찾기")
+            print("-")
             for c in candidates:
                 if (c in self.model.match_grid_to_mesh.keys()) and (self.model.match_grid_to_mesh[c] in self.model.pure_mesh):
                     point_grid = c
