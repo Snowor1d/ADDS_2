@@ -140,8 +140,8 @@ class CrowdAgent(Agent):
             return self.model.match_grid_to_mesh[point_grid]
         
         if (point_grid not in self.model.match_grid_to_mesh.keys()) or (self.model.match_grid_to_mesh[point_grid] not in self.model.pure_mesh):
-            print("다른 후보 찾기")
-            print("-")
+            #print("다른 후보 찾기")
+            #print("-")
             for c in candidates:
                 if (c in self.model.match_grid_to_mesh.keys()) and (self.model.match_grid_to_mesh[c] in self.model.pure_mesh):
                     point_grid = c

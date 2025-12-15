@@ -20,6 +20,7 @@ from config import *
 
 from dataclasses import dataclass
 import multiprocessing as mp
+import queue
 from queue import Empty, Full # for Empty
 
 @dataclass
