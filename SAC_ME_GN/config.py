@@ -42,7 +42,7 @@ DECAY_MODE = 'episode'
 
 
 # -------------- PATH -------------------
-LOG_DIR = "Log_251217_GN"
+LOG_DIR = "Log_base251217_GN"
 PORT_NUM = 6007
 
 # --------------- SAC ALGORITHM PARAMETER ---------------
