@@ -74,69 +74,17 @@ os.makedirs(log_dir, exist_ok=True)
 #     known_maps = MAP_NUM_RANDOM
 # )
 
-def normalize_map_to_50(obs: np.ndarray, target: int = 50) -> np.ndarray:
-    """
-    obs : (H, W) 또는 (C, H, W) numpy array
-    목표 크기 target x target으로 downsample (기본 50x50)
-    
-    obs가 더 크면 자동 downsample.
-    obs가 target보다 작으면 그대로 반환.
-    """
-    # -------------------------
-    # 1) obs shape 추출
-    # -------------------------
-    if obs.ndim == 2:
-        H, W = obs.shape
-        C = None
-    elif obs.ndim == 3:
-        C, H, W = obs.shape
-    else:
-        raise ValueError("obs must be 2D or 3D array.")
-
-    # -------------------------
-    # 2) 이미 target이면 그대로 반환
-    # -------------------------
-    if H == target and W == target:
-        return obs
-
-    # -------------------------
-    # 3) 더 작은 경우 → 모델이 원하면 패딩 처리 가능, 일단 그대로 반환
-    # -------------------------
-    if H < target or W < target:
-        return obs
-
-    # -------------------------
-    # 4) downsample factor 계산
-    # 예: H=100 → factor = 100/50 = 2
-    # -------------------------
-    if H % target != 0 or W % target != 0:
-        raise ValueError(
-            f"Cannot evenly downsample: obs=({H},{W}), target={target}. "
-            "크기가 target의 정수배여야 함."
-        )
-    factor_h = H // target
-    factor_w = W // target
-
-    if factor_h != factor_w:
-        raise ValueError("비율이 맞지 않아 정방형 scaling 불가")
-
-    factor = factor_h  # 예: 2
-
-    # -------------------------
-    # 5) 실제 downsample (max-pooling)
-    # -------------------------
-    if obs.ndim == 2:
-        cropped = obs[:factor*target, :factor*target]
-        reshaped = cropped.reshape(target, factor, target, factor)
-        out = reshaped.max(axis=(1, 3))
-        return out
-
-    else:  # C, H, W
-        cropped = obs[:, :factor*target, :factor*target]
-        reshaped = cropped.reshape(C, target, factor, target, factor)
-        out = reshaped.max(axis=(2, 4))
-        return out
-
+def normalize_map_to_50(obs, target=50):
+    x = torch.from_numpy(obs).float()
+    if x.ndim == 2:
+        x = x.unsqueeze(0).unsqueeze(0)  # (1,1,H,W)
+        y = F.adaptive_max_pool2d(x, (target, target))
+        return y.squeeze().numpy()
+    else:  # (C,H,W)
+        x = x.unsqueeze(0)  # (1,C,H,W)
+        y = F.adaptive_max_pool2d(x, (target, target))
+        return y.squeeze(0).numpy()
+ 
 
 def launch_tensorboard(tb_log_dir, port=6006):
     """
