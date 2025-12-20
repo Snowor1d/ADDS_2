@@ -80,7 +80,7 @@ os.makedirs(log_dir, exist_ok=True)
 def ego_crop_from_full_map(full_map: np.ndarray,
                            robot_xy_px: tuple[int, int],
                            ego_size: int,
-                           pad_value: int = 0) -> np.ndarray:
+                           pad_value: int = 50) -> np.ndarray:
     """
     full_map: (H, W) uint8
     robot_xy_px: (ix, iy) in pixel coords (0..W-1, 0..H-1)
@@ -264,7 +264,7 @@ def worker_process(
         full = env_model.return_current_image(MAP_H, MAP_W)  # (H,W) uint8
         ix, iy = _robot_world_to_px(env_model)
 
-        ego = ego_crop_from_full_map(full, (ix, iy), EGO_MAP_SIZE, pad_value=0)  # (EGO,EGO) uint8
+        ego = ego_crop_from_full_map(full, (ix, iy), EGO_MAP_SIZE, pad_value=50)  # (EGO,EGO) uint8
         glob = downsample_full_map(full, DOWNSAMPLE_MAP_SIZE)                    # (DOWN,DOWN) uint8
 
         ego_f = ego.astype(np.float32) / 255.0
