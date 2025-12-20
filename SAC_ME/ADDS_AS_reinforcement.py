@@ -617,10 +617,10 @@ class ResidualBlock(nn.Module):
 
     def forward(self, x):
         residual = self.skip(x)
-        out = F.leaky_relu(self.bn1(self.conv1(x)), negative_slope=0.01)
+        out = F.silu(self.bn1(self.conv1(x)))
         out = self.bn2(self.conv2(out))
         out = out + residual
-        return F.leaky_relu(out, negative_slope=0.01)
+        return F.silu(out)
         
 class EpsilonScheduler:
     """
@@ -687,7 +687,7 @@ class QNetwork(nn.Module):
 
             self.robot_fc = nn.Sequential(
                 nn.Linear(robot_input_dim, robot_embed_dim),
-                nn.LeakyReLU(0.1)
+                nn.SiLU()
             )
             robot_feat_dim = robot_embed_dim
         else:
@@ -703,15 +703,15 @@ class QNetwork(nn.Module):
 
     def _get_conv_out(self, shape):
         dummy = torch.zeros(1, 4, *shape)  # (batch, channel=1, H, W)
-        o = F.leaky_relu(self.bn1(self.conv1(dummy)), negative_slope=0.01)
-        o = F.leaky_relu(self.bn2(self.conv2(o)), negative_slope=0.01)
-        o = F.leaky_relu(self.bn3(self.conv3(o)), negative_slope=0.01)
+        o = F.silu(self.bn1(self.conv1(dummy)))
+        o = F.silu(self.bn2(self.conv2(o)))
+        o = F.silu(self.bn3(self.conv3(o)))
         return int(np.prod(o.size()[1:]))
 
     def forward(self, img, action, robot_state = None):
-        x = F.leaky_relu(self.bn1(self.conv1(img)), negative_slope=0.01)
-        x = F.leaky_relu(self.bn2(self.conv2(x)), negative_slope=0.01)
-        x = F.leaky_relu(self.bn3(self.conv3(x)), negative_slope=0.01)
+        x = F.silu(self.bn1(self.conv1(img)))
+        x = F.silu(self.bn2(self.conv2(x)))
+        x = F.silu(self.bn3(self.conv3(x)))
         x = x.view(x.size(0), -1)
 
         feature_list = [x]
@@ -726,8 +726,8 @@ class QNetwork(nn.Module):
         feature_list.append(action)
         combined = torch.cat(feature_list, dim=1)
 
-        out = F.leaky_relu(self.fc1(combined), negative_slope = 0.01)
-        out = F.leaky_relu(self.fc2(out), negative_slope = 0.01)
+        out = F.silu(self.fc1(combined))
+        out = F.silu(self.fc2(out))
         q_val = self.q_out(out)
 
         return q_val
@@ -761,7 +761,7 @@ class PolicyNetwork(nn.Module):
             robot_embed_dim = 32
             self.robot_fc = nn.Sequential(
                 nn.Linear(robot_input_dim, robot_embed_dim),
-                nn.LeakyReLU(0.1)
+                nn.SiLU()
             )
             self.robot_feat_dim = robot_embed_dim
         else :
@@ -772,11 +772,11 @@ class PolicyNetwork(nn.Module):
 
         self.fc_backbone = nn.Sequential(
             nn.Linear(fusion_dim, 512),
-            nn.LeakyReLU(0.01, inplace=True),
+            nn.SiLU(),
             nn.Linear(512, 256),
-            nn.LeakyReLU(0.01, inplace=True),
+            nn.SiLU(),
             nn.Linear(256, 64),
-            nn.LeakyReLU(0.01, inplace=True)
+            nn.SiLU()
         )
         
         # 최종 출력: (dx, dy)의 mean, log_std
@@ -785,16 +785,16 @@ class PolicyNetwork(nn.Module):
 
     def _get_conv_out(self, shape, robot_state = None):
         dummy = torch.zeros(1, 4, *shape)
-        x = F.leaky_relu(self.bn1(self.conv1(dummy)), negative_slope=0.01)
-        x = F.leaky_relu(self.bn2(self.conv2(x)), negative_slope=0.01)
-        x = F.leaky_relu(self.bn3(self.conv3(x)), negative_slope=0.01)
+        x = F.silu(self.bn1(self.conv1(dummy)))
+        x = F.silu(self.bn2(self.conv2(x)))
+        x = F.silu(self.bn3(self.conv3(x)))
         x = x.view(x.size(0), -1)
         return int(np.prod(x.size()[1:]))
 
     def backbone(self, state, robot_state = None):
-        x = F.leaky_relu(self.bn1(self.conv1(state)), negative_slope=0.01)
-        x = F.leaky_relu(self.bn2(self.conv2(x)), negative_slope=0.01)
-        x = F.leaky_relu(self.bn3(self.conv3(x)), negative_slope=0.01)
+        x = F.silu(self.bn1(self.conv1(state)))
+        x = F.silu(self.bn2(self.conv2(x)))
+        x = F.silu(self.bn3(self.conv3(x)))
         x = x.view(x.size(0), -1)
         if self.use_robot_state:
             if robot_state is None:
