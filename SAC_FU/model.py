@@ -283,7 +283,7 @@ def normalize_map_to_50(obs, target=50):
 def ego_crop_from_full_map(full_map: np.ndarray,
                            robot_xy_px: tuple[int, int],
                            ego_size: int,
-                           pad_value: int = 0) -> np.ndarray:
+                           pad_value: int = 50) -> np.ndarray:
     """
     full_map: (H, W) uint8
     robot_xy_px: (ix, iy) in pixel coords (0..W-1, 0..H-1)
@@ -1475,7 +1475,7 @@ class FightingModel(Model):
     def build_ego_global_frames(self, full_map_u8: np.ndarray):
         ix, iy = self._robot_world_to_px()
 
-        ego_u8 = ego_crop_from_full_map(full_map_u8, (ix, iy), EGO_MAP_SIZE, pad_value=0)     # (EGO,EGO)
+        ego_u8 = ego_crop_from_full_map(full_map_u8, (ix, iy), EGO_MAP_SIZE, pad_value=50)     # (EGO,EGO)
         glob_u8 = downsample_full_map(full_map_u8, DOWNSAMPLE_MAP_SIZE)                       # (DOWN,DOWN)
 
         ego_f = ego_u8.astype(np.float32) / 255.0
