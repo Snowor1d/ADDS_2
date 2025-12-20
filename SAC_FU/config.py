@@ -4,8 +4,8 @@ BUFFER_SIZE = 1000000
 BATCH_SIZE = 128
 INTRINSIC_ETA = 0.1 #intrinsic reward
 START_BATCH_TIMES = 1
-START_UPDATE_EPISODE = 500
-DEVICE = "cuda"
+START_UPDATE_EPISODE = 3
+DEVICE = "cpu"
 
 GAMMA_START = 0.99
 GAMMA_END = 0.99
@@ -45,7 +45,7 @@ DECAY_MODE = 'episode'
 
 
 # -------------- PATH -------------------
-LOG_DIR = "Log_test"
+LOG_DIR = "Log_FU"
 PORT_NUM = 6007
 
 # --------------- SAC ALGORITHM PARAMETER ---------------
@@ -83,6 +83,8 @@ N_ENVS = 4
 UPDATES_PER_TRANSITION = 1
 POLICY_BROADCAST_INTERVAL = 10
 
+EGO_MAP_SIZE = 50
+DOWNSAMPLE_MAP_SIZE = 50
 
 
 # --------------- crowd evacuation parameter -----------------
