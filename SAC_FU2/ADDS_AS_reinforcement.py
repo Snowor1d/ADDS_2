@@ -27,7 +27,7 @@ from queue import Empty, Full # for Empty
 from pathlib import Path
 import imageio.v2 as imageio
 
-DEBUG_SAVE = False
+DEBUG_SAVE = True
 DEBUG_DIR = os.path.join(LOG_DIR, "debug_frames")
 DEBUG_EVERY_EP = 1       # 20 에피소드마다 한 번만
 DEBUG_STEPS = {100, 200, 300}  # 초반 3번 boundary만 저장
