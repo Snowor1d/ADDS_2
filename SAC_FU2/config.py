@@ -10,17 +10,17 @@ DEVICE = "cpu"
 GAMMA_START = 0.99
 GAMMA_END = 0.99
 GAMMA_SCHEDULE_STEP = 1000
-MAP_H = 70
-MAP_W = 70
+MAP_H = 100
+MAP_W = 100
 
 # ---------------- SIMULATION ENVIRONMENT ---------------------
 CROWD_NUMBER_MIN = 30
 CROWD_NUMBER_MAX = 30
 MAP_NUM = -1 #if not used, -2, if random, -1
-MAP_NUM_RANDOM = [50, 51, 53]
+#MAP_NUM_RANDOM = [50, 51, 53]
 #MAP_NUM_RANDOM = [51]
 #MAP_NUM_RANDOM = [100, 101, 102]
-#MAP_NUM_RANDOM = [100]
+MAP_NUM_RANDOM = [103]
 SCALE_CHECK = 0 # want to check reward scale?
 ACTION_SCALE = 4
 MAX_STEPS = 4000
@@ -83,8 +83,8 @@ N_ENVS = 4
 UPDATES_PER_TRANSITION = 1
 POLICY_BROADCAST_INTERVAL = 10
 
-EGO_MAP_SIZE = 50
-DOWNSAMPLE_MAP_SIZE = 50
+EGO_MAP_SIZE = 25
+DOWNSAMPLE_MAP_SIZE = 25
 
 
 # --------------- crowd evacuation parameter -----------------
