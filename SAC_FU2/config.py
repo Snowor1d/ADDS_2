@@ -4,7 +4,7 @@ BUFFER_SIZE = 1000000
 BATCH_SIZE = 128
 INTRINSIC_ETA = 0.1 #intrinsic reward
 START_BATCH_TIMES = 1
-START_UPDATE_EPISODE = 3
+START_UPDATE_EPISODE = 500
 DEVICE = "cpu"
 
 GAMMA_START = 0.99
@@ -20,7 +20,7 @@ MAP_NUM = -1 #if not used, -2, if random, -1
 #MAP_NUM_RANDOM = [50, 51, 53]
 #MAP_NUM_RANDOM = [51]
 #MAP_NUM_RANDOM = [100, 101, 102]
-MAP_NUM_RANDOM = [103]
+MAP_NUM_RANDOM = [100, 101, 103]
 SCALE_CHECK = 0 # want to check reward scale?
 ACTION_SCALE = 4
 MAX_STEPS = 4000
@@ -45,7 +45,7 @@ DECAY_MODE = 'episode'
 
 
 # -------------- PATH -------------------
-LOG_DIR = "Log_FU"
+LOG_DIR = "Log_FU_100_101_103"
 PORT_NUM = 6007
 
 # --------------- SAC ALGORITHM PARAMETER ---------------
@@ -84,7 +84,7 @@ UPDATES_PER_TRANSITION = 1
 POLICY_BROADCAST_INTERVAL = 10
 
 EGO_MAP_SIZE = 25
-DOWNSAMPLE_MAP_SIZE = 25
+DOWNSAMPLE_MAP_SIZE = 50
 
 
 # --------------- crowd evacuation parameter -----------------
