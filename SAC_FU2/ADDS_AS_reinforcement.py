@@ -318,7 +318,10 @@ def worker_process(
         ego_f = ego.astype(np.float32) / 255.0
         glob_f = glob.astype(np.float32) / 255.0
         return full, ego_f, glob_f
-
+    
+    # hearbeats = ctx.Array('d', N_WORKERS)
+    # for i in range(N_WORKERS):
+    #     heartbeats[i] = time.time()
 
 
     while True:  # 무한히 에피소드 반복
@@ -380,7 +383,7 @@ def worker_process(
                 # -----------------------------
                 # 1) ACTION_SCALE 간격으로만 action 선택
                 # -----------------------------
-                heartbeats[worker_id] = time.time()
+                # heartbeats[worker_id] = time.time()
                 if step % ACTION_SCALE == 0:
 
                     full_u8, ego_f, glob_f = _build_ego_global_frames(env_model)
