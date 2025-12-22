@@ -962,6 +962,10 @@ class FightingModel(Model):
             index = [0, 2]
         elif (self.map_num == 103):
             index = [1, 3]
+        elif (self.map_num == 104):
+            index = [1, 3]
+        elif (self.map_num == 105):
+            index = [1, 3]
         elif (self.map_num == 50):
             index = [2]
         elif (self.map_num == 51):

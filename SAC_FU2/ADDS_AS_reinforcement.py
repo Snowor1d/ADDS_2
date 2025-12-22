@@ -380,6 +380,7 @@ def worker_process(
                 # -----------------------------
                 # 1) ACTION_SCALE 간격으로만 action 선택
                 # -----------------------------
+                heartbeats[worker_id] = time.time()
                 if step % ACTION_SCALE == 0:
 
                     full_u8, ego_f, glob_f = _build_ego_global_frames(env_model)
