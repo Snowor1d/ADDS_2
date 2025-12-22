@@ -779,7 +779,6 @@ class FightingModel(Model):
             #self.obstacles.append([[70, 65], [80, 65], [80, 75], [70, 75]])
             #self.obstacles.append([[70, 80], [90, 80], [90, 90], [70, 90]])
     
-
         elif map_num == 102:
             self.obstacles.append([[10, 10], [20, 10], [20, 20], [10, 20]])
             
@@ -787,8 +786,8 @@ class FightingModel(Model):
             self.obstacles.append([[30, 55], [40, 60], [30, 80], [10, 60]])
             
             self.obstacles.append([[10, 80], [20, 80], [20, 90], [10, 90]])
-            self.obstacles.append([[45, 60], [55, 60], [60, 80], [40, 80]])
-            self.obstacles.append([[40, 20], [60, 20], [55, 40], [45, 40]])
+            #self.obstacles.append([[45, 60], [55, 60], [60, 80], [40, 80]])
+            #self.obstacles.append([[40, 20], [60, 20], [55, 40], [45, 40]])
             self.obstacles.append([[80, 10], [90, 10], [90, 20], [80, 20]])
             
             self.obstacles.append([[70, 20], [90, 40], [70, 45], [60, 40]])
@@ -807,13 +806,13 @@ class FightingModel(Model):
             self.obstacles.append([[60, 70], [100, 70], [100, 100], [30, 100]])
 
         elif map_num == 104:
-            self.obstacles.append([[20, 0], [40, 0], [40, 10], [30, 10]])
-            self.obstacles.append([[0, 20], [20, 20], [20, 30], [0, 50]])
-            self.obstacles.append([[20, 50], [30, 50], [30, 60], [20, 60]])
+            #self.obstacles.append([[20, 0], [40, 0], [40, 10], [30, 10]])
+            self.obstacles.append([[0, 20], [20, 20], [20, 50], [0, 70]])
+            #self.obstacles.append([[20, 50], [30, 50], [30, 60], [20, 60]])
             self.obstacles.append([[50, 20], [60, 20], [60, 30], [50, 30]])
             self.obstacles.append([[50, 40], [50, 50], [60, 50], [60, 40]])
             self.obstacles.append([[70, 20], [90, 20], [90, 30], [70, 30]])
-            self.obstacles.append([[70, 40], [100, 40], [100, 50], [80, 50]])
+            self.obstacles.append([[70, 40], [90, 40], [90, 50], [80, 50]])
             self.obstacles.append([[40, 70], [100, 70], [100, 100], [10, 100]])
 
         elif map_num == 105:
