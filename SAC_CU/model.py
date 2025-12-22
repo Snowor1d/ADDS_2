@@ -31,7 +31,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 
-from ADDS_AS_reinforcement import SACAgent, ReplayBuffer, PolicyNetwork, QNetwork, ACTION_SCALE, FrameStack, FrameStack2
+from ADDS_AS_reinforcement import SACAgent, ReplayBuffer, PolicyNetwork, QNetwork, ACTION_SCALE, FrameStack
 from config import *
 
 
@@ -280,53 +280,12 @@ def normalize_map_to_50(obs, target=50):
         y = F.adaptive_max_pool2d(x, (target, target))
         return y.squeeze(0).numpy()
  
-def ego_crop_from_full_map(full_map: np.ndarray,
-                           robot_xy_px: tuple[int, int],
-                           ego_size: int,
-                           pad_value: int = 50) -> np.ndarray:
-    """
-    full_map: (H, W) uint8
-    robot_xy_px: (ix, iy) in pixel coords (0..W-1, 0..H-1)
-    return: (ego_size, ego_size) uint8
-    """
-    H, W = full_map.shape
-    cx, cy = robot_xy_px
-    half = ego_size // 2
-
-    # 원하는 crop 좌표(맵 좌표 기준)
-    x0, x1 = cx - half, cx - half + ego_size
-    y0, y1 = cy - half, cy - half + ego_size
-
-    # 맵과 겹치는 부분
-    sx0, sx1 = max(0, x0), min(W, x1)
-    sy0, sy1 = max(0, y0), min(H, y1)
-
-    crop = np.full((ego_size, ego_size), pad_value, dtype=full_map.dtype)
-
-    # crop 안에서 어디에 붙일지 offset
-    dx0 = sx0 - x0
-    dy0 = sy0 - y0
-
-    crop[dy0:dy0 + (sy1 - sy0), dx0:dx0 + (sx1 - sx0)] = full_map[sy0:sy1, sx0:sx1]
-    return crop
-
-
-def downsample_full_map(full_map: np.ndarray, target: int) -> np.ndarray:
-    """
-    full_map: (H, W) uint8
-    return: (target, target) uint8 (adaptive pool)
-    """
-    x = torch.from_numpy(full_map).float().unsqueeze(0).unsqueeze(0)  # (1,1,H,W)
-    y = F.adaptive_max_pool2d(x, (target, target))
-    return y.squeeze(0).squeeze(0).byte().numpy()
-
-
 
 
 class FightingModel(Model):
     """A model with some number of agents."""
 
-    def __init__(self, number_agents: int, width: int, height: int, model_num = -1, robot = 'Q'):
+    def __init__(self, number_agents: int, width: int, height: int, model_num = -1, robot = 'Q', level = 0):
         #print("model_num :", model_num)
         super().__init__()
         self.width = width
@@ -335,6 +294,8 @@ class FightingModel(Model):
         self.frame_stack = FrameStack(stack_len=4)
         self._first_step = True
         self.robot_version = robot
+        self.level = level
+
         
         self.crowds = []
         self.step_n = 0
@@ -450,11 +411,9 @@ class FightingModel(Model):
             }
         )
 
+
         self.static_grid = np.zeros((self.height, self.width), dtype = np.uint8)
         self._render_static_map(self.height, self.width)
-
-        self.ego_stack = FrameStack2(4)
-        self.glob_stack = FrameStack2(4)
 
     def is_free(self, xy):
         x, y = xy
@@ -723,7 +682,7 @@ class FightingModel(Model):
     def extract_map(self, map_num):
 
         #좌하단 #우하단 #우상단 #좌상단 순으로 입력해주기
-
+        
 
         if map_num == 6:
             self.obstacles.append([[10, 10], [20, 10], [20, 20], [10, 20]])
@@ -829,6 +788,12 @@ class FightingModel(Model):
             self.obstacles.append([[80, 45], [90, 45], [90, 55], [80, 55]])
             self.obstacles.append([[70, 65], [80, 65], [80, 75], [70, 75]])
             self.obstacles.append([[70, 80], [90, 80], [90, 90], [70, 90]])
+
+        self.obstacles = random.sample(
+            self.obstacles,
+            k = min(self.level, len(self.obstacles))
+        )
+
 # --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 
@@ -1070,77 +1035,84 @@ class FightingModel(Model):
         score = np.exp(-alpha) * base/(K1+K2+K3)
         return score
         
+
+
     def step(self):
-        self.stats.collect(self)
+        self.stats.collect(self)        # 매 스텝 자동 누적
         self.step_n += 1
+        """Advance the model by one step."""
+        global started
+        max_id = 1
+
         self.step_count += 1
 
-        # 1) full map (uint8) 가져오기 (학습 때랑 동일: MAP_H, MAP_W)
-        full_map = self.return_current_image(MAP_H, MAP_W)  # (H,W) uint8
+        #state = self.return_current_image()
+        #print(self.return_current_robot_state())
+        raw_frame = self.return_current_image(self.height, self.width)
+        frame = normalize_map_to_50(raw_frame)
+        frame = frame.astype(np.float32) / 255.0
 
-        # 2) ACTION_SCALE boundary 여부 확인
-        # (예: ACTION_SCALE=4일 때, step 1, 5, 9... 에서 새로운 행동 결정)
+        state = None
+
         is_boundary = ((self.step_n - 1) % ACTION_SCALE == 0)
 
-        # 3) ego/global frame 만들기
-        # _build_ego_global_frames 내부 구현에 따라 반환값이 np.array 형태여야 함
-        ego_f, glob_f = self.build_ego_global_frames(full_map)
-
-        # 4) frame stack 업데이트
         if self._first_step:
-            ego_state = self.ego_stack.reset(ego_f)     # (4, EGO, EGO)
-            glob_state = self.glob_stack.reset(glob_f)  # (4, DOWN, DOWN)
+            state = self.frame_stack.reset(frame)
             self._first_step = False
+
         elif is_boundary:
-            # 행동 결정 시점에는 스택에 실제로 push
-            ego_state = self.ego_stack.append(ego_f)
-            glob_state = self.glob_stack.append(glob_f)
-        else:
-            # 행동 결정 시점이 아니면 "현재 프레임이 들어왔다면?" 가정만 하고 스택 상태 유지
-            ego_state = self.ego_stack.peek_with(ego_f)
-            glob_state = self.glob_stack.peek_with(glob_f)
+            state = self.frame_stack.append(frame)
 
-        # 5) 로봇 상태 가져오기 (항상 필요할 수 있음)
-        robot_state = np.array(self.return_current_robot_state(), dtype=np.float32)
-
-        # 6) 로봇 행동 결정 및 수행
-        if self.robot_version == 'Q':
-            if self.using_model and is_boundary:
-                # ---------------------------------------------------------
-                # [수정됨] Agent의 select_action과 인터페이스 통일
-                # 내부적으로 agent.select_action(ego, global, robot, deterministic=True) 호출
-                # ---------------------------------------------------------
-                action, _ = self.sac_agent.select_action(ego_state, glob_state, robot_state)
+        if(self.robot_version == 'Q'):
+            
+            if self.using_model and ((self.step_n-1) % ACTION_SCALE == 0):
                 
-                dx, dy = float(action[0]), float(action[1])
+                if state is None:
+                    state = self.frame_stack.peek_with(frame)
 
-                # 환경에 행동 적용 (실제 이동량이나 결과 반환 가능)
-                real_action = self.robot.receive_action([dx, dy])
+                robot_state = np.array(self.return_current_robot_state(), dtype=np.float32)
 
-            # 로그 출력 (ACTION_SCALE 주기마다 혹은 SCALE_CHECK 시)
-            if self.using_model and ((self.step_n % ACTION_SCALE == (ACTION_SCALE - 1)) or SCALE_CHECK):
-                # (주의) 각 reward 함수들이 정의되어 있어야 함
-                print(f"reward_based_alived : {self.reward_based_alived() * REWARD_A:.4f}")
-                print(f"reward_based_all_agents_danger : {self.reward_based_all_agents_danger() * REWARD_B:.4f}")
-                print(f"reward_penalty : {self.reward_penalty() * REWARD_D:.4f}")
-                print(f"reward_fixed : {REWARD_FIXED}")
-                print(f"reward_based_farthest_agent_distance : {self.reward_based_farthest_agent_distance() * REWARD_L:.4f}")
+                action, _ = self.sac_agent.select_action(state, robot_state, deterministic=True)
+                
+                dx, dy = action[0], action[1]
+                self.robot.receive_action([dx, dy])
 
-        elif self.robot_version == 'T':
-            self.robot.robot_policy_going_exit()
-        elif self.robot_version == 'R':
-            self.robot.robot_policy_go_and_back()
+            if(self.using_model and self.step_n%ACTION_SCALE==(ACTION_SCALE-1) or SCALE_CHECK):
+                print("reward_based_alived : ", self.reward_based_alived() * REWARD_A)
+                print("reward_based_all_agents_danger : ", self.reward_based_all_agents_danger() * REWARD_B)
+                #print("reward_based_gain : ", self.reward_based_gain() * REWARD_C)
+                print("reward_penalty : ", self.reward_penalty() * REWARD_D)
+                print("reward_fixed : ", REWARD_FIXED)
+                #print("reward_based_evacuated_with_robot : ", self.reward_based_evacuated_with_robot() * REWARD_E)
+                #print("reward_based_distance_from_near_agents : ", self.reward_based_distance_from_near_agents() * REWARD_F)
+                #print("reward_based_distance_from_near_agent_gain : ", self.reward_based_distance_from_near_agent_gain() * REWARD_G)
+                #print("reward_based_gain_with_time_bonus :", self.reward_based_gain_with_time_bonus() * REWARD_H)
+                #print("reward_based_alived_root : ", self.reward_based_alived_root() * REWARD_I)
+                #print("reward_based_all_agents_danger_log : ", self.reward_based_all_agents_danger_log() * REWARD_J)
+                #print("reward_penalty_collision : ", self.reward_penalty_collision() * REWARD_K)          
+                print("reward_based_farthest_agent_distance : ", self.reward_based_farthest_agent_distance() * REWARD_L)
 
-        # 7) 환경 진행 (Mesa schedule step)
+
+        elif (self.robot_version == 'T'):
+            self.robot.robot_policy_going_exit()      
+
+        elif (self.robot_version == 'R'):
+            self.robot.robot_policy_go_and_back()  
+
+        #print(self.alived_agents())
         self.schedule.step()
+        
 
-        # 8) 통계 업데이트 (대피 인원 등)
         self.previous_evacuated = self.now_evacuated
         self.now_evacuated = self.evacuated_agents()
 
         self.previous_evacuated_with_robot = self.now_evacuated_with_robot
         self.now_evacuated_with_robot = self.evacuated_agents_with_robot()
-            
+
+
+        #print("farthest reward : ", self.reward_based_farthest_agent_distance())
+        
+        
 
     def check_reward(self, reference_reward):
         if self.step_count <= len(reference_reward*100):
@@ -1465,43 +1437,6 @@ class FightingModel(Model):
                     y = (iy + 0.5) * self.height / H
                     if P.contains(Point(x, y)):
                         self.static_grid[iy, ix] = max(self.static_grid[iy, ix], 100)
-
-    def _robot_world_to_px(self):
-        rx, ry = self.robot.xy  # world coords
-        ix = int(np.clip(rx / self.width  * MAP_W, 0, MAP_W - 1))
-        iy = int(np.clip(ry / self.height * MAP_H, 0, MAP_H - 1))
-        return ix, iy
-
-    def build_ego_global_frames(self, full_map_u8: np.ndarray):
-        ix, iy = self._robot_world_to_px()
-
-        ego_u8 = ego_crop_from_full_map(full_map_u8, (ix, iy), EGO_MAP_SIZE, pad_value=50)     # (EGO,EGO)
-        glob_u8 = downsample_full_map(full_map_u8, DOWNSAMPLE_MAP_SIZE)                       # (DOWN,DOWN)
-
-        ego_f = ego_u8.astype(np.float32) / 255.0
-        glob_f = glob_u8.astype(np.float32) / 255.0
-        return ego_f, glob_f
-
-    # def _policy_deterministic_action(self, ego_state_4chw, glob_state_4chw, robot_state):
-    #     """
-    #     ego_state_4chw: (4,EGO,EGO)
-    #     glob_state_4chw: (4,DOWN,DOWN)
-    #     robot_state: (3,)
-    #     return: (2,) in [-2,2]
-    #     """
-    #     device = next(self.sac_agent.policy.parameters()).device  # policy가 올라간 디바이스
-
-    #     ego_t = torch.from_numpy(ego_state_4chw).unsqueeze(0).float().to(device)   # (1,4,EGO,EGO)
-    #     glob_t = torch.from_numpy(glob_state_4chw).unsqueeze(0).float().to(device) # (1,4,DOWN,DOWN)
-    #     robot_t = torch.from_numpy(robot_state).unsqueeze(0).float().to(device)    # (1,3)
-
-    #     with torch.no_grad():
-    #         mean, _ = self.sac_agent.policy(ego_t, glob_t, robot_t)
-    #         # sample_action의 변환과 동일한 deterministic 버전
-    #         sigma = torch.sigmoid(mean)
-    #         action = 4.0 * sigma - 2.0  # [-2, 2]
-    #     return action.squeeze(0).cpu().numpy().astype(np.float32)
-
         
 
 

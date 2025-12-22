@@ -20,7 +20,7 @@ from matplotlib.animation import FFMpegWriter
 ############################
 # 실험/기록 파라미터
 ############################
-MAP_NUM_FOR_RUN = 102         # 원하는 맵 번호(-1은 내부 랜덤 로직) #6,7,8,24,25,26
+MAP_NUM_FOR_RUN = 50         # 원하는 맵 번호(-1은 내부 랜덤 로직) #6,7,8,24,25,26
 ROBOT_VERSION_FOR_MODEL = 'Q' # 모델에는 'Q'로 넘기되, 사람이 직접 action 전달
 ROBOT_VERSION_FOR_LOG   = 'H' # 결과 폴더명에는 'H'로 기록해 비교군 명확화
 #EXP_NAME   = "test_0917_2"        # 최상위 결과 폴더 접미사: Result_data_{EXP_NAME}
@@ -44,15 +44,15 @@ SCREEN_WIDTH  = 1000
 SCREEN_HEIGHT = 1000
 
 CELL_SIZE = 7.5
-MAP_W = 100 * CELL_SIZE
-MAP_H = 100 * CELL_SIZE
+MAP_W_SIZE = MAP_W * CELL_SIZE
+MAP_H_SIZE = MAP_H * CELL_SIZE
 
 PANEL_RIGHT_WIDTH = 200   # 우측 HUD/조이스틱 패널 폭
 PADDING = 10              # 좌측 여백
 
 # 맵은 좌측 정렬, 우측엔 패널 공간
 MAP_OFFSET_X = PADDING
-MAP_OFFSET_Y = (SCREEN_HEIGHT - MAP_H) // 2
+MAP_OFFSET_Y = (SCREEN_HEIGHT - MAP_H_SIZE) // 2
 
 # 조이스틱은 우측 패널 중앙 하단
 JOYSTICK_CENTER = (SCREEN_WIDTH - PANEL_RIGHT_WIDTH // 2, SCREEN_HEIGHT - 120)
@@ -287,7 +287,7 @@ def save_continuous_mp4(frames_rgb, out_path, fps=20, dpi=200, bitrate=8000):
     if not frames_rgb:
         return
     h, w, _ = frames_rgb[0].shape
-    fig = plt.figure(figsize=(w/100, h/100), dpi=dpi)
+    fig = plt.figure(figsize=(w/MAP_W, h/MAP_H), dpi=dpi)
     ax = plt.axes([0,0,1,1]); ax.axis('off')
     im = ax.imshow(frames_rgb[0])
     writer = FFMpegWriter(fps=fps, bitrate=bitrate)
@@ -327,20 +327,20 @@ def main():
     while running and episode_count < MAX_EPISODES:
         # 새로운 episode 시작
         env_model = FightingModel(
-            number_agents=50,
-            width=100,
-            height=100,
+            number_agents=30,
+            width=MAP_W,
+            height=MAP_H,
             model_num=MAP_NUM_FOR_RUN,
             robot=ROBOT_VERSION_FOR_MODEL   # 내부 로직은 'Q'로, 사람이 직접 action을 보냄
         )
-        state = np.array(env_model.return_current_image(), dtype=np.float32)
+        state = np.array(env_model.return_current_image(H=MAP_H, W=MAP_W), dtype=np.float32)
 
         # 연속 렌더러
         renderer = None
         collected_frames = []
         if USE_CONTINUOUS_RENDERER:
             renderer = ContinuousRenderer(
-                world_size=(100.0, 100.0),
+                world_size=(MAP_H, MAP_W),
                 crowd_colors={0:CONT_CROWD_COLOR, 1:CONT_CROWD_COLOR, 2:CONT_CROWD_COLOR},
 
                 # ▼ 화살표 보이기 + 크기
@@ -441,7 +441,7 @@ def main():
                 env_model.step()
 
                 # 한 번만 이미지 뽑아 캐시
-                img_gray = env_model.return_current_image()
+                img_gray = env_model.return_current_image(H=MAP_H, W=MAP_W)
                 reward = 0
                 alive = env_model.alived_agents()
                 episode_log.append(alive)
@@ -472,7 +472,7 @@ def main():
                     rgb = renderer.draw(env_model, step=step_count)
                     surf = np_rgb_to_surface(rgb)
                     # 빠른 스케일러 (smoothscale보다 가벼움)
-                    surf = pygame.transform.scale(surf, (MAP_W, MAP_H))
+                    surf = pygame.transform.scale(surf, (MAP_W_SIZE, MAP_H_SIZE))
                     screen.blit(surf, (MAP_OFFSET_X, MAP_OFFSET_Y))
 
                     # 기록 수집
