@@ -1426,6 +1426,46 @@ def monitor_total_reward(total_reward_file, tb_log_dir):
 if __name__ == "__main__":
     import time
 
+    def start_one_worker(ctx, wid, transition_queue, stats_queue, epsilon_shared, base_seed):
+        pq = ctx.Queue(maxsize=1)
+        p = ctx.Process(
+            target=worker_process,
+            args=(wid, transition_queue, stats_queue, epsilon_shared, pq, base_seed),
+            daemon=False
+        )
+        p.start()
+        print(f"[Main] Worker {wid} started, pid={p.pid}")
+        return p, pq
+
+
+    def restart_worker(ctx, wid, workers, param_queues, transition_queue, stats_queue, epsilon_shared, base_seed):
+        old_p = workers[wid]
+        try:
+            if old_p is not None and old_p.is_alive():
+                old_p.terminate()
+                old_p.join(timeout=2)
+        except Exception as e:
+            print(f"[Main] terminate/join error for worker {wid}: {e}")
+
+        # 새 큐/프로세스 생성
+        p, pq = start_one_worker(ctx, wid, transition_queue, stats_queue, epsilon_shared, base_seed)
+
+        workers[wid] = p
+        param_queues[wid] = pq
+        return
+
+
+    def supervise_workers(ctx, workers, param_queues, transition_queue, stats_queue, epsilon_shared, base_seed):
+        # 주기적으로 호출해서 죽은 worker만 재시작
+        for wid, p in enumerate(workers):
+            if p is None:
+                restart_worker(ctx, wid, workers, param_queues, transition_queue, stats_queue, epsilon_shared, base_seed)
+                continue
+
+            if not p.is_alive():
+                ec = p.exitcode
+                print(f"[Main] Worker {wid} died. exitcode={ec} -> restarting")
+                restart_worker(ctx, wid, workers, param_queues, transition_queue, stats_queue, epsilon_shared, base_seed)
 
     mp.set_start_method("spawn", force=True)  # or "fork", 리눅스면 fork도 가능
 
@@ -1582,26 +1622,21 @@ if __name__ == "__main__":
         epsilon_scheduler = EpsilonScheduler(start_epsilon=start_epsilon, epsilon_min = EPSILON_MIN, start_decay_step = START_DECAY_STEP, scheduler_type=SCHEDULER_TYPE, decay_value=DECAY_VALUE, linear_decay_steps = LINEARLY_DECAY_STEP)
 
     # ----- 3) Queue & Worker 프로세스 시작 -----
+
+    ctx = mp.get_context("spawn")
     N_WORKERS = N_ENVS # 원하는 만큼
-    transition_queue = mp.Queue(maxsize=100*N_ENVS)
-    stats_queue = mp.Queue(maxsize=100*N_ENVS)
+    transition_queue = ctx.Queue(maxsize=100*N_ENVS)
+    stats_queue = ctx.Queue(maxsize=100*N_ENVS)
     param_queue = mp.Queue(maxsize=1)
 
-    workers = []
+    workers = [None] * N_WORKERS
+    param_queues = [None] * N_WORKERS
     base_seed = 1234
-    param_queues = []
+        
     for wid in range(N_WORKERS):
-        pq = mp.Queue(maxsize=1)
-        param_queues.append(pq)
-        p = mp.Process(
-            target=worker_process,
-            args=(wid, transition_queue, stats_queue, epsilon_shared, pq, base_seed),
-            daemon=True
-        )
-        p.start()
-        workers.append(p)
-        print(f"[Main] Worker {wid} started, pid={p.pid}")
-
+        p, pq = start_one_worker(ctx, wid, transition_queue, stats_queue, epsilon_shared, base_seed)
+        workers[wid] = p
+        param_queues[wid] = pq
 
     max_episodes = 9999999
 
@@ -1611,10 +1646,14 @@ if __name__ == "__main__":
 
     sim_timer.reset()
     learn_timer.reset()
-
+    last_supervise_t = time.time()
     # ----- 5) 메인 학습 루프 (완전 비동기) -----
     while global_episode < max_episodes:
         # 5-1) transition 소비 (block)
+        if time.time() - last_supervise_t > 10.0 :
+            supervise_workers(ctx, workers, param_queues, transition_queue, stats_queue, epsilon_shared, base_seed)
+            last_supervise_t = time.time()
+
         try:
             msg: TransitionMsg = transition_queue.get(timeout=1.0)
         except queue.Empty:
