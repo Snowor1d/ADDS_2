@@ -14,13 +14,13 @@ MAP_H = 100
 MAP_W = 100
 
 # ---------------- SIMULATION ENVIRONMENT ---------------------
-CROWD_NUMBER_MIN = 30
-CROWD_NUMBER_MAX = 30
+CROWD_NUMBER_MIN = 100
+CROWD_NUMBER_MAX = 100
 MAP_NUM = -1 #if not used, -2, if random, -1
 #MAP_NUM_RANDOM = [50, 51, 53]
 #MAP_NUM_RANDOM = [51]
 #MAP_NUM_RANDOM = [100, 101, 102]
-MAP_NUM_RANDOM = [108]
+MAP_NUM_RANDOM = [107]
 SCALE_CHECK = 0 # want to check reward scale?
 ACTION_SCALE = 4
 MAX_STEPS = 4000
