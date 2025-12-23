@@ -350,14 +350,14 @@ class CrowdAgent(Agent):
         V_MAX_MULT = 1.00              # 목표속도보다 과속 안하게
         BODY_RADIUS = 0.5             # 군중 몸 반지름 [cell] 0.25m로 설정 -> 0.5칸이 되어야 0.25
         ROBOT_BODY_RADIUS = 1       # 로봇 몸 반지름 [cell] 0.25m로 설정 ->0.5칸이 되어야 0.25
-        WALL_RADIUS = 1             # 격자벽을 둥근 장애물로 근사
+        WALL_RADIUS = 1.5             # 격자벽을 둥근 장애물로 근사
         # 접촉(법선) 스프링/감쇠, 접선 마찰
-        KN = 1.2e5                   # 법선 스프링 상수, modified crowd simulation 논문에선 1.2*10^5
+        KN = 1.5e5                   # 법선 스프링 상수, modified crowd simulation 논문에선 1.2*10^5
         CN =  1000                     # 법선 점성(접근속도 감쇠)
         MU_T = 2.5e5                    # 접선 마찰(미끄럼 속도 감쇠) modifided crowd simulation 논문에선 2.4*10^5
         # 지수형 반발은 약화(근거리에서만 의미)
         K_AGENT = 200 # modified 참고
-        K_WALL  = 200 # modified 참고
+        K_WALL  = 400 # modified 참고
         LAMBDA_A = 0.2 # modifided 참고
         # 공기저항(속도 감쇠) → 둥둥 뜨는 느낌 제거
         BETA = 0                     # F_drag = -BETA * v
