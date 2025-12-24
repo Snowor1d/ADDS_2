@@ -908,6 +908,19 @@ class FightingModel(Model):
             self.obstacles.append([[80, 45], [90, 45], [90, 55], [80, 55]])
             self.obstacles.append([[70, 65], [80, 65], [80, 75], [70, 75]])
             self.obstacles.append([[70, 80], [90, 80], [90, 90], [70, 90]])
+
+        elif map_num == 54:
+            self.obstacles.append([[20, 0], [30, 0], [30, 5], [20, 5]])
+            self.obstacles.append([[0, 10], [10, 10], [10, 20], [0, 20]])
+            self.obstacles.append([[30, 20], [35, 20], [35, 30], [30, 30]])
+            self.obstacles.append([[10, 35], [30, 35], [30, 40], [10, 40]])
+            self.obstacles.append([[10, 60], [30, 60], [30, 70], [10, 70]])
+            self.obstacles.append([[55, 45], [65, 55], [60, 60], [50, 50]])
+            self.obstacles.append([[55, 25], [70, 25], [70, 30], [55, 30]])
+            self.obstacles.append([[60, 10], [65, 10], [65, 15], [60, 15]])
+            self.obstacles.append([[45, 35], [50, 40], [45, 45], [40, 40]])
+            self.obstacles.append([[25, 45], [30, 45], [30, 55], [25, 55]])
+            self.obstacles.append([[40, 10], [45, 10], [45, 15], [40, 15]])
 # --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 
@@ -1020,6 +1033,8 @@ class FightingModel(Model):
             index = [3]
 
         elif (self.map_num == 53):
+            index = [1]
+        elif (self.map_num == 54):
             index = [1]
 
         
