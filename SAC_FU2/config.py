@@ -20,9 +20,8 @@ MAP_NUM = -1 #if not used, -2, if random, -1
 #MAP_NUM_RANDOM = [50, 51, 53]
 #MAP_NUM_RANDOM = [51]
 #MAP_NUM_RANDOM = [100, 101, 102]
-MAP_NUM_RANDOM = [100, 104, 105]
-#MAP_NUM_RANDOM = [105]
-SCALE_CHECK = 0 # want to check reward scale?
+MAP_NUM_RANDOM = [104, 105, 108]
+SCALE_CHECK = 1 # want to check reward scale?
 ACTION_SCALE = 4
 MAX_STEPS = 4000
 
@@ -46,7 +45,7 @@ DECAY_MODE = 'episode'
 
 
 # -------------- PATH -------------------
-LOG_DIR = "Log_FU_100_104_105"
+LOG_DIR = "Log_FU_104_105_108"
 PORT_NUM = 6007
 
 # --------------- SAC ALGORITHM PARAMETER ---------------
@@ -59,13 +58,13 @@ ALPHA_DECAY_STEPS = 3000
 
 # --------------- REWARD SHAPING -----------------
 
-REWARD_A = 1 #reward_based_alived
-REWARD_B = 0.001 #reward_based_all_agents_danger
+REWARD_A = 2 #reward_based_alived
+REWARD_B = 0.003 #reward_based_all_agents_danger
 REWARD_D = 2 #reward_based_penalty
 REWARD_K = 1 #reward_penalty_collsion
 REWARD_J = 0 #reward_based_all_agents_danger_root
 REWARD_L = 1 #reward_based_farthest_agent_distance
-REWARD_FIXED = -1
+REWARD_FIXED = -0.5
 
 REWARD_I = 0 #reward_based_alived_root
 REWARD_C = 0 #reward_based_gain
