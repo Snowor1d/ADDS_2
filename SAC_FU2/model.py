@@ -863,8 +863,11 @@ class FightingModel(Model):
             #self.obstacles.append([[55, 60], [60, 60], [60, 70], [55, 70]])
         
         elif map_num == 108:
-            self.obstacles.append([[10, 10], [15, 10], [15, 20], [10, 20]])
-            self.obstacles.append([[25, 15], [30, 15], [30, 20], [25, 20]])
+            #self.obstacles.append([[10, 10], [15, 10], [15, 20], [10, 20]])
+            #self.obstacles.append([[25, 15], [30, 15], [30, 20], [25, 20]])
+
+            self.obstacles.append([[0, 25], [10, 25], [10, 30], [0, 30]])
+            self.obstacles.append([[25, 10], [30, 10], [30, 15], [25, 15]])
             self.obstacles.append([[20, 35], [30, 35], [30, 40], [20, 40]])
             self.obstacles.append([[10, 50], [20, 50], [20, 70], [10, 70]])
             self.obstacles.append([[10, 80], [20, 80], [20, 90], [10, 90]])

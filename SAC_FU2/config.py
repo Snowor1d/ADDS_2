@@ -10,8 +10,8 @@ DEVICE = "cuda"
 GAMMA_START = 0.99
 GAMMA_END = 0.99
 GAMMA_SCHEDULE_STEP = 1000
-MAP_H = 70
-MAP_W = 70
+MAP_H = 100
+MAP_W = 100
 
 # ---------------- SIMULATION ENVIRONMENT ---------------------
 CROWD_NUMBER_MIN = 30
@@ -20,7 +20,7 @@ MAP_NUM = -1 #if not used, -2, if random, -1
 #MAP_NUM_RANDOM = [50, 53, 54]
 #MAP_NUM_RANDOM = [100, 101, 102]
 MAP_NUM_RANDOM = [104, 105, 108]
-MAP_NUM_RANDOM = [54]
+#MAP_NUM_RANDOM = [108]
 SCALE_CHECK = 1 # want to check reward scale?
 ACTION_SCALE = 4
 MAX_STEPS = 4000
