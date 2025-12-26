@@ -749,6 +749,11 @@ class FightingModel(Model):
             self.obstacles.append([[10, 15], [25, 15], [10, 40]])
             self.obstacles.append([[30, 20], [40, 20], [40, 35], [30, 35]])
 
+        elif map_num == 26:
+            self.obstacles.append([[20, 15], [35, 30], [30, 35], [15, 20]])
+            self.obstacles.append([[20, 0], [30, 0], [30, 10]])
+            self.obstacles.append([[10, 40], [20, 40], [20, 35], [10, 35]])
+
         
         elif map_num == 100:
             #self.obstacles.append([[20, 10], [30, 10], [30, 20]])
@@ -1020,6 +1025,8 @@ class FightingModel(Model):
         elif (self.map_num == 7): #좌하단
             index = [0]
         elif (self.map_num == 8) : #우하단
+            index = [1]
+        elif (self.map_num == 26) :
             index = [1]
         elif (self.map_num == 100):
             index = [0, 2]

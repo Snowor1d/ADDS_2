@@ -20,9 +20,9 @@ VIS_SAVE_EVERY = 5
 visualization_mode = 'off'  # 'off', 'cont_mp4', 'cont_png_every', 'cont_png'
 run_iteration      = 1
 number_of_agents   = 30
-max_step_num       = 100
+max_step_num       = 3000
 robot_version      = 'T'  # 'T','R','Q'
-robot_learned_model = 'sac_checkpoint_ep_15000.pth'
+robot_learned_model = 'sac_checkpoint_ep_5000.pth'
 test_num           = 1
 map_list           = [100]
 
