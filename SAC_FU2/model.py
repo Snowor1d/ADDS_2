@@ -1016,7 +1016,7 @@ class FightingModel(Model):
         index = []
         #print(self.map_num)
         if (self.map_num == 6): #우하단
-            index = [0, 2]
+            index = [1]
         elif (self.map_num == 7): #좌하단
             index = [0]
         elif (self.map_num == 8) : #우하단
