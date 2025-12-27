@@ -1195,33 +1195,34 @@ class FightingModel(Model):
         self.step_n += 1
         self.step_count += 1
 
-        # 1) full map (uint8) 가져오기 (학습 때랑 동일: MAP_H, MAP_W)
-        full_map = self.return_current_image(MAP_H, MAP_W)  # (H,W) uint8
+        if (self.robot_version == 'Q'):
+            # 1) full map (uint8) 가져오기 (학습 때랑 동일: MAP_H, MAP_W)
+            full_map = self.return_current_image(MAP_H, MAP_W)  # (H,W) uint8
 
-        # 2) ACTION_SCALE boundary 여부 확인
-        # (예: ACTION_SCALE=4일 때, step 1, 5, 9... 에서 새로운 행동 결정)
-        is_boundary = ((self.step_n - 1) % ACTION_SCALE == 0)
+            # 2) ACTION_SCALE boundary 여부 확인
+            # (예: ACTION_SCALE=4일 때, step 1, 5, 9... 에서 새로운 행동 결정)
+            is_boundary = ((self.step_n - 1) % ACTION_SCALE == 0)
 
-        # 3) ego/global frame 만들기
-        # _build_ego_global_frames 내부 구현에 따라 반환값이 np.array 형태여야 함
-        ego_f, glob_f = self.build_ego_global_frames(full_map)
+            # 3) ego/global frame 만들기
+            # _build_ego_global_frames 내부 구현에 따라 반환값이 np.array 형태여야 함
+            ego_f, glob_f = self.build_ego_global_frames(full_map)
 
-        # 4) frame stack 업데이트
-        if self._first_step:
-            ego_state = self.ego_stack.reset(ego_f)     # (4, EGO, EGO)
-            glob_state = self.glob_stack.reset(glob_f)  # (4, DOWN, DOWN)
-            self._first_step = False
-        elif is_boundary:
-            # 행동 결정 시점에는 스택에 실제로 push
-            ego_state = self.ego_stack.append(ego_f)
-            glob_state = self.glob_stack.append(glob_f)
-        else:
-            # 행동 결정 시점이 아니면 "현재 프레임이 들어왔다면?" 가정만 하고 스택 상태 유지
-            ego_state = self.ego_stack.peek_with(ego_f)
-            glob_state = self.glob_stack.peek_with(glob_f)
+            # 4) frame stack 업데이트
+            if self._first_step:
+                ego_state = self.ego_stack.reset(ego_f)     # (4, EGO, EGO)
+                glob_state = self.glob_stack.reset(glob_f)  # (4, DOWN, DOWN)
+                self._first_step = False
+            elif is_boundary:
+                # 행동 결정 시점에는 스택에 실제로 push
+                ego_state = self.ego_stack.append(ego_f)
+                glob_state = self.glob_stack.append(glob_f)
+            else:
+                # 행동 결정 시점이 아니면 "현재 프레임이 들어왔다면?" 가정만 하고 스택 상태 유지
+                ego_state = self.ego_stack.peek_with(ego_f)
+                glob_state = self.glob_stack.peek_with(glob_f)
 
-        # 5) 로봇 상태 가져오기 (항상 필요할 수 있음)
-        robot_state = np.array(self.return_current_robot_state(), dtype=np.float32)
+            # 5) 로봇 상태 가져오기 (항상 필요할 수 있음)
+            robot_state = np.array(self.return_current_robot_state(), dtype=np.float32)
 
         # 6) 로봇 행동 결정 및 수행
         if self.robot_version == 'Q':

@@ -10,14 +10,16 @@ DEVICE = "cuda"
 GAMMA_START = 0.99
 GAMMA_END = 0.99
 GAMMA_SCHEDULE_STEP = 1000
-MAP_H = 70
-MAP_W = 70
+MAP_H = 100
+MAP_W = 100
 
 # ---------------- SIMULATION ENVIRONMENT ---------------------
 CROWD_NUMBER_MIN = 30
 CROWD_NUMBER_MAX = 30
 MAP_NUM = -1 #if not used, -2, if random, -1
-MAP_NUM_RANDOM = [51]
+MAP_NUM_RANDOM = [6, 7, 26]
+MAP_NUM_RANDOM = [50, 53, 54]
+MAP_NUM_RANDOM = [104, 105, 108]
 #MAP_NUM_RANDOM = [51]
 #MAP_NUM_RANDOM = [100, 101, 102]
 #MAP_NUM_RANDOM = [100]
@@ -58,13 +60,13 @@ ALPHA_DECAY_STEPS = 3000
 
 # --------------- REWARD SHAPING -----------------
 
-REWARD_A = 1 #reward_based_alived
-REWARD_B = 0.001 #reward_based_all_agents_danger
+REWARD_A = 2 #reward_based_alived
+REWARD_B = 0.003 #reward_based_all_agents_danger
 REWARD_D = 2 #reward_based_penalty
 REWARD_K = 1 #reward_penalty_collsion
 REWARD_J = 0 #reward_based_all_agents_danger_root
-REWARD_L = 0.5 #reward_based_farthest_agent_distance
-REWARD_FIXED = -1
+REWARD_L = 1 #reward_based_farthest_agent_distance
+REWARD_FIXED = -0.5
 
 REWARD_I = 0 #reward_based_alived_root
 REWARD_C = 0 #reward_based_gain
