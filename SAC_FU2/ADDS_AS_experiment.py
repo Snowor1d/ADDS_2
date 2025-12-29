@@ -13,20 +13,26 @@ from matplotlib.animation import FFMpegWriter
 from config import *  # MAP_W, MAP_H 등이 있다고 가정
 import model  # FightingModel
 
+
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import torch.nn.functional as F
+
 VIS_SAVE_EVERY = 5
 
 # ------------------------- #
 # 실험 파라미터
-visualization_mode = 'off'  # 'off', 'cont_mp4', 'cont_png_every', 'cont_png'
+visualization_mode = 'cont_png_every'  # 'off', 'cont_mp4', 'cont_png_every', 'cont_png'
 run_iteration      = 1
 number_of_agents   = 30
-max_step_num       = 3000
-robot_version      = 'N'  # 'T','R','Q'
+max_step_num       = 100
+robot_version      = 'Q'  # 'T','R','Q'
 robot_learned_model = 'sac_checkpoint_ep_5000.pth'
 test_num           = 1
 map_list           = [100]
 
-EXP_NAME = "test2"
+EXP_NAME = "test_100"
 
 CROWD_COLOR = "#0000FF"
 ROBOT_COLOR = "#FF0000"
@@ -88,6 +94,23 @@ def aggregate_episode_logs(logs):
         mins.append(int(np.min(bucket)))
         maxs.append(int(np.max(bucket)))
     return means, mins, maxs
+
+
+def _to_gray_png(x: np.ndarray) -> np.ndarray:
+    x = np.asarray(x)
+
+    # (C,H,W) → (H,W) : 첫 채널만 사용
+    if x.ndim == 3:
+        x = x[0]
+
+    # float → [0,1] 클립
+    if x.dtype.kind == "f":
+        x = np.clip(x, 0.0, 1.0)
+
+    # 180도 회전 (debug 기준 정렬)
+    x = np.flip(np.flip(x, axis=-1), axis=-2)
+
+    return x
 
 
 # ------------------------- #
@@ -216,6 +239,82 @@ def save_continuous_mp4(frames_rgb, out_path, fps=20):
             plt.imsave(os.path.join(fallback_dir, f"frame_{i:05d}.png"), fr)
         print(f"[WARN] MP4 저장 실패({e}). PNG 시퀀스로 대체 저장: {fallback_dir}")
 
+ 
+def ego_crop_from_full_map(full_map: np.ndarray,
+                           robot_xy_px: tuple[int, int],
+                           ego_size: int,
+                           pad_value: int = 50) -> np.ndarray:
+    """
+    full_map: (H, W) uint8
+    robot_xy_px: (ix, iy) in pixel coords (0..W-1, 0..H-1)
+    return: (ego_size, ego_size) uint8
+    """
+    H, W = full_map.shape
+    cx, cy = robot_xy_px
+    half = ego_size // 2
+
+    # 원하는 crop 좌표(맵 좌표 기준)
+    x0, x1 = cx - half, cx - half + ego_size
+    y0, y1 = cy - half, cy - half + ego_size
+
+    # 맵과 겹치는 부분
+    sx0, sx1 = max(0, x0), min(W, x1)
+    sy0, sy1 = max(0, y0), min(H, y1)
+
+    crop = np.full((ego_size, ego_size), pad_value, dtype=full_map.dtype)
+
+    # crop 안에서 어디에 붙일지 offset
+    dx0 = sx0 - x0
+    dy0 = sy0 - y0
+
+    crop[dy0:dy0 + (sy1 - sy0), dx0:dx0 + (sx1 - sx0)] = full_map[sy0:sy1, sx0:sx1]
+    return crop
+
+
+def downsample_full_map(full_map: np.ndarray, target: int) -> np.ndarray:
+    """
+    full_map: (H, W) uint8
+    return: (target, target) uint8 (adaptive pool)
+    """
+    x = torch.from_numpy(full_map).float().unsqueeze(0).unsqueeze(0)  # (1,1,H,W)
+    y = F.adaptive_max_pool2d(x, (target, target))
+    return y.squeeze(0).squeeze(0).byte().numpy()
+
+def _robot_world_to_px(env):
+    rx, ry = env.robot.xy  # world coords
+    ix = int(np.clip(rx / env.width  * MAP_W, 0, MAP_W - 1))
+    iy = int(np.clip(ry / env.height * MAP_H, 0, MAP_H - 1))
+    return ix, iy
+
+def build_ego_global_frames(env):
+    full_map_u8 = env.return_current_image(MAP_H, MAP_W)
+    ix, iy = _robot_world_to_px(env)
+
+    ego_u8 = ego_crop_from_full_map(full_map_u8, (ix, iy), EGO_MAP_SIZE, pad_value=50)     # (EGO,EGO)
+    glob_u8 = downsample_full_map(full_map_u8, DOWNSAMPLE_MAP_SIZE)                       # (DOWN,DOWN)
+
+    ego_f = ego_u8.astype(np.float32) / 255.0
+    glob_f = glob_u8.astype(np.float32) / 255.0
+    return ego_f, glob_f
+
+def _to_png_img(x: np.ndarray) -> np.ndarray:
+    x = np.asarray(x)
+
+    # (C,H,W) -> (H,W,C) 로 변환 (C=1/3/4 모두 가능)
+    if x.ndim == 3 and x.shape[0] in (1, 3, 4):
+        x = np.transpose(x, (1, 2, 0))
+
+    # float이면 [0,1] or [0,255] 형태일 수 있으니 클립
+    if x.dtype.kind == "f":
+        # 보통 네 파이프라인은 0~1일 가능성이 높음
+        x = np.clip(x, 0.0, 1.0)
+
+    x = np.flip(np.flip(x, axis=-1), axis=-2)
+
+    # uint8이면 그대로 OK, float이면 imsave가 알아서 처리함
+    return x
+
+
 
 # ------------------------- #
 # episode
@@ -280,10 +379,14 @@ def run_one_episode(map_id: int):
                     collected_frames.append(rgb)
                 elif save_rgb_every and (step_num % VIS_SAVE_EVERY == 0 or alive < 1):
                     rgb = renderer.draw(env, step=step_num)
-                    collected_frames.append(('PNG', step_num, rgb))
+                    ego_f, glob_f = build_ego_global_frames(env)
+                    collected_frames.append(("PNG_EVERY", step_num, rgb, ego_f, glob_f))
+
+                    #collected_frames.append(('PNG', step_num, rgb))
                 elif save_last_png:
                     rgb = renderer.draw(env, step=step_num)
-                    collected_frames = [('LAST', step_num, rgb)]
+                    ego_f, glob_f = build_ego_global_frames(env)
+                    collected_frames = [('LAST', step_num, rgb, ego_f, glob_f)]
 
             if alive < 1:
                 evacuated_all = True
@@ -359,17 +462,61 @@ def main():
 
                 elif visualization_mode == 'cont_png_every':
                     png_dir = os.path.join(test_dir, "continuous_pngs")
+                    ego_dir = os.path.join(test_dir, "ego_pngs")
+                    glob_dir = os.path.join(test_dir, "global_pngs")
                     os.makedirs(png_dir, exist_ok=True)
-                    for tag, step_n, rgb in vis_frames:
-                        if tag != 'PNG':
-                            continue
-                        plt.imsave(os.path.join(png_dir, f"frame_{step_n:05d}.png"), rgb)
+                    os.makedirs(ego_dir, exist_ok=True)
+                    os.makedirs(glob_dir, exist_ok=True)
 
+                    for item in vis_frames:
+                        tag = item[0]
+                        if tag != "PNG_EVERY":
+                            continue
+
+                        _, step_n, rgb, ego_f, glob_f = item
+
+                        plt.imsave(os.path.join(png_dir,  f"frame_{step_n:05d}.png"), rgb)
+
+                        # ego_f / glob_f가 (H,W)든 (C,H,W)든 저장되게 처리
+                        plt.imsave(
+                            os.path.join(ego_dir, f"ego_{step_n:05d}.png"),
+                            _to_gray_png(ego_f),
+                            cmap="gray",
+                            vmin=0.0,
+                            vmax=1.0
+                        )
+
+                        plt.imsave(
+                            os.path.join(glob_dir, f"glob_{step_n:05d}.png"),
+                            _to_gray_png(glob_f),
+                            cmap="gray",
+                            vmin=0.0,
+                            vmax=1.0
+)
                 elif visualization_mode == 'cont_png':
                     if vis_frames:
-                        _, step_id, rgb = vis_frames[-1]
+                        _, step_id, rgb, ego_f, glob_f = vis_frames[-1]
+
                         out_png = os.path.join(test_dir, f"continuous_last_{step_id:05d}.png")
                         plt.imsave(out_png, rgb)
+
+                        out_ego  = os.path.join(test_dir, f"ego_last_{step_id:05d}.png")
+                        out_glob = os.path.join(test_dir, f"glob_last_{step_id:05d}.png")
+                    plt.imsave(
+                        os.path.join(ego_dir, f"ego_{step_n:05d}.png"),
+                        _to_gray_png(ego_f),
+                        cmap="gray",
+                        vmin=0.0,
+                        vmax=1.0
+                    )
+
+                    plt.imsave(
+                        os.path.join(glob_dir, f"glob_{step_n:05d}.png"),
+                        _to_gray_png(glob_f),
+                        cmap="gray",
+                        vmin=0.0,
+                        vmax=1.0
+                    )
 
                 print(f"[Map {map_id}] Test {unique_test_i} visualization saved.")
 

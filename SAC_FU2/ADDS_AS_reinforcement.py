@@ -27,10 +27,13 @@ from queue import Empty, Full # for Empty
 from pathlib import Path
 import imageio.v2 as imageio
 
-DEBUG_SAVE = False
-DEBUG_DIR = os.path.join(LOG_DIR, "debug_frames")
-DEBUG_EVERY_EP = 1       # 20 에피소드마다 한 번만
+DEBUG_SAVE = True
+home_dir = os.path.expanduser("~")
+DEBUG_DIR_TEMP = os.path.join(home_dir, LOG_DIR)
+DEBUG_DIR = os.path.join(DEBUG_DIR_TEMP, "debug_frames")
+DEBUG_EVERY_EP = 1   
 DEBUG_STEPS = {100, 200, 300}  # 초반 3번 boundary만 저장
+
 
 
 def save_debug_triplet(save_dir: str, worker_id: int, episode_idx: int, step: int,
@@ -392,15 +395,18 @@ def worker_process(
                         DEBUG_SAVE
                         
                     ):  
+                        full_u8_r = np.flip(np.flip(full_u8, axis=-1), axis=-2)
+                        ego_f_r   = np.flip(np.flip(ego_f,   axis=-1), axis=-2)
+                        glob_f_r  = np.flip(np.flip(glob_f,  axis=-1), axis=-2)
                         print("저장합니다")
                         save_debug_triplet(
                             save_dir=DEBUG_DIR,
                             worker_id=worker_id,
                             episode_idx=episode_idx,
                             step=step,
-                            full_u8=full_u8,
-                            ego_f=ego_f,
-                            glob_f=glob_f,
+                            full_u8=np.flip(full_u8_r, axis=1),
+                            ego_f=np.flip(ego_f_r, axis=1),
+                            glob_f=np.flip(glob_f_r, axis=1),
                             ego_state=ego_state,
                             global_state=global_state
                         )

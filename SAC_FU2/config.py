@@ -5,7 +5,7 @@ BATCH_SIZE = 128
 INTRINSIC_ETA = 0.1 #intrinsic reward
 START_BATCH_TIMES = 1
 START_UPDATE_EPISODE = 500
-DEVICE = "cuda"
+DEVICE = "cpu"
 
 GAMMA_START = 0.99
 GAMMA_END = 0.99
@@ -14,13 +14,14 @@ MAP_H = 100
 MAP_W = 100
 
 # ---------------- SIMULATION ENVIRONMENT ---------------------
-CROWD_NUMBER_MIN = 20
-CROWD_NUMBER_MAX = 20
+CROWD_NUMBER_MIN = 30
+CROWD_NUMBER_MAX = 30
 MAP_NUM = -1 #if not used, -2, if random, -1
 #MAP_NUM_RANDOM = [6, 7, 26]
 #MAP_NUM_RANDOM = [50, 53, 54]
 #MAP_NUM_RANDOM = [104, 105, 108]
 #MAP_NUM_RANDOM = [50]
+MAP_NUM_RANDOM = [105]
 SCALE_CHECK = 1 # want to check reward scale?
 ACTION_SCALE = 4
 MAX_STEPS = 4000
@@ -45,7 +46,7 @@ DECAY_MODE = 'episode'
 
 
 # -------------- PATH -------------------
-LOG_DIR = "Log_FU_104_105_108"
+LOG_DIR = "Log_FU_test_105"
 PORT_NUM = 6007
 
 # --------------- SAC ALGORITHM PARAMETER ---------------
