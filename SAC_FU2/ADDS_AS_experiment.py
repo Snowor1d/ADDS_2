@@ -108,7 +108,9 @@ def _to_gray_png(x: np.ndarray) -> np.ndarray:
         x = np.clip(x, 0.0, 1.0)
 
     # 180도 회전 (debug 기준 정렬)
-    x = np.flip(np.flip(x, axis=-1), axis=-2)
+    x = np.flip(np.flip(x,   axis=-1), axis=-2)
+    x = np.flip(x, axis=1)
+
     x = upscale_gray(x, scale=8)
 
     return x
