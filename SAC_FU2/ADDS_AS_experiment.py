@@ -109,6 +109,7 @@ def _to_gray_png(x: np.ndarray) -> np.ndarray:
 
     # 180도 회전 (debug 기준 정렬)
     x = np.flip(np.flip(x, axis=-1), axis=-2)
+    x = upscale_gray(x, scale=8)
 
     return x
 
@@ -314,6 +315,13 @@ def _to_png_img(x: np.ndarray) -> np.ndarray:
     # uint8이면 그대로 OK, float이면 imsave가 알아서 처리함
     return x
 
+
+def upscale_gray(img01: np.ndarray, scale: int = 8) -> np.ndarray:
+    img01 = np.asarray(img01)
+    if img01.ndim == 3:
+        img01 = img01[0]
+    img01 = np.clip(img01, 0.0, 1.0).astype(np.float32)
+    return np.repeat(np.repeat(img01, scale, axis=0), scale, axis=1)
 
 
 # ------------------------- #
