@@ -252,7 +252,7 @@ class CrowdAgent(Agent):
     def _wall_repulsion(self):
         from shapely.geometry import Point
         Fwx = Fwy = 0.0
-        KN = 1.2e5
+        KN = 1.8e5
         CN = 1000
         MU_T = 2.5e5
         p = Point(self.xy[0], self.xy[1])
@@ -349,7 +349,6 @@ class CrowdAgent(Agent):
         A_MAX = 1.5                    # 가속 클립 ↑ 약간 강화
         V_MAX_MULT = 1.00              # 목표속도보다 과속 안하게
         BODY_RADIUS = 0.5             # 군중 몸 반지름 [cell] 0.25m로 설정 -> 0.5칸이 되어야 0.25
-        ROBOT_BODY_RADIUS = 1       # 로봇 몸 반지름 [cell] 0.25m로 설정 ->0.5칸이 되어야 0.25
         WALL_RADIUS = 1.5             # 격자벽을 둥근 장애물로 근사
         # 접촉(법선) 스프링/감쇠, 접선 마찰
         KN = 1.8e5                   # 법선 스프링 상수, modified crowd simulation 논문에선 1.2*10^5
@@ -595,7 +594,6 @@ class CrowdAgent(Agent):
             · self.exit_belief = {"idx": 출구 index, "score": S_ij, "alpha": hop}
             · self.now_goal    = [x, y]  (다음 time-step 까지 유효한 가상 목표)
         """
-        ROBOT_BODY_RADIUS = 1
         # ────────── 파라미터 ──────────
         ROBOT_R = ROBOT_BODY_RADIUS
         VISION_R = AGENT_VISION

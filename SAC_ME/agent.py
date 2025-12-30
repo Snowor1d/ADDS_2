@@ -252,7 +252,7 @@ class CrowdAgent(Agent):
     def _wall_repulsion(self):
         from shapely.geometry import Point
         Fwx = Fwy = 0.0
-        KN = 1.2e5
+        KN = 1.8e5
         CN = 1000
         MU_T = 2.5e5
         p = Point(self.xy[0], self.xy[1])

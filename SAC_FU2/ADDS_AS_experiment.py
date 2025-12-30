@@ -23,16 +23,16 @@ VIS_SAVE_EVERY = 5
 
 # ------------------------- #
 # 실험 파라미터
-visualization_mode = 'cont_png_every'  # 'off', 'cont_mp4', 'cont_png_every', 'cont_png'
+visualization_mode = 'cont_mp4'  # 'off', 'cont_mp4', 'cont_png_every', 'cont_png'
 run_iteration      = 1
 number_of_agents   = 30
-max_step_num       = 100
+max_step_num       = 1000
 robot_version      = 'Q'  # 'T','R','Q'
-robot_learned_model = 'sac_checkpoint_ep_5000.pth'
-test_num           = 1
-map_list           = [100]
+robot_learned_model = '104_105_108.pth'
+test_num           = 5
+map_list           = [105]
 
-EXP_NAME = "test_100"
+EXP_NAME = "Robot_videos"
 
 CROWD_COLOR = "#0000FF"
 ROBOT_COLOR = "#FF0000"
@@ -222,25 +222,45 @@ def load_all_existing_logs(map_robot_dir: str, map_id: int, robot_ver: str):
 def save_continuous_mp4(frames_rgb, out_path, fps=20):
     if not frames_rgb:
         return
-    try:
-        h, w, _ = frames_rgb[0].shape
-        fig = plt.figure(figsize=(w/100, h/100), dpi=100)
-        ax = plt.axes([0, 0, 1, 1])
-        ax.axis('off')
-        im = ax.imshow(frames_rgb[0])
 
-        writer = FFMpegWriter(fps=fps, bitrate=4000)
-        with writer.saving(fig, out_path, dpi=100):
-            for fr in frames_rgb:
-                im.set_data(fr)
-                writer.grab_frame()
-        plt.close(fig)
-    except Exception as e:
-        fallback_dir = out_path + "_pngs"
-        os.makedirs(fallback_dir, exist_ok=True)
-        for i, fr in enumerate(frames_rgb):
-            plt.imsave(os.path.join(fallback_dir, f"frame_{i:05d}.png"), fr)
-        print(f"[WARN] MP4 저장 실패({e}). PNG 시퀀스로 대체 저장: {fallback_dir}")
+    h, w, _ = frames_rgb[0].shape
+    dpi = 100
+
+    fig = plt.figure(
+        figsize=(w / dpi, h / dpi),
+        dpi=dpi,
+        facecolor="black",      # ✅ figure 배경 검정
+        edgecolor="black",
+        frameon=True
+    )
+
+    fig.patch.set_facecolor("black")
+
+    ax = fig.add_axes([0, 0, 1, 1], facecolor="black")  # ✅ axes 배경 검정
+    ax.set_axis_off()
+
+    im = ax.imshow(frames_rgb[0], interpolation="nearest")
+    im.set_zorder(10)
+
+    writer = FFMpegWriter(
+        fps=fps,
+        bitrate=4000,
+        codec="libx264",
+        extra_args=[
+            "-pix_fmt", "yuv420p",
+            "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2:color=black"  # ✅ ffmpeg padding도 black
+        ]
+    )
+
+    with writer.saving(fig, out_path, dpi=dpi):
+        for fr in frames_rgb:
+            im.set_data(fr)
+            fig.canvas.draw()
+            writer.grab_frame(facecolor="black")  # ✅ 핵심
+
+    plt.close(fig)
+
+
 
  
 def ego_crop_from_full_map(full_map: np.ndarray,

@@ -17,9 +17,9 @@ MAP_W = 100
 CROWD_NUMBER_MIN = 30
 CROWD_NUMBER_MAX = 30
 MAP_NUM = -1 #if not used, -2, if random, -1
-MAP_NUM_RANDOM = [6, 7, 26]
-MAP_NUM_RANDOM = [50, 53, 54]
-MAP_NUM_RANDOM = [104, 105, 108]
+#MAP_NUM_RANDOM = [6, 7, 26]
+#MAP_NUM_RANDOM = [50, 53, 54]
+MAP_NUM_RANDOM = [109]
 #MAP_NUM_RANDOM = [51]
 #MAP_NUM_RANDOM = [100, 101, 102]
 #MAP_NUM_RANDOM = [100]
@@ -47,7 +47,7 @@ DECAY_MODE = 'episode'
 
 
 # -------------- PATH -------------------
-LOG_DIR = "Log_test"
+LOG_DIR = "Log_ME_109"
 PORT_NUM = 6007
 
 # --------------- SAC ALGORITHM PARAMETER ---------------
