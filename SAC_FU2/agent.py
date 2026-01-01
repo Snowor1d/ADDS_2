@@ -861,7 +861,7 @@ class RobotAgent(CrowdAgent):
     def robot_policy_Q(self):
 
         K_AGENT = 200
-        K_WALL = 500
+        K_WALL = 2000
         LAMBDA_A = 0.2
 
         if(math.sqrt(pow(self.xy[0]-self.robot_waypoint[0], 2)+pow(self.xy[1]-self.robot_waypoint[1], 2))<2):
@@ -971,6 +971,7 @@ class RobotAgent(CrowdAgent):
             d = poly.exterior.distance(p)
             if d <= self.body_radius * 0.8:   # 매우 근접 → 충돌 경보
                 self.collision_check = 1
+                #print("충돌함")
             if d > 1.5 * self.body_radius:    # 멀면 무시
                 continue
             q = poly.exterior.interpolate(poly.exterior.project(p))
@@ -979,7 +980,7 @@ class RobotAgent(CrowdAgent):
             dist = math.hypot(dx, dy) or 1e-9
             nx, ny = dx/dist, dy/dist
             # 사람이랑 같은 톤으로 지수 반발(상수는 좀 더 세게 하고 싶으면 K_WALL 따로 둬도 됨)
-            mag = K_AGENT * math.exp(-(d / max(LAMBDA_A, 1e-6)))
+            mag = K_WALL * math.exp(-(d / max(LAMBDA_A, 1e-6)))
             F_wx += mag * nx
             F_wy += mag * ny
 

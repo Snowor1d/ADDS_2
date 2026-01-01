@@ -21,7 +21,7 @@ MAP_NUM = -1 #if not used, -2, if random, -1
 #MAP_NUM_RANDOM = [50, 53, 54]
 #MAP_NUM_RANDOM = [104, 105, 108]
 #MAP_NUM_RANDOM = [50]
-MAP_NUM_RANDOM = [109]
+MAP_NUM_RANDOM = [110]
 SCALE_CHECK = 1 # want to check reward scale?
 ACTION_SCALE = 4
 MAX_STEPS = 4000
@@ -46,7 +46,7 @@ DECAY_MODE = 'episode'
 
 
 # -------------- PATH -------------------
-LOG_DIR = "Log_FU2_109"
+LOG_DIR = "SOTA_MODELS"
 PORT_NUM = 6007
 
 # --------------- SAC ALGORITHM PARAMETER ---------------

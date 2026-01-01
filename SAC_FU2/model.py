@@ -910,6 +910,23 @@ class FightingModel(Model):
             self.obstacles.append([[40, 50], [50, 60], [40, 60]])
             self.obstacles.append([[50, 10], [60, 10], [60, 20], [50, 20]])
 
+        elif map_num == 110:
+            self.obstacles.append([[0, 5], [10, 5], [10, 10], [0, 10]])
+            self.obstacles.append([[20, 0], [30, 0], [30, 5], [20, 5]])
+            self.obstacles.append([[30, 20], [40, 20], [40, 25], [30, 25]])
+            self.obstacles.append([[10, 30], [20, 30], [20, 50], [10, 50]])
+            self.obstacles.append([[30, 45], [40, 45], [40, 50], [30, 50]])
+            self.obstacles.append([[40, 60], [50, 60], [50, 70], [40, 70]])
+            self.obstacles.append([[15, 70], [30, 70], [30, 80], [15, 80]])
+            self.obstacles.append([[15, 90], [20, 90], [20, 95], [15, 95]])
+            self.obstacles.append([[60, 80], [80, 80], [80, 90], [60, 90]])
+            self.obstacles.append([[60, 50], [70, 50], [70, 55], [60, 55]])
+            self.obstacles.append([[90, 60], [100, 60], [100, 70], [90, 70]])
+            self.obstacles.append([[80, 45], [90, 45], [90, 50], [80, 50]])
+            self.obstacles.append([[60, 30], [70, 30], [70, 40], [60, 40]])
+            self.obstacles.append([[55, 10], [60, 10], [60, 15], [55, 15]])
+            self.obstacles.append([[85, 10], [90, 10], [90, 20], [85, 20]])
+
             
         elif map_num == 50:
             self.obstacles.append([[20, 0], [30, 0], [30, 15], [20, 15]])
@@ -1064,6 +1081,8 @@ class FightingModel(Model):
             index = [0, 2]
         elif (self.map_num == 109):
             index = [0, 2]
+        elif (self.map_num == 110):
+            index = [1, 3]
         elif (self.map_num == 50):
             index = [2]
         elif (self.map_num == 51):
@@ -1259,7 +1278,7 @@ class FightingModel(Model):
                 real_action = self.robot.receive_action([dx, dy])
 
             # 로그 출력 (ACTION_SCALE 주기마다 혹은 SCALE_CHECK 시)
-            if self.using_model and ((self.step_n % ACTION_SCALE == (ACTION_SCALE - 1)) or SCALE_CHECK):
+            if self.using_model and ((self.step_n % ACTION_SCALE == (ACTION_SCALE - 1)) and SCALE_CHECK):
                 # (주의) 각 reward 함수들이 정의되어 있어야 함
                 print(f"reward_based_alived : {self.reward_based_alived() * REWARD_A:.4f}")
                 print(f"reward_based_all_agents_danger : {self.reward_based_all_agents_danger() * REWARD_B:.4f}")

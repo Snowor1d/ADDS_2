@@ -14,8 +14,8 @@ MAP_H = 100
 MAP_W = 100
 
 # ---------------- SIMULATION ENVIRONMENT ---------------------
-CROWD_NUMBER_MIN = 30
-CROWD_NUMBER_MAX = 30
+CROWD_NUMBER_MIN = 10
+CROWD_NUMBER_MAX = 10
 MAP_NUM = -1 #if not used, -2, if random, -1
 #MAP_NUM_RANDOM = [6, 7, 26]
 #MAP_NUM_RANDOM = [50, 53, 54]
@@ -47,7 +47,7 @@ DECAY_MODE = 'episode'
 
 
 # -------------- PATH -------------------
-LOG_DIR = "Log_ME_109"
+LOG_DIR = "SOTA_MODELS"
 PORT_NUM = 6007
 
 # --------------- SAC ALGORITHM PARAMETER ---------------

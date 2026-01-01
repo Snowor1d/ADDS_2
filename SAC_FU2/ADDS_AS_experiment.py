@@ -23,16 +23,16 @@ VIS_SAVE_EVERY = 5
 
 # ------------------------- #
 # 실험 파라미터
-visualization_mode = 'cont_mp4'  # 'off', 'cont_mp4', 'cont_png_every', 'cont_png'
+visualization_mode = 'off'  # 'off', 'cont_mp4', 'cont_png_every', 'cont_png'
 run_iteration      = 1
 number_of_agents   = 30
-max_step_num       = 1000
+max_step_num       = 3000
 robot_version      = 'Q'  # 'T','R','Q'
 robot_learned_model = '104_105_108.pth'
 test_num           = 5
-map_list           = [105]
+map_list           = [100]
 
-EXP_NAME = "Robot_videos"
+EXP_NAME = "Ablation_FU_zeroshot"
 
 CROWD_COLOR = "#0000FF"
 ROBOT_COLOR = "#FF0000"
