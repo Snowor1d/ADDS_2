@@ -19,15 +19,16 @@ from matplotlib import patheffects as pe  # legend/markers halo 효과용 (선�
 # =========================
 # 전역 파라미터
 # =========================
-ROOT_DIR = os.path.expanduser("~/Result_data_test_0918")
+ROOT_DIR = os.path.expanduser("~/Result_data_1229")
 OUT_DIR  = ROOT_DIR
 
-SHOW_EPISODE_LEGEND = False  # episode 플롯 범례 표시 여부
+SHOW_EPISODE_LEGEND = True  # episode 플롯 범례 표시 여부
 
 # --- 그림/폰트 ---
 FIGSIZE_EVAC   = (15, 7)
-FIGSIZE_EPISOD = (10, 6)
-FONT_SIZES = {"title": 25, "axes": 30, "ticks": 28, "legend": 28}
+FIGSIZE_EPISOD = (10, 8)
+#FONT_SIZES = {"title": 38, "axes": 0, "ticks": 38, "legend": 41}
+FONT_SIZES = {"title": 25, "axes": 30, "ticks": 28, "legend": 28} 
 
 FONT_MODE = "serif"          # 논문용 로마자 느낌이면 "serif"
 FONT_FAMILY = "DejaVu Serif"  # MODE="custom"일 때만 사용 (정확한 폰트 이름)
@@ -41,9 +42,9 @@ TITLE_MAP_FORMAT   = "Map {map_id} - {plot_name}"
 TITLE_EVAC_NAME    = ""
 TITLE_EPISODE_NAME = "Remained Agents per Step"
 XLABEL_EVAC        = ""
-YLABEL_EVAC        = "Timestep"
-XLABEL_EPISODE     = "Step"
-YLABEL_EPISODE     = "Non-Evacuated Agents"
+YLABEL_EVAC        = "Time (s)"
+XLABEL_EPISODE     = "Time (s)"
+YLABEL_EPISODE     = "Unevacuated Agents"
 
 # --- 저장 ---
 SAVE_DPI    = 220
@@ -125,10 +126,10 @@ EVAC_LINEWIDTHS: Dict[str, float] = {
 # episode 로그: “마커 OFF + 얇은 점/파선” 스타일
 DEFAULT_EPISODE_LINEWIDTH = 2.0
 EPISODE_LINEWIDTHS: Dict[str, float] = {
-    "Q": 4.0,
-    "H": 4.0,
-    "T": 4.0,
-    "N": 4.0,
+    "Q": 7.0,
+    "H": 7.0,
+    "T": 7.0,
+    "N": 7.0,
 }
 
 # --- episode: 마커 대신 라인스타일 기반 구분 ---
@@ -153,7 +154,7 @@ EPISODE_MARKER_SIZE = 7.5
 EPISODE_MARKER_EDGE_W = 1.2
 EPISODE_MARKER_TARGET_COUNT = 60   # 각 곡선에 약 이 개수만큼 마커가 보이도록 간격 자동 조절
 
-DISPLAY_MAP_MAP = {6: 1, 7: 2, 8: 3, 24: 4, 25: 5, 26: 6}
+DISPLAY_MAP_MAP = {6: 1, 7: 2, 26: 3, 50: 4, 53: 5, 54: 6, 104:7, 105:8, 108:9}
 INVERSE_DISPLAY_MAP = {v: k for k, v in DISPLAY_MAP_MAP.items()}
 
 def display_id_of(map_id: int) -> int:
@@ -206,7 +207,7 @@ def _get_evac_values_for_map_robot(maps: Dict[int, MapData], real_map_id: int, r
     if not group or not group.runs:
         return []
     vals = [r.evacuation_100_time for r in group.runs]
-    return [v for v in vals if v < MAX_TIMESTEP]
+    return [v/4 for v in vals if v < MAX_TIMESTEP]
 
 def plot_evacuation_single_axes_pairs(
     maps: Dict[int, MapData],
@@ -215,7 +216,7 @@ def plot_evacuation_single_axes_pairs(
     name_suffix: str,
     robot_codes: Tuple[str, str] = ("Q", "H"),
     pair_gap: float = 0.7,   # 같은 맵 내 (Q↔H) 간격
-    map_gap: float = 1.20,   # 맵 사이 간격
+    map_gap: float = 1.0,   # 맵 사이 간격
     cat_width: float = 0.6,  # 카테고리 평균선/밴드 가로폭
     xtick_style: str = "map",   # "pair"(기본) | "map"
 ):
@@ -261,7 +262,7 @@ def plot_evacuation_single_axes_pairs(
             y_min, y_max = 0.0, 1.0
 
     # === 그림/axes ===
-    fig_h = 4.0 if len(subset_disp_ids) <= 3 else 5.0
+    fig_h = 6.0 if len(subset_disp_ids) <= 3 else 7.0
     fig_w = max(8.0, 1.0 * len(x_positions) + 0.8 * (len(subset_disp_ids)-1))
     fig, ax = plt.subplots(figsize=(fig_w, fig_h))
 
@@ -335,7 +336,7 @@ def plot_evacuation_single_axes_pairs(
               fontsize=FONT_SIZES["legend"],
               title="",
               frameon=False,
-              loc="upper right")
+              loc="upper left")
 
     subset_str = _format_id_ranges(subset_disp_ids)
     # ax.set_title(f"Maps {subset_str} – {TITLE_EVAC_NAME}", fontsize=FONT_SIZES["title"])
@@ -650,6 +651,7 @@ def plot_episode_log_padded(map_id: int, mdata: MapData, out_dir: str, band_mode
         mean_curve, lower, upper = per_step_stats_from_matrix(M, mode=band_mode)
 
         x = np.arange(L)
+        x = x/4
 
         # 1) 평균 곡선: 얇은 점/파선
         ax.plot(
@@ -818,12 +820,12 @@ def main():
     for map_id, mdata in sorted(maps.items(), key=lambda x: x[0]):
         plot_evacuation_per_map(map_id, mdata, OUT_DIR)
         plot_episode_log_padded(map_id, mdata, OUT_DIR, band_mode=BAND_MODE)
-    print(f("[DONE] Plots saved to: {abs_path}") if (abs_path := os.path.abspath(OUT_DIR)) else "[DONE]")
+#    print(f("[DONE] Plots saved to: {abs_path}") if (abs_path := os.path.abspath(OUT_DIR)) else "[DONE]")
 
     # ===== 추가: 단일 축에 (맵×2카테고리) 모두 배치한 버전 3장 =====
     plot_evacuation_single_axes_pairs(maps, [1, 2, 3], OUT_DIR, name_suffix="maps_1_2_3")
     plot_evacuation_single_axes_pairs(maps, [4, 5, 6], OUT_DIR, name_suffix="maps_4_5_6")
-    plot_evacuation_single_axes_pairs(maps, [1, 2, 3, 4, 5, 6], OUT_DIR, name_suffix="maps_1_6")
+    plot_evacuation_single_axes_pairs(maps, [1, 2, 3, 4, 5, 6, 7, 8, 9], OUT_DIR, name_suffix="maps_1_6")
 
 if __name__ == "__main__":
     main()

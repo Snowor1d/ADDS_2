@@ -23,16 +23,16 @@ VIS_SAVE_EVERY = 5
 
 # ------------------------- #
 # 실험 파라미터
-visualization_mode = 'off'  # 'off', 'cont_mp4', 'cont_png_every', 'cont_png'
+visualization_mode = 'cont_png_every'  # 'off', 'cont_mp4', 'cont_png_every', 'cont_png'
 run_iteration      = 1
 number_of_agents   = 30
-max_step_num       = 3000
-robot_version      = 'Q'  # 'T','R','Q'
+max_step_num       = 1000
+robot_version      = 'Q'  # 'N','T','Q'
 robot_learned_model = '104_105_108.pth'
-test_num           = 5
-map_list           = [100]
+test_num           = 20
+map_list           = [108]
 
-EXP_NAME = "Ablation_FU_zeroshot"
+EXP_NAME = "get_discussion_videos"
 
 CROWD_COLOR = "#0000FF"
 ROBOT_COLOR = "#FF0000"
@@ -41,7 +41,7 @@ SHOW_AGENT_HEADING = False
 SHOW_ROBOT_HEADING = False
 ROBOT_HEADING_SCALE = 1.2
 
-TRAIL_TARGET = "none"
+TRAIL_TARGET = "robot"
 TRAIL_STYLE = "persist"
 MAX_TRAIL = 2000
 ROBOT_STYLE = "circle"
@@ -50,11 +50,11 @@ ROBOT_IMAGE_SCALE = 5
 EXIT_SIZE = 5.0
 SNAP_EXIT_TO_BOUNDARY = False
 
-ANNOTATE_ROBOT_PATH = False
+ANNOTATE_ROBOT_PATH = True
 ANNOTATE_MODE = "every_n"
-ANNOTATE_EVERY = 20
+ANNOTATE_EVERY = 50
 ANNOTATE_STYLE = "subway"
-ANNOTATE_FONTSIZE = 10
+ANNOTATE_FONTSIZE = 20
 
 
 # ------------------------- #

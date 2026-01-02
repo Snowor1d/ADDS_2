@@ -421,7 +421,7 @@ class ContinuousRenderer:
                 self._plot_trail(trail,
                                  alpha_base=self.crowd_trail_alpha,
                                  color=(color if self.single_color_edges else self.colors["trail"]),
-                                 style=self.trail_style, linewidth=1.1)
+                                 style=self.trail_style, linewidth=1)
 
     def _draw_robot(self, robot, step: Optional[int] = None):
         if robot is None: return
@@ -456,7 +456,7 @@ class ContinuousRenderer:
             # 선
             self._plot_trail([(px, py) for (px, py, _) in trail],
                              alpha_base=self.robot_trail_alpha,
-                             color=rcol, style=self.trail_style, linewidth=1.5)
+                             color=rcol, style=self.trail_style, linewidth=2.5)
 
             # 라벨
             if self.annotate_robot_path:
