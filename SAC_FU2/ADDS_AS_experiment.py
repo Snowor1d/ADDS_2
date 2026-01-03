@@ -23,16 +23,18 @@ VIS_SAVE_EVERY = 5
 
 # ------------------------- #
 # 실험 파라미터
-visualization_mode = 'off'  # 'off', 'cont_mp4', 'cont_png_every', 'cont_png'
+visualization_mode = 'cont_png_every'  # 'off', 'cont_mp4', 'cont_png_every', 'cont_png'
 run_iteration      = 1
 number_of_agents   = 30
-max_step_num       = 3000
+max_step_num       = 10
 robot_version      = 'Q'  # 'N','T','Q'
 robot_learned_model = 'FU_108.pth'
-test_num           = 4
-map_list           = [116]
+test_num           = 1
+#map_list           = [100, 104, 105, 108, 110, 117, 118, 119, 120]
+map_list = [102, 113, 114, 115, 116]
+#test : 102, 113, 114, 115, 116
 
-EXP_NAME = "test_unseen_maps_FU_1map"
+EXP_NAME = "get_images"
 
 CROWD_COLOR = "#0000FF"
 ROBOT_COLOR = "#FF0000"
