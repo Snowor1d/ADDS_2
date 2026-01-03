@@ -34,7 +34,7 @@ map_list           = [102, 113, 114, 115, 116]
 MAP_WIDTH  = 100
 MAP_HEIGHT = 100
 
-EXP_NAME = "test_unseen_maps_ME_1map"   # 최상위 결과 폴더 이름
+EXP_NAME = "test_unseen_maps_ME_1maps"   # 최상위 결과 폴더 이름
 # 빨강 : "#FF0000", 파랑 : "#0000FF", 초록 : "#00FF00"
 # 노랑 : "#FFFF00", 보라 : "#FF00FF", 청록 : "#00FFFF"
 # 주황 : "#FFA500", 갈색 : "#A52A2A", 분홍 : "#FFC0CB"
