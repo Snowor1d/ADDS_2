@@ -1020,7 +1020,7 @@ class FightingModel(Model):
             #self.obstacles.append([[]])
 
         elif map_num == 118:
-            self.obstacles.append([[20, 0], [100, 0], [100, 20], [40, 20]])
+            self.obstacles.append([[20, 0], [90, 0], [90, 20], [40, 20]])
             self.obstacles.append([[0, 30], [20, 50], [20, 70], [0, 70]])
             self.obstacles.append([[40, 80], [60, 80], [80, 100], [40, 100]])
             self.obstacles.append([[80, 60], [100, 60], [100, 80]])
@@ -1044,7 +1044,19 @@ class FightingModel(Model):
             self.obstacles.append([[70, 50], [80, 50], [80, 70], [70, 60]])
             self.obstacles.append([[70, 40], [80, 40], [80, 45], [70, 45]])
             self.obstacles.append([[70, 20], [80, 30], [70, 30]])
-            self.obstacles.append([[70, 0], [80, 0], [80, 20], [70, 10]])                                 
+            self.obstacles.append([[70, 0], [80, 0], [80, 20], [70, 10]])    
+
+        elif map_num == 120:
+            self.obstacles.append([[20, 10], [50, 10], [50, 20], [20, 20]])
+            self.obstacles.append([[70, 10], [80, 10], [80, 20], [70, 20]])
+            self.obstacles.append([[40, 30], [60, 30], [60, 40], [40, 40]])
+            self.obstacles.append([[20, 60], [30, 60], [30, 80], [20, 80]])
+            self.obstacles.append([[20, 30],[30, 30], [30, 50], [20, 50]])
+            #self.obstacles.append([[20, 30], [30, 30], [30, 80], [20, 80]])
+            self.obstacles.append([[70, 30], [80, 30], [80, 60], [70, 60]])
+            self.obstacles.append([[40, 70], [80, 70], [80, 80], [40, 80]]) 
+            self.obstacles.append([[10, 90], [20, 90], [20, 95], [10, 95]])   
+            self.obstacles.append([[5, 60], [10, 60], [10, 70], [5, 70]])                         
 
         elif map_num == 50:
             self.obstacles.append([[20, 0], [30, 0], [30, 15], [20, 15]])
@@ -1219,6 +1231,8 @@ class FightingModel(Model):
             index = [0, 2]
         elif (self.map_num == 119):
             index = [0, 2]
+        elif (self.map_num == 120):
+            index = [1, 3]
         elif (self.map_num == 50):
             index = [2]
         elif (self.map_num == 51):
