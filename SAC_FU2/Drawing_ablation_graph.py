@@ -51,7 +51,7 @@ SAVE_NAME  = "evac100_multi"
 SAVE_DPI   = 300
 SAVE_FORMAT= "png"
 
-MAX_EPISODE = 15000
+MAX_EPISODE = 4300
 
 # --- Figure / fonts ---
 FIGSIZE = (15, 10)
@@ -83,7 +83,7 @@ CLIP_Y_MAX: Optional[float] = None
 # --- Unified smoothing controls ---
 SMOOTH_ENABLE    = True
 SMOOTH_KIND      = "ma"    # "ma" | "ema"
-SMOOTH_STRENGTH  = 0.60    # 0.0 ~ 1.0 (higher → stronger smoothing)
+SMOOTH_STRENGTH  = 0.80    # 0.0 ~ 1.0 (higher → stronger smoothing)
 
 MA_WINDOW_MIN    = 5
 MA_WINDOW_MAX    = 301
@@ -330,7 +330,7 @@ def moving_average(y: np.ndarray, window: int) -> np.ndarray:
     if window == 1 or len(y) < 2:
         return y.copy()
     pad = window // 2
-    ypad = np.pad(y, (pad, pad), mode="edge")
+    ypad = np.pad(y, (pad, pad), mode="symmetric")
     kernel = np.ones(window, dtype=float) / window
     return np.convolve(ypad, kernel, mode="valid")
 

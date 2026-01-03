@@ -30,8 +30,8 @@ max_step_num       = 10
 robot_version      = 'Q'  # 'N','T','Q'
 robot_learned_model = 'FU_108.pth'
 test_num           = 1
-#map_list           = [100, 104, 105, 108, 110, 117, 118, 119, 120]
-map_list = [102, 113, 114, 115, 116]
+#map_list           = [100, 104, 105, 108, 110, 117, 118, 119, 120, 121]
+map_list = [121]
 #test : 102, 113, 114, 115, 116
 
 EXP_NAME = "get_images"
