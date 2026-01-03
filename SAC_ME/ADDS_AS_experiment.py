@@ -25,16 +25,16 @@ import model  # FightingModel 이 여기 있다고 가정
 visualization_mode = 'off' # 'off', 'cont_mp4', 'cont_png_every', 'cont_png'
 run_iteration      = 1
 number_of_agents   = CROWD_NUMBER_MIN
-max_step_num       = 1500
+max_step_num       = 3000
 robot_version      = 'Q' # 'T' : direct to goal, 'R' : 가장 먼 agent와 출구 사이를 왔다갔다, 'Q' : 학습된 모델 사용
-robot_learned_model = 'ME_108_10agents.pth'
-test_num           = 10
-map_list           = [108]
+robot_learned_model = 'ME_108.pth'
+test_num           = 5
+map_list           = [102, 113, 114, 115, 116]
 
 MAP_WIDTH  = 100
 MAP_HEIGHT = 100
 
-EXP_NAME = "ME_108_10agents"   # 최상위 결과 폴더 이름
+EXP_NAME = "test_unseen_maps_ME_1map"   # 최상위 결과 폴더 이름
 # 빨강 : "#FF0000", 파랑 : "#0000FF", 초록 : "#00FF00"
 # 노랑 : "#FFFF00", 보라 : "#FF00FF", 청록 : "#00FFFF"
 # 주황 : "#FFA500", 갈색 : "#A52A2A", 분홍 : "#FFC0CB"
