@@ -5,6 +5,7 @@ import subprocess
 import signal
 from config import *
 
+TARGET_SCRIPT = "ADDS_AS_reinforcement.py"
 home_dir = os.path.expanduser("~")
 HEARTBEAT_PATH = os.path.join(home_dir, LOG_DIR, "heartbeat.txt")
 
@@ -47,7 +48,7 @@ def run_reinforcement_learning_with_watchdog():
         pass
 
     p = subprocess.Popen(
-        ["python3", "ADDS_AS_reinforcement.py"],
+        ["python3", TARGET_SCRIPT],
         start_new_session=True,   # 프로세스 그룹 생성(자식들까지 kill하기 위함)
     )
 
@@ -82,11 +83,33 @@ def run_reinforcement_learning_with_watchdog():
 
 def main():
     print_banner()
-    while True:
-        code = run_reinforcement_learning_with_watchdog()
-        if code != 0:
-            print(f"RL exited (code={code}). restarting...")
-            time.sleep(3)
+    
+    try:
+        while True:
+            exit_code = run_reinforcement_learning_with_watchdog()
+
+            if exit_code == 0:
+                print("[Main] Process finished successfully (code 0). Exiting")
+                break
+
+            elif exit_code == 999:
+                print(f"[Main] Stalled detected. Restarting {TARGET_SCRIPT}...")
+                time.sleep(3)
+            else:
+                print(f"[Main] Process exited with error (Code {exit_code}). Restarting...")
+                time.sleep(3)
+
+    except KeyboardInterrupt:
+        print("\n\n[Watchdog] KeyboardInterrupt (Ctrl+C) received.")
+        print("[Watchdog] Force killing all related processes...")
+
+        try:
+            subprocess.run(["pkill", "-9", "-f", TARGET_SCRIPT])
+        except Exception:
+            pass
+        
+    finally:
+        print("System Shutdown")
 
 if __name__ == "__main__":
     main()

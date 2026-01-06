@@ -31,7 +31,7 @@ robot_version      = 'Q'  # 'N','T','Q'
 robot_learned_model = 'FU_100_104_105_108_110.pth'
 test_num           = 5
 #map_list           = [100, 104, 105, 108, 110, 117, 118, 119, 120, 121]
-map_list = [102]
+map_list = [100, 104, 105, 108, 110, 117, 118, 119, 120, 121]
 #test : 102, 113, 114, 115, 116
 
 EXP_NAME = "FU_5maps_test"
