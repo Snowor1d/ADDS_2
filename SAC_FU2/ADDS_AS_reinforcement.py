@@ -1470,7 +1470,7 @@ if __name__ == "__main__":
         p = ctx.Process(
             target=worker_process,
             args=(wid, transition_queue, stats_queue, epsilon_shared, pq, base_seed),
-            daemon=False
+            daemon=True
         )
         p.start()
         print(f"[Main] Worker {wid} started, pid={p.pid}")
