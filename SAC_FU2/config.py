@@ -46,7 +46,7 @@ DECAY_MODE = 'episode'
 
 
 # -------------- PATH -------------------
-LOG_DIR = "SOTA_MODELS"
+LOG_DIR = "test_test"
 PORT_NUM = 6007
 
 # --------------- SAC ALGORITHM PARAMETER ---------------

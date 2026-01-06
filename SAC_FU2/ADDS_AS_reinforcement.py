@@ -121,12 +121,21 @@ BY_MAP_DIR = os.path.join(log_dir, "by_map")
 os.makedirs(BY_MAP_DIR, exist_ok = True)
 os.makedirs(log_dir, exist_ok=True)
 os.makedirs(log_dir, exist_ok=True)
-
 # heat_logger = HeatMapLogger(   #@for heat_map
 #     save_root = os.path.join(log_dir, "heat_maps"),
 #     map_size = (MAP_W, MAP_H),
 #     known_maps = MAP_NUM_RANDOM
 # )
+
+HEARTBEAT_PATH = os.path.join(log_dir, "heartbeat.txt")
+
+def write_heartbeat(ep: int):
+    tmp = HEARTBEAT_PATH + ".tmp"
+    with open(tmp, "w") as f:
+        f.write(f"{ep}\n")
+        f.write(f"{time.time()}\n")
+    os.replace(tmp, HEARTBEAT_PATH)  # atomic replace
+
 
 def ego_crop_from_full_map(full_map: np.ndarray,
                            robot_xy_px: tuple[int, int],
@@ -1436,6 +1445,26 @@ def monitor_total_reward(total_reward_file, tb_log_dir):
 if __name__ == "__main__":
     import time
 
+    def stop_all_workers(workers):
+        for wid, p in enumerate(workers):
+            if p is None:
+                continue
+            try:
+                if p.is_alive():
+                    p.terminate()
+                p.join(timeout=2)
+            except Exception as e:
+                print(f"[Main] stop worker {wid} error: {e}")
+
+    def start_workers(ctx, n_workers, transition_queue, stats_queue, epsilon_shared, base_seed):
+        workers = [None] * n_workers
+        param_queues = [None] * n_workers
+        for wid in range(n_workers):
+            p, pq = start_one_worker(ctx, wid, transition_queue, stats_queue, epsilon_shared, base_seed)
+            workers[wid] = p
+            param_queues[wid] = pq
+        return workers, param_queues
+
     def start_one_worker(ctx, wid, transition_queue, stats_queue, epsilon_shared, base_seed):
         pq = ctx.Queue(maxsize=1)
         p = ctx.Process(
@@ -1635,18 +1664,22 @@ if __name__ == "__main__":
 
     ctx = mp.get_context("spawn")
     N_WORKERS = N_ENVS # 원하는 만큼
-    transition_queue = ctx.Queue(maxsize=100*N_ENVS)
-    stats_queue = ctx.Queue(maxsize=100*N_ENVS)
+
+    N_WORKERS_WARMUP = 10
+    N_WORKERS_TRAIN = int(N_ENVS)
+
+    transition_queue = ctx.Queue(maxsize=10*N_WORKERS_WARMUP)
+    stats_queue = ctx.Queue(maxsize=10*N_WORKERS_WARMUP)
     param_queue = mp.Queue(maxsize=1)
 
     workers = [None] * N_WORKERS
     param_queues = [None] * N_WORKERS
     base_seed = 1234
-        
-    for wid in range(N_WORKERS):
-        p, pq = start_one_worker(ctx, wid, transition_queue, stats_queue, epsilon_shared, base_seed)
-        workers[wid] = p
-        param_queues[wid] = pq
+    current_n_workers = N_WORKERS_WARMUP
+    workers, param_queues = start_workers(ctx, current_n_workers, transition_queue, stats_queue, epsilon_shared, base_seed)
+    print(f"[Main] Started {current_n_workers} workers for warm-up.")
+
+
 
     max_episodes = 9999999
 
@@ -1695,6 +1728,24 @@ if __name__ == "__main__":
                 break
 
             global_episode += 1
+            write_heartbeat(global_episode)
+
+                        # ---- warmup -> train 전환 ----
+            if (global_episode == START_UPDATE_EPISODE) and (current_n_workers != N_WORKERS_TRAIN):
+                print(f"[Main] Reaching START_UPDATE_EPISODE={START_UPDATE_EPISODE}. Switching workers "
+                    f"{current_n_workers} -> {N_WORKERS_TRAIN}")
+
+                # 기존 worker 종료
+                stop_all_workers(workers)
+
+                # 새 worker 시작
+                current_n_workers = N_WORKERS_TRAIN
+                workers, param_queues = start_workers(
+                    ctx, current_n_workers,
+                    transition_queue, stats_queue,
+                    epsilon_shared, base_seed
+                )
+
             print("-----------------------------------------------")
             print(f"[Main] Episode {global_episode} (from worker {s_msg.worker_id})")
             print("Total reward:", s_msg.total_reward)
@@ -1738,7 +1789,7 @@ if __name__ == "__main__":
                 f.write(str(agent.epsilon_long))
 
             # 체크포인트 저장
-            if global_episode % 100 == 0:
+            if (global_episode >= START_UPDATE_EPISODE) and (global_episode % 100 == 0):
                 model_filename = os.path.join(log_dir, f"sac_checkpoint_ep_{global_episode}.pth")
                 agent.save_model(model_filename)
                 agent.save_replay_buffer("replay_buffer.npz")
@@ -1747,20 +1798,17 @@ if __name__ == "__main__":
                 print(f"Episode {global_episode} - Total Learning Time: {learn_timer.get_time():.6f} 초")
                 learn_timer.reset()
         
-        if global_episode % POLICY_BROADCAST_INTERVAL == 0:
+        if (global_episode >= START_UPDATE_EPISODE) and (global_episode % POLICY_BROADCAST_INTERVAL == 0):
             sd_cpu = {k: v.detach().cpu() for k, v in agent.policy.state_dict().items()}
 
             for pq in param_queues:
-                # 큐를 완전히 비워서 최신만 남김
                 try:
                     while True:
                         pq.get_nowait()
                 except Empty:
                     pass
 
-                # block 방지
                 try:
                     pq.put_nowait(sd_cpu)
                 except Full:
-                    pass   # 이번 broadcast는 스킵
-                    
+                    pass
