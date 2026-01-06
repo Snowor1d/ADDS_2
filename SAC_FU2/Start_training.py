@@ -5,13 +5,14 @@ import subprocess
 import signal
 from config import *
 
-HEARTBEAT_PATH = os.path.join(LOG_DIR, "heartbeat.txt")
+home_dir = os.path.expanduser("~")
+HEARTBEAT_PATH = os.path.join(home_dir, LOG_DIR, "heartbeat.txt")
 
 STALL_SEC = 300        # 300초 동안 global_episode가 안 늘면 “멈춤”으로 판단
 POLL_SEC = 60          # heartbeat 체크 주기
 
 def print_banner():
-    print(r"""
+    print("""
  █████╗ ██████╗ ██████╗ ███████╗
 ██╔══██╗██╔══██╗██╔══██╗██╔════╝
 ███████║██║  ██║██║  ██║███████╗

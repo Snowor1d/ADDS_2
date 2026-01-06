@@ -1738,6 +1738,17 @@ if __name__ == "__main__":
                 # 기존 worker 종료
                 stop_all_workers(workers)
 
+                try: 
+                    transition_queue.close()
+                    stats_queue.close()
+                    time.sleep(1.0)
+                except:
+                    pass
+
+                print("[Main] Re-creating Queues to prevent Lock Corruption...")
+                transition_queue = ctx.Queue(maxsize=10*N_WORKERS_TRAIN)
+                stats_queue = ctx.Queue(maxsize=10*N_WORKERS_TRAIN)
+
                 # 새 worker 시작
                 current_n_workers = N_WORKERS_TRAIN
                 workers, param_queues = start_workers(
@@ -1745,6 +1756,9 @@ if __name__ == "__main__":
                     transition_queue, stats_queue,
                     epsilon_shared, base_seed
                 )
+
+                last_supervise_t = time.time()
+
 
             print("-----------------------------------------------")
             print(f"[Main] Episode {global_episode} (from worker {s_msg.worker_id})")
