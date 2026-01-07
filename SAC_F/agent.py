@@ -76,7 +76,7 @@ class CrowdAgent(Agent):
         if self.type == 3: # robot mass는 3으로 고정
             self.mass = 30
 
-        self.desired_speed_a = np.random.normal(3, 0.2)*1.2 # agent의 desired_speed, 평균 1.5m/s, 표준 편차 0.2m/s
+        self.desired_speed_a = np.random.normal(1.5, 0.2)*1.2 # agent의 desired_speed, 평균 1.5m/s, 표준 편차 0.2m/s
 
         self.is_effected_by_robot = 0
         self.blocked = False
@@ -351,7 +351,7 @@ class CrowdAgent(Agent):
         BODY_RADIUS = 0.5             # 군중 몸 반지름 [cell] 0.25m로 설정 -> 0.5칸이 되어야 0.25
         WALL_RADIUS = 1.5             # 격자벽을 둥근 장애물로 근사
         # 접촉(법선) 스프링/감쇠, 접선 마찰
-        KN = 1.8e5                   # 법선 스프링 상수, modified crowd simulation 논문에선 1.2*10^5
+        KN = 1e5                   # 법선 스프링 상수, modified crowd simulation 논문에선 1.2*10^5
         CN =  1000                     # 법선 점성(접근속도 감쇠)
         MU_T = 2.5e5                    # 접선 마찰(미끄럼 속도 감쇠) modifided crowd simulation 논문에선 2.4*10^5
         # 지수형 반발은 약화(근거리에서만 의미)
@@ -750,7 +750,7 @@ class RobotAgent(CrowdAgent):
 
         #self.model.space.add(self.unique_id, self.xy, self.radius, ref=self, vel=(0,0,0,0))
 
-        self.desired_speed_a = 4
+        self.desired_speed_a = 2
         self.target_agent = None
     
     # ------------------------------------------------------------

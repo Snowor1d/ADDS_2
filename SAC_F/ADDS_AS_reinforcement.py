@@ -1668,8 +1668,8 @@ if __name__ == "__main__":
     N_WORKERS_WARMUP = 10
     N_WORKERS_TRAIN = int(N_ENVS)
 
-    transition_queue = ctx.Queue(maxsize=10*N_WORKERS_WARMUP)
-    stats_queue = ctx.Queue(maxsize=10*N_WORKERS_WARMUP)
+    transition_queue = ctx.Queue(maxsize=3*N_WORKERS_WARMUP)
+    stats_queue = ctx.Queue(maxsize=3*N_WORKERS_WARMUP)
     param_queue = mp.Queue(maxsize=1)
 
     workers = [None] * N_WORKERS
@@ -1688,7 +1688,6 @@ if __name__ == "__main__":
     max_episodes = 9999999
 
     # update 비율 설정
-    UPDATES_PER_TRANSITION = 1  # 예: transition 1개당 update 1번 정도
     pending_updates = 0.0
 
     sim_timer.reset()
@@ -1826,8 +1825,8 @@ if __name__ == "__main__":
                 pass
 
             print("[Main] Re-creating Queues...")
-            transition_queue = ctx.Queue(maxsize=10*N_WORKERS_TRAIN)
-            stats_queue = ctx.Queue(maxsize=10*N_WORKERS_TRAIN)
+            transition_queue = ctx.Queue(maxsize=3*N_WORKERS_TRAIN)
+            stats_queue = ctx.Queue(maxsize=3*N_WORKERS_TRAIN)
 
             # 새 worker 시작
             current_n_workers = N_WORKERS_TRAIN

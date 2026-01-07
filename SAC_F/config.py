@@ -27,12 +27,12 @@ MAP_NUM = -1 #if not used, -2, if random, -1
 #MAP_NUM_RANDOM = [6, 7, 26]
 
 
-MAP_NUM_RANDOM = [122]
+MAP_NUM_RANDOM = [100, 104, 105, 108, 110, 117, 118, 119, 120, 121]
 SCALE_CHECK = 1 # want to check reward scale?
 ACTION_SCALE = 4
 MAX_STEPS = 4000
 
-ROBOT_BODY_RADIUS = 1
+ROBOT_BODY_RADIUS = 1.5
 AGENT_BODY_RADIUS = 0.5
 ROBOT_VISION = 10
 AGENT_VISION = 10
@@ -52,7 +52,7 @@ DECAY_MODE = 'episode'
 
 
 # -------------- PATH -------------------
-LOG_DIR = "Log_FU2"
+LOG_DIR = "Log_F_10maps"
 PORT_NUM = 6007
 
 # --------------- SAC ALGORITHM PARAMETER ---------------
