@@ -6,7 +6,7 @@ from space import ContinuousSpace
 
 from shapely.geometry import Polygon, MultiPolygon, Point
 from shapely.strtree import STRtree
-from shapely.ops import triangulate
+from shapely.ops import unary_union
 import matplotlib.tri as mtri
 
 from core import Model, Agent
@@ -320,7 +320,64 @@ def downsample_full_map(full_map: np.ndarray, target: int) -> np.ndarray:
     y = F.adaptive_max_pool2d(x, (target, target))
     return y.squeeze(0).squeeze(0).byte().numpy()
 
+def union_obstacles_to_polygons(raw_obstacles, min_area=1e-8):
+    """
+    raw_obstacles: self.obstacles 같은 형태 (각 obstacle은 [[x,y],...])
+    return: (outer_polys, hole_rings)
+      - outer_polys: [ [(x,y),...], ... ]   (각각 exterior ring, 마지막 중복점 제거)
+      - hole_rings : [ [(x,y),...], ... ]   (각각 interior ring, 마지막 중복점 제거)
+    """
+    parts = []
+    for ob in raw_obstacles:
+        if ob is None or len(ob) < 3:
+            continue
+        P = Polygon(ob)
+        if not P.is_valid:
+            P = P.buffer(0)  # self-intersection 등 보정
+        if P.is_empty:
+            continue
+        # MultiPolygon이면 쪼개서 parts에 넣기
+        if isinstance(P, MultiPolygon):
+            parts.extend(list(P.geoms))
+        else:
+            parts.append(P)
 
+    if not parts:
+        return [], []
+
+    U = unary_union(parts)
+
+    # union 결과가 GeometryCollection / MultiPolygon일 수 있음
+    polys = []
+    if isinstance(U, Polygon):
+        polys = [U]
+    elif isinstance(U, MultiPolygon):
+        polys = list(U.geoms)
+    else:
+        # GeometryCollection 등: polygon만 추출
+        try:
+            polys = [g for g in U.geoms if isinstance(g, Polygon)]
+        except Exception:
+            polys = []
+
+    outer_polys = []
+    hole_rings = []
+
+    for P in polys:
+        if P.area <= min_area:
+            continue
+
+        ext = list(P.exterior.coords)[:-1]
+        if len(ext) >= 3:
+            outer_polys.append([(float(x), float(y)) for x, y in ext])
+
+        # holes(내부 링)도 segment로 넣어야 "구멍"이 장애물로 유지됨
+        for ring in P.interiors:
+            h = list(ring.coords)[:-1]
+            if len(h) >= 3:
+                hole_rings.append([(float(x), float(y)) for x, y in h])
+
+    return outer_polys, hole_rings
 
 
 class FightingModel(Model):
@@ -583,17 +640,13 @@ class FightingModel(Model):
     def mesh_map(self):
 
         D = 20
+        outer_polys, _ = union_obstacles_to_polygons(self.obstacles)
+        self.obstacles = [ [list(p) for p in poly ] for poly in outer_polys]
         map_boundary = [[0, 0], [self.width, 0], [self.width, self.height], [0, self.height]]
         obstacle_hulls = []
 
         for obstacle in self.obstacles:
-            if len(obstacle) == 3 or len(obstacle) == 4:
-                hull = ConvexHull(obstacle)
-                hull_points = np.array(obstacle)[hull.vertices]
-                obstacle_hulls.append(hull_points)
-            else:
-                raise ValueError("Each obstacle must have either 3 or 4 points.")
-
+            obstacle_hulls.append(np.array(obstacle, dtype=float))
         # 경계점 및 장애물의 모서리 점 추가
         vertices = map_boundary.copy()
         for hull_points in obstacle_hulls:
@@ -633,16 +686,15 @@ class FightingModel(Model):
                     self.match_grid_to_mesh[(i[0], i[1])] = (mesh[0], mesh[1], mesh[2])
 
 
+        obstacle_polys = [Polygon(ob) for ob in self.obstacles]
+
         for mesh in self.mesh_list:
-            middle_point = ((mesh[0][0]+mesh[1][0]+mesh[2][0])/3, (mesh[0][1]+mesh[1][1]+mesh[2][1])/3)
-            
-            for obstacle in self.obstacles:
-                if len(obstacle) == 4: # 사각형 obstacle
-                    if is_point_in_triangle(middle_point, obstacle[0], obstacle[1], obstacle[2]) or is_point_in_triangle(middle_point, obstacle[0], obstacle[2], obstacle[3]) :
-                        self.obstacle_mesh.append(mesh)
-                elif len(obstacle) == 3:
-                    if is_point_in_triangle(middle_point, obstacle[0], obstacle[1], obstacle[2]):
-                        self.obstacle_mesh.append(mesh)            
+            mx = (mesh[0][0] + mesh[1][0] + mesh[2][0]) / 3.0
+            my = (mesh[0][1] + mesh[1][1] + mesh[2][1]) / 3.0
+            p = Point(mx, my)
+
+            if any(P.contains(p) or P.touches(p) for P in obstacle_polys):
+                self.obstacle_mesh.append(mesh)
 
         path = {}
         
@@ -1072,8 +1124,9 @@ class FightingModel(Model):
             self.obstacles.append([[60, 0], [100, 0], [100, 30], [90, 30]])
 
         elif map_num == 122:
-            self.obstacles.append([[20, 50], [39.9, 39.9], [39.9, 69.9], [20, 60]])
-            self.obstacles.append([[40, 40], [60, 50], [60, 70], [40, 70]])                         
+            #self.obstacles.append([[20, 50], [39.9, 39.9], [39.9, 69.9], [20, 60]])
+            #self.obstacles.append([[40, 40]n m, [60, 50], [60, 70], [40, 70]])
+            self.obstacles.append([[20, 50], [40, 40], [60, 50], [60, 70], [40, 70], [20, 60]])                 
 
         elif map_num == 50:
             self.obstacles.append([[20, 0], [30, 0], [30, 15], [20, 15]])

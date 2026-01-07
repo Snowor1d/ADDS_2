@@ -14,8 +14,8 @@ MAP_H = 100
 MAP_W = 100
 
 # ---------------- SIMULATION ENVIRONMENT ---------------------
-CROWD_NUMBER_MIN = 1
-CROWD_NUMBER_MAX = 1
+CROWD_NUMBER_MIN = 30
+CROWD_NUMBER_MAX = 30
 MAP_NUM = -1 #if not used, -2, if random, -1
 #learning
 # 50x50 : 6,7,26

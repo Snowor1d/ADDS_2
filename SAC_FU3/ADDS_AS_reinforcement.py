@@ -31,7 +31,7 @@ DEBUG_SAVE = False
 home_dir = os.path.expanduser("~")
 DEBUG_DIR_TEMP = os.path.join(home_dir, LOG_DIR)
 DEBUG_DIR = os.path.join(DEBUG_DIR_TEMP, "debug_frames")
-DEBUG_EVERY_EP = 1   
+DEBUG_EVERY_EP = 1  
 DEBUG_STEPS = {100, 200, 300}  # 초반 3번 boundary만 저장
 
 
@@ -106,7 +106,7 @@ ROBOT_STATE_EMBEDDING = True
 ROBOT_STATE_DIM = 3
 
 # Timer instances
-sim_timer = Timer() 
+sim_timer = Timer()
 learn_timer = Timer()
 home_dir = os.path.expanduser("~")
 
@@ -130,7 +130,7 @@ os.makedirs(log_dir, exist_ok=True)
 HEARTBEAT_PATH = os.path.join(log_dir, "heartbeat.txt")
 
 def write_heartbeat(ep: int):
-    tmp = HEARTBEAT_PATH + ".tmp"
+    tmp = HEARTBEAT_PATH
     with open(tmp, "w") as f:
         f.write(f"{ep}\n")
         f.write(f"{time.time()}\n")
@@ -330,7 +330,7 @@ def worker_process(
         ego_f = ego.astype(np.float32) / 255.0
         glob_f = glob.astype(np.float32) / 255.0
         return full, ego_f, glob_f
-    
+   
     # hearbeats = ctx.Array('d', N_WORKERS)
     # for i in range(N_WORKERS):
     #     heartbeats[i] = time.time()
@@ -364,7 +364,7 @@ def worker_process(
         ego_state = ego_stack.reset(ego_f)
         global_state = glob_stack.reset(glob_f)
         robot_state = np.array(env_model.return_current_robot_state(), dtype=np.float32)
-    
+   
 
         # 에피소드 통계 변수
         total_reward = 0.0
@@ -402,7 +402,7 @@ def worker_process(
 
                     if (
                         DEBUG_SAVE
-                        
+                       
                     ):  
                         full_u8_r = np.flip(np.flip(full_u8, axis=-1), axis=-2)
                         ego_f_r   = np.flip(np.flip(ego_f,   axis=-1), axis=-2)
@@ -579,8 +579,8 @@ def worker_process(
 
         episode_idx += 1
         # 여기서 바로 while True 위로 올라가서 새 env 생성 → 동기화 없이 계속 돎
-    
-    
+   
+   
 
 ##########################################################################
 # Replay Buffer (Ego + Global 2-branch)
@@ -881,11 +881,11 @@ class ResidualBlock(nn.Module):
         out = self.bn2(self.conv2(out))
         out = out + residual
         return F.silu(out)
-        
+       
 class EpsilonScheduler:
     """
     Epsilon Scheduler for epsilon-greedy exploration.
-    
+   
     Parameters:
       - start_epsilon: 초기 ε 값.
       - epsilon_min: 최소 ε 값.
@@ -920,7 +920,7 @@ class EpsilonScheduler:
         else:
             raise ValueError("scheduler_type must be either 'exponential' or 'linear'")
 
-    
+   
 
 class CNNEncoder(nn.Module):
     def __init__(self, input_shape=(50, 50), in_channels=4):
@@ -932,7 +932,7 @@ class CNNEncoder(nn.Module):
         self.bn2   = nn.BatchNorm2d(64)
         self.conv3 = nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1)
         self.bn3   = nn.BatchNorm2d(128)
-        
+       
         # 출력 차원 계산
         self.out_dim = self._get_conv_out(input_shape, in_channels)
 
@@ -958,11 +958,11 @@ class QNetwork(nn.Module):
     def __init__(self, ego_shape=(50, 50), global_shape=(50, 50), action_dim=2, robot_dim = 3, use_robot: bool = True):
         super(QNetwork, self).__init__()
         self.use_robot_state = use_robot
-        
+       
         # --- Ego & Global Encoders ---
         self.ego_enc = CNNEncoder(input_shape=ego_shape, in_channels=4)
         self.glob_enc = CNNEncoder(input_shape=global_shape, in_channels=4)
-        
+       
         # Robot State
         robot_feat_dim = 0
         if self.use_robot_state:
@@ -975,7 +975,7 @@ class QNetwork(nn.Module):
             robot_feat_dim = robot_embed_dim
         else:
             self.robot_fc = None
-        
+       
         # Fusion Dimension = Ego_CNN + Global_CNN + Robot + Action
         fusion_dim = self.ego_enc.out_dim + self.glob_enc.out_dim + robot_feat_dim + action_dim
 
@@ -987,7 +987,7 @@ class QNetwork(nn.Module):
         # 1. Image Features
         e = self.ego_enc(ego_state)
         g = self.glob_enc(global_state)
-        
+       
         feature_list = [e, g]
 
         # 2. Robot Features
@@ -996,10 +996,10 @@ class QNetwork(nn.Module):
                 raise ValueError("Model requires robot_state, but input is None.")
             r = self.robot_fc(robot_state)
             feature_list.append(r)
-        
+       
         # 3. Action
         feature_list.append(action)
-        
+       
         # 4. Concatenate
         combined = torch.cat(feature_list, dim=1)
 
@@ -1047,16 +1047,16 @@ class PolicyNetwork(nn.Module):
             nn.Linear(256, 64),
             nn.SiLU()
         )
-        
+       
         self.mean_head = nn.Linear(64, 2)
         self.log_std_head = nn.Linear(64, 2)
 
     def backbone(self, ego_state, global_state, robot_state=None):
         e = self.ego_enc(ego_state)
         g = self.glob_enc(global_state)
-        
+       
         feature_list = [e, g]
-        
+       
         if self.use_robot_state:
             if robot_state is None:
                 raise ValueError("Policy requires robot_state, but input is None.")
@@ -1080,20 +1080,20 @@ class PolicyNetwork(nn.Module):
         std = log_std.exp()
         eps = torch.randn_like(mean) * temperature
         u = mean + std * eps
-        
+       
         # 기존 로직 유지 (Sigmoid Scaling)
         sigma = torch.sigmoid(u)
         action = 4 * sigma - 2  # [-2,2] 범위 매핑
-        
+       
         # 가우시안 로그확률
         log_prob_u = -0.5 * (((u - mean) / (std + 1e-8))**2 + 2*log_std + np.log(2*np.pi))
         log_prob_u = log_prob_u.sum(dim=1)
-        
+       
         # 시그모이드 야코비안 보정
         jacobian = torch.log(4*sigma*(1 - sigma) + 1e-8).sum(dim=1)
         log_prob = log_prob_u - jacobian
         return action, log_prob
-    
+   
 class FrameStack:
     """ACTION_SCALE 간격으로만 push 되는 4‑프레임 스택"""
     def __init__(self, stack_len=4):
@@ -1246,7 +1246,7 @@ class SACAgent:
         """
         state_np: shape (H, W) or (1, H, W)
         returns action_np shape (4,) = [dx, dy, mode0, mode1]
-        If using epsilon > 0.0 for random exploration, 
+        If using epsilon > 0.0 for random exploration,
         we can do random direction + random mode sometimes.
         """
 
@@ -1280,7 +1280,7 @@ class SACAgent:
 
     def update_gamma(self, start_gamma, end_gamma, ascent_steps, now_episode):
         self.gamma = gamma_ascent_schedule(start_gamma, end_gamma, ascent_steps, now_episode)
-    
+   
     def update_alpha(self, start_alpha, end_alpha, decay_steps, now_episode):
         self.alpha = alpha_decay_schedule(start_alpha, end_alpha, decay_steps, now_episode)
 
@@ -1292,7 +1292,7 @@ class SACAgent:
     def update(self):
         if len(self.replay_buffer) < self.batch_size*START_BATCH_TIMES:
             return
-        
+       
         # sample = self.replay_buffer.sample(self.batch_size)
         #states, actions, rewards, next_states, dones = self.replay_buffer.sample(self.batch_size)
 
@@ -1309,12 +1309,12 @@ class SACAgent:
         # ----- Update Q1, Q2 -----
         q1_val = self.q1(ego_s, glob_s, a, robot_s).squeeze(-1)  # (B,) #q value를 scalar 값으로
         q2_val = self.q2(ego_s, glob_s, a, robot_s).squeeze(-1)
-        
+       
         loss_q1 = F.mse_loss(q1_val, q_target) # q의 실제와 예측 차이 계산
         loss_q2 = F.mse_loss(q2_val, q_target)
         max_grad_norm = 1.0
 
-        self.q1_optimizer.zero_grad() #이전 단계의 기울기 초기화, optimizer.step()이 호출 될때 기울기가 누적되지 않도록 함 
+        self.q1_optimizer.zero_grad() #이전 단계의 기울기 초기화, optimizer.step()이 호출 될때 기울기가 누적되지 않도록 함
         loss_q1.backward()
         # 손실값으로부터 모든 파라미터에 대한 기울기 계산
         torch.nn.utils.clip_grad_norm_(self.q1.parameters(), max_grad_norm)      
@@ -1335,7 +1335,7 @@ class SACAgent:
 
         # policy loss = alpha * log_prob - Q
         policy_loss = (self.alpha * log_prob - q_new).mean() #여기서 self.alpha * log_prob가 entropy term
-        # policy_loss는 PyTorch의 스칼라 텐서로, 자동 미분 지원 
+        # policy_loss는 PyTorch의 스칼라 텐서로, 자동 미분 지원
         # 계산된 기울기는 각 파라미터의 .grad 속성에 저장
 
         self.policy_optimizer.zero_grad()
@@ -1539,14 +1539,14 @@ if __name__ == "__main__":
 
     # 추가: 새로운 지표(80%, 100% 대피시간) 모니터링 쓰레드
     monitor_thread_80 = threading.Thread(
-        target=monitor_metric, 
+        target=monitor_metric,
         args=(evacuation_time_80_file, "Evacuation Time 80", tb_log_dir),
         daemon=True
     )
     monitor_thread_80.start()
 
     monitor_thread_100 = threading.Thread(
-        target=monitor_metric, 
+        target=monitor_metric,
         args=(evacuation_time_100_file, "Evacuation Time 100", tb_log_dir),
         daemon=True
     )
@@ -1561,14 +1561,14 @@ if __name__ == "__main__":
     monitor_thread_lifetime.start()
 
     # monitor_thread_100_vs_ls = threading.Thread(
-    #     target=monitor_metric, 
+    #     target=monitor_metric,
     #     args=(evac100_vs_ls_file, "Evacuation Time 100 vs learning step", tb_log_dir),
     #     daemon=True
     # )
     # monitor_thread_100_vs_ls.start()
 
     # monitor_thread_reward_vs_ls = threading.Thread(
-    #     target=monitor_metric, 
+    #     target=monitor_metric,
     #     args=(reward_vs_ls_file, "Reward vs learning step", tb_log_dir),
     #     daemon=True
     # )
@@ -1596,7 +1596,7 @@ if __name__ == "__main__":
     # hyperparams
     max_episodes = 9999999
     start_episode = 0
-    
+   
     epsilon_path = os.path.join(log_dir, "start_epsilon.txt")
     start_epsilon = 0
     if os.path.exists(epsilon_path):
@@ -1675,7 +1675,11 @@ if __name__ == "__main__":
     workers = [None] * N_WORKERS
     param_queues = [None] * N_WORKERS
     base_seed = 1234
-    current_n_workers = N_WORKERS_WARMUP
+    if global_episode >= START_UPDATE_EPISODE:
+        current_n_workers = N_WORKERS_TRAIN
+    else:
+        current_n_workers = N_WORKERS_WARMUP
+   
     workers, param_queues = start_workers(ctx, current_n_workers, transition_queue, stats_queue, epsilon_shared, base_seed)
     print(f"[Main] Started {current_n_workers} workers for warm-up.")
 
@@ -1690,6 +1694,8 @@ if __name__ == "__main__":
     sim_timer.reset()
     learn_timer.reset()
     last_supervise_t = time.time()
+    write_heartbeat(global_episode)
+    #print(global_episode)
     # ----- 5) 메인 학습 루프 (완전 비동기) -----
     while global_episode < max_episodes:
         # 5-1) transition 소비 (block)
@@ -1719,6 +1725,8 @@ if __name__ == "__main__":
                     agent.update()
                     learn_timer.stop()
                     pending_updates -= 1.0
+       
+        needs_switch_workers = False
 
         # 5-2) stats_queue non-blocking 처리 (에피소드 통계, 스케줄 업데이트, 체크포인트 등)
         while True:
@@ -1726,39 +1734,15 @@ if __name__ == "__main__":
                 s_msg: EpisodeStatMsg = stats_queue.get_nowait()
             except queue.Empty:
                 break
-
-            global_episode += 1
+           
             write_heartbeat(global_episode)
+            #print(global_episode)
 
                         # ---- warmup -> train 전환 ----
-            if (global_episode == START_UPDATE_EPISODE) and (current_n_workers != N_WORKERS_TRAIN):
-                print(f"[Main] Reaching START_UPDATE_EPISODE={START_UPDATE_EPISODE}. Switching workers "
-                    f"{current_n_workers} -> {N_WORKERS_TRAIN}")
+            if (global_episode >= START_UPDATE_EPISODE) and (current_n_workers != N_WORKERS_TRAIN):
+                needs_switch_workers = True
 
-                # 기존 worker 종료
-                stop_all_workers(workers)
-
-                try: 
-                    transition_queue.close()
-                    stats_queue.close()
-                    time.sleep(1.0)
-                except:
-                    pass
-
-                print("[Main] Re-creating Queues to prevent Lock Corruption...")
-                transition_queue = ctx.Queue(maxsize=10*N_WORKERS_TRAIN)
-                stats_queue = ctx.Queue(maxsize=10*N_WORKERS_TRAIN)
-
-                # 새 worker 시작
-                current_n_workers = N_WORKERS_TRAIN
-                workers, param_queues = start_workers(
-                    ctx, current_n_workers,
-                    transition_queue, stats_queue,
-                    epsilon_shared, base_seed
-                )
-
-                last_supervise_t = time.time()
-
+            global_episode += 1
 
             print("-----------------------------------------------")
             print(f"[Main] Episode {global_episode} (from worker {s_msg.worker_id})")
@@ -1811,7 +1795,56 @@ if __name__ == "__main__":
             if ENABLE_TIMER:
                 print(f"Episode {global_episode} - Total Learning Time: {learn_timer.get_time():.6f} 초")
                 learn_timer.reset()
-        
+       
+        #5-3) Worker 전환 로직 (stats 루프 밖에서 안전하게 수행)
+        if needs_switch_workers:
+            print(f"[Main] Reaching START_UPDATE_EPISODE={START_UPDATE_EPISODE}. Switching workers "
+                  f"{current_n_workers} -> {N_WORKERS_TRAIN}")
+           
+            # Deadlock 방지를 위해 큐를 강제로 비워줌 (Drain)
+            # Worker들이 put()에서 블로킹되지 않도록 함
+            print("[Main] Draining queues before stopping workers...")
+            try:
+                while not transition_queue.empty():
+                    transition_queue.get_nowait()
+                while not stats_queue.empty():
+                    stats_queue.get_nowait()
+            except:
+                pass
+
+            # Worker 종료
+            stop_all_workers(workers)
+
+            # 큐 닫기 (안전장치 추가)
+            try:
+                transition_queue.close()
+                stats_queue.close()
+                transition_queue.join_thread() # 필요한 경우
+                stats_queue.join_thread()
+                time.sleep(1.0)
+            except:
+                pass
+
+            print("[Main] Re-creating Queues...")
+            transition_queue = ctx.Queue(maxsize=10*N_WORKERS_TRAIN)
+            stats_queue = ctx.Queue(maxsize=10*N_WORKERS_TRAIN)
+
+            # 새 worker 시작
+            current_n_workers = N_WORKERS_TRAIN
+            workers, param_queues = start_workers(
+                ctx, current_n_workers,
+                transition_queue, stats_queue,
+                epsilon_shared, base_seed
+            )
+           
+            # 최근 파라미터를 새 워커들에게 즉시 전송 (선택 사항)
+            sd_cpu = {k: v.detach().cpu() for k, v in agent.policy.state_dict().items()}
+            for pq in param_queues:
+                pq.put(sd_cpu)
+
+            last_supervise_t = time.time()
+            # 전환 직후 루프 처음으로 돌아가서 안정적으로 시작
+            continue
         if (global_episode >= START_UPDATE_EPISODE) and (global_episode % POLICY_BROADCAST_INTERVAL == 0):
             sd_cpu = {k: v.detach().cpu() for k, v in agent.policy.state_dict().items()}
 
