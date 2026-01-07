@@ -24,6 +24,57 @@ import queue
 from queue import Empty, Full # for Empty
 
 
+from pathlib import Path
+import imageio.v2 as imageio
+
+DEBUG_SAVE = False
+home_dir = os.path.expanduser("~")
+DEBUG_DIR_TEMP = os.path.join(home_dir, LOG_DIR)
+DEBUG_DIR = os.path.join(DEBUG_DIR_TEMP, "debug_frames")
+DEBUG_EVERY_EP = 1  
+DEBUG_STEPS = {100, 200, 300}  # 초반 3번 boundary만 저장
+
+
+
+def save_debug_triplet(save_dir: str, worker_id: int, episode_idx: int, step: int,
+                       full_u8: np.ndarray,
+                       ego_f: np.ndarray,
+                       glob_f: np.ndarray,
+                       ego_state: np.ndarray = None,
+                       global_state: np.ndarray = None):
+    """
+    full_u8: (H,W) uint8
+    ego_f, glob_f: float32 [0,1] single frame
+    ego_state/global_state: (4,H,W) float32 [0,1] stack (optional)
+    """
+    d = Path(save_dir) / f"w{worker_id:02d}"
+    d.mkdir(parents=True, exist_ok=True)
+
+    # base name
+    stem = f"ep{episode_idx:06d}_st{step:06d}"
+
+    # full map 저장 (uint8 그대로)
+    imageio.imwrite(str(d / f"{stem}_full.png"), full_u8)
+
+    # ego/global frame 저장 (float -> uint8 변환)
+    ego_u8 = np.clip(ego_f * 255.0, 0, 255).astype(np.uint8)
+    glob_u8 = np.clip(glob_f * 255.0, 0, 255).astype(np.uint8)
+    imageio.imwrite(str(d / f"{stem}_ego.png"), ego_u8)
+    imageio.imwrite(str(d / f"{stem}_glob.png"), glob_u8)
+
+    # stack 확인(옵션): 채널 4장을 한 이미지로 합쳐서 저장
+    if ego_state is not None:
+        # (4,H,W) -> 가로로 붙이기
+        es = np.clip(ego_state * 255.0, 0, 255).astype(np.uint8)
+        grid = np.concatenate([es[i] for i in range(es.shape[0])], axis=1)
+        imageio.imwrite(str(d / f"{stem}_egoStack.png"), grid)
+
+    if global_state is not None:
+        gs = np.clip(global_state * 255.0, 0, 255).astype(np.uint8)
+        grid = np.concatenate([gs[i] for i in range(gs.shape[0])], axis=1)
+        imageio.imwrite(str(d / f"{stem}_globStack.png"), grid)
+
+
 @dataclass
 class TransitionMsg:
     worker_id: int
@@ -55,7 +106,7 @@ ROBOT_STATE_EMBEDDING = True
 ROBOT_STATE_DIM = 3
 
 # Timer instances
-sim_timer = Timer() 
+sim_timer = Timer()
 learn_timer = Timer()
 home_dir = os.path.expanduser("~")
 
@@ -70,12 +121,21 @@ BY_MAP_DIR = os.path.join(log_dir, "by_map")
 os.makedirs(BY_MAP_DIR, exist_ok = True)
 os.makedirs(log_dir, exist_ok=True)
 os.makedirs(log_dir, exist_ok=True)
-
 # heat_logger = HeatMapLogger(   #@for heat_map
 #     save_root = os.path.join(log_dir, "heat_maps"),
 #     map_size = (MAP_W, MAP_H),
 #     known_maps = MAP_NUM_RANDOM
 # )
+
+HEARTBEAT_PATH = os.path.join(log_dir, "heartbeat.txt")
+
+def write_heartbeat(ep: int):
+    tmp = HEARTBEAT_PATH
+    with open(tmp, "w") as f:
+        f.write(f"{ep}\n")
+        f.write(f"{time.time()}\n")
+    os.replace(tmp, HEARTBEAT_PATH)  # atomic replace
+
 
 def ego_crop_from_full_map(full_map: np.ndarray,
                            robot_xy_px: tuple[int, int],
@@ -247,8 +307,8 @@ def worker_process(
 
     device = torch.device("cpu")
     policy = PolicyNetwork(
-        ego_hw=(EGO_MAP_SIZE, EGO_MAP_SIZE),
-        global_hw=(DOWNSAMPLE_MAP_SIZE, DOWNSAMPLE_MAP_SIZE),
+        ego_shape=(EGO_MAP_SIZE, EGO_MAP_SIZE),
+        global_shape=(DOWNSAMPLE_MAP_SIZE, DOWNSAMPLE_MAP_SIZE),
         robot_dim=ROBOT_STATE_DIM,
         use_robot=ROBOT_STATE_EMBEDDING,
     ).to(device)
@@ -269,8 +329,11 @@ def worker_process(
 
         ego_f = ego.astype(np.float32) / 255.0
         glob_f = glob.astype(np.float32) / 255.0
-        return ego_f, glob_f
-
+        return full, ego_f, glob_f
+   
+    # hearbeats = ctx.Array('d', N_WORKERS)
+    # for i in range(N_WORKERS):
+    #     heartbeats[i] = time.time()
 
 
     while True:  # 무한히 에피소드 반복
@@ -294,14 +357,14 @@ def worker_process(
                 print(f"[Worker {worker_id}] env create error: {e}, retrying...")
 
         # ----- 2) 초기 state 세팅 -----
-        ego_f, glob_f = _build_ego_global_frames(env_model)
+        full_u8, ego_f, glob_f = _build_ego_global_frames(env_model)
         ego_stack = FrameStack2(4)
         glob_stack = FrameStack2(4)
 
         ego_state = ego_stack.reset(ego_f)
         global_state = glob_stack.reset(glob_f)
         robot_state = np.array(env_model.return_current_robot_state(), dtype=np.float32)
-    
+   
 
         # 에피소드 통계 변수
         total_reward = 0.0
@@ -332,9 +395,30 @@ def worker_process(
                 # -----------------------------
                 # 1) ACTION_SCALE 간격으로만 action 선택
                 # -----------------------------
+                # heartbeats[worker_id] = time.time()
                 if step % ACTION_SCALE == 0:
 
-                    ego_f, glob_f = _build_ego_global_frames(env_model)
+                    full_u8, ego_f, glob_f = _build_ego_global_frames(env_model)
+
+                    if (
+                        DEBUG_SAVE
+                       
+                    ):  
+                        full_u8_r = np.flip(np.flip(full_u8, axis=-1), axis=-2)
+                        ego_f_r   = np.flip(np.flip(ego_f,   axis=-1), axis=-2)
+                        glob_f_r  = np.flip(np.flip(glob_f,  axis=-1), axis=-2)
+                        print("저장합니다")
+                        save_debug_triplet(
+                            save_dir=DEBUG_DIR,
+                            worker_id=worker_id,
+                            episode_idx=episode_idx,
+                            step=step,
+                            full_u8=np.flip(full_u8_r, axis=1),
+                            ego_f=np.flip(ego_f_r, axis=1),
+                            glob_f=np.flip(glob_f_r, axis=1),
+                            ego_state=ego_state,
+                            global_state=global_state
+                        )
                     if step > 0:
                         ego_state = ego_stack.append(ego_f)
                         global_state = glob_stack.append(glob_f)
@@ -376,7 +460,7 @@ def worker_process(
                 # 3) next state 계산
                 # -----------------------------
                 next_robot_state = np.array(env_model.return_current_robot_state(), dtype=np.float32)
-                ego_f2, glob_f2 = _build_ego_global_frames(env_model)
+                _, ego_f2, glob_f2 = _build_ego_global_frames(env_model)
                 next_ego_state = ego_stack.peek_with(ego_f2)
                 next_global_state = glob_stack.peek_with(glob_f2)
 
@@ -495,8 +579,8 @@ def worker_process(
 
         episode_idx += 1
         # 여기서 바로 while True 위로 올라가서 새 env 생성 → 동기화 없이 계속 돎
-    
-    
+   
+   
 
 ##########################################################################
 # Replay Buffer (Ego + Global 2-branch)
@@ -797,11 +881,11 @@ class ResidualBlock(nn.Module):
         out = self.bn2(self.conv2(out))
         out = out + residual
         return F.silu(out)
-        
+       
 class EpsilonScheduler:
     """
     Epsilon Scheduler for epsilon-greedy exploration.
-    
+   
     Parameters:
       - start_epsilon: 초기 ε 값.
       - epsilon_min: 최소 ε 값.
@@ -836,124 +920,180 @@ class EpsilonScheduler:
         else:
             raise ValueError("scheduler_type must be either 'exponential' or 'linear'")
 
-    
-        
+   
+
 class CNNEncoder(nn.Module):
-    def __init__(self, in_ch=4, base_ch=32, out_dim=256, input_hw=(64,64)):
+    def __init__(self, input_shape=(50, 50), in_channels=4):
         super().__init__()
-        self.conv1 = nn.Conv2d(in_ch, base_ch, 5, 2, 2)
-        self.bn1 = nn.BatchNorm2d(base_ch)
-        self.conv2 = nn.Conv2d(base_ch, base_ch*2, 3, 2, 1)
-        self.bn2 = nn.BatchNorm2d(base_ch*2)
-        self.conv3 = nn.Conv2d(base_ch*2, base_ch*4, 3, 2, 1)
-        self.bn3 = nn.BatchNorm2d(base_ch*4)
+        # 기존과 동일한 구조 유지
+        self.conv1 = nn.Conv2d(in_channels, 32, kernel_size=5, stride=2, padding=2)
+        self.bn1   = nn.BatchNorm2d(32)
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1)
+        self.bn2   = nn.BatchNorm2d(64)
+        self.conv3 = nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1)
+        self.bn3   = nn.BatchNorm2d(128)
+       
+        # 출력 차원 계산
+        self.out_dim = self._get_conv_out(input_shape, in_channels)
 
-        with torch.no_grad():
-            dummy = torch.zeros(1, in_ch, *input_hw)
-            x = self._forward_conv(dummy)
-            conv_out = int(np.prod(x.shape[1:]))
+    def _get_conv_out(self, shape, in_channels):
+        dummy = torch.zeros(1, in_channels, *shape)
+        o = F.silu(self.bn1(self.conv1(dummy)))
+        o = F.silu(self.bn2(self.conv2(o)))
+        o = F.silu(self.bn3(self.conv3(o)))
+        return int(np.prod(o.size()[1:]))
 
-        self.fc = nn.Sequential(
-            nn.Linear(conv_out, out_dim),
-            nn.SiLU()
-        )
-
-    def _forward_conv(self, x):
+    def forward(self, x):
         x = F.silu(self.bn1(self.conv1(x)))
         x = F.silu(self.bn2(self.conv2(x)))
         x = F.silu(self.bn3(self.conv3(x)))
+        x = x.view(x.size(0), -1) # Flatten
         return x
-
-    def forward(self, x):
-        x = self._forward_conv(x)
-        x = x.flatten(1)
-        return self.fc(x)
 
 
 ##########################################################################
 # 3) Critic (Q) Network
 ##########################################################################
 class QNetwork(nn.Module):
-    def __init__(self, ego_hw, global_hw, action_dim=2, robot_dim=3, use_robot=True):
-        super().__init__()
-        self.use_robot = use_robot
-        self.ego_enc = CNNEncoder(in_ch=4, base_ch=32, out_dim=256, input_hw=ego_hw)
-        self.glob_enc = CNNEncoder(in_ch=4, base_ch=16, out_dim=128, input_hw=global_hw)
+    def __init__(self, ego_shape=(50, 50), global_shape=(50, 50), action_dim=2, robot_dim = 3, use_robot: bool = True):
+        super(QNetwork, self).__init__()
+        self.use_robot_state = use_robot
+       
+        # --- Ego & Global Encoders ---
+        self.ego_enc = CNNEncoder(input_shape=ego_shape, in_channels=4)
+        self.glob_enc = CNNEncoder(input_shape=global_shape, in_channels=4)
+       
+        # Robot State
+        robot_feat_dim = 0
+        if self.use_robot_state:
+            robot_input_dim = 3
+            robot_embed_dim = 32
+            self.robot_fc = nn.Sequential(
+                nn.Linear(robot_input_dim, robot_embed_dim),
+                nn.SiLU()
+            )
+            robot_feat_dim = robot_embed_dim
+        else:
+            self.robot_fc = None
+       
+        # Fusion Dimension = Ego_CNN + Global_CNN + Robot + Action
+        fusion_dim = self.ego_enc.out_dim + self.glob_enc.out_dim + robot_feat_dim + action_dim
 
-        robot_feat = 0
-        if use_robot:
-            self.robot_fc = nn.Sequential(nn.Linear(robot_dim, 32), nn.SiLU())
-            robot_feat = 32
-
-        fusion_dim = 256 + 128 + robot_feat + action_dim
-        self.mlp = nn.Sequential(
-            nn.Linear(fusion_dim, 512), nn.SiLU(),
-            nn.Linear(512, 256), nn.SiLU(),
-            nn.Linear(256, 1)
-        )
+        self.fc1 = nn.Linear(fusion_dim, 512)
+        self.fc2 = nn.Linear(512, 256)
+        self.q_out = nn.Linear(256, 1)
 
     def forward(self, ego_state, global_state, action, robot_state=None):
+        # 1. Image Features
         e = self.ego_enc(ego_state)
         g = self.glob_enc(global_state)
-        feats = [e, g]
-        if self.use_robot:
-            feats.append(self.robot_fc(robot_state))
-        feats.append(action)
-        x = torch.cat(feats, dim=1)
-        return self.mlp(x)
+       
+        feature_list = [e, g]
 
+        # 2. Robot Features
+        if self.use_robot_state:
+            if robot_state is None:
+                raise ValueError("Model requires robot_state, but input is None.")
+            r = self.robot_fc(robot_state)
+            feature_list.append(r)
+       
+        # 3. Action
+        feature_list.append(action)
+       
+        # 4. Concatenate
+        combined = torch.cat(feature_list, dim=1)
+
+        out = F.silu(self.fc1(combined))
+        out = F.silu(self.fc2(out))
+        q_val = self.q_out(out)
+
+        return q_val
 
 ##########################################################################
 # 4) Policy (Actor) Network
 ##########################################################################
 class PolicyNetwork(nn.Module):
-    def __init__(self, ego_hw, global_hw, robot_dim=3, use_robot=True):
-        super().__init__()
-        self.use_robot = use_robot
-        self.ego_enc = CNNEncoder(in_ch=4, base_ch=32, out_dim=256, input_hw=ego_hw)
-        self.glob_enc = CNNEncoder(in_ch=4, base_ch=16, out_dim=128, input_hw=global_hw)  # 전역은 가볍게
-
-        robot_feat = 0
-        if use_robot:
-            self.robot_fc = nn.Sequential(nn.Linear(robot_dim, 32), nn.SiLU())
-            robot_feat = 32
-
-        fusion_dim = 256 + 128 + robot_feat
-        self.backbone = nn.Sequential(
-            nn.Linear(fusion_dim, 256), nn.SiLU(),
-            nn.Linear(256, 64), nn.SiLU(),
-        )
-        self.mean_head = nn.Linear(64, 2)
-        self.log_std_head = nn.Linear(64, 2)
+    def __init__(self, ego_shape=(50,50), global_shape=(50,50), robot_dim = 3, use_robot: bool = True):
+        super(PolicyNetwork, self).__init__()
         self.log_std_min = LOG_STD_MIN
         self.log_std_max = LOG_STD_MAX
+        self.use_robot_state = use_robot
 
-    def forward(self, ego_state, global_state, robot_state=None):
+        # --- Ego & Global Encoders ---
+        self.ego_enc = CNNEncoder(input_shape=ego_shape, in_channels=4)
+        self.glob_enc = CNNEncoder(input_shape=global_shape, in_channels=4)
+
+        # Robot State
+        self.robot_feat_dim = 0
+        if self.use_robot_state :
+            robot_input_dim = 3
+            robot_embed_dim = 32
+            self.robot_fc = nn.Sequential(
+                nn.Linear(robot_input_dim, robot_embed_dim),
+                nn.SiLU()
+            )
+            self.robot_feat_dim = robot_embed_dim
+        else :
+            self.robot_fc = None
+
+        # Fusion Dimension = Ego_CNN + Global_CNN + Robot
+        fusion_dim = self.ego_enc.out_dim + self.glob_enc.out_dim + self.robot_feat_dim
+
+        self.fc_backbone = nn.Sequential(
+            nn.Linear(fusion_dim, 512),
+            nn.SiLU(),
+            nn.Linear(512, 256),
+            nn.SiLU(),
+            nn.Linear(256, 64),
+            nn.SiLU()
+        )
+       
+        self.mean_head = nn.Linear(64, 2)
+        self.log_std_head = nn.Linear(64, 2)
+
+    def backbone(self, ego_state, global_state, robot_state=None):
         e = self.ego_enc(ego_state)
         g = self.glob_enc(global_state)
-        feats = [e, g]
-        if self.use_robot:
-            feats.append(self.robot_fc(robot_state))
-        x = torch.cat(feats, dim=1)
+       
+        feature_list = [e, g]
+       
+        if self.use_robot_state:
+            if robot_state is None:
+                raise ValueError("Policy requires robot_state, but input is None.")
+            r = self.robot_fc(robot_state)
+            feature_list.append(r)
 
-        h = self.backbone(x)
-        mean = self.mean_head(h)
-        log_std = torch.clamp(self.log_std_head(h), self.log_std_min, self.log_std_max)
+        combined = torch.cat(feature_list, dim=1)
+        feat = self.fc_backbone(combined)
+        return feat
+
+    def forward(self, ego_state, global_state, robot_state=None):
+        feat = self.backbone(ego_state, global_state, robot_state)
+        mean = self.mean_head(feat)
+        log_std = self.log_std_head(feat)
+        log_std = torch.clamp(log_std, self.log_std_min, self.log_std_max)
         return mean, log_std
 
     def sample_action(self, ego_state, global_state, robot_state=None, temperature=1.0):
+        # 파라미터가 2개 이미지 입력을 받도록 수정됨
         mean, log_std = self.forward(ego_state, global_state, robot_state)
         std = log_std.exp()
-        u = mean + std * (torch.randn_like(mean) * temperature)
+        eps = torch.randn_like(mean) * temperature
+        u = mean + std * eps
+       
+        # 기존 로직 유지 (Sigmoid Scaling)
         sigma = torch.sigmoid(u)
-        action = 4 * sigma - 2
-
+        action = 4 * sigma - 2  # [-2,2] 범위 매핑
+       
+        # 가우시안 로그확률
         log_prob_u = -0.5 * (((u - mean) / (std + 1e-8))**2 + 2*log_std + np.log(2*np.pi))
         log_prob_u = log_prob_u.sum(dim=1)
+       
+        # 시그모이드 야코비안 보정
         jacobian = torch.log(4*sigma*(1 - sigma) + 1e-8).sum(dim=1)
         log_prob = log_prob_u - jacobian
         return action, log_prob
-    
+   
 class FrameStack:
     """ACTION_SCALE 간격으로만 push 되는 4‑프레임 스택"""
     def __init__(self, stack_len=4):
@@ -1030,32 +1170,32 @@ class SACAgent:
 
         # Critic networks
         self.q1 = QNetwork(
-            ego_hw=(EGO_MAP_SIZE, EGO_MAP_SIZE),
-            global_hw=(DOWNSAMPLE_MAP_SIZE, DOWNSAMPLE_MAP_SIZE),
+            ego_shape=(EGO_MAP_SIZE, EGO_MAP_SIZE),
+            global_shape=(DOWNSAMPLE_MAP_SIZE, DOWNSAMPLE_MAP_SIZE),
             action_dim=2,
             robot_dim=ROBOT_STATE_DIM,
             use_robot=ROBOT_STATE_EMBEDDING,
         ).to(self.device)
 
         self.q2 = QNetwork(
-            ego_hw=(EGO_MAP_SIZE, EGO_MAP_SIZE),
-            global_hw=(DOWNSAMPLE_MAP_SIZE, DOWNSAMPLE_MAP_SIZE),
+            ego_shape=(EGO_MAP_SIZE, EGO_MAP_SIZE),
+            global_shape=(DOWNSAMPLE_MAP_SIZE, DOWNSAMPLE_MAP_SIZE),
             action_dim=2,
             robot_dim=ROBOT_STATE_DIM,
             use_robot=ROBOT_STATE_EMBEDDING,
         ).to(self.device)
 
         self.q1_target = QNetwork(
-            ego_hw=(EGO_MAP_SIZE, EGO_MAP_SIZE),
-            global_hw=(DOWNSAMPLE_MAP_SIZE, DOWNSAMPLE_MAP_SIZE),
+            ego_shape=(EGO_MAP_SIZE, EGO_MAP_SIZE),
+            global_shape=(DOWNSAMPLE_MAP_SIZE, DOWNSAMPLE_MAP_SIZE),
             action_dim=2,
             robot_dim=ROBOT_STATE_DIM,
             use_robot=ROBOT_STATE_EMBEDDING,
         ).to(self.device)
 
         self.q2_target = QNetwork(
-            ego_hw=(EGO_MAP_SIZE, EGO_MAP_SIZE),
-            global_hw=(DOWNSAMPLE_MAP_SIZE, DOWNSAMPLE_MAP_SIZE),
+            ego_shape=(EGO_MAP_SIZE, EGO_MAP_SIZE),
+            global_shape=(DOWNSAMPLE_MAP_SIZE, DOWNSAMPLE_MAP_SIZE),
             action_dim=2,
             robot_dim=ROBOT_STATE_DIM,
             use_robot=ROBOT_STATE_EMBEDDING,
@@ -1070,8 +1210,8 @@ class SACAgent:
 
         # Policy network
         self.policy = PolicyNetwork(
-            ego_hw=(EGO_MAP_SIZE, EGO_MAP_SIZE),
-            global_hw=(DOWNSAMPLE_MAP_SIZE, DOWNSAMPLE_MAP_SIZE),
+            ego_shape=(EGO_MAP_SIZE, EGO_MAP_SIZE),
+            global_shape=(DOWNSAMPLE_MAP_SIZE, DOWNSAMPLE_MAP_SIZE),
             robot_dim=ROBOT_STATE_DIM,
             use_robot=ROBOT_STATE_EMBEDDING
         ).to(self.device)
@@ -1106,7 +1246,7 @@ class SACAgent:
         """
         state_np: shape (H, W) or (1, H, W)
         returns action_np shape (4,) = [dx, dy, mode0, mode1]
-        If using epsilon > 0.0 for random exploration, 
+        If using epsilon > 0.0 for random exploration,
         we can do random direction + random mode sometimes.
         """
 
@@ -1140,7 +1280,7 @@ class SACAgent:
 
     def update_gamma(self, start_gamma, end_gamma, ascent_steps, now_episode):
         self.gamma = gamma_ascent_schedule(start_gamma, end_gamma, ascent_steps, now_episode)
-    
+   
     def update_alpha(self, start_alpha, end_alpha, decay_steps, now_episode):
         self.alpha = alpha_decay_schedule(start_alpha, end_alpha, decay_steps, now_episode)
 
@@ -1152,7 +1292,7 @@ class SACAgent:
     def update(self):
         if len(self.replay_buffer) < self.batch_size*START_BATCH_TIMES:
             return
-        
+       
         # sample = self.replay_buffer.sample(self.batch_size)
         #states, actions, rewards, next_states, dones = self.replay_buffer.sample(self.batch_size)
 
@@ -1169,12 +1309,12 @@ class SACAgent:
         # ----- Update Q1, Q2 -----
         q1_val = self.q1(ego_s, glob_s, a, robot_s).squeeze(-1)  # (B,) #q value를 scalar 값으로
         q2_val = self.q2(ego_s, glob_s, a, robot_s).squeeze(-1)
-        
+       
         loss_q1 = F.mse_loss(q1_val, q_target) # q의 실제와 예측 차이 계산
         loss_q2 = F.mse_loss(q2_val, q_target)
         max_grad_norm = 1.0
 
-        self.q1_optimizer.zero_grad() #이전 단계의 기울기 초기화, optimizer.step()이 호출 될때 기울기가 누적되지 않도록 함 
+        self.q1_optimizer.zero_grad() #이전 단계의 기울기 초기화, optimizer.step()이 호출 될때 기울기가 누적되지 않도록 함
         loss_q1.backward()
         # 손실값으로부터 모든 파라미터에 대한 기울기 계산
         torch.nn.utils.clip_grad_norm_(self.q1.parameters(), max_grad_norm)      
@@ -1195,7 +1335,7 @@ class SACAgent:
 
         # policy loss = alpha * log_prob - Q
         policy_loss = (self.alpha * log_prob - q_new).mean() #여기서 self.alpha * log_prob가 entropy term
-        # policy_loss는 PyTorch의 스칼라 텐서로, 자동 미분 지원 
+        # policy_loss는 PyTorch의 스칼라 텐서로, 자동 미분 지원
         # 계산된 기울기는 각 파라미터의 .grad 속성에 저장
 
         self.policy_optimizer.zero_grad()
@@ -1305,6 +1445,66 @@ def monitor_total_reward(total_reward_file, tb_log_dir):
 if __name__ == "__main__":
     import time
 
+    def stop_all_workers(workers):
+        for wid, p in enumerate(workers):
+            if p is None:
+                continue
+            try:
+                if p.is_alive():
+                    p.terminate()
+                p.join(timeout=2)
+            except Exception as e:
+                print(f"[Main] stop worker {wid} error: {e}")
+
+    def start_workers(ctx, n_workers, transition_queue, stats_queue, epsilon_shared, base_seed):
+        workers = [None] * n_workers
+        param_queues = [None] * n_workers
+        for wid in range(n_workers):
+            p, pq = start_one_worker(ctx, wid, transition_queue, stats_queue, epsilon_shared, base_seed)
+            workers[wid] = p
+            param_queues[wid] = pq
+        return workers, param_queues
+
+    def start_one_worker(ctx, wid, transition_queue, stats_queue, epsilon_shared, base_seed):
+        pq = ctx.Queue(maxsize=1)
+        p = ctx.Process(
+            target=worker_process,
+            args=(wid, transition_queue, stats_queue, epsilon_shared, pq, base_seed),
+            daemon=True
+        )
+        p.start()
+        print(f"[Main] Worker {wid} started, pid={p.pid}")
+        return p, pq
+
+
+    def restart_worker(ctx, wid, workers, param_queues, transition_queue, stats_queue, epsilon_shared, base_seed):
+        old_p = workers[wid]
+        try:
+            if old_p is not None and old_p.is_alive():
+                old_p.terminate()
+                old_p.join(timeout=2)
+        except Exception as e:
+            print(f"[Main] terminate/join error for worker {wid}: {e}")
+
+        # 새 큐/프로세스 생성
+        p, pq = start_one_worker(ctx, wid, transition_queue, stats_queue, epsilon_shared, base_seed)
+
+        workers[wid] = p
+        param_queues[wid] = pq
+        return
+
+
+    def supervise_workers(ctx, workers, param_queues, transition_queue, stats_queue, epsilon_shared, base_seed):
+        # 주기적으로 호출해서 죽은 worker만 재시작
+        for wid, p in enumerate(workers):
+            if p is None:
+                restart_worker(ctx, wid, workers, param_queues, transition_queue, stats_queue, epsilon_shared, base_seed)
+                continue
+
+            if not p.is_alive():
+                ec = p.exitcode
+                print(f"[Main] Worker {wid} died. exitcode={ec} -> restarting")
+                restart_worker(ctx, wid, workers, param_queues, transition_queue, stats_queue, epsilon_shared, base_seed)
 
     mp.set_start_method("spawn", force=True)  # or "fork", 리눅스면 fork도 가능
 
@@ -1339,14 +1539,14 @@ if __name__ == "__main__":
 
     # 추가: 새로운 지표(80%, 100% 대피시간) 모니터링 쓰레드
     monitor_thread_80 = threading.Thread(
-        target=monitor_metric, 
+        target=monitor_metric,
         args=(evacuation_time_80_file, "Evacuation Time 80", tb_log_dir),
         daemon=True
     )
     monitor_thread_80.start()
 
     monitor_thread_100 = threading.Thread(
-        target=monitor_metric, 
+        target=monitor_metric,
         args=(evacuation_time_100_file, "Evacuation Time 100", tb_log_dir),
         daemon=True
     )
@@ -1361,14 +1561,14 @@ if __name__ == "__main__":
     monitor_thread_lifetime.start()
 
     # monitor_thread_100_vs_ls = threading.Thread(
-    #     target=monitor_metric, 
+    #     target=monitor_metric,
     #     args=(evac100_vs_ls_file, "Evacuation Time 100 vs learning step", tb_log_dir),
     #     daemon=True
     # )
     # monitor_thread_100_vs_ls.start()
 
     # monitor_thread_reward_vs_ls = threading.Thread(
-    #     target=monitor_metric, 
+    #     target=monitor_metric,
     #     args=(reward_vs_ls_file, "Reward vs learning step", tb_log_dir),
     #     daemon=True
     # )
@@ -1396,7 +1596,7 @@ if __name__ == "__main__":
     # hyperparams
     max_episodes = 9999999
     start_episode = 0
-    
+   
     epsilon_path = os.path.join(log_dir, "start_epsilon.txt")
     start_epsilon = 0
     if os.path.exists(epsilon_path):
@@ -1461,39 +1661,47 @@ if __name__ == "__main__":
         epsilon_scheduler = EpsilonScheduler(start_epsilon=start_epsilon, epsilon_min = EPSILON_MIN, start_decay_step = START_DECAY_STEP, scheduler_type=SCHEDULER_TYPE, decay_value=DECAY_VALUE, linear_decay_steps = LINEARLY_DECAY_STEP)
 
     # ----- 3) Queue & Worker 프로세스 시작 -----
+
+    ctx = mp.get_context("spawn")
     N_WORKERS = N_ENVS # 원하는 만큼
-    transition_queue = mp.Queue(maxsize=100*N_ENVS)
-    stats_queue = mp.Queue(maxsize=100*N_ENVS)
+
+    N_WORKERS_WARMUP = 10
+    N_WORKERS_TRAIN = int(N_ENVS)
+
+    transition_queue = ctx.Queue(maxsize=2*N_WORKERS_WARMUP)
+    stats_queue = ctx.Queue(maxsize=2*N_WORKERS_WARMUP)
     param_queue = mp.Queue(maxsize=1)
 
-    workers = []
+    workers = [None] * N_WORKERS
+    param_queues = [None] * N_WORKERS
     base_seed = 1234
-    param_queues = []
-    for wid in range(N_WORKERS):
-        pq = mp.Queue(maxsize=1)
-        param_queues.append(pq)
-        p = mp.Process(
-            target=worker_process,
-            args=(wid, transition_queue, stats_queue, epsilon_shared, pq, base_seed),
-            daemon=True
-        )
-        p.start()
-        workers.append(p)
-        print(f"[Main] Worker {wid} started, pid={p.pid}")
+    if global_episode >= START_UPDATE_EPISODE:
+        current_n_workers = N_WORKERS_TRAIN
+    else:
+        current_n_workers = N_WORKERS_WARMUP
+   
+    workers, param_queues = start_workers(ctx, current_n_workers, transition_queue, stats_queue, epsilon_shared, base_seed)
+    print(f"[Main] Started {current_n_workers} workers for warm-up.")
+
 
 
     max_episodes = 9999999
 
     # update 비율 설정
-    UPDATES_PER_TRANSITION = 1  # 예: transition 1개당 update 1번 정도
     pending_updates = 0.0
 
     sim_timer.reset()
     learn_timer.reset()
-
+    last_supervise_t = time.time()
+    write_heartbeat(global_episode)
+    #print(global_episode)
     # ----- 5) 메인 학습 루프 (완전 비동기) -----
     while global_episode < max_episodes:
         # 5-1) transition 소비 (block)
+        if time.time() - last_supervise_t > 10.0 :
+            supervise_workers(ctx, workers, param_queues, transition_queue, stats_queue, epsilon_shared, base_seed)
+            last_supervise_t = time.time()
+
         try:
             msg: TransitionMsg = transition_queue.get(timeout=1.0)
         except queue.Empty:
@@ -1516,6 +1724,8 @@ if __name__ == "__main__":
                     agent.update()
                     learn_timer.stop()
                     pending_updates -= 1.0
+       
+        needs_switch_workers = False
 
         # 5-2) stats_queue non-blocking 처리 (에피소드 통계, 스케줄 업데이트, 체크포인트 등)
         while True:
@@ -1523,8 +1733,16 @@ if __name__ == "__main__":
                 s_msg: EpisodeStatMsg = stats_queue.get_nowait()
             except queue.Empty:
                 break
+           
+            write_heartbeat(global_episode)
+            #print(global_episode)
+
+                        # ---- warmup -> train 전환 ----
+            if (global_episode >= START_UPDATE_EPISODE) and (current_n_workers != N_WORKERS_TRAIN):
+                needs_switch_workers = True
 
             global_episode += 1
+
             print("-----------------------------------------------")
             print(f"[Main] Episode {global_episode} (from worker {s_msg.worker_id})")
             print("Total reward:", s_msg.total_reward)
@@ -1568,7 +1786,7 @@ if __name__ == "__main__":
                 f.write(str(agent.epsilon_long))
 
             # 체크포인트 저장
-            if global_episode % 100 == 0:
+            if (global_episode >= START_UPDATE_EPISODE) and (global_episode % 100 == 0):
                 model_filename = os.path.join(log_dir, f"sac_checkpoint_ep_{global_episode}.pth")
                 agent.save_model(model_filename)
                 agent.save_replay_buffer("replay_buffer.npz")
@@ -1576,21 +1794,67 @@ if __name__ == "__main__":
             if ENABLE_TIMER:
                 print(f"Episode {global_episode} - Total Learning Time: {learn_timer.get_time():.6f} 초")
                 learn_timer.reset()
-        
-        if global_episode % POLICY_BROADCAST_INTERVAL == 0:
+       
+        #5-3) Worker 전환 로직 (stats 루프 밖에서 안전하게 수행)
+        if needs_switch_workers:
+            print(f"[Main] Reaching START_UPDATE_EPISODE={START_UPDATE_EPISODE}. Switching workers "
+                  f"{current_n_workers} -> {N_WORKERS_TRAIN}")
+           
+            # Deadlock 방지를 위해 큐를 강제로 비워줌 (Drain)
+            # Worker들이 put()에서 블로킹되지 않도록 함
+            print("[Main] Draining queues before stopping workers...")
+            try:
+                while not transition_queue.empty():
+                    transition_queue.get_nowait()
+                while not stats_queue.empty():
+                    stats_queue.get_nowait()
+            except:
+                pass
+
+            # Worker 종료
+            stop_all_workers(workers)
+
+            # 큐 닫기 (안전장치 추가)
+            try:
+                transition_queue.close()
+                stats_queue.close()
+                transition_queue.join_thread() # 필요한 경우
+                stats_queue.join_thread()
+                time.sleep(1.0)
+            except:
+                pass
+
+            print("[Main] Re-creating Queues...")
+            transition_queue = ctx.Queue(maxsize=2*N_WORKERS_TRAIN)
+            stats_queue = ctx.Queue(maxsize=2*N_WORKERS_TRAIN)
+
+            # 새 worker 시작
+            current_n_workers = N_WORKERS_TRAIN
+            workers, param_queues = start_workers(
+                ctx, current_n_workers,
+                transition_queue, stats_queue,
+                epsilon_shared, base_seed
+            )
+           
+            # 최근 파라미터를 새 워커들에게 즉시 전송 (선택 사항)
+            sd_cpu = {k: v.detach().cpu() for k, v in agent.policy.state_dict().items()}
+            for pq in param_queues:
+                pq.put(sd_cpu)
+
+            last_supervise_t = time.time()
+            # 전환 직후 루프 처음으로 돌아가서 안정적으로 시작
+            continue
+        if (global_episode >= START_UPDATE_EPISODE) and (global_episode % POLICY_BROADCAST_INTERVAL == 0):
             sd_cpu = {k: v.detach().cpu() for k, v in agent.policy.state_dict().items()}
 
             for pq in param_queues:
-                # 큐를 완전히 비워서 최신만 남김
                 try:
                     while True:
                         pq.get_nowait()
                 except Empty:
                     pass
 
-                # block 방지
                 try:
                     pq.put_nowait(sd_cpu)
                 except Full:
-                    pass   # 이번 broadcast는 스킵
-                    
+                    pass

@@ -76,7 +76,7 @@ class CrowdAgent(Agent):
         if self.type == 3: # robot mass는 3으로 고정
             self.mass = 30
 
-        self.desired_speed_a = np.random.normal(3, 0.2)*1.2 # agent의 desired_speed, 평균 1.5m/s, 표준 편차 0.2m/s
+        self.desired_speed_a = np.random.normal(1.5, 0.2)*1.1 # agent의 desired_speed, 평균 1.5m/s, 표준 편차 0.2m/s
 
         self.is_effected_by_robot = 0
         self.blocked = False
@@ -252,7 +252,7 @@ class CrowdAgent(Agent):
     def _wall_repulsion(self):
         from shapely.geometry import Point
         Fwx = Fwy = 0.0
-        KN = 1.2e5
+        KN = 1.8e5
         CN = 1000
         MU_T = 2.5e5
         p = Point(self.xy[0], self.xy[1])
@@ -349,15 +349,14 @@ class CrowdAgent(Agent):
         A_MAX = 1.5                    # 가속 클립 ↑ 약간 강화
         V_MAX_MULT = 1.00              # 목표속도보다 과속 안하게
         BODY_RADIUS = 0.5             # 군중 몸 반지름 [cell] 0.25m로 설정 -> 0.5칸이 되어야 0.25
-        ROBOT_BODY_RADIUS = 1       # 로봇 몸 반지름 [cell] 0.25m로 설정 ->0.5칸이 되어야 0.25
-        WALL_RADIUS = 1             # 격자벽을 둥근 장애물로 근사
+        WALL_RADIUS = 1.5             # 격자벽을 둥근 장애물로 근사
         # 접촉(법선) 스프링/감쇠, 접선 마찰
-        KN = 1.2e5                   # 법선 스프링 상수, modified crowd simulation 논문에선 1.2*10^5
+        KN = 1e5                   # 법선 스프링 상수, modified crowd simulation 논문에선 1.2*10^5
         CN =  1000                     # 법선 점성(접근속도 감쇠)
         MU_T = 2.5e5                    # 접선 마찰(미끄럼 속도 감쇠) modifided crowd simulation 논문에선 2.4*10^5
         # 지수형 반발은 약화(근거리에서만 의미)
         K_AGENT = 200 # modified 참고
-        K_WALL  = 200 # modified 참고
+        K_WALL  = 500 # modified 참고
         LAMBDA_A = 0.2 # modifided 참고
         # 공기저항(속도 감쇠) → 둥둥 뜨는 느낌 제거
         BETA = 0                     # F_drag = -BETA * v
@@ -595,7 +594,6 @@ class CrowdAgent(Agent):
             · self.exit_belief = {"idx": 출구 index, "score": S_ij, "alpha": hop}
             · self.now_goal    = [x, y]  (다음 time-step 까지 유효한 가상 목표)
         """
-        ROBOT_BODY_RADIUS = 1
         # ────────── 파라미터 ──────────
         ROBOT_R = ROBOT_BODY_RADIUS
         VISION_R = AGENT_VISION
@@ -863,6 +861,7 @@ class RobotAgent(CrowdAgent):
     def robot_policy_Q(self):
 
         K_AGENT = 200
+        K_WALL = 2000
         LAMBDA_A = 0.2
 
         if(math.sqrt(pow(self.xy[0]-self.robot_waypoint[0], 2)+pow(self.xy[1]-self.robot_waypoint[1], 2))<2):
@@ -972,6 +971,7 @@ class RobotAgent(CrowdAgent):
             d = poly.exterior.distance(p)
             if d <= self.body_radius * 0.8:   # 매우 근접 → 충돌 경보
                 self.collision_check = 1
+                #print("충돌함")
             if d > 1.5 * self.body_radius:    # 멀면 무시
                 continue
             q = poly.exterior.interpolate(poly.exterior.project(p))
@@ -980,7 +980,7 @@ class RobotAgent(CrowdAgent):
             dist = math.hypot(dx, dy) or 1e-9
             nx, ny = dx/dist, dy/dist
             # 사람이랑 같은 톤으로 지수 반발(상수는 좀 더 세게 하고 싶으면 K_WALL 따로 둬도 됨)
-            mag = K_AGENT * math.exp(-(d / max(LAMBDA_A, 1e-6)))
+            mag = K_WALL * math.exp(-(d / max(LAMBDA_A, 1e-6)))
             F_wx += mag * nx
             F_wy += mag * ny
 

@@ -5,30 +5,37 @@ BATCH_SIZE = 128
 INTRINSIC_ETA = 0.1 #intrinsic reward
 START_BATCH_TIMES = 1
 START_UPDATE_EPISODE = 500
-DEVICE = "cuda"
+DEVICE = "cpu"
 
 GAMMA_START = 0.99
 GAMMA_END = 0.99
 GAMMA_SCHEDULE_STEP = 1000
-MAP_H = 70
-MAP_W = 70
+MAP_H = 100
+MAP_W = 100
 
 # ---------------- SIMULATION ENVIRONMENT ---------------------
 CROWD_NUMBER_MIN = 30
 CROWD_NUMBER_MAX = 30
 MAP_NUM = -1 #if not used, -2, if random, -1
-MAP_NUM_RANDOM = [50, 51, 53]
-#MAP_NUM_RANDOM = [51]
-#MAP_NUM_RANDOM = [100, 101, 102]
-#MAP_NUM_RANDOM = [100]
-SCALE_CHECK = 0 # want to check reward scale?
+#learning
+# 50x50 : 6,7,26
+# 70x60 : 50,53,54
+# 100x100 : 100, 104, 105, 108, 110, 117, 118, 119, 120, 121
+# unseen maps : 102, 113, 114, 115, 116
+
+
+#MAP_NUM_RANDOM = [6, 7, 26]
+
+
+MAP_NUM_RANDOM = [100, 104, 105, 108, 110, 117, 118, 119, 120, 121]
+SCALE_CHECK = 1 # want to check reward scale?
 ACTION_SCALE = 4
 MAX_STEPS = 4000
 
-ROBOT_BODY_RADIUS = 1
-AGENT_BODY_RADIUS = 0.5
-ROBOT_VISION = 10
-AGENT_VISION = 10
+ROBOT_BODY_RADIUS = 1.5 #m
+AGENT_BODY_RADIUS = 0.5 #m
+ROBOT_VISION = 10 #m
+AGENT_VISION = 10 #M
 EXIT_CONFIRM_RADIUS = 10
 
 # --------------- EPSILON-EXPLORATION ------------------
@@ -45,7 +52,7 @@ DECAY_MODE = 'episode'
 
 
 # -------------- PATH -------------------
-LOG_DIR = "Log_FU"
+LOG_DIR = "Log_FU_10maps"
 PORT_NUM = 6007
 
 # --------------- SAC ALGORITHM PARAMETER ---------------
@@ -58,13 +65,13 @@ ALPHA_DECAY_STEPS = 3000
 
 # --------------- REWARD SHAPING -----------------
 
-REWARD_A = 1 #reward_based_alived
-REWARD_B = 0.001 #reward_based_all_agents_danger
+REWARD_A = 2 #reward_based_alived
+REWARD_B = 0.003 #reward_based_all_agents_danger
 REWARD_D = 2 #reward_based_penalty
 REWARD_K = 1 #reward_penalty_collsion
 REWARD_J = 0 #reward_based_all_agents_danger_root
-REWARD_L = 0.5 #reward_based_farthest_agent_distance
-REWARD_FIXED = -1
+REWARD_L = 1 #reward_based_farthest_agent_distance
+REWARD_FIXED = -0.5
 
 REWARD_I = 0 #reward_based_alived_root
 REWARD_C = 0 #reward_based_gain
@@ -83,7 +90,7 @@ N_ENVS = 4
 UPDATES_PER_TRANSITION = 1
 POLICY_BROADCAST_INTERVAL = 10
 
-EGO_MAP_SIZE = 50
+EGO_MAP_SIZE = 25
 DOWNSAMPLE_MAP_SIZE = 50
 
 

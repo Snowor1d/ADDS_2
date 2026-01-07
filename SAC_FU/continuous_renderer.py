@@ -33,7 +33,7 @@ class ContinuousRenderer:
 
         # ===== Sizes =====
         crowd_radius: float = 0.35,
-        robot_radius: float = 0.45,
+        robot_radius: float = 0.6,
         wall_linewidth: float = 2.0,
 
         # ===== Colors =====
@@ -251,7 +251,9 @@ class ContinuousRenderer:
         self.vision_drawing = vision_drawing
 
         # ===== Matplotlib fig/ax =====
-        self.fig, self.ax = plt.subplots(figsize=(6, 6), dpi=self.dpi)
+        self.fig, self.ax = plt.subplots(figsize=(6, 6), dpi=self.dpi, facecolor="black")
+        self.ax = self.fig.add_axes([0,0,1,1], facecolor="black")
+        self.fig.subplots_adjust(0, 0, 1, 1)
         self._setup_axes()
         self.show_mesh = show_mesh
 
@@ -261,8 +263,6 @@ class ContinuousRenderer:
         self.ax.clear()
         self._setup_axes()
 
-        if self.draw_outer_wall_flag:
-            self._draw_outer_wall()
 
         self._draw_obstacles(getattr(model, "obstacles", []))
         if self.vision_drawing:
@@ -273,8 +273,10 @@ class ContinuousRenderer:
 
         self._draw_exits(model)
         self._draw_crowds(getattr(model, "crowds", []))
+        self._draw_obstacles(getattr(model, "obstacles", []))
         self._draw_robot(self._find_robot(model), step=step)
-
+        if self.draw_outer_wall_flag:
+            self._draw_outer_wall()
 
         if self.show_agent_exit_distance:
             self._draw_agent_exit_distances(model)
@@ -419,7 +421,7 @@ class ContinuousRenderer:
                 self._plot_trail(trail,
                                  alpha_base=self.crowd_trail_alpha,
                                  color=(color if self.single_color_edges else self.colors["trail"]),
-                                 style=self.trail_style, linewidth=1.1)
+                                 style=self.trail_style, linewidth=1)
 
     def _draw_robot(self, robot, step: Optional[int] = None):
         if robot is None: return
@@ -454,7 +456,7 @@ class ContinuousRenderer:
             # 선
             self._plot_trail([(px, py) for (px, py, _) in trail],
                              alpha_base=self.robot_trail_alpha,
-                             color=rcol, style=self.trail_style, linewidth=1.5)
+                             color=rcol, style=self.trail_style, linewidth=2.5)
 
             # 라벨
             if self.annotate_robot_path:
