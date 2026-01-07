@@ -1668,8 +1668,8 @@ if __name__ == "__main__":
     N_WORKERS_WARMUP = 10
     N_WORKERS_TRAIN = int(N_ENVS)
 
-    transition_queue = ctx.Queue(maxsize=10*N_WORKERS_WARMUP)
-    stats_queue = ctx.Queue(maxsize=10*N_WORKERS_WARMUP)
+    transition_queue = ctx.Queue(maxsize=2*N_WORKERS_WARMUP)
+    stats_queue = ctx.Queue(maxsize=2*N_WORKERS_WARMUP)
     param_queue = mp.Queue(maxsize=1)
 
     workers = [None] * N_WORKERS
