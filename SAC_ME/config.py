@@ -5,7 +5,7 @@ BATCH_SIZE = 128
 INTRINSIC_ETA = 0.1 #intrinsic reward
 START_BATCH_TIMES = 1
 START_UPDATE_EPISODE = 500
-DEVICE = "cuda"
+DEVICE = "cpu"
 
 GAMMA_START = 0.99
 GAMMA_END = 0.99
@@ -17,21 +17,31 @@ MAP_W = 100
 CROWD_NUMBER_MIN = 30
 CROWD_NUMBER_MAX = 30
 MAP_NUM = -1 #if not used, -2, if random, -1
+#learning
+# 50x50 : 6,7,26
+# 70x60 : 50,53,54
+# 100x100 : 100, 104, 105, 108, 110, 117, 118, 119, 120, 121
+# unseen maps : 102, 113, 114, 115, 116
+
+
 #MAP_NUM_RANDOM = [6, 7, 26]
-#MAP_NUM_RANDOM = [50, 53, 54]
-MAP_NUM_RANDOM = [101]
-#MAP_NUM_RANDOM = [51]
-#MAP_NUM_RANDOM = [100, 101, 102]
-#MAP_NUM_RANDOM = [100]
-SCALE_CHECK = 0 # want to check reward scale?
+
+
+MAP_NUM_RANDOM = [105]
+SCALE_CHECK = 1 # want to check reward scale?
 ACTION_SCALE = 4
 MAX_STEPS = 4000
 
-ROBOT_BODY_RADIUS = 1
-AGENT_BODY_RADIUS = 0.5
-ROBOT_VISION = 10
-AGENT_VISION = 10
+ROBOT_BODY_RADIUS = 1 # m
+AGENT_BODY_RADIUS = 0.5 # m
+ROBOT_VISION = 10 # m
+AGENT_VISION = 10 # m
 EXIT_CONFIRM_RADIUS = 10
+EXIT_CONFIRM_RADIUS_BONUS = 2
+AGENT_SPEED_MEAN = 1.5 # m/s 
+ROBOT_SPEED_MAX = 2 # m/s 
+AGENT_TIME_STEP = 0.5
+ROBOT_TIME_STEP = 0.5
 
 # --------------- EPSILON-EXPLORATION ------------------
 EPSILON_MIN = 0
@@ -47,7 +57,7 @@ DECAY_MODE = 'episode'
 
 
 # -------------- PATH -------------------
-LOG_DIR = "SOTA_MODELS"
+LOG_DIR = "Log_ME"
 PORT_NUM = 6007
 
 # --------------- SAC ALGORITHM PARAMETER ---------------
@@ -85,6 +95,8 @@ N_ENVS = 4
 UPDATES_PER_TRANSITION = 1
 POLICY_BROADCAST_INTERVAL = 10
 
+EGO_MAP_SIZE = 25
+DOWNSAMPLE_MAP_SIZE = 50
 
 
 # --------------- crowd evacuation parameter -----------------

@@ -49,7 +49,7 @@ def make_renderer(world_w, world_h):
         show_robot_heading=False,
         robot_heading_scale=3,
         trail_target="none",
-        trail_style="fade",
+        trail_style="persist",
         max_trail=2000,
         single_color_edges=True,
         exit_size=5.0,

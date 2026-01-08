@@ -432,7 +432,7 @@ def main():
 
             user_dx, user_dy = get_joystick_action(JOYSTICK_CENTER, (knob_x, knob_y))
             env_dx, env_dy = user_dx, -user_dy
-
+            #print(env_dx, env_dy)
             # ----- 고정 스텝 시뮬레이션 -----
             did_step = False
             while sim_acc >= sim_dt and not done:

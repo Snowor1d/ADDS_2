@@ -23,15 +23,15 @@ VIS_SAVE_EVERY = 5
 
 # ------------------------- #
 # 실험 파라미터
-visualization_mode = 'off'  # 'off', 'cont_mp4', 'cont_png_every', 'cont_png'
+visualization_mode = 'cont_mp4'  # 'off', 'cont_mp4', 'cont_png_every', 'cont_png'
 run_iteration      = 1
 number_of_agents   = 30
-max_step_num       = 3000
-robot_version      = 'Q'  # 'N','T','Q'
+max_step_num       = 500
+robot_version      = 'T'  # 'N','T','Q'
 robot_learned_model = 'FU_100_104_105_108_110.pth'
-test_num           = 5
+test_num           = 1
 #map_list           = [100, 104, 105, 108, 110, 117, 118, 119, 120, 121]
-map_list = [100, 104, 105, 108, 110, 117, 118, 119, 120, 121]
+map_list = [100]
 #test : 102, 113, 114, 115, 116
 
 EXP_NAME = "FU_5maps_test"
@@ -43,7 +43,7 @@ SHOW_AGENT_HEADING = False
 SHOW_ROBOT_HEADING = False
 ROBOT_HEADING_SCALE = 1.2
 
-TRAIL_TARGET = "robot" #robot #crowd #none
+TRAIL_TARGET = "none" #robot #crowd #none
 TRAIL_STYLE = "persist"
 MAX_TRAIL = 2000
 ROBOT_STYLE = "circle"

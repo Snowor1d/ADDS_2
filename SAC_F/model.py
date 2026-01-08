@@ -33,6 +33,7 @@ import torch.nn.functional as F
 
 from ADDS_AS_reinforcement import SACAgent, ReplayBuffer, PolicyNetwork, QNetwork, ACTION_SCALE, FrameStack, FrameStack2
 from config import *
+USE_EGO = (MODEL_VERSION != "ME")
 
 
 def _point_on_segment(p: Tuple[int, int],
@@ -1450,58 +1451,61 @@ class FightingModel(Model):
         base = (K1*np.exp(-d_s) + K2*np.exp(-d_e) + K3*(1-np.exp(-d_w)))
         score = np.exp(-alpha) * base/(K1+K2+K3)
         return score
-        
+    
     def step(self):
         self.stats.collect(self)
         self.step_n += 1
         self.step_count += 1
 
-        if (self.robot_version == 'Q'):
-            # 1) full map (uint8) 가져오기 (학습 때랑 동일: MAP_H, MAP_W)
+        if self.robot_version == 'Q':
             full_map = self.return_current_image(MAP_H, MAP_W)  # (H,W) uint8
-
-            # 2) ACTION_SCALE boundary 여부 확인
-            # (예: ACTION_SCALE=4일 때, step 1, 5, 9... 에서 새로운 행동 결정)
             is_boundary = ((self.step_n - 1) % ACTION_SCALE == 0)
 
-            # 3) ego/global frame 만들기
-            # _build_ego_global_frames 내부 구현에 따라 반환값이 np.array 형태여야 함
+            # build_ego_global_frames는 그대로 호출하되,
+            # ME면 ego_f는 무시해도 됨(혹은 함수에서 None 반환하도록 해도 됨)
             ego_f, glob_f = self.build_ego_global_frames(full_map)
 
-            # 4) frame stack 업데이트
+            # ---------- frame stack 업데이트 ----------
             if self._first_step:
-                ego_state = self.ego_stack.reset(ego_f)     # (4, EGO, EGO)
-                glob_state = self.glob_stack.reset(glob_f)  # (4, DOWN, DOWN)
+                # global은 항상
+                glob_state = self.glob_stack.reset(glob_f)
+                # ego는 옵션
+                if USE_EGO:
+                    ego_state = self.ego_stack.reset(ego_f)
+                else:
+                    ego_state = None
                 self._first_step = False
-            elif is_boundary:
-                # 행동 결정 시점에는 스택에 실제로 push
-                ego_state = self.ego_stack.append(ego_f)
-                glob_state = self.glob_stack.append(glob_f)
-            else:
-                # 행동 결정 시점이 아니면 "현재 프레임이 들어왔다면?" 가정만 하고 스택 상태 유지
-                ego_state = self.ego_stack.peek_with(ego_f)
-                glob_state = self.glob_stack.peek_with(glob_f)
 
-            # 5) 로봇 상태 가져오기 (항상 필요할 수 있음)
+            elif is_boundary:
+                glob_state = self.glob_stack.append(glob_f)
+                if USE_EGO:
+                    ego_state = self.ego_stack.append(ego_f)
+                else:
+                    ego_state = None
+
+            else:
+                glob_state = self.glob_stack.peek_with(glob_f)
+                if USE_EGO:
+                    ego_state = self.ego_stack.peek_with(ego_f)
+                else:
+                    ego_state = None
+
             robot_state = np.array(self.return_current_robot_state(), dtype=np.float32)
 
-        # 6) 로봇 행동 결정 및 수행
+        # ---------- 로봇 행동 ----------
         if self.robot_version == 'Q':
             if self.using_model and is_boundary:
-                # ---------------------------------------------------------
-                # [수정됨] Agent의 select_action과 인터페이스 통일
-                # 내부적으로 agent.select_action(ego, global, robot, deterministic=True) 호출
-                # ---------------------------------------------------------
-                action, _ = self.sac_agent.select_action(ego_state, glob_state, robot_state, deterministic=False)
-                
+                # ME면 ego_state=None으로 들어감
+                action, _ = self.sac_agent.select_action(
+                    ego_state,          # None (ME) or (4,EGO,EGO)
+                    glob_state,         # (4,DOWN,DOWN)
+                    robot_state,
+                    deterministic=False
+                )
                 dx, dy = float(action[0]), float(action[1])
-
-                # 환경에 행동 적용 (실제 이동량이나 결과 반환 가능)
                 real_action = self.robot.receive_action([dx, dy])
 
-            # 로그 출력 (ACTION_SCALE 주기마다 혹은 SCALE_CHECK 시)
             if self.using_model and ((self.step_n % ACTION_SCALE == (ACTION_SCALE - 1)) and SCALE_CHECK):
-                # (주의) 각 reward 함수들이 정의되어 있어야 함
                 print(f"reward_based_alived : {self.reward_based_alived() * REWARD_A:.4f}")
                 print(f"reward_based_all_agents_danger : {self.reward_based_all_agents_danger() * REWARD_B:.4f}")
                 print(f"reward_penalty : {self.reward_penalty() * REWARD_D:.4f}")
@@ -1513,13 +1517,10 @@ class FightingModel(Model):
         elif self.robot_version == 'R':
             self.robot.robot_policy_go_and_back()
 
-        # 7) 환경 진행 (Mesa schedule step)
         self.schedule.step()
 
-        # 8) 통계 업데이트 (대피 인원 등)
         self.previous_evacuated = self.now_evacuated
         self.now_evacuated = self.evacuated_agents()
-
         self.previous_evacuated_with_robot = self.now_evacuated_with_robot
         self.now_evacuated_with_robot = self.evacuated_agents_with_robot()
             

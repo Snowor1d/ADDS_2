@@ -50,7 +50,7 @@ class ContinuousRenderer:
 
         # ===== Trails =====
         trail_target: str = "none",                  # "none" | "crowd" | "robot" | "both"
-        trail_style: str = "fade",                   # "fade" | "persist"
+        trail_style: str = "persist",                   # "fade" | "persist"
         max_trail: int = 40,
         crowd_trail_alpha: float = 0.55,
         robot_trail_alpha: float = 0.7,
@@ -420,7 +420,7 @@ class ContinuousRenderer:
                 if len(trail) > self.max_trail: trail.pop(0)
                 self._plot_trail(trail,
                                  alpha_base=self.crowd_trail_alpha,
-                                 color=(color if self.single_color_edges else self.colors["trail"]),
+                                 color="blue",
                                  style=self.trail_style, linewidth=1)
 
     def _draw_robot(self, robot, step: Optional[int] = None):

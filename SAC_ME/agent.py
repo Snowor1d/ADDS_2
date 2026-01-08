@@ -19,11 +19,6 @@ import torch.nn.functional as F
 from config import *
 
 
-
-AGENT_TIME_STEP = 0.25
-ROBOT_TIME_STEP = 0.25
-
-
  # goals의 가운데를 가져오는 함수
  # 어디로 향하게 할 것인가? -> goals의 가운데 
 
@@ -76,7 +71,7 @@ class CrowdAgent(Agent):
         if self.type == 3: # robot mass는 3으로 고정
             self.mass = 30
 
-        self.desired_speed_a = np.random.normal(3, 0.2)*1.2 # agent의 desired_speed, 평균 1.5m/s, 표준 편차 0.2m/s
+        self.desired_speed_a = np.random.normal(AGENT_SPEED_MEAN, 0.2) # agent의 desired_speed, 평균 1.5m/s, 표준 편차 0.2m/s
 
         self.is_effected_by_robot = 0
         self.blocked = False
@@ -345,20 +340,19 @@ class CrowdAgent(Agent):
 
         # ====== 기본 파라미터 (필요하면 수치만 조정) ======
         dt   = AGENT_TIME_STEP
-        tau  = 1                   
+        tau  = 1                  
         A_MAX = 1.5                    # 가속 클립 ↑ 약간 강화
         V_MAX_MULT = 1.00              # 목표속도보다 과속 안하게
-        BODY_RADIUS = 0.5             # 군중 몸 반지름 [cell] 0.25m로 설정 -> 0.5칸이 되어야 0.25
-        ROBOT_BODY_RADIUS = 1       # 로봇 몸 반지름 [cell] 0.25m로 설정 ->0.5칸이 되어야 0.25
-        WALL_RADIUS = 1             # 격자벽을 둥근 장애물로 근사
+        BODY_RADIUS = 0.5             # 군중 몸 반지름 [cell] 0.5m
+        WALL_RADIUS = 1.5             # 격자벽을 둥근 장애물로 근사
         # 접촉(법선) 스프링/감쇠, 접선 마찰
-        KN = 1.8e5                   # 법선 스프링 상수, modified crowd simulation 논문에선 1.2*10^5
+        KN = 0.8e5                   # 법선 스프링 상수, modified crowd simulation 논문에선 1.2*10^5
         CN =  1000                     # 법선 점성(접근속도 감쇠)
         MU_T = 2.5e5                    # 접선 마찰(미끄럼 속도 감쇠) modifided crowd simulation 논문에선 2.4*10^5
         # 지수형 반발은 약화(근거리에서만 의미)
         K_AGENT = 200 # modified 참고
         K_WALL  = 500 # modified 참고
-        LAMBDA_A = 0.2 # modifided 참고
+        LAMBDA_A = 0.3 # modifided 참고
         # 공기저항(속도 감쇠) → 둥둥 뜨는 느낌 제거
         BETA = 0                     # F_drag = -BETA * v
 
@@ -465,7 +459,7 @@ class CrowdAgent(Agent):
                 v_n = rel_vx*ux + rel_vy*uy        # 법선 성분
                 
                 if v_n < 0:
-                    restitution = 0.2
+                    restitution = 0
                     drop = (1.0-restitution)*v_n
                     self.vel[0] -= drop*ux
                     self.vel[1] -= drop*uy
@@ -483,7 +477,7 @@ class CrowdAgent(Agent):
                 F_fric_y += -MU_T * vt_y
         
         BETA=0
-        decay = 0.95
+        decay = 1
         self.vel[0] *= decay
         self.vel[1] *= decay
         # ---- 공기저항(속도 감쇠) ----
@@ -496,7 +490,7 @@ class CrowdAgent(Agent):
         # 🔹 (추가) 맵 outer wall 반발력
         W = self.model.width
         H = self.model.height
-        MARGIN = 1.0         # 이 거리 안으로 들어오면 힘 발생
+        MARGIN = 2.0         # 이 거리 안으로 들어오면 힘 발생
         K_BORDER = 200.0     # 경계 힘 세기 (필요하면 조절)
         F_wx = 0
         F_wy = 0
@@ -552,7 +546,9 @@ class CrowdAgent(Agent):
                     ny = ny + vel[1]*sdt
             return [nx, ny]
 
-        self.xy = swept_move(self.xy, self.vel, dt)
+        #self.xy = swept_move(self.xy, self.vel, dt)
+        # self.xy[0] = self.xy[0] + self.vel[0] * dt
+        # self.xy[1] = self.xy[1] + self.vel[1] * dt
 
 
 
@@ -578,10 +574,10 @@ class CrowdAgent(Agent):
         if spd > V_MAX:
             s = V_MAX / spd
             self.vel[0] *= s; self.vel[1] *= s
-
-
+        #print("agent desired speed : ", v_des_scalar)
+        #print("agent speed : ", self.vel[0], self.vel[1])
         self.xy = self.swept_move(self.xy, self.vel, dt)
-        self.model.space.clamp(self.xy)
+        #self.model.space.clamp(self.xy)
         self.model.space.move(self.unique_id, self.xy)
 
         self.direction = [self.vel[0], self.vel[1]]
@@ -595,7 +591,6 @@ class CrowdAgent(Agent):
             · self.exit_belief = {"idx": 출구 index, "score": S_ij, "alpha": hop}
             · self.now_goal    = [x, y]  (다음 time-step 까지 유효한 가상 목표)
         """
-        ROBOT_BODY_RADIUS = 1
         # ────────── 파라미터 ──────────
         ROBOT_R = ROBOT_BODY_RADIUS
         VISION_R = AGENT_VISION
@@ -614,7 +609,7 @@ class CrowdAgent(Agent):
             dy = self.xy[1] - center[1]
             dist = math.sqrt(dx*dx + dy*dy)
 
-            if dist < EXIT_CONFIRM_R:
+            if dist < (EXIT_CONFIRM_R+EXIT_CONFIRM_RADIUS_BONUS):
                 s = self.model.exit_score(self, idx, alpha=0)
                 if (s > best_score):
                     best_score = s
@@ -735,7 +730,6 @@ class RobotAgent(CrowdAgent):
 
     def __init__(self, unique_id, model, pos, type1):
         super().__init__(unique_id, model, pos, type1)
-        AGENT_RADIUS = 1
         self.action = [0, 0, "GUIDE"]
         self.past_xy = deque(maxlen=20)
         self.collision_check = 0
@@ -752,7 +746,7 @@ class RobotAgent(CrowdAgent):
 
         #self.model.space.add(self.unique_id, self.xy, self.radius, ref=self, vel=(0,0,0,0))
 
-        self.desired_speed_a = 4
+        self.desired_speed_a = 2
         self.target_agent = None
     
     # ------------------------------------------------------------
@@ -797,8 +791,8 @@ class RobotAgent(CrowdAgent):
             goal_x = next_mesh_middle[0] - self.xy[0]
             goal_y = next_mesh_middle[1] - self.xy[1]
 
-        goal_x = 2* goal_x / math.sqrt(pow(goal_x, 2) + pow(goal_y, 2))
-        goal_y = 2* goal_y / math.sqrt(pow(goal_x, 2) + pow(goal_y, 2))
+        goal_x = ROBOT_SPEED_MAX * goal_x / math.sqrt(pow(goal_x, 2) + pow(goal_y, 2))
+        goal_y = ROBOT_SPEED_MAX * goal_y / math.sqrt(pow(goal_x, 2) + pow(goal_y, 2))
         self.receive_action([goal_x, goal_y])
 
 
@@ -863,8 +857,8 @@ class RobotAgent(CrowdAgent):
     def robot_policy_Q(self):
 
         K_AGENT = 200
-        K_WALL = 2000
-        LAMBDA_A = 0.2
+        K_WALL = 1500
+        LAMBDA_A = 0.35
 
         if(math.sqrt(pow(self.xy[0]-self.robot_waypoint[0], 2)+pow(self.xy[1]-self.robot_waypoint[1], 2))<2):
             self.now_exploration = 0
@@ -896,7 +890,7 @@ class RobotAgent(CrowdAgent):
         self.model.robot_mode = "GUIDE"
 
         intend_force = 15
-        desired_speed = 2
+        desired_speed = ROBOT_SPEED_MAX
 
             
 
@@ -971,9 +965,10 @@ class RobotAgent(CrowdAgent):
         for poly in obstacle_polys:
             # 경계선까지 최소거리
             d = poly.exterior.distance(p)
-            if d <= self.body_radius * 0.8:   # 매우 근접 → 충돌 경보
+            if d <= self.body_radius * 1:   # 매우 근접 → 충돌 경보
                 self.collision_check = 1
-            if d > 1.5 * self.body_radius:    # 멀면 무시
+                #print("충돌함")
+            if d > 2 * self.body_radius:    # 멀면 무시
                 continue
             q = poly.exterior.interpolate(poly.exterior.project(p))
             dx = self.xy[0] - q.x
@@ -1000,34 +995,34 @@ class RobotAgent(CrowdAgent):
         W = self.model.width
         H = self.model.height
         MARGIN = 1.0         # 이 거리 안으로 들어오면 힘 발생
-        K_BORDER = 200.0     # 경계 힘 세기 (필요하면 조절)
+        K_BORDER = 50     # 경계 힘 세기 (필요하면 조절)
         F_wx = 0
         F_wy = 0
         
-        dx = max(0.0, MARGIN - self.xy[0])
-        if dx > 0.0:
-            # 왼쪽 벽에 가까우면 +x 방향으로 민다
-            F_wx += K_BORDER * dx
+        # dx = max(0.0, MARGIN - self.xy[0])
+        # if dx > 0.0:
+        #     # 왼쪽 벽에 가까우면 +x 방향으로 민다
+        #     F_wx += K_BORDER * dx
 
-        # right 벽 (x = W 부근)
-        dx = max(0.0, self.xy[0] - (W - MARGIN))
-        if dx > 0.0:
-            # 오른쪽 벽에 가까우면 -x 방향으로 민다
-            F_wx -= K_BORDER * dx
+        # # right 벽 (x = W 부근)
+        # dx = max(0.0, self.xy[0] - (W - MARGIN))
+        # if dx > 0.0:
+        #     # 오른쪽 벽에 가까우면 -x 방향으로 민다
+        #     F_wx -= K_BORDER * dx
 
-        # bottom 벽 (y = 0 부근)
-        dy = max(0.0, MARGIN - self.xy[1])
-        if dy > 0.0:
-            # 아래쪽 벽에 가까우면 +y 방향
-            F_wy += K_BORDER * dy
+        # # bottom 벽 (y = 0 부근)
+        # dy = max(0.0, MARGIN - self.xy[1])
+        # if dy > 0.0:
+        #     # 아래쪽 벽에 가까우면 +y 방향
+        #     F_wy += K_BORDER * dy
 
-        # top 벽 (y = H 부근)
-        dy = max(0.0, self.xy[1] - (H - MARGIN))
-        if dy > 0.0:
-            # 위쪽 벽에 가까우면 -y 방향
-            F_wy -= K_BORDER * dy
-        F_x += F_wx
-        F_y += F_wy
+        # # top 벽 (y = H 부근)
+        # dy = max(0.0, self.xy[1] - (H - MARGIN))
+        # if dy > 0.0:
+        #     # 위쪽 벽에 가까우면 -y 방향
+        #     F_wy -= K_BORDER * dy
+        # F_x += F_wx
+        # F_y += F_wy
  
 
 
@@ -1036,13 +1031,15 @@ class RobotAgent(CrowdAgent):
         vel = [0,0]
         vel[0] = F_x/self.mass
         vel[1] = F_y/self.mass
-        future_xy = self.xy.copy()
-        future_xy[0] += vel[0] * time_step
-        future_xy[1] += vel[1] * time_step
+        #print("robot speed : ", vel[0], vel[1])
+        #future_xy = self.xy.copy()
+        # future_xy[0] += vel[0] * time_step
+        # future_xy[1] += vel[1] * time_step
+        future_xy = self.swept_move(self.xy, vel, time_step)
 
         self.xy = future_xy
         self.model.space.clamp(self.xy)
-        self.model.space.move(self.unique_id, self.xy)
+        #self.model.space.move(self.unique_id, self.xy)
 
         return tuple(self.xy)
 

@@ -27,16 +27,21 @@ MAP_NUM = -1 #if not used, -2, if random, -1
 #MAP_NUM_RANDOM = [6, 7, 26]
 
 
-MAP_NUM_RANDOM = [100, 104, 105, 108, 110, 117, 118, 119, 120, 121]
+MAP_NUM_RANDOM = [105]
 SCALE_CHECK = 1 # want to check reward scale?
 ACTION_SCALE = 4
-MAX_STEPS = 4000
+MAX_STEPS = 6000
 
-ROBOT_BODY_RADIUS = 1.5 #m
-AGENT_BODY_RADIUS = 0.5 #m
-ROBOT_VISION = 10 #m
-AGENT_VISION = 10 #M
+ROBOT_BODY_RADIUS = 1 # m
+AGENT_BODY_RADIUS = 0.5 # m
+ROBOT_VISION = 10 # m
+AGENT_VISION = 10 # m
 EXIT_CONFIRM_RADIUS = 10
+EXIT_CONFIRM_RADIUS_BONUS = 2
+AGENT_SPEED_MEAN = 1.5 # m/s 
+ROBOT_SPEED_MAX = 2 # m/s 
+AGENT_TIME_STEP = 0.5
+ROBOT_TIME_STEP = 0.5
 
 # --------------- EPSILON-EXPLORATION ------------------
 EPSILON_MIN = 0
@@ -52,7 +57,7 @@ DECAY_MODE = 'episode'
 
 
 # -------------- PATH -------------------
-LOG_DIR = "Log_FU_10maps"
+LOG_DIR = "Log_FU1"
 PORT_NUM = 6007
 
 # --------------- SAC ALGORITHM PARAMETER ---------------
