@@ -22,22 +22,24 @@ MAP_NUM = -1 #if not used, -2, if random, -1
 # 70x60 : 50,53,54
 # 100x100 : 100, 104, 105, 108, 110, 117, 118, 119, 120, 121
 # unseen maps : 102, 113, 114, 115, 116
+# RE maps : 105, 108, 110, 119, 120, 121, 122, 123, 124, 125
+# RE 100x100 3maps : 105, 108, 122
 
 
 #MAP_NUM_RANDOM = [6, 7, 26]
 
 
-MAP_NUM_RANDOM = [105]
-SCALE_CHECK = 1 # want to check reward scale?
+MAP_NUM_RANDOM = [105, 108, 122]
+SCALE_CHECK = 0 # want to check reward scale?
 ACTION_SCALE = 4
-MAX_STEPS = 4000
+MAX_STEPS = 6000
 
 ROBOT_BODY_RADIUS = 1 # m
 AGENT_BODY_RADIUS = 0.5 # m
 ROBOT_VISION = 10 # m
 AGENT_VISION = 10 # m
 EXIT_CONFIRM_RADIUS = 10
-EXIT_CONFIRM_RADIUS_BONUS = 2
+EXIT_CONFIRM_RADIUS_BONUS = 0
 AGENT_SPEED_MEAN = 1.5 # m/s 
 ROBOT_SPEED_MAX = 2 # m/s 
 AGENT_TIME_STEP = 0.5
@@ -54,10 +56,11 @@ EXPLORATION_TYPE = 0
 LONG_EPSILON_MIN = 0
 START_LONG_EPSILON = 0
 DECAY_MODE = 'episode'
+RANDOM_EXIT = False
 
 
 # -------------- PATH -------------------
-LOG_DIR = "Log_ME1"
+LOG_DIR = "SOTA_MODELS"
 PORT_NUM = 6007
 
 # --------------- SAC ALGORITHM PARAMETER ---------------
@@ -73,7 +76,7 @@ ALPHA_DECAY_STEPS = 3000
 REWARD_A = 2 #reward_based_alived
 REWARD_B = 0.003 #reward_based_all_agents_danger
 REWARD_D = 2 #reward_based_penalty
-REWARD_K = 1 #reward_penalty_collsion
+REWARD_K = 3 #reward_penalty_collsion
 REWARD_J = 0 #reward_based_all_agents_danger_root
 REWARD_L = 1 #reward_based_farthest_agent_distance
 REWARD_FIXED = -0.5
