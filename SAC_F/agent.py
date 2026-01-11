@@ -372,8 +372,7 @@ class CrowdAgent(Agent):
             return x*s, y*s
         
         self.danger = 1e9
-        for i in self.model.exit_point:
-            self.danger = min(self.danger, self.point_to_point_distance([self.xy[0], self.xy[1]], i))
+        self.danger = self.model.distance_to_exit(self.xy)
         
 
         # 이웃 상호작용 (사람/로봇)
@@ -603,17 +602,34 @@ class CrowdAgent(Agent):
         best_idx = None
         best_score = -float("inf")
 
-        # ─ 0단계: 직접 출구를 보면 α=0 정보 기록 ─
-        for idx, center in enumerate(self.model.exit_point):
-            dx = self.xy[0] - center[0]
-            dy = self.xy[1] - center[1]
-            dist = math.sqrt(dx*dx + dy*dy)
+        # (1) 시야 기반으로 '보이는 출구' 후보 수집
+        visible = self.model.visible_exits(self.xy, self.vision_radius)
 
-            if dist < (EXIT_CONFIRM_R+EXIT_CONFIRM_RADIUS_BONUS):
-                s = self.model.exit_score(self, idx, alpha=0)
-                if (s > best_score):
-                    best_score = s
-                    best_idx = idx
+        best_idx = None
+        best_score = -float("inf")
+
+        # (2) 보이는 출구가 있으면 그 중 점수 최고를 직접 인지로 채택
+        for idx in visible:
+            # "가까우면 확신" 같은 조건을 유지하고 싶으면 아래 d 조건을 추가로 걸어도 됨
+            # d = self.model.distance_to_exit_idx(self.xy, idx)  # 있으면 메쉬 거리 추천
+            # if d > (EXIT_CONFIRM_R + EXIT_CONFIRM_RADIUS_BONUS): 
+            #     continue
+
+            s = self.model.exit_score(self, idx, alpha=0)
+            if s > best_score:
+                best_score = s
+                best_idx = idx
+
+        if best_idx is not None:
+            self.exit_belief = {"idx": best_idx, "score": best_score, "alpha": 0}
+        else:
+            self.exit_belief = None
+
+        if best_idx is not None:
+            self.exit_belief = {"idx": best_idx, "score": best_score, "alpha": 0}
+        else:
+            self.exit_belief = None
+
             
         if best_idx is not None:
             self.exit_belief = {"idx" : best_idx, "score": best_score, "alpha": 0}
@@ -627,9 +643,16 @@ class CrowdAgent(Agent):
                     self.exit_belief = {"idx": nb.exit_belief["idx"], "score": s, "alpha": alpha}
 
         # ─ 2단계: 출구 정보가 있으면 그 출구, 없으면 탐험(Random walk) ─
-        if self.exit_belief:                                       # 정보 有
-            self.now_goal = self.model.exit_point[self.exit_belief["idx"]][:]
-            #print("출구로 향하자!")
+        if self.exit_belief:
+            ex_idx = self.exit_belief["idx"]
+            _, q, d = self.model.nearest_exit(self.xy)  # 또는 ex_idx만 대상으로 따로 구해도 됨
+
+            if d < 1.0:
+                gx, gy = self.model.goal_point_into_exit(ex_idx, self.xy, eps=0.6)
+                self.now_goal = [gx, gy]
+            else:
+                self.now_goal = [q[0], q[1]]
+
             return
 
         # ─ 4단계: 행동 타입 결정 (로봇/이웃/마이웨이) ─
@@ -753,51 +776,52 @@ class RobotAgent(CrowdAgent):
     # 외부에서 호출되는 단일 정책 함수
     # ------------------------------------------------------------
 
-    def robot_policy_go_and_back(self):
-        if (self.target_agent == None):
-            max_d = -1 
-            max_d_ag = None
-            for ag in self.model.crowds:
-                if not ag.dead:
-                    d = self.point_to_point_distance(self.xy, ag.xy)
-                    if d > max_d:
-                        max_d = d
-                        max_d_ag = ag
-            if max_d_ag is not None:
-                self.target_agent = max_d_ag
+    # def robot_policy_go_and_back(self):
+    #     if (self.target_agent == None):
+    #         max_d = -1 
+    #         max_d_ag = None
+    #         for ag in self.model.crowds:
+    #             if not ag.dead:
+    #                 d = self.point_to_point_distance(self.xy, ag.xy)
+    #                 if d > max_d:
+    #                     max_d = d
+    #                     max_d_ag = ag
+    #         if max_d_ag is not None:
+    #             self.target_agent = max_d_ag
 
-        if (self.target_agent == None):
-            return
+    #     if (self.target_agent == None):
+    #         return
         
-        if (self.target_agent.dead):
-            self.target_agent = None
-            return
+    #     if (self.target_agent.dead):
+    #         self.target_agent = None
+    #         return
 
-        goal = [0, 0]
-        if (self.point_to_point_distance(self.xy, self.target_agent.xy) < 5):
-            goal = self.model.exit_point[0]
-        else :
-            goal = self.target_agent.xy
+    #     goal = [0, 0]
+    #     if (self.point_to_point_distance(self.xy, self.target_agent.xy) < 5):
+    #         goal = self.model.exit_point[0]
+    #     else :
+    #         goal = self.target_agent.xy
 
-        goal_mesh = self.model.match_grid_to_mesh[int(round(goal[0])), int(round(goal[1]))]
-        now_mesh = self.model.match_grid_to_mesh[int(round(self.xy[0])), int(round(self.xy[1]))]
-        next_mesh = self.model.next_vertex_matrix[now_mesh][goal_mesh]
-        if(now_mesh == next_mesh):
-            goal_x = goal[0] - self.xy[0]
-            goal_y = goal[1] - self.xy[1]
+    #     goal_mesh = self.model.match_grid_to_mesh[int(round(goal[0])), int(round(goal[1]))]
+    #     now_mesh = self.model.match_grid_to_mesh[int(round(self.xy[0])), int(round(self.xy[1]))]
+    #     next_mesh = self.model.next_vertex_matrix[now_mesh][goal_mesh]
+    #     if(now_mesh == next_mesh):
+    #         goal_x = goal[0] - self.xy[0]
+    #         goal_y = goal[1] - self.xy[1]
             
-        else:
-            next_mesh_middle = ((next_mesh[0][0]+next_mesh[1][0]+next_mesh[2][0])/3, (next_mesh[0][1]+next_mesh[1][1]+next_mesh[2][1])/3)
-            goal_x = next_mesh_middle[0] - self.xy[0]
-            goal_y = next_mesh_middle[1] - self.xy[1]
+    #     else:
+    #         next_mesh_middle = ((next_mesh[0][0]+next_mesh[1][0]+next_mesh[2][0])/3, (next_mesh[0][1]+next_mesh[1][1]+next_mesh[2][1])/3)
+    #         goal_x = next_mesh_middle[0] - self.xy[0]
+    #         goal_y = next_mesh_middle[1] - self.xy[1]
 
-        goal_x = ROBOT_SPEED_MAX * goal_x / math.sqrt(pow(goal_x, 2) + pow(goal_y, 2))
-        goal_y = ROBOT_SPEED_MAX * goal_y / math.sqrt(pow(goal_x, 2) + pow(goal_y, 2))
-        self.receive_action([goal_x, goal_y])
+    #     goal_x = ROBOT_SPEED_MAX * goal_x / math.sqrt(pow(goal_x, 2) + pow(goal_y, 2))
+    #     goal_y = ROBOT_SPEED_MAX * goal_y / math.sqrt(pow(goal_x, 2) + pow(goal_y, 2))
+    #     self.receive_action([goal_x, goal_y])
 
 
     def robot_policy_going_exit(self):
-        goal = self.model.exit_point[0]
+        ed_idx, q, d = self.model.nearest_exit(self.xy)
+        goal = q
         if self.point_to_point_distance(self.xy, goal) < 2:
             self.receive_action([0, 0])  # stop
         
@@ -865,9 +889,7 @@ class RobotAgent(CrowdAgent):
             self.robot_waypoint = [0, 0]
 
         self.previous_danger = getattr(self, "danger", 1e9)
-        self.danger = 1e9
-        for i in self.model.exit_point:
-            self.danger = min(self.danger, self.point_to_point_distance([self.xy[0], self.xy[1]], i))
+        self.danger = self.model.distance_to_exit(self.xy)
         
         if(self.model.alived_agents()< 1):
             self.is_game_finished = 1
@@ -967,7 +989,7 @@ class RobotAgent(CrowdAgent):
             d = poly.exterior.distance(p)
             if d <= self.body_radius * 1:   # 매우 근접 → 충돌 경보
                 self.collision_check = 1
-                print("충돌함")
+                #print("충돌함", d)
             if d > 2 * self.body_radius:    # 멀면 무시
                 continue
             q = poly.exterior.interpolate(poly.exterior.project(p))

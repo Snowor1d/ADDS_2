@@ -22,12 +22,13 @@ MAP_NUM = -1 #if not used, -2, if random, -1
 # 70x60 : 50,53,54
 # 100x100 : 100, 104, 105, 108, 110, 117, 118, 119, 120, 121
 # unseen maps : 102, 113, 114, 115, 116
-
+# RE maps : 105, 108, 110, 119, 120, 121, 122, 123, 124, 125
+# RE 100x100 3maps : 105, 108, 122
 
 #MAP_NUM_RANDOM = [6, 7, 26]
 
 
-MAP_NUM_RANDOM = [105]
+MAP_NUM_RANDOM = [123]
 SCALE_CHECK = 1 # want to check reward scale?
 ACTION_SCALE = 4
 MAX_STEPS = 4000
@@ -57,7 +58,7 @@ DECAY_MODE = 'episode'
 
 
 # -------------- PATH -------------------
-LOG_DIR = "Log_ME1"
+LOG_DIR = "Log_ME_test"
 PORT_NUM = 6007
 
 # --------------- SAC ALGORITHM PARAMETER ---------------

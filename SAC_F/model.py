@@ -6,6 +6,7 @@ from space import ContinuousSpace
 
 from shapely.geometry import Polygon, MultiPolygon, Point
 from shapely.strtree import STRtree
+from shapely.ops import triangulate
 from shapely.ops import unary_union
 import matplotlib.tri as mtri
 
@@ -33,6 +34,7 @@ import torch.nn.functional as F
 
 from ADDS_AS_reinforcement import SACAgent, ReplayBuffer, PolicyNetwork, QNetwork, ACTION_SCALE, FrameStack, FrameStack2
 from config import *
+
 USE_EGO = (MODEL_VERSION != "ME")
 
 
@@ -321,64 +323,7 @@ def downsample_full_map(full_map: np.ndarray, target: int) -> np.ndarray:
     y = F.adaptive_max_pool2d(x, (target, target))
     return y.squeeze(0).squeeze(0).byte().numpy()
 
-def union_obstacles_to_polygons(raw_obstacles, min_area=1e-8):
-    """
-    raw_obstacles: self.obstacles 같은 형태 (각 obstacle은 [[x,y],...])
-    return: (outer_polys, hole_rings)
-      - outer_polys: [ [(x,y),...], ... ]   (각각 exterior ring, 마지막 중복점 제거)
-      - hole_rings : [ [(x,y),...], ... ]   (각각 interior ring, 마지막 중복점 제거)
-    """
-    parts = []
-    for ob in raw_obstacles:
-        if ob is None or len(ob) < 3:
-            continue
-        P = Polygon(ob)
-        if not P.is_valid:
-            P = P.buffer(0)  # self-intersection 등 보정
-        if P.is_empty:
-            continue
-        # MultiPolygon이면 쪼개서 parts에 넣기
-        if isinstance(P, MultiPolygon):
-            parts.extend(list(P.geoms))
-        else:
-            parts.append(P)
 
-    if not parts:
-        return [], []
-
-    U = unary_union(parts)
-
-    # union 결과가 GeometryCollection / MultiPolygon일 수 있음
-    polys = []
-    if isinstance(U, Polygon):
-        polys = [U]
-    elif isinstance(U, MultiPolygon):
-        polys = list(U.geoms)
-    else:
-        # GeometryCollection 등: polygon만 추출
-        try:
-            polys = [g for g in U.geoms if isinstance(g, Polygon)]
-        except Exception:
-            polys = []
-
-    outer_polys = []
-    hole_rings = []
-
-    for P in polys:
-        if P.area <= min_area:
-            continue
-
-        ext = list(P.exterior.coords)[:-1]
-        if len(ext) >= 3:
-            outer_polys.append([(float(x), float(y)) for x, y in ext])
-
-        # holes(내부 링)도 segment로 넣어야 "구멍"이 장애물로 유지됨
-        for ring in P.interiors:
-            h = list(ring.coords)[:-1]
-            if len(h) >= 3:
-                hole_rings.append([(float(x), float(y)) for x, y in h])
-
-    return outer_polys, hole_rings
 
 
 class FightingModel(Model):
@@ -444,7 +389,6 @@ class FightingModel(Model):
         self.mesh_map()
         self.make_random_exit()
         self.construct_map()
-        self.calculate_mesh_danger()
         self.random_agent_distribute_outdoor(number_agents, 1)
         if (self.robot_version != 'N'):
             self.make_robot()
@@ -464,10 +408,11 @@ class FightingModel(Model):
         self._obstacle_polys = [Polygon(ob) for ob in self.obstacles]
         #print(self._obstacle_polys)
         self._exit_polys = [Polygon(poly) for poly in self.exit_list]
+        self._exit_union = unary_union(self._exit_polys) if self._exit_polys else None
         self._mesh_polys = [Polygon(t) for t in self.mesh_list]
         self._mesh_poly2tri = {poly: tri for poly, tri in zip(self._mesh_polys, self.mesh_list)}
         self._mesh_index = STRtree(self._mesh_polys)
-
+        self.calculate_mesh_danger()   
         self._build_blocked_grid()
 
         self.obstacles_version = 0
@@ -484,9 +429,8 @@ class FightingModel(Model):
 
         self.exit_meta = [
         {"idx":i,
-         "center": tuple(self.exit_point[i]),
          "width" : 5,             # exit_width = 5
-         } for i in range(len(self.exit_point))
+         } for i in range(len(self.exit_list))
         ]
 
         
@@ -514,6 +458,17 @@ class FightingModel(Model):
         self.ego_stack = FrameStack2(4)
         self.glob_stack = FrameStack2(4)
 
+    def extract_map_info(self, map_num):
+        if map_num <= 49:
+            self.width = 50
+            self.height = 50
+        elif map_num <= 99:
+            self.width = 70
+            self.height = 70
+        elif map_num <= 199:
+            self.width =100
+            self.height = 100
+
     def is_free(self, xy):
         x, y = xy
         if x < 0 or y < 0 or x > self.width or y > self.height:
@@ -521,13 +476,171 @@ class FightingModel(Model):
         p = Point(x, y)
         return not any(poly.contains(p) or poly.touches(p) for poly in self._obstacle_polys)
 
-    def in_exit(self, xy, tol=0.0):
+    # def in_exit(self, xy, tol=0.0):
+    #     p = Point(xy[0], xy[1])
+    #     for poly in self._exit_polys:
+    #         #print(f"{p}가 {poly}에 있는지 확인합니다")    
+    #         if (poly.buffer(tol).contains(p)) if tol > 0 else poly.contains(p):
+    #             return True
+    #     return False
+
+    def in_exit(self, xy, tol=0.3) -> bool:
+        if self._exit_union is None:
+            return False
         p = Point(xy[0], xy[1])
-        for poly in self._exit_polys:
-            #print(f"{p}가 {poly}에 있는지 확인합니다")    
-            if (poly.buffer(tol).contains(p)) if tol > 0 else poly.contains(p):
-                return True
-        return False
+        return self._exit_union.buffer(tol).covers(p)
+    
+
+    def nearest_exit(self, xy):
+        """
+        xy에서 가장 가까운 exit_polygon과
+        그 polygon 경계 상 최단거리 점(q) 및 거리(d) 반환.
+        Returns:
+            (best_idx, (qx,qy), d)
+        """
+        if not self._exit_polys:
+            return None, (xy[0], xy[1]), float("inf")
+
+        p = Point(xy[0], xy[1])
+        best_idx = None
+        best_d = float("inf")
+        best_q = (xy[0], xy[1])
+
+        for i, poly in enumerate(self._exit_polys):
+            d = poly.distance(p)  # 내부면 0
+            if d < best_d:
+                best_d = d
+                best_idx = i
+                if d == 0.0:
+                    best_q = (xy[0], xy[1])
+                else:
+                    # 경계선 위의 최단점(투영점)
+                    q = poly.exterior.interpolate(poly.exterior.project(p))
+                    best_q = (q.x, q.y)
+
+        return best_idx, best_q, best_d
+    
+
+    def goal_point_into_exit(self, exit_idx: int, from_xy, eps=0.5):
+        """
+        exit 경계 최단점까지 도달했을 때 '안으로 들어가게' 만들기 위한 내부 목표점.
+        - 경계 최단점 q에서 polygon 내부 방향으로 eps 만큼 이동.
+        """
+        poly = self._exit_polys[exit_idx]
+        p = Point(from_xy[0], from_xy[1])
+
+        # 경계 최단점
+        q = poly.exterior.interpolate(poly.exterior.project(p))
+        # 내부 대표점(centroid보다 안전한 representative_point)
+        inside = poly.representative_point()
+
+        vx = inside.x - q.x
+        vy = inside.y - q.y
+        norm = (vx*vx + vy*vy) ** 0.5
+        if norm < 1e-9:
+            return (inside.x, inside.y)
+
+        ux, uy = vx / norm, vy / norm
+        gx, gy = q.x + eps * ux, q.y + eps * uy
+
+        # 혹시 eps 이동이 밖이면 eps 줄이기(최대 몇 번만)
+        for _ in range(5):
+            if poly.covers(Point(gx, gy)):
+                return (gx, gy)
+            gx, gy = q.x + (eps*0.5) * ux, q.y + (eps*0.5) * uy
+            eps *= 0.5
+
+        # 최후 fallback
+        return (inside.x, inside.y)
+    
+    def distance_to_exit(self, xy):
+        """exit_polygon까지 최단거리(내부면 0)."""
+        _, _, d = self.nearest_exit(xy)
+        return d
+    
+    # def visible_exit_candidates(self, xy, R):
+
+    #     if not hasattr(self, "vision_atlas"):
+    #         return []
+
+    #     vision_poly = self.vision_atlas.polygon_at(
+    #         float(xy[0]), float(xy[1]), float(R), getattr(self, "obstacles_version", 0)
+    #     )
+    #     if vision_poly is None or getattr(vision_poly, "is_empty", True):
+    #         return []
+
+    #     # exit_polygons 우선 (없으면 exit_list/exit_point로 폴백 가능)
+    #     exit_polys = getattr(self, "_exit_polys", None)
+    #     if not exit_polys:
+    #         return []
+
+    #     out = []
+    #     for i, ex in enumerate(exit_polys):
+    #         if ex is None or getattr(ex, "is_empty", True):
+    #             continue
+    #         else:  # "intersects"
+    #             # 조금 더 관대하게: 경계라도 보이면 visible
+    #             if vision_poly.intersects(ex):
+    #                 out.append(i)
+
+    #     return out
+
+    # def nearest_visible_exit(self, xy, R, dist_mode="euclid"):
+    #     """
+    #     visible exit 중에서 가장 가까운 출구 idx를 반환.
+    #     dist_mode:
+    #     - "euclid": 현재 위치 -> exit 대표점 거리
+    #     - "mesh": distance_to_exit_idx 같은 너의 메쉬거리 함수가 있으면 그걸 쓰는 방식
+    #     return: (idx, q_point, d)
+    #     - idx: 선택된 exit index (없으면 None)
+    #     - q_point: 목표로 잡을 점(대표점/최근점 등)
+    #     - d: 거리(선택 기준)
+    #     """
+    #     cands = self.visible_exit_candidates(xy, R, mode="intersects")
+    #     if not cands:
+    #         return None, None, float("inf")
+
+    #     best = (None, None, float("inf"))
+
+    #     for idx in cands:
+    #         ex = self._exit_polys[idx]
+
+    #         # 목표점 q를 어떻게 잡을지:
+    #         # 1) 대표점(항상 polygon 내부) - 안정적
+    #         rp = ex.representative_point()
+    #         q = (float(rp.x), float(rp.y))
+
+
+    #         d = float(self.distance_to_exit(xy))
+    #         if d < best[2]:
+    #             best = (idx, q, d)
+
+    #     return best
+
+
+    def visible_exits(self, xy, radius):
+        """
+        xy에서 radius 내 '시야 폴리곤' 기준으로 보이는 출구 idx 리스트.
+        mode:
+        - "intersects": 시야폴리곤과 출구폴리곤이 겹치면 visible (관대)
+        - "rep_point": 출구 대표점이 시야폴리곤에 포함되면 visible (보수)
+        """
+        vision_poly = self.vision_atlas.polygon_at(
+            float(xy[0]), float(xy[1]), float(radius), self.obstacles_version
+        )
+        if vision_poly is None or vision_poly.is_empty:
+            return []
+
+        out = []
+        for i, ex in enumerate(self._exit_polys):
+            if ex is None or ex.is_empty:
+                continue
+
+
+            if vision_poly.intersects(ex):
+                out.append(i)
+
+        return out
 
     def find_mesh(self, xy):
         p = Point(float(xy[0]), float(xy[1]))
@@ -627,27 +740,45 @@ class FightingModel(Model):
         return self.match_grid_to_mesh[point_grid]
 
     def calculate_mesh_danger(self):
+        """
+        mesh_danger[mesh] = 해당 mesh(대표점)에서 exit_polygon까지의 최단 '경로거리'
+        """
+        BIG = 1e18
+        self.mesh_danger = {}
+
+        # mesh 대표점 -> safe mesh 매칭 안정화를 위해 centroid 사용
         for mesh in self.pure_mesh:
-            shortest_distance = 9999999999
-            near_mesh = None
-            for e in self.exit_point:
-                distance = math.sqrt(pow(mesh[0][0]-e[0], 2) + pow(mesh[0][1]-e[1], 2))
-                if distance < shortest_distance:
-                    shortest_distance = distance
-                    near_mesh = e 
-            self.mesh_danger[mesh] = shortest_distance
+            cx, cy = ((mesh[0][0] + mesh[1][0] + mesh[2][0]) / 3.0,
+                    (mesh[0][1] + mesh[1][1] + mesh[2][1]) / 3.0)
+
+            best = BIG
+            for exit_idx in range(len(self._exit_polys)):
+                q, _ = self.nearest_point_on_exit(exit_idx, (cx, cy))
+
+                # 기존 네비메쉬 기반 거리 사용
+                d = self.robot.point_to_point_distance((cx, cy), q)
+
+                if d < best:
+                    best = d
+
+            self.mesh_danger[mesh] = best
+
         return 0
 
     def mesh_map(self):
 
         D = 20
-        outer_polys, _ = union_obstacles_to_polygons(self.obstacles)
-        self.obstacles = [ [list(p) for p in poly ] for poly in outer_polys]
         map_boundary = [[0, 0], [self.width, 0], [self.width, self.height], [0, self.height]]
         obstacle_hulls = []
 
         for obstacle in self.obstacles:
-            obstacle_hulls.append(np.array(obstacle, dtype=float))
+            if len(obstacle) == 3 or len(obstacle) == 4:
+                hull = ConvexHull(obstacle)
+                hull_points = np.array(obstacle)[hull.vertices]
+                obstacle_hulls.append(hull_points)
+            else:
+                raise ValueError("Each obstacle must have either 3 or 4 points.")
+
         # 경계점 및 장애물의 모서리 점 추가
         vertices = map_boundary.copy()
         for hull_points in obstacle_hulls:
@@ -687,15 +818,16 @@ class FightingModel(Model):
                     self.match_grid_to_mesh[(i[0], i[1])] = (mesh[0], mesh[1], mesh[2])
 
 
-        obstacle_polys = [Polygon(ob) for ob in self.obstacles]
-
         for mesh in self.mesh_list:
-            mx = (mesh[0][0] + mesh[1][0] + mesh[2][0]) / 3.0
-            my = (mesh[0][1] + mesh[1][1] + mesh[2][1]) / 3.0
-            p = Point(mx, my)
-
-            if any(P.contains(p) or P.touches(p) for P in obstacle_polys):
-                self.obstacle_mesh.append(mesh)
+            middle_point = ((mesh[0][0]+mesh[1][0]+mesh[2][0])/3, (mesh[0][1]+mesh[1][1]+mesh[2][1])/3)
+            
+            for obstacle in self.obstacles:
+                if len(obstacle) == 4: # 사각형 obstacle
+                    if is_point_in_triangle(middle_point, obstacle[0], obstacle[1], obstacle[2]) or is_point_in_triangle(middle_point, obstacle[0], obstacle[2], obstacle[3]) :
+                        self.obstacle_mesh.append(mesh)
+                elif len(obstacle) == 3:
+                    if is_point_in_triangle(middle_point, obstacle[0], obstacle[1], obstacle[2]):
+                        self.obstacle_mesh.append(mesh)            
 
         path = {}
         
@@ -1125,9 +1257,75 @@ class FightingModel(Model):
             self.obstacles.append([[60, 0], [100, 0], [100, 30], [90, 30]])
 
         elif map_num == 122:
-            #self.obstacles.append([[20, 50], [39.9, 39.9], [39.9, 69.9], [20, 60]])
-            #self.obstacles.append([[40, 40]n m, [60, 50], [60, 70], [40, 70]])
-            self.obstacles.append([[50, 40], [80, 40], [80, 70], [70, 70], [60, 80], [50, 80], [50, 70], [60, 70], [70, 60], [70, 50], [50, 50]])               
+            #self.obstacles.append([[20, 0], [40, 0], [40, 10], [30, 10]])
+            self.obstacles.append([[0, 20], [20, 20], [20, 50], [0, 70]])
+            #self.obstacles.append([[20, 50], [30, 50], [30, 60], [20, 60]])
+            self.obstacles.append([[50, 20], [60, 20], [60, 30], [50, 30]])
+            self.obstacles.append([[50, 40], [50, 50], [60, 50], [60, 40]])
+            self.obstacles.append([[80, 20], [90, 20], [90, 30], [80, 30]])
+            self.obstacles.append([[80, 40], [90, 40], [90, 50]])
+            self.obstacles.append([[10, 70], [15, 70], [15, 80], [10, 80]])
+            self.obstacles.append([[40, 70], [100, 70], [100, 100], [10, 100]])
+
+        elif map_num == 122:
+            self.obstacles.append([[20, 50], [39.9, 39.9], [39.9, 69.9], [20, 60]])
+            self.obstacles.append([[40, 40], [60, 50], [60, 70], [40, 70]])
+
+        elif map_num == 123:
+            #self.obstacles.append([[20, 10], [30, 10], [30, 20]])
+            self.obstacles.append([[10, 30], [15, 30], [15, 40], [10, 40]])
+            self.obstacles.append([[10, 50], [20, 50], [20, 60], [10, 60]])
+            self.obstacles.append([[30, 50], [50, 50], [50, 60], [30, 60]])
+            #self.obstacles.append([[20, 50], [50, 50], [50, 60], [20, 60]])
+            self.obstacles.append([[15, 80], [30, 80], [30, 90], [15, 90]])
+            self.obstacles.append([[50, 80], [60, 80], [60, 90], [50, 90]])
+            #self.obstacles.append([[70, 50], [80, 50], [80, 60], [70, 60]])
+            self.obstacles.append([[85, 55], [100, 55], [100, 60], [85, 60]])
+            #self.obstacles.append([[70, 70], [80, 70], [80, 80], [70, 80]])
+            self.obstacles.append([[70, 70], [75, 70],[75, 80], [70, 80]])
+            self.obstacles.append([[25, 20], [30, 20], [30, 30], [25, 25]])
+            self.obstacles.append([[5, 15], [10, 15], [10,20], [5, 20]])
+            #self.obstacles.append([[15, 10], [25, 10], [25, 15], [20, 15]])
+            self.obstacles.append([[85, 85], [90, 85], [90, 90], [85, 90]])
+            self.obstacles.append([[60, 30], [80, 30], [80, 40], [60, 40]])
+            #self.obstacles.append([[85, 30], [90, 30], [90, 40], [85, 40]])
+            #self.obstacles.append([[60, 10], [70, 10], [70, 20], [60, 20]])
+            self.obstacles.append([[80, 10], [90, 10], [90, 20], [80, 20]])
+            self.obstacles.append([[30, 0], [50, 0], [50, 10], [30, 10]])
+            self.obstacles.append([[40, 25], [50, 25], [50, 30], [40, 30]])
+            #self.obstacles.append([[50, 10], [60, 10], [50, 20]])
+            #self.obstacles.append([[90, 30], [90, 40], [80, 40]])
+            #self.obstacles.append([[50, 30], [60, 40], [50, 40]])
+            #self.obstacles.append([[80, 10], [90, 10], [90, 20]])
+        elif map_num == 124:
+            self.obstacles.append([[0, 10], [30, 10], [30, 20], [0, 20]])
+            self.obstacles.append([[40, 10], [60, 10], [60, 20], [40, 20]])
+            #self.obstacles.append([[0, 30], [30, 30], [30, 40], [0, 40]])
+            self.obstacles.append([[40, 30], [60, 30], [60, 40], [40, 40]])
+            self.obstacles.append([[70, 30], [100, 30], [100, 40], [70, 40]])
+            self.obstacles.append([[0, 50], [30, 50], [30, 60], [0, 60]])
+            #self.obstacles.append([[40, 50], [60, 50], [60, 60], [40, 60]])
+            self.obstacles.append([[70, 50], [100, 50], [100, 60], [70, 60]])
+            self.obstacles.append([[0, 70], [30, 70], [30, 80], [0,80]])
+            self.obstacles.append([[40, 70], [60, 70], [60, 80], [40, 80]])
+            #self.obstacles.append([[70, 70], [100, 70], [100, 80], [70, 80]])
+            self.obstacles.append([[40, 90], [60, 90], [60, 100], [40, 100]])
+            #self.obstacles.append([[70, 90], [100, 90], [100, 100], [70, 100]])
+            self.obstacles.append([[20, 90], [30, 90], [30, 100], [20, 100]])
+            #self.obstacles.append([[80, 10], [90, 10], [90, 20], [80, 20]])
+            #self.obstacles.append([[]])
+        elif map_num == 125:
+            self.obstacles.append([[20, 0], [90, 0], [90, 20], [40, 20]])
+            self.obstacles.append([[0, 30], [20, 50], [20, 70], [0, 70]])
+            self.obstacles.append([[40, 80], [60, 80], [80, 100], [40, 100]])
+            self.obstacles.append([[80, 60], [100, 60], [100, 80]])
+            self.obstacles.append([[40, 40], [45, 40], [45, 45], [40, 45]])
+            self.obstacles.append([[40, 60], [45, 60], [45, 65], [40, 65]])
+            self.obstacles.append([[60, 60], [65, 60], [65, 65], [60, 65]])
+            self.obstacles.append([[60, 40], [65, 40], [65, 45], [60, 45]])
+
+
+                                     
 
         elif map_num == 50:
             self.obstacles.append([[20, 0], [30, 0], [30, 15], [20, 15]])
@@ -1239,19 +1437,12 @@ class FightingModel(Model):
         # 모든 출구 목록 정의
         all_exits = [
             [(0, 0), (exit_width, 0), (exit_width, exit_height), (0, exit_height)],  # 왼아
-            [(self.width-exit_width-1, 0), (self.width-1, 0), (self.width-1, exit_height), (self.width-exit_width-1, exit_height)],  # 오아
-            [(self.width-exit_width-1, self.height-exit_height-2), (self.width-1, self.height-exit_height-2), (self.width-1, self.height-1), (self.width-exit_width-1, self.height-1)],  # 오위
-            [(0, self.height-exit_height-2), (exit_width, self.height-exit_height-2), (exit_width, self.height-1), (0, self.height-1)],  #  왼위
+            [(self.width-exit_width, 0), (self.width, 0), (self.width, exit_height), (self.width-exit_width, exit_height)],  # 오아
+            [(self.width-exit_width, self.height-exit_height), (self.width, self.height-exit_height), (self.width, self.height), (self.width-exit_width, self.height)],  # 오위
+            [(0, self.height-exit_height), (exit_width, self.height-exit_height), (exit_width, self.height), (0, self.height)],  #  왼위
           
         ]
-            
-        all_exit_points = [
-            (exit_width/2,                 exit_height/2                ),  # 왼아  0
-            (self.width - exit_width/2,    exit_height/2                ),  # 오아  1
-            (self.width - exit_width/2,    self.height - exit_height/2  ),  # 오위  2
-            (exit_width/2,                 self.height - exit_height/2  ),  # 왼위  3
-        ]
-        
+
         # 랜덤하게 출구 선택
 
         index = []
@@ -1317,15 +1508,22 @@ class FightingModel(Model):
             index = [1]
 
         
-        self.exit_point = []
         self.exit_list = []
         for i in range(len(index)):
             self.exit_list.append(all_exits[index[i]])
 
-        for i in range(len(index)):
-            self.exit_point.append(all_exit_points[index[i]])    
+        if (self.map_num == 122):
+            self.exit_list.append([(0, 75), (5, 75), (5, 100), (0, 100)])
+        elif (self.map_num == 123):
+            self.exit_list.append([(0,0), (20, 0), (20, 5), (0, 5)])
+            self.exit_list.append([(95, 0), (100, 0), (100, 5), (95, 5)])
+        elif (self.map_num == 124):
+            self.exit_list.append([(0, 25), (5, 25), (5, 45), (0, 45)])
+            self.exit_list.append([(95, 41), (100, 41), (100, 49), (95, 49)])
+        elif (self.map_num == 125):
+            self.exit_list.append([(10, 95), (30, 95), (30, 100), (10, 100)])
+            self.exit_list.append([(95, 30), (100, 30), (100, 50), (95, 50)])
 
-        
         return 0
 
 
@@ -1435,77 +1633,86 @@ class FightingModel(Model):
     
     def exit_score(self, agent, exit_idx, alpha):
         
-        """식 (12)를 그대로 구현 – distance·density·width 3요소."""
-        # (i) 거리
-        d_s  = agent.point_to_point_distance(agent.xy, self.exit_point[exit_idx])
+        """식 (12): distance·density·width 3요소 (exit_polygon 버전)."""
 
-        # (ii) 밀도 = 동일 출구를 향해 ‘현재’ 이동 중인 인원 수
+        # (i) 거리: agent → exit_polygon(경계 최단점 q)까지의 '경로거리'
+        q, _ = self.nearest_point_on_exit(exit_idx, agent.xy)
+        d_s = agent.point_to_point_distance(agent.xy, q)
+
+        # (ii) 밀도(혼잡): 동일 출구를 목표로 하는 인원 수
         people_to_exit = sum(
-                            bool(ag.exit_belief and ag.exit_belief["idx"] == exit_idx)
-                            for ag in self.crowds if not ag.dead
-                        )
+            bool(ag.exit_belief and ag.exit_belief["idx"] == exit_idx)
+            for ag in self.crowds if not ag.dead
+        )
         d_e = people_to_exit
 
-        # (iii) 폭 – 이미 exit_meta에 내장됨
+        # (iii) 폭
         d_w = self.exit_meta[exit_idx]["width"]
-        base = (K1*np.exp(-d_s) + K2*np.exp(-d_e) + K3*(1-np.exp(-d_w)))
-        score = np.exp(-alpha) * base/(K1+K2+K3)
+
+        base  = (K1*np.exp(-d_s) + K2*np.exp(-d_e) + K3*(1 - np.exp(-d_w)))
+        score = np.exp(-alpha) * base / (K1 + K2 + K3)
         return score
-    
+        
+    def nearest_point_on_exit(self, exit_idx, xy):
+        poly = self._exit_polys[exit_idx]
+        p = Point(xy[0], xy[1])
+        d = poly.distance(p)
+        if d == 0.0:
+            return (xy[0], xy[1]), 0.0
+        q = poly.exterior.interpolate(poly.exterior.project(p))
+        return (q.x, q.y), d
+
     def step(self):
         self.stats.collect(self)
         self.step_n += 1
         self.step_count += 1
 
-        if self.robot_version == 'Q':
+        if (self.robot_version == 'Q'):
+            # 1) full map (uint8) 가져오기 (학습 때랑 동일: MAP_H, MAP_W)
             full_map = self.return_current_image(MAP_H, MAP_W)  # (H,W) uint8
+
+            # 2) ACTION_SCALE boundary 여부 확인
+            # (예: ACTION_SCALE=4일 때, step 1, 5, 9... 에서 새로운 행동 결정)
             is_boundary = ((self.step_n - 1) % ACTION_SCALE == 0)
 
-            # build_ego_global_frames는 그대로 호출하되,
-            # ME면 ego_f는 무시해도 됨(혹은 함수에서 None 반환하도록 해도 됨)
+            # 3) ego/global frame 만들기
+            # _build_ego_global_frames 내부 구현에 따라 반환값이 np.array 형태여야 함
             ego_f, glob_f = self.build_ego_global_frames(full_map)
 
-            # ---------- frame stack 업데이트 ----------
+            # 4) frame stack 업데이트
             if self._first_step:
-                # global은 항상
-                glob_state = self.glob_stack.reset(glob_f)
-                # ego는 옵션
-                if USE_EGO:
-                    ego_state = self.ego_stack.reset(ego_f)
-                else:
-                    ego_state = None
+                ego_state = self.ego_stack.reset(ego_f)     # (4, EGO, EGO)
+                glob_state = self.glob_stack.reset(glob_f)  # (4, DOWN, DOWN)
                 self._first_step = False
-
             elif is_boundary:
+                # 행동 결정 시점에는 스택에 실제로 push
+                ego_state = self.ego_stack.append(ego_f)
                 glob_state = self.glob_stack.append(glob_f)
-                if USE_EGO:
-                    ego_state = self.ego_stack.append(ego_f)
-                else:
-                    ego_state = None
-
             else:
+                # 행동 결정 시점이 아니면 "현재 프레임이 들어왔다면?" 가정만 하고 스택 상태 유지
+                ego_state = self.ego_stack.peek_with(ego_f)
                 glob_state = self.glob_stack.peek_with(glob_f)
-                if USE_EGO:
-                    ego_state = self.ego_stack.peek_with(ego_f)
-                else:
-                    ego_state = None
 
+            # 5) 로봇 상태 가져오기 (항상 필요할 수 있음)
             robot_state = np.array(self.return_current_robot_state(), dtype=np.float32)
 
-        # ---------- 로봇 행동 ----------
+        # 6) 로봇 행동 결정 및 수행
         if self.robot_version == 'Q':
             if self.using_model and is_boundary:
-                # ME면 ego_state=None으로 들어감
-                action, _ = self.sac_agent.select_action(
-                    ego_state,          # None (ME) or (4,EGO,EGO)
-                    glob_state,         # (4,DOWN,DOWN)
-                    robot_state,
-                    deterministic=False
-                )
+                # ---------------------------------------------------------
+                # [수정됨] Agent의 select_action과 인터페이스 통일
+                # 내부적으로 agent.select_action(ego, global, robot, deterministic=True) 호출
+                # ---------------------------------------------------------
+                action, _ = self.sac_agent.select_action(ego_state, glob_state, robot_state, deterministic=False)
+                
                 dx, dy = float(action[0]), float(action[1])
+
+                # 환경에 행동 적용 (실제 이동량이나 결과 반환 가능)
                 real_action = self.robot.receive_action([dx, dy])
 
+            # 로그 출력 (ACTION_SCALE 주기마다 혹은 SCALE_CHECK 시)
             if self.using_model and ((self.step_n % ACTION_SCALE == (ACTION_SCALE - 1)) and SCALE_CHECK):
+                # (주의) 각 reward 함수들이 정의되어 있어야 함
                 print(f"reward_based_alived : {self.reward_based_alived() * REWARD_A:.4f}")
                 print(f"reward_based_all_agents_danger : {self.reward_based_all_agents_danger() * REWARD_B:.4f}")
                 print(f"reward_penalty : {self.reward_penalty() * REWARD_D:.4f}")
@@ -1514,13 +1721,16 @@ class FightingModel(Model):
 
         elif self.robot_version == 'T':
             self.robot.robot_policy_going_exit()
-        elif self.robot_version == 'R':
-            self.robot.robot_policy_go_and_back()
+        # elif self.robot_version == 'R':
+        #     self.robot.robot_policy_go_and_back()
 
+        # 7) 환경 진행 (Mesa schedule step)
         self.schedule.step()
 
+        # 8) 통계 업데이트 (대피 인원 등)
         self.previous_evacuated = self.now_evacuated
         self.now_evacuated = self.evacuated_agents()
+
         self.previous_evacuated_with_robot = self.now_evacuated_with_robot
         self.now_evacuated_with_robot = self.evacuated_agents_with_robot()
             
