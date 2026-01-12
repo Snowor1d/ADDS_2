@@ -323,7 +323,6 @@ def downsample_full_map(full_map: np.ndarray, target: int) -> np.ndarray:
 
 
 
-
 class FightingModel(Model):
     """A model with some number of agents."""
 
@@ -1264,10 +1263,6 @@ class FightingModel(Model):
             self.obstacles.append([[80, 40], [90, 40], [90, 50]])
             self.obstacles.append([[10, 70], [15, 70], [15, 80], [10, 80]])
             self.obstacles.append([[40, 70], [100, 70], [100, 100], [10, 100]])
-
-        elif map_num == 122:
-            self.obstacles.append([[20, 50], [39.9, 39.9], [39.9, 69.9], [20, 60]])
-            self.obstacles.append([[40, 40], [60, 50], [60, 70], [40, 70]])
 
         elif map_num == 123:
             #self.obstacles.append([[20, 10], [30, 10], [30, 20]])
