@@ -28,8 +28,8 @@ MAP_NUM = -1 #if not used, -2, if random, -1
 #MAP_NUM_RANDOM = [6, 7, 26]
 
 
-MAP_NUM_RANDOM = [134]
-SCALE_CHECK = 1 # want to check reward scale?
+MAP_NUM_RANDOM = [132]
+SCALE_CHECK = 0 # want to check reward scale?
 ACTION_SCALE = 4
 MAX_STEPS = 4000
 
@@ -41,7 +41,7 @@ EXIT_CONFIRM_RADIUS = 10
 EXIT_CONFIRM_RADIUS_BONUS = 2
 AGENT_SPEED_MEAN = 1.5 # m/s 
 ROBOT_SPEED_MAX = 2 # m/s 
-MODEL_VERSION = "ME_104_105_108" #ME or FU
+MODEL_VERSION = "FU" #ME or FU
 AGENT_TIME_STEP = 0.5
 ROBOT_TIME_STEP = 0.5
 

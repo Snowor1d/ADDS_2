@@ -34,6 +34,48 @@ import torch.nn.functional as F
 from ADDS_AS_reinforcement import SACAgent, ReplayBuffer, PolicyNetwork, QNetwork, ACTION_SCALE, FrameStack, FrameStack2
 from config import *
 USE_EGO = (MODEL_VERSION != "ME")
+DEBUG_SAVE = False
+
+
+
+def debug_save_obs(ego_f, glob_f, step_n: int, prefix="obs"):
+    """
+    ego_f: (EGO,EGO) float32 in [0,1] or None
+    glob_f:(DOWN,DOWN) float32 in [0,1]
+    """
+    os.makedirs("debug_obs", exist_ok=True)
+
+    # float[0,1] -> uint8[0,255]
+    def to_u8(a):
+        return np.clip(a * 255.0, 0, 255).astype(np.uint8)
+
+    # --- global ---
+    g = to_u8(glob_f)
+    plt.figure(figsize=(4,4))
+    plt.title(f"{prefix} glob step={step_n}")
+    plt.imshow(g, vmin=0, vmax=255)  # colormap 기본(viridis). 원하면 cmap="gray"
+    plt.axis("off")
+    plt.tight_layout()
+    plt.savefig(f"debug_obs/{prefix}_glob_s{step_n:06d}.png", dpi=200)
+    plt.close()
+
+    # --- ego (optional) ---
+    if ego_f is not None:
+        e = to_u8(ego_f)
+        plt.figure(figsize=(4,4))
+        plt.title(f"{prefix} ego step={step_n}")
+        plt.imshow(e, vmin=0, vmax=255)
+        plt.axis("off")
+        plt.tight_layout()
+        plt.savefig(f"debug_obs/{prefix}_ego_s{step_n:06d}.png", dpi=200)
+        plt.close()
+
+    # 값 분포도 같이 찍으면 스케일/255 전파 바로 잡힘
+    uniq_g = np.unique(g)
+    print(f"[debug_obs] step={step_n} glob_u8 unique={uniq_g[:20]}{'...' if len(uniq_g)>20 else ''}")
+    if ego_f is not None:
+        uniq_e = np.unique(to_u8(ego_f))
+        print(f"[debug_obs] step={step_n} ego_u8 unique={uniq_e[:20]}{'...' if len(uniq_e)>20 else ''}")
 
 
 def _point_on_segment(p: Tuple[int, int],
@@ -162,6 +204,35 @@ def bresenham(x0, y0, x1, y1):
             y0 += sy
     
     return points
+
+def _dedup_pslg(vertices, segments, ndigits=6):
+    # 1) vertex dedup
+    key_to_new = {}
+    new_vertices = []
+    old_to_new = {}
+
+    for i, (x, y) in enumerate(vertices):
+        k = (round(float(x), ndigits), round(float(y), ndigits))
+        if k not in key_to_new:
+            key_to_new[k] = len(new_vertices)
+            new_vertices.append([k[0], k[1]])
+        old_to_new[i] = key_to_new[k]
+
+    # 2) segment remap + remove zero-length + remove duplicates (undirected)
+    seen = set()
+    new_segments = []
+    for a, b in segments:
+        ia = old_to_new[int(a)]
+        ib = old_to_new[int(b)]
+        if ia == ib:
+            continue
+        e = (ia, ib) if ia < ib else (ib, ia)
+        if e in seen:
+            continue
+        seen.add(e)
+        new_segments.append([ia, ib])
+
+    return new_vertices, new_segments
 
 def find_triangle_lines(v0, v1, v2):
     """
@@ -513,6 +584,58 @@ class FightingModel(Model):
         self.ego_stack = FrameStack2(4)
         self.glob_stack = FrameStack2(4)
 
+    def _sanitize_obstacles(self, eps=1e-6):
+        polys = []
+        for ob in self.obstacles:
+            if len(ob) < 3:
+                continue
+
+            P = Polygon(ob)
+            # self-intersection/비정상 폴리곤 교정
+            if not P.is_valid:
+                P = P.buffer(0)
+
+            if P.is_empty:
+                continue
+            if P.area < eps:
+                continue
+
+            polys.append(P)
+
+        if not polys:
+            self.obstacles = []
+            return
+
+        # 겹침/중복 병합
+        U = unary_union(polys)
+
+        out = []
+        if isinstance(U, Polygon):
+            out = [U]
+        elif isinstance(U, MultiPolygon):
+            out = list(U.geoms)
+        else:
+            # GeometryCollection이면 폴리곤만 추출
+            out = [g for g in getattr(U, "geoms", []) if isinstance(g, Polygon)]
+
+        # 좌표를 리스트로 환원 (마지막 닫힘좌표는 제거)
+        new_obs = []
+        for P in out:
+            coords = list(P.exterior.coords)
+            coords = coords[:-1]  # 닫힘 점 제거
+            # 좌표 양자화(중요)
+            coords = [[round(x, 6), round(y, 6)] for x, y in coords]
+            # 연속 중복 제거
+            cleaned = []
+            for c in coords:
+                if not cleaned or cleaned[-1] != c:
+                    cleaned.append(c)
+            if len(cleaned) >= 3:
+                new_obs.append(cleaned)
+
+        self.obstacles = new_obs
+    
+
     def is_free(self, xy):
         x, y = xy
         if x < 0 or y < 0 or x > self.width or y > self.height:
@@ -744,7 +867,7 @@ class FightingModel(Model):
         return 0
     
     def mesh_map(self):
-
+        self._sanitize_obstacles()
         D = 20
         outer_polys, _ = union_obstacles_to_polygons(self.obstacles)
         self.obstacles = [ [list(p) for p in poly ] for poly in outer_polys]
@@ -768,7 +891,7 @@ class FightingModel(Model):
 
         # 세그먼트 및 포인트로 메쉬화
         vertices_with_points, segments_with_points = generate_segments_with_points(vertices, segments, D)
-
+        vertices_with_points, segments_with_points = _dedup_pslg(vertices_with_points, segments_with_points)
         # 삼각형화를 위한 데이터 생성
         triangulation_data = {'vertices': np.array(vertices_with_points), 'segments': np.array(segments_with_points)}
 
@@ -1724,6 +1847,9 @@ class FightingModel(Model):
             # build_ego_global_frames는 그대로 호출하되,
             # ME면 ego_f는 무시해도 됨(혹은 함수에서 None 반환하도록 해도 됨)
             ego_f, glob_f = self.build_ego_global_frames(full_map)
+            if self.step_n <= 30 and is_boundary and DEBUG_SAVE:
+                print("저장됨")
+                debug_save_obs(ego_f if USE_EGO else None, glob_f, self.step_n, prefix="raw")
 
             # ---------- frame stack 업데이트 ----------
             if self._first_step:

@@ -52,11 +52,11 @@ run_iteration       = 1
 number_of_agents    = 30
 max_step_num        = 3000
 robot_version       = 'Q'     # 'N','T','Q'
-robot_learned_model = 'FU1_10maps_K3.pth'
+robot_learned_model = 'RE_10.pth'
 test_num            = 10
-map_list            = [102, 113, 114, 115, 116]
+map_list            = [130]
 
-EXP_NAME = "0111/FU1_10maps_K3"
+EXP_NAME = "0113/unseen_test"
 
 CROWD_COLOR = "#0000FF"
 ROBOT_COLOR = "#FF0000"

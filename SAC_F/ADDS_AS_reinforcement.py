@@ -27,7 +27,7 @@ USE_EGO = (MODEL_VERSION != "ME")
 from pathlib import Path
 import imageio.v2 as imageio
 
-DEBUG_SAVE = False
+DEBUG_SAVE = True
 home_dir = os.path.expanduser("~")
 DEBUG_DIR_TEMP = os.path.join(home_dir, LOG_DIR)
 DEBUG_DIR = os.path.join(DEBUG_DIR_TEMP, "debug_frames")
@@ -329,8 +329,11 @@ def worker_process(
 
         if USE_EGO:
             ego = ego_crop_from_full_map(full, (ix, iy), EGO_MAP_SIZE, pad_value=50)  # (EGO,EGO) uint8
-            return full, ego, glob
+            ego_f = ego.astype(np.float32) / 255.0
+            glob_f = glob.astype(np.float32) / 255.0
+            return full, ego_f, glob_f
         else:
+            glob_f = glob.astype(np.float32) / 255.0
             return full, None, glob
     # hearbeats = ctx.Array('d', N_WORKERS)
     # for i in range(N_WORKERS):

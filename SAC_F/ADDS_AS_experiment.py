@@ -27,15 +27,15 @@ visualization_mode = 'off'  # 'off', 'cont_mp4', 'cont_png_every', 'cont_png'
 run_iteration      = 1
 number_of_agents   = 30
 max_step_num       = 3000
-robot_version      = 'Q'  # 'N','T','Q'
+robot_version      = 'T'  # 'N','T','Q'
 robot_learned_model = 'FU1_3maps.pth'
-test_num           = 10
+test_num           = 3
 #map_list           = [100, 104, 105, 108, 110, 117, 118, 119, 120, 121]
-map_list = [104,105,108]
+map_list = [133]
 #map_list = [115, 116]
 #test : 102, 113, 114, 115, 116
 
-EXP_NAME = "Result_0109/FU_3maps"
+EXP_NAME = "Result_0112/unseenmaps_test"
 
 CROWD_COLOR = "#0000FF"
 ROBOT_COLOR = "#FF0000"

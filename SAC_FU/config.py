@@ -58,7 +58,7 @@ RANDOM_EXIT = False
 
 
 # -------------- PATH -------------------
-LOG_DIR = "SOTA_MODELS"
+LOG_DIR = "test_fu"
 PORT_NUM = 6007
 
 # --------------- SAC ALGORITHM PARAMETER ---------------
