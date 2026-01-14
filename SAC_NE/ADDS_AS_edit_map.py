@@ -75,12 +75,12 @@ class Transform:
     def map_to_px(self, p: Point) -> Tuple[int, int]:
         x, y = p
         px = int(self.origin_x + x * self.scale)
-        py = int(self.origin_y + y * self.scale)
+        py = int(self.origin_y + (self.map_h-y) * self.scale)
         return px, py
 
     def px_to_map(self, px: int, py: int) -> Point:
         x = (px - self.origin_x) / max(1e-9, self.scale)
-        y = (py - self.origin_y) / max(1e-9, self.scale)
+        y = self.map_h - (py - self.origin_y) / self.scale
         return int(round(x)), int(round(y))
 
 
