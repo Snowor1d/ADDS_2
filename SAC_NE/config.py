@@ -24,13 +24,15 @@ MAP_NUM = -1 #if not used, -2, if random, -1
 # unseen maps : 102, 113, 114, 115, 116
 # RE maps : 105, 108, 110, 119, 120, 121, 122, 123, 124, 125
 # RE 100x100 3maps : 105, 108, 122
+# resal test map : 130, 131, 132, 133, 134
 
 
 #MAP_NUM_RANDOM = [6, 7, 26]
 
 
-MAP_NUM_RANDOM = [150, 151, 152, 153, 154]
+#MAP_NUM_RANDOM = [150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170]
 # 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170
+MAP_NUM_RANDOM = [155]
 SCALE_CHECK = 0 # want to check reward scale?
 ACTION_SCALE = 4
 MAX_STEPS = 6000
@@ -61,7 +63,7 @@ RANDOM_EXIT = False
 
 
 # -------------- PATH -------------------
-LOG_DIR = "Log_RE_10maps_pro"
+LOG_DIR = "SOTA_MODELS"
 PORT_NUM = 6007
 
 # --------------- SAC ALGORITHM PARAMETER ---------------
