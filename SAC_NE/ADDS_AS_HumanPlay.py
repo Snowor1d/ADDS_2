@@ -20,7 +20,7 @@ from matplotlib.animation import FFMpegWriter
 ############################
 # 실험/기록 파라미터
 ############################
-MAP_NUM_FOR_RUN = 122        # 원하는 맵 번호(-1은 내부 랜덤 로직) #6,7,8,24,25,26
+MAP_NUM_FOR_RUN = 104        # 원하는 맵 번호(-1은 내부 랜덤 로직) #6,7,8,24,25,26
 ROBOT_VERSION_FOR_MODEL = 'Q' # 모델에는 'Q'로 넘기되, 사람이 직접 action 전달
 ROBOT_VERSION_FOR_LOG   = 'H' # 결과 폴더명에는 'H'로 기록해 비교군 명확화
 #EXP_NAME   = "test_0917_2"        # 최상위 결과 폴더 접미사: Result_data_{EXP_NAME}
@@ -106,9 +106,9 @@ CONT_ROBOT_HEADING_SCALE = 3
 CONT_TRAIL_TARGET = "none"        # "none"|"crowd"|"robot"|"both"
 CONT_TRAIL_STYLE = "persist"       # "persist"|"fade"
 CONT_MAX_TRAIL = 2000
-CONT_ROBOT_STYLE = "circle"        # "circle"|"image"
-CONT_ROBOT_IMAGE_PATH = "assets/robot.png"
-CONT_ROBOT_IMAGE_SCALE = 4
+CONT_ROBOT_STYLE = "image"        # "circle"|"image"
+CONT_ROBOT_IMAGE_PATH = "images/robot.png"
+#CONT_ROBOT_IMAGE_SCALE = 4
 CONT_EXIT_SIZE = 5.0
 CONT_SNAP_EXIT_TO_BOUNDARY = True
 CONT_ANNOTATE_PATH = False
@@ -368,7 +368,7 @@ def main():
                 max_trail=CONT_MAX_TRAIL,
                 robot_style=CONT_ROBOT_STYLE,
                 robot_image_path=CONT_ROBOT_IMAGE_PATH,
-                robot_image_scale=CONT_ROBOT_IMAGE_SCALE,
+                #robot_image_scale=CONT_ROBOT_IMAGE_SCALE,
                 exit_size=CONT_EXIT_SIZE,
                 snap_exit_to_boundary=CONT_SNAP_EXIT_TO_BOUNDARY,
                 annotate_robot_path=CONT_ANNOTATE_PATH,

@@ -47,33 +47,34 @@ import torch.nn.functional as F
 # =========================
 VIS_SAVE_EVERY = 5
 
-visualization_mode  = 'off'   # 'off', 'cont_mp4', 'cont_png_every', 'cont_png'
+visualization_mode  = 'cont_png_every'   # 'off', 'cont_mp4', 'cont_png_every', 'cont_png'
 run_iteration       = 1
 number_of_agents    = 30
-max_step_num        = 3000
+max_step_num        = 10
 robot_version       = 'Q'     # 'N','T','Q'
-robot_learned_model = 'RE_3maps_plus.pth'
+robot_learned_model = 'NE_150_to_199_3000.pth'
 test_num            = 1
-map_list = [130, 131, 132, 133, 134]
+map_list = [161, 246]
 #map_list            = [150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191, 192, 193, 194, 195, 196, 197, 198, 199]
 # 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191, 192, 193, 194, 195, 196, 197, 198, 199
 # 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191, 192, 193, 194, 195, 196, 197, 198, 199, \
 # 200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213, 214, 215, 216, 217, 218, 219, 220, 221, 222, 223, 224, 225, 226, 227, 228, 229, 230, 231, 232, 233, 234, 235, 236, 237, 238, 239, 240, 241, 242, 243, 244, 245, 246, 247, 248, 249
-EXP_NAME = "0114/get_images_2"
+# 130, 131, 132, 133, 134
+EXP_NAME = "0115/get_images_4"
 
 CROWD_COLOR = "#0000FF"
 ROBOT_COLOR = "#FF0000"
 SINGLE_COLOR_EDGES = True
 SHOW_AGENT_HEADING = False
 SHOW_ROBOT_HEADING = False
-ROBOT_HEADING_SCALE = 1.2
+ROBOT_HEADING_SCALE = 1.2   
 
-TRAIL_TARGET = "robot"  # robot / crowd / none
+TRAIL_TARGET = "none"  # robot / crowd / none
 TRAIL_STYLE  = "persist"
 MAX_TRAIL    = 2000
-ROBOT_STYLE  = "circle"
-ROBOT_IMAGE_PATH  = "assets/robot.png"
-ROBOT_IMAGE_SCALE = 5
+ROBOT_STYLE  = "image"
+ROBOT_IMAGE_PATH  = "images/robot.png"
+#ROBOT_IMAGE_SCALE = 5
 EXIT_SIZE = 5.0
 SNAP_EXIT_TO_BOUNDARY = False
 
@@ -312,7 +313,7 @@ def run_one_episode(map_id: int):
         max_trail=MAX_TRAIL,
         robot_style=ROBOT_STYLE,
         robot_image_path=ROBOT_IMAGE_PATH,
-        robot_image_scale=ROBOT_IMAGE_SCALE,
+        #robot_image_scale=ROBOT_IMAGE_SCALE,
         exit_size=EXIT_SIZE,
         snap_exit_to_boundary=SNAP_EXIT_TO_BOUNDARY,
         annotate_robot_path=ANNOTATE_ROBOT_PATH,

@@ -1735,7 +1735,7 @@ class FightingModel(Model):
             self.exit_list.append([(0, 30), (5, 30), (5, 40), (0, 40)])
 
         elif (self.map_num == 134):
-            self.exit_list.append([[0, 0], [5, 0], [5, 5], [0,5]])
+            self.exit_list.append([[0, 0], [5, 0], [5, 10], [0,10]])
             self.exit_list.append([[81, 95], [92, 95], [92, 100], [81, 100]])
 
         return 0

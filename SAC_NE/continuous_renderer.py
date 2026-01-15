@@ -8,7 +8,12 @@ from typing import Iterable, Tuple, Dict, List, Optional
 import matplotlib.patheffects as pe
 from matplotlib.colors import to_rgba
 
-_EPS = 1e-6
+_EPS = 0.5
+ROBOT_STYLE_DEFAULT = "image"
+ROBOT_IMAGE_NAME_DEFAULT = "robot.png"
+ROBOT_IMAGE_SCALE_DEFAULT = 1.6
+ROBOT_IMAGE_ROTATE_BY_VELOCITY_DEFAULT = True
+
 
 class ContinuousRenderer:
     """
@@ -68,12 +73,6 @@ class ContinuousRenderer:
         # ===== Filtering =====
         hide_dead: bool = True,
         exclude_types: Iterable[int] = (),
-
-        # ===== Robot shape =====
-        robot_style: str = "circle",                 # "circle" | "image"
-        robot_image_path: Optional[str] = None,      # png 등
-        robot_image_scale: float = 1.6,              # 반지름 대비 이미지 스케일
-        robot_image_rotate_by_velocity: bool = False,
 
         # ===== Robot path annotations =====
         annotate_robot_path: bool = False,            # 표기 켜기/끄기
@@ -141,7 +140,12 @@ class ContinuousRenderer:
         mesh_danger_source: str = "auto",          # "auto" | "dict" | "attr"
         mesh_danger_attr: str = "danger",          # source="attr"이면 tri.danger 같은거에서 읽음
         
-
+        # ===== Robot shape =====
+        robot_style: str = ROBOT_STYLE_DEFAULT,          # "circle" | "image"
+        robot_image_path: Optional[str] = None,          # (선택) 직접 경로 지정
+        robot_image_name: Optional[str] = ROBOT_IMAGE_NAME_DEFAULT,  # (권장) images/ 안 파일명
+        robot_image_scale: float = ROBOT_IMAGE_SCALE_DEFAULT,
+        robot_image_rotate_by_velocity: bool = ROBOT_IMAGE_ROTATE_BY_VELOCITY_DEFAULT,
         
     ):
         # ===== Canvas =====
@@ -206,11 +210,31 @@ class ContinuousRenderer:
         self.exclude_types = set(exclude_types)
 
         # ===== Robot shape =====
-        self.robot_style = robot_style
+        self.robot_style = str(robot_style)
         self.robot_img = None
-        if self.robot_style == "image" and robot_image_path and os.path.exists(robot_image_path):
+
+        # images/ 기본 경로: 현재 파일 위치 기준으로 ./images
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        images_dir = os.path.join(base_dir, "images")
+
+        # 우선순위: robot_image_path(직접 경로) > images/robot_image_name > None
+        resolved_img_path = None
+        if robot_image_path:
+            resolved_img_path = robot_image_path
+        elif robot_image_name:
+            resolved_img_path = os.path.join(images_dir, robot_image_name)
+
+        self.robot_image_path = resolved_img_path  # 디버깅/확인용으로 저장
+
+        if self.robot_style == "image" and resolved_img_path and os.path.exists(resolved_img_path):
             import matplotlib.image as mpimg
-            self.robot_img = mpimg.imread(robot_image_path)
+            self.robot_img = mpimg.imread(resolved_img_path)
+        else:
+            # 이미지가 없으면 자동으로 circle로 폴백
+            if self.robot_style == "image" and self.robot_img is None:
+                self.robot_style = "circle"
+
+
         self.robot_image_scale = robot_image_scale
         self.robot_image_rotate = robot_image_rotate_by_velocity
 
@@ -265,8 +289,8 @@ class ContinuousRenderer:
         self.mesh_danger_cmap_name = str(mesh_danger_cmap_name)
         self.mesh_danger_source = str(mesh_danger_source)
         self.mesh_danger_attr = str(mesh_danger_attr)
-
-
+        self.previous_yaw = 0
+        self.yaw = 0
         # ===== Buffers =====
         self.trails_crowd: Dict[int, List[Tuple[float,float]]] = {}
         # 로봇은 step 함께 저장: (x, y, step)
@@ -280,6 +304,27 @@ class ContinuousRenderer:
         self.fig.subplots_adjust(0, 0, 1, 1)
         self._setup_axes()
         self.show_mesh = show_mesh
+
+    def _get_velocity(self, obj):
+        """
+        로봇/에이전트에서 속도 벡터(vx,vy)를 최대한 찾아 반환.
+        우선순위:
+        1) obj.vel (vx,vy)
+        2) obj.vx, obj.vy
+        3) obj.dx, obj.dy
+        4) obj.last_dx, obj.last_dy (있으면)
+        없으면 (0,0)
+        """
+        if obj is None:
+            return (0.0, 0.0)
+        v = getattr(obj, "action", None)
+        #print(obj.vel)
+        if v is not None and isinstance(v, (tuple, list)) and len(v) >= 2:
+            return (float(v[0]), float(v[1]))
+
+
+
+        return (0.0, 0.0)
 
     # ====================== Public ======================
     def draw(self, model, step: Optional[int] = None) -> np.ndarray:
@@ -510,25 +555,46 @@ class ContinuousRenderer:
                                  style=self.trail_style, linewidth=1)
 
     def _draw_robot(self, robot, step: Optional[int] = None):
-        if robot is None: return
+        if robot is None: 
+            return
+
         x, y = float(robot.xy[0]), float(robot.xy[1])
         rcol = self.colors["robot"]
 
         if self.robot_style == "image" and self.robot_img is not None:
             s = self.robot_image_scale * self.robot_r
-            im = self.ax.imshow(self.robot_img, extent=[x-s, x+s, y-s, y+s], zorder=3)
-            if self.robot_image_rotate and hasattr(robot, "vel"):
-                vx, vy = robot.vel
-                ang = math.degrees(math.atan2(vy, vx)) if (vx*vx+vy*vy)>_EPS else 0.0
+            # 기본 이미지
+            im = self.ax.imshow(
+                self.robot_img,
+                extent=[x - s, x + s, y - s, y + s],
+                zorder=3
+            )
+
+            # 속도 기반 회전
+            if self.robot_image_rotate:
+                vx, vy = self._get_velocity(robot)
+                speed2 = vx * vx + vy * vy
+                if speed2 > _EPS:
+                    #print("회전합니다")
+                    ang = math.degrees(math.atan2(vy, vx)) - 90
+                    self.previous_yaw = self.yaw
+                    self.yaw = ang
+                else:
+                    ang = self.previous_yaw
+
                 tr = Affine2D().rotate_deg_around(x, y, ang) + self.ax.transData
                 im.set_transform(tr)
-        else:
-            self.ax.add_patch(Circle((x, y), radius=self.robot_r,
-                                     facecolor=rcol, edgecolor=rcol,
-                                     linewidth=0.8, antialiased=True, zorder=3))
 
-        if self.show_robot_heading and hasattr(robot, "vel"):
-            vx, vy = robot.vel
+        else:
+            self.ax.add_patch(Circle(
+                (x, y), radius=self.robot_r,
+                facecolor=rcol, edgecolor=rcol,
+                linewidth=0.8, antialiased=True, zorder=3
+            ))
+
+        # (선택) 로봇 heading 화살표도 동일 velocity 소스로 통일
+        if self.show_robot_heading:
+            vx, vy = self._get_velocity(robot)
             self._arrow(x, y, vx, vy, scale=self.robot_heading_scale,
                         color=rcol, alpha=0.95, linewidth=1.5)
 
