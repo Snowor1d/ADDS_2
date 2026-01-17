@@ -1217,11 +1217,10 @@ class SACAgent:
         ).to(self.device)
 
         # Optimizers
-        self.q1_optimizer = optim.Adam(self.q1.parameters(), lr=lr) #parameter optimizaing
-        self.q2_optimizer = optim.Adam(self.q2.parameters(), lr=lr)
-        self.policy_optimizer = optim.Adam(self.policy.parameters(), lr=lr)
-
-
+        self.q1_optimizer = optim.AdamW(self.q1.parameters(), lr=lr, weight_decay=WD_Q)
+        self.q2_optimizer = optim.AdamW(self.q2.parameters(), lr=lr, weight_decay=WD_Q)
+        self.policy_optimizer = optim.AdamW(self.policy.parameters(), lr=lr, weight_decay=WD_PI)
+        
 
 # ------------------------------------------------- #
     # Soft update
