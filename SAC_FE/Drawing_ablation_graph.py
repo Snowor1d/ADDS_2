@@ -51,7 +51,7 @@ SAVE_NAME  = "evac100_multi"
 SAVE_DPI   = 300
 SAVE_FORMAT= "png"
 
-MAX_EPISODE = 8000
+MAX_EPISODE = 5000
 
 # --- Figure / fonts ---
 FIGSIZE = (15, 10)

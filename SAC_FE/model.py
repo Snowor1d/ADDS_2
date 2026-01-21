@@ -460,6 +460,42 @@ class FightingModel(Model):
         self.exit_list = list()
         self.mesh = list()
         self.mesh_list = list()
+        self.RANDOM_MAP_RANGES = {
+            "grid_step": 2,
+
+            # 출구: 두 개 + 거리 확보 느낌
+            "exit_count_range": (2, 2),
+            "exit_w_range": (5, 10),
+            "exit_h_range": (5, 10),
+            "exit_keepout_range": (12, 20),
+
+            # 장애물 간격(겹침 + 너무 붙는 것 방지)
+            "wall_clearance_range": (5, 10),
+
+            # 장애물 수
+            "obstacle_target_range": (5, 12),
+
+            # 현실형 분위기 핵심 (NEW)
+            "p_main_range": (0.25, 0.50),
+            "p_corr_range": (0.20, 0.40),
+
+            # 기존 도형들은 과하지 않게
+            "p_rect_range": (0.10, 0.25),
+            "p_L_range": (0.08, 0.18),
+            "p_U_range": (0.05, 0.15),
+
+            # main block 크기
+            "main_w_range": (30, 50),
+            "main_h_range": (30, 50),
+
+            # corridor
+            "corr_thickness_range": (4, 10),
+            "corr_length_range": (25, 75),
+            "max_corridor_aspect": 6.0,
+
+            # deadend
+            "deadend_bias_range": (0.25, 0.60),
+        }
         if (self.map_num == -1):
             if(MAP_NUM != -2 and MAP_NUM != -1):
                 self.extract_map(self.map_num)
@@ -485,7 +521,8 @@ class FightingModel(Model):
         self.obstacles_grid_points = []
         self.fill_outwalls(width, height)
         self.mesh_map()
-        self.make_random_exit()
+        if(self.map_num != 0):
+            self.make_random_exit()
         self.construct_map()
         self.random_agent_distribute_outdoor(number_agents, 1)
         if (self.robot_version != 'N'):
@@ -1057,7 +1094,9 @@ class FightingModel(Model):
     def extract_map(self, map_num):
 
         #좌하단 #우하단 #우상단 #좌상단 순으로 입력해주기
-
+        if map_num == 0:
+            self.make_random_exit_2()
+            return
 
         if map_num == 6:
             self.obstacles.append([[10, 10], [20, 10], [20, 20], [10, 20]])
@@ -1567,10 +1606,54 @@ class FightingModel(Model):
         else:
             self.load_map_from_file(map_num, base_dir="map_infos")
 
-             
-# --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    def make_random_exit_2(self, seed: int | None = None):
+        """
+        map_num == 0 전용:
+        - Shapely(unary_union) 기반 random_map.generate_map() 사용
+        - edit_map.py 랜덤 생성 스타일과 유사하게 obstacle/exits 생성
+        """
+        from random_map import RandomMapSpec, generate_map
 
+        P = getattr(self, "RANDOM_MAP_RANGES", {})
 
+        spec = RandomMapSpec(
+            width=self.width,
+            height=self.height,
+            seed=seed,
+
+            # exits
+            exit_size_min_range=P.get("exit_size_min_range", (4, 4)),
+            exit_size_max_range=P.get("exit_size_max_range", (8, 8)),
+            min_exit_distance_range=P.get("min_exit_distance_range", (18.0, 18.0)),
+            corner_avoid_dist_range=P.get("corner_avoid_dist_range", (14.0, 14.0)),
+            disallow_same_side=P.get("disallow_same_side", True),
+
+            # density / count
+            min_obstacles_range=P.get("min_obstacles_range", (5, 5)),
+            max_obstacles_range=P.get("max_obstacles_range", (12, 12)),
+            density_min_range=P.get("density_min_range", (0.10, 0.10)),
+            density_max_range=P.get("density_max_range", (0.25, 0.25)),
+
+            # gaps
+            min_obstacle_gap_range=P.get("min_obstacle_gap_range", (5.0, 5.0)),
+            keep_gap_from_exits_range=P.get("keep_gap_from_exits_range", (0.0, 0.0)),
+            wall_clearance_range=P.get("wall_clearance_range", (7.0, 7.0)),
+
+            # biases
+            main_block_bias_range=P.get("main_block_bias_range", (0.35, 0.35)),
+            L_shape_bias_range=P.get("L_shape_bias_range", (0.15, 0.15)),
+            U_shape_bias_range=P.get("U_shape_bias_range", (0.10, 0.10)),
+            corridor_bias_range=P.get("corridor_bias_range", (0.45, 0.45)),
+            deadend_bias_range=P.get("deadend_bias_range", (0.25, 0.25)),
+            max_corridor_aspect_range=P.get("max_corridor_aspect_range", (6.0, 6.0)),
+        )
+
+        data = generate_map(spec)
+
+        self.obstacles = data.obstacles
+        self.exit_list = data.exits  # polygon list 유지
+        self.random_seed = data.seed_used
+        self.is_random_map = True
     def construct_map(self):
         for i in range(len(self.obstacles)):
             for each_point in  get_points_within_polygon(self.obstacles[i], 1):

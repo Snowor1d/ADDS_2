@@ -7,17 +7,22 @@ import seaborn as sns
 # ==========================================
 # [설정] 데이터 루트 경로
 # ==========================================
-ROOT_DIR = os.path.expanduser("~/Result_0109") 
+ROOT_DIR = os.path.expanduser("~/Result_zero") 
 SAVE_DIR = ROOT_DIR 
 
 # 2개 vs 2개 비교를 위한 리스트
+# ORDER_LIST = [
+#     "Global_only_3maps",
+#     # "Global_only_5maps",   <-- 제외됨
+#     "Global_only_10maps",
+#     "Global+Ego_3maps",
+#     # "Global+Ego_5maps",    <-- 제외됨
+#     "Global+Ego_10maps"
+# ]
 ORDER_LIST = [
-    "Global_only_3maps",
-    # "Global_only_5maps",   <-- 제외됨
-    "Global_only_10maps",
-    "Global+Ego_3maps",
-    # "Global+Ego_5maps",    <-- 제외됨
-    "Global+Ego_10maps"
+    "50maps",
+    "100maps",
+    "100maps_FiLM"
 ]
 
 def read_avg_file(filepath):
