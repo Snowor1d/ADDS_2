@@ -1006,7 +1006,7 @@ def main():
     }
 
     def apply_random_map():
-        print("[Random] generated OK")
+        #print("[Random] generated OK")
         nonlocal data, tf, current_pts, dragging_rect, drag_start, drag_now, history, rand_params
         try:
             if not SHAPELY_OK:
