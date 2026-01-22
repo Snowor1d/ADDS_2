@@ -373,7 +373,8 @@ class CrowdAgent(Agent):
         
         self.danger = 1e9
         self.danger = self.model.distance_to_exit(self.xy)
-        
+        if (self.danger > 1e5):
+            self.dead = True
 
         # 이웃 상호작용 (사람/로봇)
         sensor_R = self.vision_radius
