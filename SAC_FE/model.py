@@ -25,6 +25,7 @@ import os
 from collections import deque
 from typing import List, Tuple
 from visibility_atlas import VisibilityAtlas
+from typing import Optional
 #import cv2
 
 import torch
@@ -1606,7 +1607,7 @@ class FightingModel(Model):
         else:
             self.load_map_from_file(map_num, base_dir="map_infos")
 
-    def make_random_exit_2(self, seed: int | None = None):
+    def make_random_exit_2(self, seed: Optional[int] = None):
         """
         map_num == 0 전용:
         - Shapely(unary_union) 기반 random_map.generate_map() 사용
@@ -1654,6 +1655,7 @@ class FightingModel(Model):
         self.exit_list = data.exits  # polygon list 유지
         self.random_seed = data.seed_used
         self.is_random_map = True
+
     def construct_map(self):
         for i in range(len(self.obstacles)):
             for each_point in  get_points_within_polygon(self.obstacles[i], 1):
