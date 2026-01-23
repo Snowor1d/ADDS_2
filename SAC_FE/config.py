@@ -1,5 +1,5 @@
 # ------------- BASIC PARAMETERS ------------------
-LR = 2e-4
+LR = 1e-4
 BUFFER_SIZE = 1000000
 BATCH_SIZE = 128
 INTRINSIC_ETA = 0.1 #intrinsic reward
@@ -75,7 +75,7 @@ RANDOM_EXIT = False
 
 
 # -------------- PATH -------------------
-#LOG_DIR = "Log_NE_150_to_249"
+#LOG_DIR = "Log_FE_0"
 LOG_DIR = "SOTA_MODELS"
 #LOG_DIR = "Log_test"
 PORT_NUM = 7000
