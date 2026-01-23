@@ -183,6 +183,15 @@ def _random_exit_on_side(W: int, H: int, side: str, size_min: int, size_max: int
 
     return box(x0, y0, x1, y1)
 
+def _filter_tiny_extras(extras, min_area: float) -> List["Polygon"]:
+    if min_area <= 0:
+        return extras
+    out = []
+    for e in extras:
+        if (not e.is_empty) and e.area >= min_area:
+            out.append(e)
+    return out
+
 
 def generate_two_exits(
     W: int, H: int,
@@ -294,7 +303,7 @@ def _random_L_shape(W: int, H: int) -> Optional["Polygon"]:
     return p
 
 
-def _random_U_shape(W: int, H: int) -> Optional["Polygon"]:
+def _random_U_shape(W: int, H: int, min_opening: int = 10) -> Optional["Polygon"]:
     cx = _ri(int(0.20 * W), int(0.80 * W))
     cy = _ri(int(0.20 * H), int(0.80 * H))
 
@@ -304,38 +313,13 @@ def _random_U_shape(W: int, H: int) -> Optional["Polygon"]:
 
     open_dir = random.choice(["UP", "DOWN", "LEFT", "RIGHT"])
 
-    x0 = cx - w // 2
-    y0 = cy - h // 2
-    x1 = x0 + w
-    y1 = y0 + h
-
-    if open_dir == "UP":
-        left  = box(x0, y0, x0 + th, y1)
-        right = box(x1 - th, y0, x1, y1)
-        bottom= box(x0, y0, x1, y0 + th)
-        parts = [left, right, bottom]
-    elif open_dir == "DOWN":
-        left  = box(x0, y0, x0 + th, y1)
-        right = box(x1 - th, y0, x1, y1)
-        top   = box(x0, y1 - th, x1, y1)
-        parts = [left, right, top]
-    elif open_dir == "LEFT":
-        top   = box(x0, y1 - th, x1, y1)
-        bot   = box(x0, y0, x1, y0 + th)
-        right = box(x1 - th, y0, x1, y1)
-        parts = [top, bot, right]
+    # ✅ 오목부(입구) 폭 체크
+    if open_dir in ("UP", "DOWN"):
+        opening = w - 2 * th
     else:
-        top  = box(x0, y1 - th, x1, y1)
-        bot  = box(x0, y0, x1, y0 + th)
-        left = box(x0, y0, x0 + th, y1)
-        parts = [top, bot, left]
-
-    u = unary_union(parts)
-    p = _clip_to_bounds(u, W, H)
-    if p is None or p.area < 20:
+        opening = h - 2 * th
+    if opening < min_opening:
         return None
-    return p
-
 
 def _random_corridor_strip(W: int, H: int, margin: int = 1) -> "Polygon":
     thickness = _ri(4, 10)
@@ -398,12 +382,8 @@ def _random_deadend_cap_near(strip: "Polygon", W: int, H: int, margin: int = 1) 
 
 def _pick_obstacle_candidate(W: int, H: int, params: Dict[str, float]):
     """
-    edit_map.py와 동일한 컨셉:
-      - main block
-      - L/U
-      - corridor + (optional deadend cap)
-      - rect/convex fallback
-    returns: (main_poly, extra_polys)
+    returns: (main_poly, extra_polys, shape_tag)
+    shape_tag: "main" | "L" | "U" | "corr" | "rect" | "conv"
     """
     extra = []
 
@@ -434,19 +414,21 @@ def _pick_obstacle_candidate(W: int, H: int, params: Dict[str, float]):
             break
 
     if choice == "main":
-        return _random_main_block(W, H), extra
+        return _random_main_block(W, H), extra, "main"
 
     if choice == "L":
         p = _random_L_shape(W, H)
         if p is not None:
-            return p, extra
-        return _random_main_block(W, H), extra
+            return p, extra, "L"
+        # fallback
+        return _random_main_block(W, H), extra, "main"
 
     if choice == "U":
-        p = _random_U_shape(W, H)
+        p = _random_U_shape(W, H, min_opening=int(params.get("min_u_opening", 10)))
         if p is not None:
-            return p, extra
-        return _random_main_block(W, H), extra
+            return p, extra, "U"
+        # fallback
+        return _random_main_block(W, H), extra, "main"
 
     if choice == "corr":
         base = _random_corridor_strip(W, H, margin=1)
@@ -456,15 +438,19 @@ def _pick_obstacle_candidate(W: int, H: int, params: Dict[str, float]):
         aspect = max(w / h, h / w)
         if aspect > max_aspect:
             base = _random_rect_obstacle(W, H, margin=1)
+            if random.random() < deadend_bias:
+                extra.append(_random_deadend_cap_near(base, W, H, margin=1))
+            return base, extra, "rect"
 
         if random.random() < deadend_bias:
             extra.append(_random_deadend_cap_near(base, W, H, margin=1))
-        return base, extra
+        extra = _filter_tiny_extras(extra, float(params.get("min_extra_area", 20.0)))
+        return base, extra, "corr"
 
     if choice == "conv":
-        return _random_convex_obstacle(W, H, margin=1), extra
+        return _random_convex_obstacle(W, H, margin=1), extra, "conv"
 
-    return _random_rect_obstacle(W, H, margin=1), extra
+    return _random_rect_obstacle(W, H, margin=1), extra, "rect"
 
 
 # -----------------------------
@@ -498,7 +484,7 @@ def generate_obstacles_with_density(
         if (len(obstacles) >= target_count) and (total_area >= target_area):
             break
 
-        main, extras = _pick_obstacle_candidate(W, H, params)
+        main, extras, shape_tag = _pick_obstacle_candidate(W, H, params)
         merged = unary_union([main] + extras)
 
         # union 결과가 Polygon일 때만 채택 (원하면 MultiPolygon 처리 추가 가능)
@@ -542,8 +528,23 @@ def generate_obstacles_with_density(
         blocked = unary_union(obstacles + [cand])
         if _has_enclosed_free_pocket_grid(W, H, blocked, grid_step=2, pinch_cells=1):
             continue
+
+                # ✅ L/U는 벽 "touch" 자체를 금지 (ㄴ/ㄷ자 벽붙음 방지)
+        if shape_tag in ("L", "U"):
+            if cand.touches(boundary):
+                continue
+            # 더 강하게: 벽에서 wall_clearance 이상 떨어져야만 허용하고 싶으면 이거까지 켜
+            if d_wall < wall_clearance:
+                continue
+        else:
+            # 기존 룰 유지: touch는 허용, 가까이만(0<d<clearance) 금지
+            if d_wall < wall_clearance and (not cand.touches(boundary)):
+                continue
+
         obstacles.append(cand)
         total_area += cand.area
+
+
 
     final_density = total_area / map_area if map_area > 0 else 0.0
     if final_density < density_min:

@@ -466,8 +466,8 @@ class FightingModel(Model):
 
             # 출구: 두 개 + 거리 확보 느낌
             "exit_count_range": (2, 2),
-            "exit_w_range": (5, 10),
-            "exit_h_range": (5, 10),
+            "exit_w_range": (4, 8),
+            "exit_h_range": (4, 8),
             "exit_keepout_range": (12, 20),
 
             # 장애물 간격(겹침 + 너무 붙는 것 방지)
@@ -477,7 +477,7 @@ class FightingModel(Model):
             "obstacle_target_range": (5, 12),
 
             # 현실형 분위기 핵심 (NEW)
-            "p_main_range": (0.25, 0.50),
+            "p_main_range": (0.3, 0.60),
             "p_corr_range": (0.20, 0.40),
 
             # 기존 도형들은 과하지 않게
