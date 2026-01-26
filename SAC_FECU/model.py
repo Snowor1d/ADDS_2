@@ -436,7 +436,8 @@ class FightingModel(Model):
         self.frame_stack = FrameStack(stack_len=4)
         self._first_step = True
         self.robot_version = robot
-        
+        self.level = level
+
         self.crowds = []
         self.step_n = 0
 
@@ -529,8 +530,7 @@ class FightingModel(Model):
         if (self.robot_version != 'N'):
             self.make_robot()
         self.step_count = 0
-        self.level = level
-
+    
         self.now_evacuated = 0
         self.now_evacuated_with_robot = 0
 
