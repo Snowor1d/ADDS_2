@@ -533,9 +533,7 @@ def worker_process(
                     r_k = 0.0
 
                     if reward < -1e3:
-                        raise RuntimeError(
-                            f"Reward collapsed: {reward}"
-                        )
+                        raise RuntimeError(f"Reward collapsed: {reward}")
                     # -----------------------------
                     # 5) transition Queue로 전송
                     # -----------------------------
