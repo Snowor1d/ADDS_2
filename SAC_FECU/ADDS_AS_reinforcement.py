@@ -362,6 +362,7 @@ def worker_process(
                 with global_ep_shared.get_lock():
                     ge = int(global_ep_shared.value)
                 c_level = curriculum_level(ge, curriculum=CURRICULUM)
+                print("Now level : ", c_level)
                 env_model = model.FightingModel(
                     number_of_agents,
                     MAP_W,
@@ -370,6 +371,7 @@ def worker_process(
                     robot='Q',
                     level = c_level
                 )
+                
                 break
             except Exception as e:
                 print(f"[Worker {worker_id}] env create error: {e}, retrying...")
@@ -1534,7 +1536,7 @@ if __name__ == "__main__":
         # 주기적으로 호출해서 죽은 worker만 재시작
         for wid, p in enumerate(workers):
             if p is None:
-                restart_worker(ctx, wid, workers, param_queues, transition_queue, stats_queue, epsilon_shared, base_seed)
+                restart_worker(ctx, wid, workers, param_queues, transition_queue, stats_queue, epsilon_shared, global_ep_shared, base_seed)
                 continue
 
             if not p.is_alive():
@@ -1779,6 +1781,8 @@ if __name__ == "__main__":
                 needs_switch_workers = True
 
             global_episode += 1
+            with global_ep_shared.get_lock():
+                global_ep_shared.value = int(global_episode)
 
             print("-----------------------------------------------")
             print(f"[Main] Episode {global_episode} (from worker {s_msg.worker_id})")
