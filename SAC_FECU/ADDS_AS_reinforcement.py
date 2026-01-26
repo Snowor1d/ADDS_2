@@ -362,7 +362,7 @@ def worker_process(
                 with global_ep_shared.get_lock():
                     ge = int(global_ep_shared.value)
                 c_level = curriculum_level(ge, curriculum=CURRICULUM)
-                print("Now level : ", c_level)
+                #print("Now level : ", c_level)
                 env_model = model.FightingModel(
                     number_of_agents,
                     MAP_W,
@@ -532,6 +532,10 @@ def worker_process(
                     reward += (r_a + r_b + r_c + r_d + r_e + r_g + r_h + r_i + r_j + r_k + r_l + REWARD_FIXED)
                     r_k = 0.0
 
+                    if reward < -1e3:
+                        raise RuntimeError(
+                            f"Reward collapsed: {reward}"
+                        )
                     # -----------------------------
                     # 5) transition Queue로 전송
                     # -----------------------------
