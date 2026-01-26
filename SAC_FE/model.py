@@ -1607,46 +1607,23 @@ class FightingModel(Model):
         else:
             self.load_map_from_file(map_num, base_dir="map_infos")
 
-    def make_random_exit_2(self, seed: Optional[int] = None):
+    def make_random_exit_2(self, seed: Optional[int] = None, difficulty: int = 3):
         """
         map_num == 0 전용:
-        - Shapely(unary_union) 기반 random_map.generate_map() 사용
-        - edit_map.py 랜덤 생성 스타일과 유사하게 obstacle/exits 생성
+        - Shapely(unary_union) 기반 random_map.generate_map() 사용 (difficulty 단일 입력 버전)
+        - difficulty(1/2/3)에 따라 출구/장애물/편향/간격 등이 내부 테이블로 자동 결정됨
         """
         from random_map import RandomMapSpec, generate_map
-
-        P = getattr(self, "RANDOM_MAP_RANGES", {})
 
         spec = RandomMapSpec(
             width=self.width,
             height=self.height,
+            difficulty=difficulty,   # ✅ 추가
             seed=seed,
-
-            # exits
-            exit_size_min_range=P.get("exit_size_min_range", (4, 4)),
-            exit_size_max_range=P.get("exit_size_max_range", (8, 8)),
-            min_exit_distance_range=P.get("min_exit_distance_range", (18.0, 18.0)),
-            corner_avoid_dist_range=P.get("corner_avoid_dist_range", (14.0, 14.0)),
-            disallow_same_side=P.get("disallow_same_side", True),
-
-            # density / count
-            min_obstacles_range=P.get("min_obstacles_range", (5, 5)),
-            max_obstacles_range=P.get("max_obstacles_range", (12, 12)),
-            density_min_range=P.get("density_min_range", (0.10, 0.10)),
-            density_max_range=P.get("density_max_range", (0.25, 0.25)),
-
-            # gaps
-            min_obstacle_gap_range=P.get("min_obstacle_gap_range", (5.0, 5.0)),
-            keep_gap_from_exits_range=P.get("keep_gap_from_exits_range", (0.0, 0.0)),
-            wall_clearance_range=P.get("wall_clearance_range", (7.0, 7.0)),
-
-            # biases
-            main_block_bias_range=P.get("main_block_bias_range", (0.35, 0.35)),
-            L_shape_bias_range=P.get("L_shape_bias_range", (0.15, 0.15)),
-            U_shape_bias_range=P.get("U_shape_bias_range", (0.10, 0.10)),
-            corridor_bias_range=P.get("corridor_bias_range", (0.45, 0.45)),
-            deadend_bias_range=P.get("deadend_bias_range", (0.25, 0.25)),
-            max_corridor_aspect_range=P.get("max_corridor_aspect_range", (6.0, 6.0)),
+            # attempts는 필요하면 여기서 덮어쓰기 가능 (RandomMapSpec 기본값 사용)
+            # map_level_max_tries=200,
+            # obstacle_level_max_tries=20000,
+            # exit_max_tries=2000,
         )
 
         data = generate_map(spec)

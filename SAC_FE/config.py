@@ -118,6 +118,8 @@ EGO_MAP_SIZE = 25
 DOWNSAMPLE_MAP_SIZE = 50
 
 
+
+
 # --------------- crowd evacuation parameter -----------------
 K1 = 1 # distance weight
 K2 = 0.000001 # density weight (currently not used ; there is only one exit)
