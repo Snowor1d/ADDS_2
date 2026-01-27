@@ -362,7 +362,7 @@ def worker_process(
                 with global_ep_shared.get_lock():
                     ge = int(global_ep_shared.value)
                 c_level = curriculum_level(ge, curriculum=CURRICULUM)
-                #print("Now level : ", c_level)
+                print("Now level : ", c_level)
                 env_model = model.FightingModel(
                     number_of_agents,
                     MAP_W,

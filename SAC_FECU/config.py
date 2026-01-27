@@ -61,7 +61,7 @@ AGENT_TIME_STEP = 0.5
 ROBOT_TIME_STEP = 0.5
 
 # --------------- EPSILON-EXPLORATION ------------------
-EPSILON_MIN = 0
+EPSILON_MIN = 0.1
 START_EPSILON = 1 
 SCHEDULER_TYPE = "l"
 DECAY_VALUE = 0
@@ -75,8 +75,8 @@ RANDOM_EXIT = False
 
 
 # -------------- PATH -------------------
-#LOG_DIR = "Log_FE_0"
-LOG_DIR = "SOTA_MODELS"
+LOG_DIR = "Log_FECU_0_C23456"
+#LOG_DIR = "SOTA_MODELS"
 #LOG_DIR = "Log_test"
 PORT_NUM = 7000
 
@@ -116,7 +116,7 @@ POLICY_BROADCAST_INTERVAL = 10
 
 EGO_MAP_SIZE = 25
 DOWNSAMPLE_MAP_SIZE = 50
-CURRICULUM = [500, 1000, 2000]
+CURRICULUM = [2000, 3000, 4000, 5000, 6000]
 
 
 # --------------- crowd evacuation parameter -----------------

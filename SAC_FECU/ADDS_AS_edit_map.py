@@ -412,7 +412,7 @@ def main():
     # Random generator params (NEW)
     # -----------------------------
     rand_params = {
-        "difficulty": 2,          # 1..3
+        "difficulty": 5,          # 1..3
         "wall_rect_bias": 0.20,   # optional override (only if rm supports overrides)
     }
 
@@ -470,7 +470,7 @@ def main():
     gen_btn: Optional[Button] = None
 
     # Widgets
-    difficulty_slider = Slider(pygame.Rect(0, 0, 0, 0), 1.0, 3.0, float(rand_params["difficulty"]), "Difficulty (1..3)")
+    difficulty_slider = Slider(pygame.Rect(0, 0, 0, 0), 1.0, 6.0, float(rand_params["difficulty"]), "Difficulty (1..3)")
     wallrect_slider   = Slider(pygame.Rect(0, 0, 0, 0), 0.0, 1.0, float(rand_params["wall_rect_bias"]), "Wall-rect bias")
 
     def any_widget_dragging() -> bool:

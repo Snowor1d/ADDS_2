@@ -58,7 +58,7 @@ class MapData:
 class RandomMapSpec:
     width: int
     height: int
-    difficulty: int = 2          # 1=easy, 2=medium, 3=hard
+    difficulty: int = 6          # 1=easy, 2=medium, 3=hard
     seed: Optional[int] = None
 
     # attempts
@@ -181,6 +181,54 @@ def _params_from_difficulty(W: int, H: int, difficulty: int) -> Dict[str, float]
         "corner_avoid_dist": 12.0,
         "disallow_same_side": 1.0,
 
+        "density_min": 0.1, "density_max": 0.2,
+
+        "large_count_min": 1, "large_count_max": 2,
+        "small_count_min": 2, "small_count_max": 4,
+        "density_large_ratio": 0.4,
+
+        "min_obstacle_gap": 6.0,
+        "keep_gap_from_exits": 0.0,
+        "wall_clearance": 7.0,
+
+        "main_block_bias": 0.4,
+        "L_shape_bias": 0.15,
+        "U_shape_bias": 0.1,
+        "wall_rect_bias": 0.25,
+        "large_conv_bias": 0.3,
+
+        "small_rect_bias": 0.45,
+        "small_corr_bias": 0.45,
+        "small_conv_bias": 0.20,
+        "deadend_bias": 0.25,
+        "max_corridor_aspect": 6.0,
+
+        "rect_w_min": 25, "rect_w_max": 60,
+        "rect_h_min": 25, "rect_h_max": 60,
+        "small_rect_w_min": 6, "small_rect_w_max": 15,
+        "small_rect_h_min": 6, "small_rect_h_max": 15,
+
+        "main_bw_min": 0.22, "main_bw_max": 0.60,
+        "main_bh_min": 0.22, "main_bh_max": 0.60,
+
+        "large_conv_scale_min": 0.22,
+        "large_conv_scale_max": 0.50,
+        "large_conv_n_min": 6,
+        "large_conv_n_max": 12,
+
+        "conv_min_width": 14.0,
+        "large_conv_min_width": 16.0,
+        "conv_gap_boost": 4,
+        }
+    
+    if d <= 2:  # EASY
+        return {
+        "exit_along_min": 5, "exit_along_max": 10,
+        "exit_depth_min": 4, "exit_depth_max": 5,
+        "min_exit_distance": 16.0,
+        "corner_avoid_dist": 12.0,
+        "disallow_same_side": 1.0,
+
         "density_min": 0.15, "density_max": 0.25,
 
         "large_count_min": 1, "large_count_max": 2,
@@ -220,8 +268,8 @@ def _params_from_difficulty(W: int, H: int, difficulty: int) -> Dict[str, float]
         "large_conv_min_width": 16.0,
         "conv_gap_boost": 4,
         }
-
-    if d == 2:  # MEDIUM
+    
+    if d <= 3:  # EASY
         return {
         "exit_along_min": 5, "exit_along_max": 10,
         "exit_depth_min": 4, "exit_depth_max": 5,
@@ -229,7 +277,106 @@ def _params_from_difficulty(W: int, H: int, difficulty: int) -> Dict[str, float]
         "corner_avoid_dist": 12.0,
         "disallow_same_side": 1.0,
 
-        "density_min": 0.20, "density_max": 0.35,
+        "density_min": 0.20, "density_max": 0.30,
+
+        "large_count_min": 1, "large_count_max": 3,
+        "small_count_min": 2, "small_count_max": 4,
+        "density_large_ratio": 0.4,
+
+        "min_obstacle_gap": 6.0,
+        "keep_gap_from_exits": 0.0,
+        "wall_clearance": 7.0,
+
+        "main_block_bias": 0.4,
+        "L_shape_bias": 0.15,
+        "U_shape_bias": 0.1,
+        "wall_rect_bias": 0.25,
+        "large_conv_bias": 0.3,
+
+        "small_rect_bias": 0.45,
+        "small_corr_bias": 0.45,
+        "small_conv_bias": 0.20,
+        "deadend_bias": 0.25,
+        "max_corridor_aspect": 6.0,
+
+        "rect_w_min": 25, "rect_w_max": 60,
+        "rect_h_min": 25, "rect_h_max": 60,
+        "small_rect_w_min": 6, "small_rect_w_max": 15,
+        "small_rect_h_min": 6, "small_rect_h_max": 15,
+
+        "main_bw_min": 0.22, "main_bw_max": 0.60,
+        "main_bh_min": 0.22, "main_bh_max": 0.60,
+
+        "large_conv_scale_min": 0.22,
+        "large_conv_scale_max": 0.50,
+        "large_conv_n_min": 6,
+        "large_conv_n_max": 12,
+
+        "conv_min_width": 14.0,
+        "large_conv_min_width": 16.0,
+        "conv_gap_boost": 4,
+        }
+    
+
+
+    if d == 4:  # MEDIUM
+        return {
+        "exit_along_min": 5, "exit_along_max": 10,
+        "exit_depth_min": 4, "exit_depth_max": 5,
+        "min_exit_distance": 16.0,
+        "corner_avoid_dist": 12.0,
+        "disallow_same_side": 1.0,
+
+        "density_min": 0.25, "density_max": 0.35,
+
+        "large_count_min": 1, "large_count_max": 3,
+        "small_count_min": 3, "small_count_max": 6,
+        "density_large_ratio": 0.4,
+
+        "min_obstacle_gap": 6.0,
+        "keep_gap_from_exits": 0.0,
+        "wall_clearance": 7.0,
+
+        "main_block_bias": 0.4,
+        "L_shape_bias": 0.15,
+        "U_shape_bias": 0.1,
+        "wall_rect_bias": 0.25,
+        "large_conv_bias": 0.3,
+
+        "small_rect_bias": 0.45,
+        "small_corr_bias": 0.45,
+        "small_conv_bias": 0.20,
+        "deadend_bias": 0.25,
+        "max_corridor_aspect": 6.0,
+
+        "rect_w_min": 25, "rect_w_max": 60,
+        "rect_h_min": 25, "rect_h_max": 60,
+        "small_rect_w_min": 6, "small_rect_w_max": 15,
+        "small_rect_h_min": 6, "small_rect_h_max": 15,
+
+        "main_bw_min": 0.22, "main_bw_max": 0.60,
+        "main_bh_min": 0.22, "main_bh_max": 0.60,
+
+        "large_conv_scale_min": 0.22,
+        "large_conv_scale_max": 0.50,
+        "large_conv_n_min": 6,
+        "large_conv_n_max": 12,
+
+        "conv_min_width": 14.0,
+        "large_conv_min_width": 16.0,
+        "conv_gap_boost": 4,
+        }
+    
+
+    if d == 5:  # MEDIUM
+        return {
+        "exit_along_min": 5, "exit_along_max": 10,
+        "exit_depth_min": 4, "exit_depth_max": 5,
+        "min_exit_distance": 16.0,
+        "corner_avoid_dist": 12.0,
+        "disallow_same_side": 1.0,
+
+        "density_min": 0.30, "density_max": 0.40,
 
         "large_count_min": 1, "large_count_max": 3,
         "small_count_min": 3, "small_count_max": 6,
