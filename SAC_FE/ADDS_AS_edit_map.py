@@ -249,6 +249,7 @@ class Slider:
                 self.dragging = True
                 self.value = self.value_from_mouse(ev.pos[0])
                 changed = True
+
         elif ev.type == pygame.MOUSEBUTTONUP and ev.button == 1:
             self.dragging = False
         elif ev.type == pygame.MOUSEMOTION and self.dragging:
@@ -280,7 +281,44 @@ class Button:
         pygame.draw.rect(surf, border, self.rect, width=2, border_radius=8)
         draw_text(surf, self.label, self.rect.x + 12, self.rect.y + 8, font, fg)
 
+class TextBox:
+    def __init__(self, rect: pygame.Rect, text: str = "", label: str = ""):
+        self.rect = rect
+        self.text = text
+        self.label = label
+        self.active = False
 
+    def handle_event(self, ev: pygame.event.Event) -> bool:
+        changed = False
+        if ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1:
+            self.active = self.rect.collidepoint(ev.pos)
+            changed = True
+        elif ev.type == pygame.KEYDOWN and self.active:
+            if ev.key == pygame.K_BACKSPACE:
+                self.text = self.text[:-1]
+                changed = True
+            elif ev.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+                # Enter는 main loop에서 처리하게 두고 여기선 변경 없음
+                pass
+            else:
+                # 숫자만 허용 (map id)
+                if ev.unicode.isdigit():
+                    self.text += ev.unicode
+                    changed = True
+        return changed
+
+    def draw(self, surf: pygame.Surface, font: pygame.font.Font):
+        if self.label:
+            draw_text(surf, self.label, self.rect.x, self.rect.y - 20, font, (30, 30, 30))
+
+        bg = (255, 255, 255) if self.active else (245, 245, 245)
+        border = (80, 120, 220) if self.active else (180, 180, 180)
+
+        pygame.draw.rect(surf, bg, self.rect, border_radius=6)
+        pygame.draw.rect(surf, border, self.rect, 2, border_radius=6)
+
+        show = self.text if self.text else ""
+        draw_text(surf, show, self.rect.x + 10, self.rect.y + 6, font, (20, 20, 20))
 # -----------------------------
 # CLI prompt
 # -----------------------------
@@ -412,7 +450,7 @@ def main():
     # Random generator params (NEW)
     # -----------------------------
     rand_params = {
-        "difficulty": 2,          # 1..3
+        "difficulty": 5,          # 1..3
         "wall_rect_bias": 0.20,   # optional override (only if rm supports overrides)
     }
 
@@ -468,9 +506,12 @@ def main():
     # Panel clickables (will be created each frame)
     mapnum_rect: Optional[pygame.Rect] = None
     gen_btn: Optional[Button] = None
+    open_btn: Optional[Button] = None
+    open_id_box = TextBox(pygame.Rect(0, 0, 0, 0), text=str(map_num), label="Open map # (e.g., 200)")
+    open_by_id_btn: Optional[Button] = None
 
     # Widgets
-    difficulty_slider = Slider(pygame.Rect(0, 0, 0, 0), 1.0, 3.0, float(rand_params["difficulty"]), "Difficulty (1..3)")
+    difficulty_slider = Slider(pygame.Rect(0, 0, 0, 0), 1.0, 6.0, float(rand_params["difficulty"]), "Difficulty (1..6)")
     wallrect_slider   = Slider(pygame.Rect(0, 0, 0, 0), 0.0, 1.0, float(rand_params["wall_rect_bias"]), "Wall-rect bias")
 
     def any_widget_dragging() -> bool:
@@ -489,6 +530,8 @@ def main():
             if HAS_OVERRIDE_API:
                 changed |= wallrect_slider.handle_event(ev)
 
+            open_id_box.handle_event(ev)
+
             if changed:
                 # difficulty is discrete 1..3
                 rand_params["difficulty"] = int(round(difficulty_slider.value))
@@ -500,6 +543,30 @@ def main():
                 if gen_btn is not None and gen_btn.clicked(ev):
                     apply_random_map()
                     continue
+
+            if open_btn is not None and open_btn.clicked(ev):
+                # O 키와 동일 동작
+                try:
+                    default_path = path_for_mapnum(map_num)
+                    s = input(f"Open map path (ENTER = {default_path}) : ").strip()
+                    path = default_path if not s else s
+
+                    loaded = load_map_snippet(path)
+                    data = loaded
+                    tf = Transform(data.width, data.height, canvas, margin=30)
+
+                    current_pts = []
+                    dragging_rect = False
+                    drag_start = None
+                    drag_now = None
+                    history.clear()
+
+                    last_path = path
+                    set_status(f"Opened for edit: {path}")
+                except Exception as e:
+                    set_status(f"Open failed: {e}")
+                continue
+
 
             if ev.type == pygame.KEYDOWN:
                 if editing_mapnum:
@@ -587,7 +654,30 @@ def main():
                     dragging_rect = False
                     set_status("Cleared all")
 
-                elif ev.key == pygame.K_RETURN:
+                elif ev.key in (pygame.K_RETURN, pygame.K_TAB):
+                    if open_id_box.active:
+                        try:
+                            n = int(open_id_box.text) if open_id_box.text.strip() else map_num
+                            path = path_for_mapnum(n)
+                            loaded = load_map_snippet(path)
+                            data = loaded
+                            tf = Transform(data.width, data.height, canvas, margin=30)
+
+                            current_pts = []
+                            dragging_rect = False
+                            drag_start = None
+                            drag_now = None
+                            history.clear()
+
+                            last_path = path
+                            map_num = n
+                            mapnum_text = str(map_num)
+                            set_status(f"Opened for edit: {path}")
+                        except Exception as e:
+                            set_status(f"Open failed: {e}")
+                        continue
+
+                    # 아니면 기존 polygon finalize 동작
                     if tool in ("poly_ob", "poly_ex"):
                         if len(current_pts) < 3:
                             set_status("Need >= 3 points")
@@ -631,7 +721,54 @@ def main():
                 elif ev.key == pygame.K_r:
                     apply_random_map()
 
+                elif ev.key == pygame.K_o:
+                    try:
+                        # 1) 우선 map_num 기반 기본 경로를 보여주고
+                        default_path = path_for_mapnum(map_num)
+                        s = input(f"Open map path (ENTER = {default_path}) : ").strip()
+                        path = default_path if not s else s
+
+                        loaded = load_map_snippet(path)
+                        data = loaded
+                        tf = Transform(data.width, data.height, canvas, margin=30)
+
+                        current_pts = []
+                        dragging_rect = False
+                        drag_start = None
+                        drag_now = None
+                        history.clear()
+
+                        last_path = path
+                        set_status(f"Opened for edit: {path}")
+                    except Exception as e:
+                        set_status(f"Open failed: {e}")
+
             elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1:
+                if gen_btn is not None and gen_btn.clicked(ev):
+                    apply_random_map()
+                    continue
+
+                if open_by_id_btn is not None and open_by_id_btn.clicked(ev):
+                    try:
+                        n = int(open_id_box.text) if open_id_box.text.strip() else map_num
+                        path = path_for_mapnum(n)
+                        loaded = load_map_snippet(path)
+                        data = loaded
+                        tf = Transform(data.width, data.height, canvas, margin=30)
+
+                        current_pts = []
+                        dragging_rect = False
+                        drag_start = None
+                        drag_now = None
+                        history.clear()
+
+                        last_path = path
+                        map_num = n
+                        mapnum_text = str(map_num)
+                        set_status(f"Opened for edit: {path}")
+                    except Exception as e:
+                        set_status(f"Open failed: {e}")
+                    continue
                 mx, my = ev.pos
 
                 if panel.collidepoint(mx, my):
@@ -728,12 +865,13 @@ def main():
         y = 20
         draw_text(screen, "ADDS Map Editor", panel.x + 20, y, font_big); y += 40
 
-        # status bar
-        status_bar = pygame.Rect(panel.x + 20, 62, PANEL_W - 40, 26)
+        # status bar (y-flow)
+        status_bar = pygame.Rect(panel.x + 20, y, PANEL_W - 40, 28)
         pygame.draw.rect(screen, (255, 245, 245), status_bar, border_radius=6)
         pygame.draw.rect(screen, (220, 180, 180), status_bar, 1, border_radius=6)
         msg = status if (time.time() - status_t < 5.0) else "(idle)"
-        draw_text(screen, f"Status: {msg}", status_bar.x + 8, status_bar.y + 4, font, color=(120, 0, 0))
+        draw_text(screen, f"Status: {msg}", status_bar.x + 8, status_bar.y + 5, font, color=(120, 0, 0))
+        y += 44  # status bar 아래 여백 포함
 
         mapnum_y = y
         mapnum_display = mapnum_text if editing_mapnum else str(map_num)
@@ -761,8 +899,8 @@ def main():
         draw_text(screen, f"Exits    : {len(data.exits)}", panel.x + 20, y, font); y += 20
         draw_text(screen, f"Undo stack: {len(history)}", panel.x + 20, y, font); y += 26
 
-        # ---- Random controls (NEW) ----
-        draw_text(screen, "Random Map Controls", panel.x + 20, y, font_big); y += 30
+        # ---- Random controls ----
+        draw_text(screen, "Random / Open Controls", panel.x + 20, y, font_big); y += 30
         if not RANDOM_MAP_OK:
             draw_text(screen, "random_map.py import failed", panel.x + 20, y, font, color=(140, 0, 0))
             y += 22
@@ -782,10 +920,19 @@ def main():
             draw_text(screen, "Wall-rect bias: (difficulty table only)", panel.x + 30, y, font, color=(80, 80, 80))
             y += 28
 
+        # Generate button
         gen_btn = Button(pygame.Rect(panel.x + 30, y, PANEL_W - 60, 38), "R / Click: Generate Random Map")
         gen_btn.draw(screen, font)
         y += 54
 
+        # Open-by-id textbox + button (GUI)
+        open_id_box.rect = pygame.Rect(panel.x + 30, y + 18, slider_w, 28)
+        open_id_box.draw(screen, font)
+        y += 62
+
+        open_by_id_btn = Button(pygame.Rect(panel.x + 30, y, PANEL_W - 60, 38), "Open for Edit (by map #)")
+        open_by_id_btn.draw(screen, font, fg=(20, 20, 80), bg=(235, 235, 245), border=(120, 120, 160))
+        y += 54
         # Keys help
         draw_text(screen, "Keys", panel.x + 20, y, font_big); y += 26
         keys = [
@@ -802,6 +949,9 @@ def main():
             "M: edit map num",
             "R: random generate",
             "Q/ESC: quit",
+            "O: open existing map (edit)",
+            "TAB: finalize poly (poly tools)",
+            
         ]
         for k in keys:
             draw_text(screen, k, panel.x + 20, y, font, color=(40, 40, 40))

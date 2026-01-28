@@ -1607,7 +1607,7 @@ class FightingModel(Model):
         else:
             self.load_map_from_file(map_num, base_dir="map_infos")
 
-    def make_random_exit_2(self, seed: Optional[int] = None, difficulty: int = 3):
+    def make_random_exit_2(self, seed: Optional[int] = None, difficulty: int = 6):
         """
         map_num == 0 전용:
         - Shapely(unary_union) 기반 random_map.generate_map() 사용 (difficulty 단일 입력 버전)
