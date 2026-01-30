@@ -35,7 +35,7 @@ MAP_NUM_RANDOM = list(range(1000, 1300))
 
 SCALE_CHECK = 0 # want to check reward scale?
 ACTION_SCALE = 4
-MAX_STEPS = 7100
+MAX_STEPS = 6000
 
 ROBOT_BODY_RADIUS = 1 # m
 AGENT_BODY_RADIUS = 0.5 # m
@@ -66,7 +66,7 @@ RANDOM_EXIT = False
 LOG_DIR = "Log_FE_1000_to_1299"
 #LOG_DIR = "SOTA_MODELS"
 #LOG_DIR = "Log_test"
-PORT_NUM = 7000
+PORT_NUM = 7100
 
 # --------------- SAC ALGORITHM PARAMETER ---------------
 LOG_STD_MAX = 0.5
