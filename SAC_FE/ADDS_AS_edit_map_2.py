@@ -49,8 +49,8 @@ PANEL_W = 420
 CANVAS_BG = (245, 245, 245)
 
 GRID_ON = True
-GRID_STEP = 2          # snap step in map units
-GRID_DRAW_STEP = 2     # grid lines step in map units
+GRID_STEP = 1          # snap step in map units
+GRID_DRAW_STEP = 1     # grid lines step in map units
 POINT_RADIUS = 5
 
 OBSTACLE_FILL_ALPHA = 70
