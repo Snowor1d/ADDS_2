@@ -30,8 +30,8 @@ MAP_NUM = -1 #if not used, -2, if random, -1
 
 
 
-MAP_NUM_RANDOM = list(range(1000, 1300))
-
+#MAP_NUM_RANDOM = list(range(1000, 1300))
+MAP_NUM_RANDOM = [1506]
 
 SCALE_CHECK = 0 # want to check reward scale?
 ACTION_SCALE = 4
@@ -63,8 +63,8 @@ RANDOM_EXIT = False
 
 
 # -------------- PATH -------------------
-LOG_DIR = "Log_FE_1000_to_1299"
-#LOG_DIR = "SOTA_MODELS"
+#LOG_DIR = "Log_FE_1000_to_1299"
+LOG_DIR = "SOTA_MODELS"
 #LOG_DIR = "Log_test"
 PORT_NUM = 7100
 

@@ -430,6 +430,7 @@ class FightingModel(Model):
     def __init__(self, number_agents: int, width: int, height: int, model_num = -1, robot = 'Q'):
         #print("model_num :", model_num)
         super().__init__()
+        #print("height :", height)
         self.width = width
         self.height = height      
         self.space = ContinuousSpace(self.width, self.height, cell_size=10.0, torus=False)  
@@ -587,6 +588,7 @@ class FightingModel(Model):
                 "danger" : "danger",
             }
         )
+        #print("static grid height : ", self.height)
 
         self.static_grid = np.zeros((self.height, self.width), dtype = np.uint8)
         self._render_static_map(self.height, self.width)
@@ -622,9 +624,9 @@ class FightingModel(Model):
         # --- width/height ---
         w = obj.get("width", None)
         h = obj.get("height", None)
-        if w is not None and h is not None:
-            self.width = int(w)
-            self.height = int(h)
+        # if w is not None and h is not None:
+        #     self.width = int(w)
+        #     self.height = int(h)
 
         # --- obstacles: [[[x,y],...], ...] 형태 유지 ---
         obstacles_raw = obj.get("obstacles", []) or []
@@ -657,16 +659,16 @@ class FightingModel(Model):
 
 
 
-    def extract_map_info(self, map_num):
-        if map_num <= 49:
-            self.width = 50
-            self.height = 50
-        elif map_num <= 99:
-            self.width = 70
-            self.height = 70
-        elif map_num <= 199:
-            self.width =100
-            self.height = 100
+    # def extract_map_info(self, map_num):
+    #     if map_num <= 49:
+    #         self.width = 50
+    #         self.height = 50
+    #     elif map_num <= 99:
+    #         self.width = 70
+    #         self.height = 70
+    #     elif map_num <= 199:
+    #         self.width =100
+    #         self.height = 100
 
     def _sanitize_obstacles(self, eps=1e-6):
         polys = []
@@ -945,7 +947,6 @@ class FightingModel(Model):
             best = BIG
             for exit_idx in range(len(self._exit_polys)):
                 q, _ = self.nearest_point_on_exit(exit_idx, (cx, cy))
-
                 # 기존 네비메쉬 기반 거리 사용
                 d = self.robot.point_to_point_distance((cx, cy), q)
 
@@ -1946,6 +1947,7 @@ class FightingModel(Model):
 
         if (self.robot_version == 'Q'):
             # 1) full map (uint8) 가져오기 (학습 때랑 동일: MAP_H, MAP_W)
+            #print("MAP_H :", MAP_H)
             full_map = self.return_current_image(MAP_H, MAP_W)  # (H,W) uint8
 
             # 2) ACTION_SCALE boundary 여부 확인
@@ -2224,6 +2226,7 @@ class FightingModel(Model):
     
     # 연속 → 라스터 (RL 프레임) 교체
     def return_current_image(self, H: int = 100, W: int = 100):
+        
         
         # 나중에 벽과 장애물은 자정되어있는 것을 쓰게 교체할 것임 (시간이슈)
 

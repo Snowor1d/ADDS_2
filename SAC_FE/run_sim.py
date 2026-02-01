@@ -37,7 +37,7 @@ ADAPTIVE_SUBSTEP_INIT = 4
 
 ROBOT_CONTROL_MODE = "RL"   # "RL", "Human"
 ROBOT_VERSION_FOR_MODEL = "Q"
-MODEL_NAME = "FE_150_to_240_and_1000_to_1199_5700ep.pth"
+MODEL_NAME = "FE_1000_to_1299_5000ep.pth"
 
 USE_CONTINUOUS_RENDERER = True
 def make_renderer(world_w, world_h):

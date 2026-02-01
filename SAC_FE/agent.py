@@ -839,8 +839,8 @@ class RobotAgent(CrowdAgent):
                 goal_x = next_mesh_middle[0] - self.xy[0]
                 goal_y = next_mesh_middle[1] - self.xy[1]
 
-            goal_x = 2* goal_x / math.sqrt(pow(goal_x, 2) + pow(goal_y, 2))
-            goal_y = 2* goal_y / math.sqrt(pow(goal_x, 2) + pow(goal_y, 2))
+            goal_x = 1* goal_x / math.sqrt(pow(goal_x, 2) + pow(goal_y, 2))
+            goal_y = 1* goal_y / math.sqrt(pow(goal_x, 2) + pow(goal_y, 2))
             self.receive_action([goal_x, goal_y])
     
 
