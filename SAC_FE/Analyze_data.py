@@ -19,7 +19,7 @@ from matplotlib import patheffects as pe  # legend/markers halo 효과용 (선�
 # =========================
 # 전역 파라미터
 # =========================
-ROOT_DIR = os.path.expanduser("~/Result_0109")
+ROOT_DIR = os.path.expanduser("~/Result_data_0201/exp")
 OUT_DIR  = ROOT_DIR
 
 SHOW_EPISODE_LEGEND = True  # episode 플롯 범례 표시 여부

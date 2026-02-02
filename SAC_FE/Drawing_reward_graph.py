@@ -11,7 +11,7 @@ from typing import List, Tuple, Optional
 # =========================
 # USER CONFIG
 # =========================
-RUN_DIR_NAME = "Drawing_rewards_678"
+RUN_DIR_NAME = "Drawing_reward_0"
 REWARD_FILE = "total_reward.txt"
 EVAC_FILE   = "evacuation_100.txt"
 
@@ -55,10 +55,10 @@ LINESTYLE_A = LINESTYLE_B = "-"  # 실선
 
 # 스무딩 및 밴드
 SMOOTH_MODE  = "ma"
-MA_WINDOW    = 21
-SHADE_MODE   = "None" # 'std' | 'stderr' | None
+MA_WINDOW    = 100
+SHADE_MODE   = "stderr" # 'std' | 'stderr' | None
 SHADE_ALPHA  = 0.1
-SMOOTH_LINEWIDTH = 2.2
+SMOOTH_LINEWIDTH = 4
 
 # =========================
 # UTILS
@@ -208,8 +208,8 @@ def main():
 
     reward_path = os.path.join(run_dir, REWARD_FILE)
     evac_path   = os.path.join(run_dir, EVAC_FILE)
-    rewards = read_txt_series(reward_path)[:15000]
-    evacs   = read_txt_series(evac_path)[:15000]
+    rewards = read_txt_series(reward_path)[:5900]
+    evacs   = read_txt_series(evac_path)[:5900]
 
     if not rewards or not evacs:
         print("[STOP] need both files.")
