@@ -26,7 +26,6 @@ MAP_NUM = -1 #if not used, -2, if random, -1
 # 70x60 : 50,53,54
 # 100x100 : 105, 108, 128
 # unseen maps : 500, 501, 502, 503
-
 MAP_NUM_RANDOM = list(range(1000, 1300)) # 300 maps
 
 # MAP_NUM_RANDOM = [1001, 1004, 1007, 1010, 1013, 1016, 1019, 1022, 1025, 1028,

@@ -1016,7 +1016,7 @@ class FightingModel(Model):
 
             if any(P.contains(p) or P.touches(p) for P in obstacle_polys):
                 self.obstacle_mesh.append(mesh)
-
+        print(len(self.mesh_list))
         path = {}
         
         self.next_vertex_matrix = {start: {end: None for end in self.mesh_list} for start in self.mesh_list}
