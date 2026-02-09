@@ -375,7 +375,6 @@ class CrowdAgent(Agent):
         # 이웃 상호작용 (사람/로봇)
         sensor_R = self.vision_radius
         near_agents = self._neighbors(sensor_R)
-
         self.which_goal_agent_want(near_agents)
 
         # ---- 목표 방향 ----

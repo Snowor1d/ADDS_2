@@ -2,7 +2,6 @@ import pygame
 import sys
 import math
 import os
-import pickle
 import time
 import shutil
 import re
@@ -10,7 +9,6 @@ import numpy as np
 
 # model.py, ADDS_AS_reinforcement.py (동일 폴더 or 경로 맞춰 수정)
 from model import FightingModel
-from ADDS_AS_reinforcement import ReplayBuffer
 from config import *
 from continuous_renderer import ContinuousRenderer
 
@@ -20,54 +18,75 @@ from matplotlib.animation import FFMpegWriter
 ############################
 # 실험/기록 파라미터
 ############################
-MAP_NUM_FOR_RUN = 1503        # 원하는 맵 번호(-1은 내부 랜덤 로직) #6,7,8,24,25,26
+MAP_NUM_FOR_RUN = 4001        # 원하는 맵 번호(-1은 내부 랜덤 로직)
 ROBOT_VERSION_FOR_MODEL = 'Q' # 모델에는 'Q'로 넘기되, 사람이 직접 action 전달
 ROBOT_VERSION_FOR_LOG   = 'H' # 결과 폴더명에는 'H'로 기록해 비교군 명확화
-#EXP_NAME   = "test_0917_2"        # 최상위 결과 폴더 접미사: Result_data_{EXP_NAME}
 EXP_NAME = "0201/seheon_play"
-MAX_STEPS  = 3000             # 실패 시 스텝 상한
+MAX_STEPS  = 3000
 MAX_EPISODES = 3
 
+############################
+# 타이밍/성능 파라미터
+############################
+TARGET_SIM_FPS    = 5     # 시뮬 목표 Hz (느려져도 입력은 먹게)
+TARGET_RENDER_FPS = 20    # 렌더/입력 루프는 더 자주
+MAX_SIM_STEPS_PER_FRAME = 1  # 프레임당 시뮬 step 상한 (입력 responsiveness 핵심)
+MAX_ACCUM_SEC = 0.25         # death spiral 방지
 
 ############################
-# 상단 설정 (시뮬/렌더 타이밍)
-############################
-TARGET_SIM_FPS    = 10      # 시뮬레이션 60Hz
-TARGET_RENDER_FPS = 30      # 화면 갱신 30Hz
-RENDER_EVERY      = max(1, TARGET_SIM_FPS // TARGET_RENDER_FPS)  # 2
-
-############################
-# 레이아웃 / 화면
-
+# 화면 레이아웃
 ############################
 SCREEN_WIDTH  = 1000
 SCREEN_HEIGHT = 1000
 
-CELL_SIZE = 7.5
-MAP_CW = MAP_W * CELL_SIZE
-MAP_CH = MAP_H * CELL_SIZE
+PANEL_RIGHT_WIDTH = 200
+PADDING = 10
 
-PANEL_RIGHT_WIDTH = 200   # 우측 HUD/조이스틱 패널 폭
-PADDING = 10              # 좌측 여백
-
-# 맵은 좌측 정렬, 우측엔 패널 공간
+MAP_AREA_W = SCREEN_WIDTH - PANEL_RIGHT_WIDTH - 2*PADDING
+MAP_AREA_H = SCREEN_HEIGHT - 2*PADDING
 MAP_OFFSET_X = PADDING
-MAP_OFFSET_Y = (SCREEN_HEIGHT - MAP_CH) // 2
+MAP_OFFSET_Y = PADDING
 
-# 조이스틱은 우측 패널 중앙 하단
+# 조이스틱(우측 패널)
 JOYSTICK_CENTER = (SCREEN_WIDTH - PANEL_RIGHT_WIDTH // 2, SCREEN_HEIGHT - 120)
 JOYSTICK_RADIUS = 60
 KNOB_RADIUS = 15
 MAX_MOVE = 2.0
+KEY_MOVE_STEP = 6.0  # 키로 knob 움직이는 픽셀
 
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
 GREY  = (200, 200, 200)
 RED   = (255, 0, 0)
-BLUE  = (0, 0, 255)
-GREEN = (0, 255, 0)
-YELLOW= (255, 255, 0)
-DARK_GREY = (150, 150, 150)
+
+############################
+# 연속 렌더 옵션
+############################
+USE_CONTINUOUS_RENDERER = True
+CONT_VIS_MODE = "live"  # "live" | "mp4" | "png_every" | "png_last"
+CONT_SAVE_EVERY = 1
+CONT_FPS = 20
+CONT_OUT_DPI = 200
+CONT_BITRATE = 8000
+
+CONT_CROWD_COLOR = "#0000FF"
+CONT_ROBOT_COLOR = "#FF0000"
+CONT_SINGLE_COLOR_EDGES = True
+CONT_SHOW_AGENT_HEADING = False
+CONT_SHOW_ROBOT_HEADING = True
+CONT_ROBOT_HEADING_SCALE = 3
+CONT_TRAIL_TARGET = "none"
+CONT_TRAIL_STYLE = "persist"
+CONT_MAX_TRAIL = 2000
+CONT_ROBOT_STYLE = "image"
+CONT_ROBOT_IMAGE_PATH = "images/robot.png"
+CONT_EXIT_SIZE = 5.0
+CONT_SNAP_EXIT_TO_BOUNDARY = True
+CONT_ANNOTATE_PATH = False
+CONT_ANNOTATE_MODE = "every_n"
+CONT_ANNOTATE_EVERY = 10
+CONT_ANNOTATE_STYLE = "subway"
+CONT_ANNOTATE_FONTSIZE = 12
 
 ############################
 # PyGame 초기화
@@ -78,51 +97,16 @@ pygame.display.set_caption("ADDS Imitation Learning")
 clock = pygame.time.Clock()
 
 ############################
-# 리플레이 & 리워드 로그
+# 로그/결과 저장
 ############################
 home_dir = os.path.expanduser("~")
 log_dir = os.path.join(home_dir, "learning_log_guide_game_imitation")
 os.makedirs(log_dir, exist_ok=True)
 reward_log_file = os.path.join(log_dir, "total_reward_imitation.txt")
 
-############################
-# 연속 공간 렌더 옵션
-############################
-USE_CONTINUOUS_RENDERER = True     # False면 격자 렌더(draw_environment)
-CONT_VIS_MODE = "live"             # "live" | "mp4" | "png_every" | "png_last"
-CONT_SAVE_EVERY = 1                # png_every/mp4 수집 간격(스텝)
-CONT_FPS = 20                      # mp4 저장 FPS(프레임 stride 보정과 함께 사용)
-CONT_OUT_DPI = 200                 # mp4/PNG 저장 해상도
-CONT_BITRATE = 8000                # mp4 인코딩 비트레이트
-
-# 색/스타일
-
-CONT_CROWD_COLOR = "#0000FF"
-CONT_ROBOT_COLOR = "#FF0000"
-CONT_SINGLE_COLOR_EDGES = True
-CONT_SHOW_AGENT_HEADING = False
-CONT_SHOW_ROBOT_HEADING = True
-CONT_ROBOT_HEADING_SCALE = 3
-CONT_TRAIL_TARGET = "none"        # "none"|"crowd"|"robot"|"both"
-CONT_TRAIL_STYLE = "persist"       # "persist"|"fade"
-CONT_MAX_TRAIL = 2000
-CONT_ROBOT_STYLE = "image"        # "circle"|"image"
-CONT_ROBOT_IMAGE_PATH = "images/robot.png"
-#CONT_ROBOT_IMAGE_SCALE = 4
-CONT_EXIT_SIZE = 5.0
-CONT_SNAP_EXIT_TO_BOUNDARY = True
-CONT_ANNOTATE_PATH = False
-CONT_ANNOTATE_MODE = "every_n"     # "all"|"endpoints"|"every_n"
-CONT_ANNOTATE_EVERY = 10
-CONT_ANNOTATE_STYLE = "subway"     # "number"|"subway"|"frame"
-CONT_ANNOTATE_FONTSIZE = 12
-
-############################
-# 결과 기록 유틸
-############################
 def result_root():
     root = os.path.join(home_dir, f"Result_data_{EXP_NAME}")
-    os.makedirs(root, exist_ok=True)   # 상위는 누적, 삭제하지 않음
+    os.makedirs(root, exist_ok=True)
     return root
 
 def ensure_dir(path: str):
@@ -184,7 +168,6 @@ def read_episode_log_from_dir(test_dir: str):
         return []
 
 def aggregate_over_existing_tests(map_id: int, robot_ver: str):
-    """기존 테스트들 전체를 스캔해 평균/스텝별 집계를 재계산"""
     test_dirs, base = list_test_dirs(map_id, robot_ver)
     evac_vals, life_vals, logs = [], [], []
     for td in test_dirs:
@@ -193,13 +176,11 @@ def aggregate_over_existing_tests(map_id: int, robot_ver: str):
         if life is not None: life_vals.append(life)
         logs.append(read_episode_log_from_dir(td))
 
-    # 평균
     avg_evac = float(np.mean(evac_vals)) if evac_vals else float("nan")
     avg_life = float(np.mean(life_vals)) if life_vals else float("nan")
     write_txt(os.path.join(base, "avg_metrics.txt"),
               f"avg_evacuation_100_time={avg_evac}\navg_all_agents_life_time={avg_life}\n")
 
-    # 스텝별 mean/min/max
     if logs:
         max_len = max(len(l) for l in logs)
         mean_series, min_series, max_series = [], [], []
@@ -214,7 +195,7 @@ def aggregate_over_existing_tests(map_id: int, robot_ver: str):
         save_step_series(os.path.join(base, "episode_log_max.txt"),  max_series)
 
 def get_next_test_index(map_id: int, robot_ver: str):
-    test_dirs, base = list_test_dirs(map_id, robot_ver)
+    test_dirs, _ = list_test_dirs(map_id, robot_ver)
     if not test_dirs:
         return 0
     nums = []
@@ -227,12 +208,19 @@ def get_next_test_index(map_id: int, robot_ver: str):
     return (max(nums) + 1) if nums else 0
 
 ############################
-# 그리기 유틸
+# 렌더/입력 유틸
 ############################
 def draw_text(surface, text, x, y, color=(0,0,0), font_size=20):
     font = pygame.font.SysFont("Arial", font_size)
     img = font.render(text, True, color)
     surface.blit(img, (x, y))
+
+def draw_side_panel(surface):
+    panel_rect = (SCREEN_WIDTH - PANEL_RIGHT_WIDTH, 0, PANEL_RIGHT_WIDTH, SCREEN_HEIGHT)
+    pygame.draw.rect(surface, (245, 245, 245), panel_rect)
+    pygame.draw.line(surface, (200, 200, 200),
+                     (SCREEN_WIDTH - PANEL_RIGHT_WIDTH, 0),
+                     (SCREEN_WIDTH - PANEL_RIGHT_WIDTH, SCREEN_HEIGHT), 2)
 
 def draw_joystick(surface, center, radius, knob_pos):
     pygame.draw.circle(surface, GREY, center, radius)
@@ -253,7 +241,7 @@ def get_joystick_action(joystick_center, knob_pos, max_move=MAX_MOVE):
     kx, ky = knob_pos
     dx = kx - cx
     dy = ky - cy
-    dist = math.sqrt(dx*dx + dy*dy)
+    dist = math.hypot(dx, dy)
     if dist == 0:
         return 0.0, 0.0
     ratio = dist / JOYSTICK_RADIUS
@@ -261,28 +249,8 @@ def get_joystick_action(joystick_center, knob_pos, max_move=MAX_MOVE):
     scaled_dy = (dy/dist) * ratio * max_move
     return scaled_dx, scaled_dy
 
-def draw_environment(surface, env_map):
-    # non-wall pass
-    for x in range(len(env_map)):
-        for y in range(len(env_map[0])):
-            val = env_map[x][y]
-            if val == 20:
-                continue
-            rect = (MAP_OFFSET_X + y*CELL_SIZE, MAP_OFFSET_Y + x*CELL_SIZE, CELL_SIZE, CELL_SIZE)
-            if val == 0:   color = WHITE
-            elif val == 60: color = BLUE
-            elif val == 100: color = GREEN
-            elif val == 140: color = YELLOW
-            elif val == 200: color = RED
-            else:           color = DARK_GREY
-            pygame.draw.rect(surface, color, rect)
-    # wall pass
-    for x in range(len(env_map)):
-        for y in range(len(env_map[0])):
-            val = env_map[x][y]
-            if val == 20:
-                rect = (MAP_OFFSET_X + y*CELL_SIZE, MAP_OFFSET_Y + x*CELL_SIZE, CELL_SIZE, CELL_SIZE)
-                pygame.draw.rect(surface, BLACK, rect)
+def np_rgb_to_surface(rgb):
+    return pygame.surfarray.make_surface(np.transpose(rgb, (1,0,2)))
 
 def save_continuous_mp4(frames_rgb, out_path, fps=20, dpi=200, bitrate=8000):
     if not frames_rgb:
@@ -298,67 +266,81 @@ def save_continuous_mp4(frames_rgb, out_path, fps=20, dpi=200, bitrate=8000):
             writer.grab_frame()
     plt.close(fig)
 
-def np_rgb_to_surface(rgb):
-    """(H,W,3) uint8 → pygame.Surface"""
-    return pygame.surfarray.make_surface(np.transpose(rgb, (1,0,2)))
+def handle_events(key_dir, knob_x, knob_y, dragging):
+    """
+    이벤트를 '소비'해서 큐가 쌓이지 않게 함.
+    반환: (running, knob_x, knob_y, dragging)
+    """
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            return False, knob_x, knob_y, dragging
 
-def draw_side_panel(surface):
-    # 우측 패널 배경
-    panel_rect = (SCREEN_WIDTH - PANEL_RIGHT_WIDTH, 0, PANEL_RIGHT_WIDTH, SCREEN_HEIGHT)
-    pygame.draw.rect(surface, (245, 245, 245), panel_rect)
-    # 패널 분리선
-    pygame.draw.line(surface, (200, 200, 200), (SCREEN_WIDTH - PANEL_RIGHT_WIDTH, 0),
-                     (SCREEN_WIDTH - PANEL_RIGHT_WIDTH, SCREEN_HEIGHT), 2)
+        elif event.type == pygame.MOUSEBUTTONDOWN:
+            mx, my = pygame.mouse.get_pos()
+            if math.hypot(mx - knob_x, my - knob_y) <= KNOB_RADIUS + 5:
+                dragging = True
 
-####################################
-# 메인 함수
-####################################
+        elif event.type == pygame.MOUSEBUTTONUP:
+            dragging = False
+            knob_x, knob_y = JOYSTICK_CENTER
+
+        elif event.type == pygame.MOUSEMOTION and dragging:
+            mx, my = pygame.mouse.get_pos()
+            knob_x, knob_y = clamp_knob_to_circle(
+                JOYSTICK_CENTER[0], JOYSTICK_CENTER[1], mx, my, JOYSTICK_RADIUS
+            )
+
+        elif event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_ESCAPE:
+                return False, knob_x, knob_y, dragging
+            elif event.key == pygame.K_UP:    key_dir["up"] = True
+            elif event.key == pygame.K_DOWN:  key_dir["down"] = True
+            elif event.key == pygame.K_LEFT:  key_dir["left"] = True
+            elif event.key == pygame.K_RIGHT: key_dir["right"] = True
+
+        elif event.type == pygame.KEYUP:
+            if event.key == pygame.K_UP:    key_dir["up"] = False
+            elif event.key == pygame.K_DOWN:  key_dir["down"] = False
+            elif event.key == pygame.K_LEFT:  key_dir["left"] = False
+            elif event.key == pygame.K_RIGHT: key_dir["right"] = False
+
+    return True, knob_x, knob_y, dragging
+
+############################
+# 메인
+############################
 def main():
-#    replay_buffer = ReplayBuffer(capacity=int(1e5))
     episode_count = 0
     running = True
 
-    # 폴더 기본 구조(상위/중간) 준비
     root = result_root()
     map_dir = os.path.join(root, f"Result_{MAP_NUM_FOR_RUN}")
     ensure_dir(map_dir)
     map_robot_dir = os.path.join(map_dir, f"Result_{MAP_NUM_FOR_RUN}_{ROBOT_VERSION_FOR_LOG}")
     ensure_dir(map_robot_dir)
 
+    key_dir = {"up":False, "down":False, "left":False, "right":False}
+
     while running and episode_count < MAX_EPISODES:
-        # 새로운 episode 시작
         env_model = FightingModel(
             number_agents=CROWD_NUMBER_MIN,
             width=int(MAP_W),
             height=int(MAP_H),
             model_num=MAP_NUM_FOR_RUN,
-            robot=ROBOT_VERSION_FOR_MODEL   # 내부 로직은 'Q'로, 사람이 직접 action을 보냄
+            robot=ROBOT_VERSION_FOR_MODEL
         )
-        state = np.array(env_model.return_current_image(H=MAP_H, W=MAP_W), dtype=np.float32)
 
-        # 연속 렌더러
         renderer = None
         collected_frames = []
         if USE_CONTINUOUS_RENDERER:
             renderer = ContinuousRenderer(
                 world_size=(MAP_H, MAP_W),
                 crowd_colors={0:CONT_CROWD_COLOR, 1:CONT_CROWD_COLOR, 2:CONT_CROWD_COLOR},
-
-                # ▼ 화살표 보이기 + 크기
                 show_agent_heading=CONT_SHOW_AGENT_HEADING,
-                agent_heading_scale=1.8,              # 화살표 길이(벡터 스케일)
-
-                # ▼ 화살표 색: 전체 공통 색 또는 타입별 dict 가능
-                # 예1) 전체를 보라색으로
+                agent_heading_scale=1.8,
                 agent_heading_color="#000000",
-                # 예2) 타입별(원한다면)
-                # agent_heading_color={0:"#7e57c2", 1:"#26a69a", 2:"#ef5350"},
-
-                # ▼ 선 두께/화살촉 크기
-                agent_heading_linewidth=1.5,          # 선 두께
-                agent_heading_mutation_scale=9.0,    # 화살촉(머리) 크기
-
-                # (나머지 기존 옵션 그대로)
+                agent_heading_linewidth=1.5,
+                agent_heading_mutation_scale=9.0,
                 robot_color=CONT_ROBOT_COLOR,
                 single_color_edges=CONT_SINGLE_COLOR_EDGES,
                 show_robot_heading=CONT_SHOW_ROBOT_HEADING,
@@ -368,7 +350,6 @@ def main():
                 max_trail=CONT_MAX_TRAIL,
                 robot_style=CONT_ROBOT_STYLE,
                 robot_image_path=CONT_ROBOT_IMAGE_PATH,
-                #robot_image_scale=CONT_ROBOT_IMAGE_SCALE,
                 exit_size=CONT_EXIT_SIZE,
                 snap_exit_to_boundary=CONT_SNAP_EXIT_TO_BOUNDARY,
                 annotate_robot_path=CONT_ANNOTATE_PATH,
@@ -377,106 +358,96 @@ def main():
                 annotate_style=CONT_ANNOTATE_STYLE,
                 annotate_fontsize=CONT_ANNOTATE_FONTSIZE,
             )
+
         step_count = 0
         total_reward = 0.0
         done = False
         episode_count += 1
-        episode_log = []  # 매 스텝 살아있는 인원 기록
+        episode_log = []
 
         knob_x, knob_y = JOYSTICK_CENTER
         dragging = False
 
-        # 타이밍 초기화 (에피소드 단위)
         sim_acc = 0.0
         last_time = time.perf_counter()
         sim_dt = 1.0 / TARGET_SIM_FPS
 
-        # === 프레임 루프 ===
-        while running and not done:
+        alive = env_model.alived_agents()
 
-            # ----- 타이밍 누적 -----
+        while running and not done:
+            # 시간 누적
             now = time.perf_counter()
-            dt  = now - last_time
+            dt = now - last_time
             last_time = now
             sim_acc += dt
+            sim_acc = min(sim_acc, MAX_ACCUM_SEC)
 
-            # ----- 이벤트(항상) -----
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    running = False
-                elif event.type == pygame.MOUSEBUTTONDOWN:
-                    mx, my = pygame.mouse.get_pos()
-                    if math.hypot(mx - knob_x, my - knob_y) <= KNOB_RADIUS + 5:
-                        dragging = True
-                elif event.type == pygame.MOUSEBUTTONUP:
-                    dragging = False
-                    knob_x, knob_y = JOYSTICK_CENTER
-                elif event.type == pygame.MOUSEMOTION and dragging:
-                    mx, my = pygame.mouse.get_pos()
-                    knob_x, knob_y = clamp_knob_to_circle(
-                        JOYSTICK_CENTER[0], JOYSTICK_CENTER[1], mx, my, JOYSTICK_RADIUS
-                    )
-                elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-                    running = False
+            # 이벤트/입력 처리 (프레임 시작)
+            running, knob_x, knob_y, dragging = handle_events(key_dir, knob_x, knob_y, dragging)
             if not running:
                 break
 
-            # ----- 입력 업데이트 -----
-            keys = pygame.key.get_pressed()
-            move_step = 5.0
-            if keys[pygame.K_UP]:    knob_y -= move_step
-            if keys[pygame.K_DOWN]:  knob_y += move_step
-            if keys[pygame.K_LEFT]:  knob_x -= move_step
-            if keys[pygame.K_RIGHT]: knob_x += move_step
-            knob_x, knob_y = clamp_knob_to_circle(JOYSTICK_CENTER[0], JOYSTICK_CENTER[1], knob_x, knob_y, JOYSTICK_RADIUS)
+            # 키 입력을 knob에 반영 (프레임마다)
+            if key_dir["up"]:    knob_y -= KEY_MOVE_STEP
+            if key_dir["down"]:  knob_y += KEY_MOVE_STEP
+            if key_dir["left"]:  knob_x -= KEY_MOVE_STEP
+            if key_dir["right"]: knob_x += KEY_MOVE_STEP
+            knob_x, knob_y = clamp_knob_to_circle(JOYSTICK_CENTER[0], JOYSTICK_CENTER[1],
+                                                  knob_x, knob_y, JOYSTICK_RADIUS)
 
+            # 현재 action (항상 최신 knob 기준)
             user_dx, user_dy = get_joystick_action(JOYSTICK_CENTER, (knob_x, knob_y))
             env_dx, env_dy = user_dx, -user_dy
 
-            # ----- 고정 스텝 시뮬레이션 -----
+            # 시뮬레이션 step (프레임당 상한)
             did_step = False
-            while sim_acc >= sim_dt and not done:
-                env_model.robot.receive_action([env_dx, env_dy])
+            steps_this_frame = 0
 
-                current_state = state
+            while (sim_acc >= sim_dt) and (not done) and (steps_this_frame < MAX_SIM_STEPS_PER_FRAME):
+                # step 사이에도 이벤트를 소비해서 입력 지연을 최소화
+                running, knob_x, knob_y, dragging = handle_events(key_dir, knob_x, knob_y, dragging)
+                if not running:
+                    done = True
+                    break
+
+                # step 직전에 키 반영(체감 응답성 ↑)
+                if key_dir["up"]:    knob_y -= KEY_MOVE_STEP
+                if key_dir["down"]:  knob_y += KEY_MOVE_STEP
+                if key_dir["left"]:  knob_x -= KEY_MOVE_STEP
+                if key_dir["right"]: knob_x += KEY_MOVE_STEP
+                knob_x, knob_y = clamp_knob_to_circle(JOYSTICK_CENTER[0], JOYSTICK_CENTER[1],
+                                                      knob_x, knob_y, JOYSTICK_RADIUS)
+                user_dx, user_dy = get_joystick_action(JOYSTICK_CENTER, (knob_x, knob_y))
+                env_dx, env_dy = user_dx, -user_dy
+
+                env_model.robot.receive_action([env_dx, env_dy])
                 env_model.step()
 
-                # 한 번만 이미지 뽑아 캐시
-                img_gray = env_model.return_current_image(H=MAP_H, W=MAP_W)
-                reward = 0
                 alive = env_model.alived_agents()
                 episode_log.append(alive)
                 if alive <= 0:
                     done = True
-                    reward += 10.0
+                    total_reward += 10.0
 
-                next_state = np.array(img_gray, dtype=np.float32)
-                # replay_buffer.push(current_state, np.array([env_dx, env_dy], np.float32),
-                #                    reward, next_state, float(done))
-
-                total_reward += reward
                 step_count += 1
-                state = next_state
-                sim_acc -= sim_dt
-                did_step = True
-
                 if step_count >= MAX_STEPS:
                     done = True
 
-            # ----- 렌더링 (스킵 적용) -----
-            do_render = did_step and (step_count % RENDER_EVERY == 0)
-            if do_render:
+                sim_acc -= sim_dt
+                did_step = True
+                steps_this_frame += 1
+
+            # 렌더
+            if did_step:
                 screen.fill(WHITE)
                 draw_side_panel(screen)
 
                 if USE_CONTINUOUS_RENDERER:
                     rgb = renderer.draw(env_model, step=step_count)
                     surf = np_rgb_to_surface(rgb)
-                    # 빠른 스케일러 (smoothscale보다 가벼움)
-                    surf = pygame.transform.scale(surf, (MAP_CW, MAP_CH))
+                    surf = pygame.transform.smoothscale(surf, (MAP_AREA_W, MAP_AREA_H))
                     screen.blit(surf, (MAP_OFFSET_X, MAP_OFFSET_Y))
 
-                    # 기록 수집
                     if CONT_VIS_MODE == "mp4":
                         if (step_count % CONT_SAVE_EVERY == 0) or (alive <= 0):
                             collected_frames.append(rgb)
@@ -485,65 +456,59 @@ def main():
                             collected_frames.append(("PNG", step_count, rgb))
                     elif CONT_VIS_MODE == "png_last":
                         collected_frames = [("LAST", step_count, rgb)]
-                else:
-                    # 격자 렌더 (캐시한 img_gray 사용)
-                    draw_environment(screen, np.rot90(img_gray, k=1))
 
                 # HUD
                 txt_x = SCREEN_WIDTH - PANEL_RIGHT_WIDTH + 10
-                draw_text(screen, f"Episode: {episode_count}",     txt_x, 10, color=BLACK, font_size=22)
-                draw_text(screen, f"Step: {step_count}",           txt_x, 35, color=BLACK, font_size=22)
-                draw_text(screen, f"EpiTotal: {total_reward:.3f}", txt_x, 85, color=BLACK, font_size=22)
-                draw_text(screen, "ESC to quit",                   txt_x,110, color=(128,0,0), font_size=18)
-                draw_joystick(screen, JOYSTICK_CENTER, JOYSTICK_RADIUS, (knob_x, knob_y))
+                draw_text(screen, f"Episode: {episode_count}", txt_x, 10, color=BLACK, font_size=22)
+                draw_text(screen, f"Step: {step_count}",       txt_x, 35, color=BLACK, font_size=22)
+                draw_text(screen, f"Alive: {alive}",           txt_x, 60, color=BLACK, font_size=22)
+                draw_text(screen, f"EpiTotal: {total_reward:.3f}", txt_x, 90, color=BLACK, font_size=20)
+                draw_text(screen, "ESC to quit", txt_x, 115, color=(128,0,0), font_size=18)
 
+                draw_joystick(screen, JOYSTICK_CENTER, JOYSTICK_RADIUS, (int(knob_x), int(knob_y)))
                 pygame.display.flip()
 
-            # 렌더 FPS에 맞춰 쉼 (busy loop 방지)
-            #clock.tick(TARGET_RENDER_FPS)
+            clock.tick(TARGET_RENDER_FPS)
 
-        # === 에피소드 종료: 결과 기록 ===
-        if done:
-            print(f"[Episode {episode_count} finished] steps={step_count}, total_reward={total_reward:.2f}")
-            with open(reward_log_file, "a", encoding='utf-8') as f:
-                f.write(f"{total_reward}\n")
+        # === 에피소드 종료 기록 ===
+        if not running:
+            break
 
-            # 1) 세부 폴더 결정/생성 (먼저!)
-            test_i = get_next_test_index(MAP_NUM_FOR_RUN, ROBOT_VERSION_FOR_LOG)
-            test_dirname = f"Result_{MAP_NUM_FOR_RUN}_{ROBOT_VERSION_FOR_LOG}_{test_i}"
-            test_dir = os.path.join(map_robot_dir, test_dirname)
-            recreate_dir(test_dir)
+        print(f"[Episode {episode_count} finished] steps={step_count}, total_reward={total_reward:.2f}")
+        with open(reward_log_file, "a", encoding='utf-8') as f:
+            f.write(f"{total_reward}\n")
 
-            # 2) metrics 저장
-            evacuation_100_time = step_count if (len(episode_log) > 0 and episode_log[-1] <= 0) else MAX_STEPS
-            all_agents_life_time = env_model.calculate_all_agents_life_time()
-            write_txt(os.path.join(test_dir, "metrics.txt"),
-                      f"evacuation_100_time={evacuation_100_time}\nall_agents_life_time={all_agents_life_time}\n")
-            write_list_txt(os.path.join(test_dir, "episode_log.txt"), episode_log)
+        test_i = get_next_test_index(MAP_NUM_FOR_RUN, ROBOT_VERSION_FOR_LOG)
+        test_dirname = f"Result_{MAP_NUM_FOR_RUN}_{ROBOT_VERSION_FOR_LOG}_{test_i}"
+        test_dir = os.path.join(map_robot_dir, test_dirname)
+        recreate_dir(test_dir)
 
-            # 3) 연속 렌더 기록 저장 (폴더 만든 후)
-            if USE_CONTINUOUS_RENDERER:
-                if CONT_VIS_MODE == "mp4" and collected_frames:
-                    stride = max(1, CONT_SAVE_EVERY)
-                    eff_fps = max(1, int(CONT_FPS / stride))  # 시간 축 보정
-                    out_mp4 = os.path.join(test_dir, "continuous.mp4")
-                    save_continuous_mp4(collected_frames, out_mp4, fps=eff_fps,
-                                        dpi=CONT_OUT_DPI, bitrate=CONT_BITRATE)
-                elif CONT_VIS_MODE == "png_every" and collected_frames:
-                    png_dir = os.path.join(test_dir, "continuous_pngs")
-                    os.makedirs(png_dir, exist_ok=True)
-                    for tag, st, rgb in collected_frames:
-                        if tag != "PNG": continue
-                        plt.imsave(os.path.join(png_dir, f"frame_{st:05d}.png"), rgb, dpi=CONT_OUT_DPI)
-                elif CONT_VIS_MODE == "png_last" and collected_frames:
-                    _, st, rgb = collected_frames[-1]
-                    out_png = os.path.join(test_dir, f"continuous_last_{st:05d}.png")
-                    plt.imsave(out_png, rgb, dpi=CONT_OUT_DPI)
+        evacuation_100_time = step_count if (len(episode_log) > 0 and episode_log[-1] <= 0) else MAX_STEPS
+        all_agents_life_time = env_model.calculate_all_agents_life_time()
+        write_txt(os.path.join(test_dir, "metrics.txt"),
+                  f"evacuation_100_time={evacuation_100_time}\nall_agents_life_time={all_agents_life_time}\n")
+        write_list_txt(os.path.join(test_dir, "episode_log.txt"), episode_log)
 
-            # 4) 집계
-            aggregate_over_existing_tests(MAP_NUM_FOR_RUN, ROBOT_VERSION_FOR_LOG)
+        if USE_CONTINUOUS_RENDERER:
+            if CONT_VIS_MODE == "mp4" and collected_frames:
+                stride = max(1, CONT_SAVE_EVERY)
+                eff_fps = max(1, int(CONT_FPS / stride))
+                out_mp4 = os.path.join(test_dir, "continuous.mp4")
+                save_continuous_mp4(collected_frames, out_mp4, fps=eff_fps,
+                                    dpi=CONT_OUT_DPI, bitrate=CONT_BITRATE)
+            elif CONT_VIS_MODE == "png_every" and collected_frames:
+                png_dir = os.path.join(test_dir, "continuous_pngs")
+                os.makedirs(png_dir, exist_ok=True)
+                for tag, st, rgb in collected_frames:
+                    if tag != "PNG": continue
+                    plt.imsave(os.path.join(png_dir, f"frame_{st:05d}.png"), rgb, dpi=CONT_OUT_DPI)
+            elif CONT_VIS_MODE == "png_last" and collected_frames:
+                _, st, rgb = collected_frames[-1]
+                out_png = os.path.join(test_dir, f"continuous_last_{st:05d}.png")
+                plt.imsave(out_png, rgb, dpi=CONT_OUT_DPI)
 
-    # 종료 처리
+        aggregate_over_existing_tests(MAP_NUM_FOR_RUN, ROBOT_VERSION_FOR_LOG)
+
     pygame.quit()
     print(f"Reward log saved to {reward_log_file}")
     print("Bye ~")

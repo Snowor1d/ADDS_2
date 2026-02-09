@@ -134,7 +134,7 @@ class ContinuousRenderer:
         mesh_danger_edge_color: Optional[str] = None,  # None이면 기존 mesh_edge_color 사용
         mesh_danger_edge_width: Optional[float] = None, # None이면 기존 mesh_edge_width 사용
         mesh_danger_vmin: float = 0.0,
-        mesh_danger_vmax: float = 150,
+        mesh_danger_vmax: float = 400,
         mesh_danger_mode: str = "pure_red",            # "reds" | "pure_red"
         mesh_danger_cmap_name: str = "Reds",       # mode="reds"일 때 사용
         mesh_danger_source: str = "auto",          # "auto" | "dict" | "attr"

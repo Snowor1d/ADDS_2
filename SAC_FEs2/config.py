@@ -18,8 +18,8 @@ WD_Q = 3e-4
 WD_PI = 0.0
 
 # ---------------- SIMULATION ENVIRONMENT ---------------------
-CROWD_NUMBER_MIN = 300
-CROWD_NUMBER_MAX = 300
+CROWD_NUMBER_MIN = 100
+CROWD_NUMBER_MAX = 100
 MAP_NUM = -1 #if not used, -2, if random, -1
 #learning
 # 50x50 : 6,7,26

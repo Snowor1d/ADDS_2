@@ -490,24 +490,24 @@ def worker_process(
                         r_a = env_model.reward_based_alived() * REWARD_A
                     if REWARD_B:
                         r_b = env_model.reward_based_all_agents_danger() * REWARD_B
-                    if REWARD_C:
-                        r_c = env_model.reward_based_gain() * REWARD_C
+                    # if REWARD_C:
+                    #     r_c = env_model.reward_based_gain() * REWARD_C
                     if REWARD_D:
                         r_d = env_model.reward_penalty() * REWARD_D
-                    if REWARD_E:
-                        r_e = env_model.reward_based_evacuated_with_robot() * REWARD_E
-                    if REWARD_F:
-                        r_f = env_model.reward_based_distance_from_near_agents() * REWARD_F
-                    if REWARD_G:
-                        r_g = env_model.reward_based_distance_from_near_agent_gain() * REWARD_G
-                    if REWARD_H:
-                        r_h = env_model.reward_based_gain_with_time_bonus() * REWARD_H
-                    if REWARD_I:
-                        r_i = env_model.reward_based_alived_root() * REWARD_I
-                    if REWARD_J:
-                        r_j = env_model.reward_based_all_agents_danger_root() * REWARD_J
-                    if REWARD_L:
-                        r_l = env_model.reward_based_farthest_agent_distance() * REWARD_L
+                    # if REWARD_E:
+                    #     r_e = env_model.reward_based_evacuated_with_robot() * REWARD_E
+                    # if REWARD_F:
+                    #     r_f = env_model.reward_based_distance_from_near_agents() * REWARD_F
+                    # if REWARD_G:
+                    #     r_g = env_model.reward_based_distance_from_near_agent_gain() * REWARD_G
+                    # if REWARD_H:
+                    #     r_h = env_model.reward_based_gain_with_time_bonus() * REWARD_H
+                    # if REWARD_I:
+                    #     r_i = env_model.reward_based_alived_root() * REWARD_I
+                    # if REWARD_J:
+                    #     r_j = env_model.reward_based_all_agents_danger_root() * REWARD_J
+                    # if REWARD_L:
+                    #     r_l = env_model.reward_based_farthest_agent_distance() * REWARD_L
 
                     reward += (r_a + r_b + r_c + r_d + r_e + r_g + r_h + r_i + r_j + r_k + r_l + REWARD_FIXED)
                     r_k = 0.0
