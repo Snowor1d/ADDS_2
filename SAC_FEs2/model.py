@@ -37,6 +37,7 @@ from ADDS_AS_reinforcement import SACAgent, ReplayBuffer, PolicyNetwork, QNetwor
 from config import *
 import json
 import ast
+from mesh_cache import obstacles_fingerprint, cache_path, load_mesh_cache
 
 PointT = Tuple[int, int]
 
@@ -522,7 +523,7 @@ class FightingModel(Model):
         self.blocked = np.zeros((self.height, self.width), dtype=bool)
         self.obstacles_grid_points = []
         self.fill_outwalls(width, height)
-        self.mesh_map()
+        self.load_mesh_artifacts(cache_dir = "mesh_cache", strict=True)
         if(self.map_num != 0):
             self.make_random_exit()
         self.construct_map()
@@ -553,13 +554,13 @@ class FightingModel(Model):
         self._build_blocked_grid()
 
         self.obstacles_version = 0
-        self.vision_atlas = VisibilityAtlas(world_w=width, world_h=height, region_cells=4.0)
+        #self.vision_atlas = VisibilityAtlas(world_w=width, world_h=height, region_cells=4.0)
         
         SENSOR_R_AGENT = AGENT_VISION
         SENSOR_R_ROBOT = ROBOT_VISION  
-        self.vision_atlas.rebuild_obstacles(self._obstacle_polys, self.obstacles_version)
-        self.vision_atlas.set_radii([AGENT_VISION])
-        self.vision_atlas.precompute(rays_per_poly=64, bsearch_iters=6)
+        #self.vision_atlas.rebuild_obstacles(self._obstacle_polys, self.obstacles_version)
+        #self.vision_atlas.set_radii([AGENT_VISION])
+        #self.vision_atlas.precompute(rays_per_poly=64, bsearch_iters=6)
 
         #self.shadow_fov = ShadowFOV(self.blocked)
 
@@ -659,6 +660,34 @@ class FightingModel(Model):
 
 
 
+    def load_mesh_artifacts(self, cache_dir="mesh_cache", strict=True):
+        """
+        strict=True: 캐시 없으면 바로 에러 (학습 시 실수 방지)
+        strict=False: 없으면 mesh_map()로 빌드(느림) 후 계속
+        """
+        fp = obstacles_fingerprint(self.obstacles)
+        path = cache_path(cache_dir, self.map_num, self.width, self.height, fp)
+
+        if os.path.exists(path):
+            payload = load_mesh_cache(path)
+            art = payload["artifacts"]
+            self.mesh_list = art["mesh_list"]
+            self.next_vertex_matrix = art["next_vertex_matrix"]
+            self.distance = art["distance"]
+            self.pure_mesh = art["pure_mesh"]
+            self.valid_space = art["valid_space"]
+            self.match_grid_to_mesh = art["match_grid_to_mesh"]
+            self.match_mesh_to_grid = art["match_mesh_to_grid"]
+            #print("load 성공함")
+            return True
+
+        if strict:
+            raise FileNotFoundError(f"[mesh-cache] not found: {path}")
+
+        # fallback (원하면)
+        #self.mesh_map()  # 기존 느린 버전
+        print("load 실패함")
+        return False
     # def extract_map_info(self, map_num):
     #     if map_num <= 49:
     #         self.width = 50
@@ -813,24 +842,22 @@ class FightingModel(Model):
 
     def visible_exits(self, xy, radius):
         """
-        xy에서 radius 내 '시야 폴리곤' 기준으로 보이는 출구 idx 리스트.
-        mode:
-        - "intersects": 시야폴리곤과 출구폴리곤이 겹치면 visible (관대)
-        - "rep_point": 출구 대표점이 시야폴리곤에 포함되면 visible (보수)
+        xy에서 radius 내 Euclidean distance 기준으로 보이는 출구 idx 리스트.
+        vision_atlas 대신 단순 Euclidean distance 사용.
         """
-        vision_poly = self.vision_atlas.polygon_at(
-            float(xy[0]), float(xy[1]), float(radius), self.obstacles_version
-        )
-        if vision_poly is None or vision_poly.is_empty:
-            return []
-
+        p = Point(float(xy[0]), float(xy[1]))
         out = []
+        
         for i, ex in enumerate(self._exit_polys):
             if ex is None or ex.is_empty:
                 continue
-
-
-            if vision_poly.intersects(ex):
+            
+            # Euclidean distance from xy to exit polygon
+            # If point is inside polygon, distance is 0
+            # Otherwise, distance is to the nearest point on polygon boundary
+            d = ex.distance(p)
+            
+            if d <= radius:
                 out.append(i)
 
         return out
@@ -963,7 +990,7 @@ class FightingModel(Model):
         D = 200
         #20
         outer_polys, _ = union_obstacles_to_polygons(self.obstacles)
-        self.obstacles = [ [list(p) for p in poly ] for poly in outer_polys]
+        self.obstacles = [[list(p) for p in poly] for poly in outer_polys]
         map_boundary = [[0, 0], [self.width, 0], [self.width, self.height], [0, self.height]]
         obstacle_hulls = []
 
@@ -982,14 +1009,14 @@ class FightingModel(Model):
             segments.extend([[i + offset, (i + 1) % n + offset] for i in range(n)])
             offset += n
 
-        # 세그먼트 및 포인트로 메쉬화
-        vertices_with_points, segments_with_points = generate_segments_with_points(vertices, segments, D)
+        # - 기존 grid 포인트까지 쏟아붓던 것을 크게 줄임.
+        # - 그리드 포인트 밀도를 (기존 D개) → (D/4개)로 낮춤 (generate_segments_with_points에서 D 인자 사용)
+        vertices_with_points, segments_with_points = generate_segments_with_points(vertices, segments, max(D // 4, 10))
         vertices_with_points, segments_with_points = _dedup_pslg(vertices_with_points, segments_with_points)
-        # 삼각형화를 위한 데이터 생성
         triangulation_data = {'vertices': np.array(vertices_with_points), 'segments': np.array(segments_with_points)}
 
-        # 삼각형화
-        t = tr.triangulate(triangulation_data, 'p')
+        # 삼각형화 (삼각형 개수 많으면 옵션 "q30" 등으로 최소 각 조정 가능)
+        t = tr.triangulate(triangulation_data, 'p')  # 'p'만 사용 (품질옵션 뺌)
         boundary_coords = []
 
         for tri in t['triangles']:

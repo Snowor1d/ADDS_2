@@ -189,24 +189,20 @@ class CrowdAgent(Agent):
         if not candidates:
             return []
 
-        # 2) 시야 폴리곤은 '사전계산된 것'을 조회만
-        poly = self.model.vision_atlas.polygon_at(
-            self.xy[0], self.xy[1], radius, self.model.obstacles_version
-        )
-
-        minx, miny, maxx, maxy = poly.bounds
-        
-
+        # 2) Euclidean distance 기반 필터링 (vision_atlas 대신)
         out = []
-        if not poly.is_empty:
-            for b in candidates:
-                ref = b.ref
-                if (ref is None) or (ref is self) or getattr(ref, "dead", False):
-                    continue
+        for b in candidates:
+            ref = b.ref
+            if (ref is None) or (ref is self) or getattr(ref, "dead", False):
+                continue
 
-                x, y = b.pos[0], b.pos[1]
-                if poly.covers(Point(b.pos[0], b.pos[1])):
-                    out.append(ref)
+            # Euclidean distance 계산
+            dx = b.pos[0] - self.xy[0]
+            dy = b.pos[1] - self.xy[1]
+            dist = math.sqrt(dx*dx + dy*dy)
+            
+            if dist <= radius:
+                out.append(ref)
 
         return out
     

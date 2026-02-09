@@ -5,7 +5,7 @@ BATCH_SIZE = 128
 INTRINSIC_ETA = 0.1 #intrinsic reward
 START_BATCH_TIMES = 1
 START_UPDATE_EPISODE = 10
-DEVICE = "cuda"
+DEVICE = "cpu"
 
 GAMMA_START = 0.995
 GAMMA_END = 0.995
@@ -26,7 +26,7 @@ MAP_NUM = -1 #if not used, -2, if random, -1
 # 70x60 : 50,53,54
 # 100x100 : 105, 108, 128
 # unseen maps : 500, 501, 502, 503
-MAP_NUM_RANDOM = [4003]
+MAP_NUM_RANDOM = [4001]
 #MAP_NUM_RANDOM = list(range(1000, 1300)) # 300 maps
 
 # MAP_NUM_RANDOM = [1001, 1004, 1007, 1010, 1013, 1016, 1019, 1022, 1025, 1028,
