@@ -81,10 +81,10 @@ RANDOM_EXIT = False
 
 
 # -------------- PATH -------------------
-LOG_DIR = "Log_400_try"
+LOG_DIR = "Log_4001"
 #LOG_DIR = "SOTA_MODELS"
 #LOG_DIR = "Log_test"
-PORT_NUM = 7200
+PORT_NUM = 7100
 
 # --------------- SAC ALGORITHM PARAMETER ---------------
 LOG_STD_MAX = 0.5
@@ -116,7 +116,7 @@ USING_TRAINED_MODEL = True
 SHOW_CONTROLLED_CROWD = False
 ENABLE_TIMER = True
 
-N_ENVS = 10
+N_ENVS = 6
 UPDATES_PER_TRANSITION = 1
 POLICY_BROADCAST_INTERVAL = 10
 

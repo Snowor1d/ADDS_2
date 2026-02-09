@@ -28,7 +28,7 @@ MAX_EPISODES = 3
 ############################
 # 타이밍/성능 파라미터
 ############################
-TARGET_SIM_FPS    = 5     # 시뮬 목표 Hz (느려져도 입력은 먹게)
+TARGET_SIM_FPS    = 10     # 시뮬 목표 Hz (느려져도 입력은 먹게)
 TARGET_RENDER_FPS = 20    # 렌더/입력 루프는 더 자주
 MAX_SIM_STEPS_PER_FRAME = 1  # 프레임당 시뮬 step 상한 (입력 responsiveness 핵심)
 MAX_ACCUM_SEC = 0.25         # death spiral 방지

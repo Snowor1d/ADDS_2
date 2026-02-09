@@ -9,7 +9,7 @@ TARGET_SCRIPT = "ADDS_AS_reinforcement.py"
 home_dir = os.path.expanduser("~")
 HEARTBEAT_PATH = os.path.join(home_dir, LOG_DIR, "heartbeat.txt")
 
-STALL_SEC = 600        # 300초 동안 global_episode가 안 늘면 “멈춤”으로 판단
+STALL_SEC = 99999999999        # 300초 동안 global_episode가 안 늘면 “멈춤”으로 판단
 POLL_SEC = 60          # heartbeat 체크 주기
 
 def print_banner():
