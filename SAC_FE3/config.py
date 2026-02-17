@@ -4,7 +4,7 @@ BUFFER_SIZE = 1000000
 BATCH_SIZE = 128
 INTRINSIC_ETA = 0.1 #intrinsic reward
 START_BATCH_TIMES = 1
-START_UPDATE_EPISODE = 500
+START_UPDATE_EPISODE = 2
 DEVICE = "cpu"
 
 GAMMA_START = 0.99
@@ -80,10 +80,10 @@ RANDOM_EXIT = False
 
 
 # -------------- PATH -------------------
-LOG_DIR = "Log_FE_1000_to_1299"
+LOG_DIR = "Log_FE3_1000_to_1299"
 #LOG_DIR = "SOTA_MODELS"
 #LOG_DIR = "Log_test"
-PORT_NUM = 7100
+PORT_NUM = 7200
 
 # --------------- SAC ALGORITHM PARAMETER ---------------
 LOG_STD_MAX = 0.5
