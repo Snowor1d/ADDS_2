@@ -13,7 +13,7 @@ SAVE_DIR = ROOT_DIR
 ORDER_LIST = ["3maps", "30maps", "100maps", "300maps"]
 
 # --- Font ---
-FONT_FAMILY = "Times New Roman"
+FONT_FAMILY = "Times"
 
 # --- Figure ---
 FIGSIZE = (8, 6)
@@ -52,6 +52,21 @@ X_LABEL_TEXT = ""  # 보통 비워둠
 SEABORN_THEME = "whitegrid"
 # =========================================================
 
+# --- Plot mode ---
+# "bar"  → 막대그래프만
+# "line" → 꺾은선그래프만
+# "both" → 같은 figure에 막대 + 꺾은선 같이 표시
+PLOT_MODE = "both"
+
+# --- Line style ---
+LINE_MARKER = "o"
+LINE_LINEWIDTH = 2.5
+LINE_MARKERSIZE = 8
+LINE_COLOR = "#d62728"   # 선은 다른 색으로 (논문용 대비 좋음)
+
+FIX_Y_LIM = True
+Y_LIM_MIN = 0
+Y_LIM_MAX = 1250
 
 def read_avg_file(filepath):
     """avg_metrics.txt에서 evacuation_100_time 값만 추출"""
@@ -96,7 +111,7 @@ def collect_avg_data(root_path):
             model_name = cfg_f[len(prefix):]
             avg_path = os.path.join(map_full_path, cfg_f, "avg_metrics.txt")
 
-            val = read_avg_file(avg_path)
+            val = read_avg_file(avg_path)/2
             if val is not None:
                 data_list.append({"Map": map_id, "Model": model_name, "AvgTime": val})
 
@@ -108,11 +123,9 @@ def plot_bar_charts(df):
         print("❌ 데이터가 없습니다.")
         return
 
-    # ✅ Times New Roman을 matplotlib 전체에 적용
-    plt.rcParams["font.family"] = FONT_FAMILY
     plt.rcParams["axes.unicode_minus"] = False
-
     sns.set_theme(style=SEABORN_THEME)
+    plt.rcParams["font.family"] = FONT_FAMILY
 
     unique_maps = sorted(df["Map"].unique())
     print(f"📂 저장 위치: {SAVE_DIR}")
@@ -120,7 +133,6 @@ def plot_bar_charts(df):
     for map_id in unique_maps:
         sub_df = df[df["Map"] == map_id]
 
-        # 필터링 및 정렬
         plot_data = sub_df[sub_df["Model"].isin(ORDER_LIST)].copy()
         plot_data["Model"] = pd.Categorical(
             plot_data["Model"], categories=ORDER_LIST, ordered=True
@@ -131,28 +143,64 @@ def plot_bar_charts(df):
             continue
 
         plt.figure(figsize=FIGSIZE)
+        ax = plt.gca()
 
-        ax = sns.barplot(
-            data=plot_data,
-            x="Model",
-            y="AvgTime",
-            color=BAR_COLOR,
-            edgecolor=BAR_EDGE_COLOR,
-            linewidth=BAR_EDGE_WIDTH,
-        )
+        x_vals = plot_data["Model"]
+        y_vals = plot_data["AvgTime"]
 
-        # ✅ 막대 위 숫자 표시 on/off
-        if SHOW_BAR_VALUES:
-            for container in ax.containers:
-                ax.bar_label(
-                    container,
-                    fmt=BAR_VALUE_FMT,
-                    padding=BAR_VALUE_PADDING,
-                    fontsize=BAR_VALUE_FONTSIZE,
-                    fontweight=BAR_VALUE_FONTWEIGHT,
-                )
+        # =====================================================
+        # 1️⃣ BAR
+        # =====================================================
+        if PLOT_MODE in ["bar", "both"]:
+            bar = sns.barplot(
+                data=plot_data,
+                x="Model",
+                y="AvgTime",
+                color=BAR_COLOR,
+                edgecolor=BAR_EDGE_COLOR,
+                linewidth=BAR_EDGE_WIDTH,
+                alpha=0.8 if PLOT_MODE == "both" else 1.0,
+                ax=ax,
+            )
 
-        # Title / Labels
+            if SHOW_BAR_VALUES:
+                for container in bar.containers:
+                    bar.bar_label(
+                        container,
+                        fmt=BAR_VALUE_FMT,
+                        padding=BAR_VALUE_PADDING,
+                        fontsize=BAR_VALUE_FONTSIZE,
+                        fontweight=BAR_VALUE_FONTWEIGHT,
+                    )
+
+        # =====================================================
+        # 2️⃣ LINE
+        # =====================================================
+        if PLOT_MODE in ["line", "both"]:
+            ax.plot(
+                x_vals,
+                y_vals,
+                marker=LINE_MARKER,
+                linewidth=LINE_LINEWIDTH,
+                markersize=LINE_MARKERSIZE,
+                color=LINE_COLOR,
+                zorder=10,   # 막대 위에 그리기
+            )
+
+            if SHOW_BAR_VALUES and PLOT_MODE == "line":
+                for x, y in zip(x_vals, y_vals):
+                    ax.text(
+                        x,
+                        y,
+                        BAR_VALUE_FMT % y,
+                        ha="center",
+                        va="bottom",
+                        fontsize=BAR_VALUE_FONTSIZE,
+                        fontweight=BAR_VALUE_FONTWEIGHT,
+                    )
+
+        # =====================================================
+
         ax.set_title(
             f"[Map {map_id}] Average Evacuation Time",
             fontsize=TITLE_FONTSIZE,
@@ -161,13 +209,15 @@ def plot_bar_charts(df):
         ax.set_ylabel(Y_LABEL_TEXT, fontsize=YLABEL_FONTSIZE)
         ax.set_xlabel(X_LABEL_TEXT, fontsize=XLABEL_FONTSIZE)
 
-        # ✅ x축 라벨 회전 안 함(요청: 눕히지 않기)
         ax.tick_params(axis="x", labelsize=XTICK_FONTSIZE, rotation=XTICK_ROTATION)
         ax.tick_params(axis="y", labelsize=YTICK_FONTSIZE)
 
+        if FIX_Y_LIM:
+            ax.set_ylim(Y_LIM_MIN, Y_LIM_MAX)
+
         plt.tight_layout()
 
-        save_name = f"Graph_Map_{map_id}_Avg.png"
+        save_name = f"Graph_Map_{map_id}_Avg_{PLOT_MODE}.png"
         full_save_path = os.path.join(SAVE_DIR, save_name)
         plt.savefig(full_save_path, dpi=SAVE_DPI)
         print(f"✅ Saved: {full_save_path}")
