@@ -13,10 +13,10 @@ SAVE_DIR = ROOT_DIR
 ORDER_LIST = ["3maps", "30maps", "100maps", "300maps"]
 
 # --- Font ---
-FONT_FAMILY = "Times"
+FONT_FAMILY = "DejaVu Serif"
 
 # --- Figure ---
-FIGSIZE = (8, 6)
+FIGSIZE = (18, 6)
 SAVE_DPI = 300
 
 # --- Bar style ---
@@ -33,10 +33,10 @@ BAR_VALUE_PADDING = 3
 TITLE_FONTSIZE = 20
 TITLE_FONTWEIGHT = "bold"
 
-YLABEL_FONTSIZE = 25
-XLABEL_FONTSIZE = 25
-XTICK_FONTSIZE = 20
-YTICK_FONTSIZE = 20
+YLABEL_FONTSIZE = 50
+XLABEL_FONTSIZE = 50
+XTICK_FONTSIZE = 40
+YTICK_FONTSIZE = 40
 
 BAR_VALUE_FONTSIZE = 11
 BAR_VALUE_FONTWEIGHT = "bold"
@@ -56,7 +56,7 @@ SEABORN_THEME = "whitegrid"
 # "bar"  → 막대그래프만
 # "line" → 꺾은선그래프만
 # "both" → 같은 figure에 막대 + 꺾은선 같이 표시
-PLOT_MODE = "both"
+PLOT_MODE = "bar"
 
 # --- Line style ---
 LINE_MARKER = "o"
@@ -66,7 +66,7 @@ LINE_COLOR = "#d62728"   # 선은 다른 색으로 (논문용 대비 좋음)
 
 FIX_Y_LIM = True
 Y_LIM_MIN = 0
-Y_LIM_MAX = 1250
+Y_LIM_MAX = 1400
 
 def read_avg_file(filepath):
     """avg_metrics.txt에서 evacuation_100_time 값만 추출"""
@@ -123,10 +123,12 @@ def plot_bar_charts(df):
         print("❌ 데이터가 없습니다.")
         return
 
+    sns.set_theme(style=SEABORN_THEME, font=FONT_FAMILY)
+    
+    # 2. 강제로 모든 요소를 Serif 계열로 맞추고 우선순위 부여
+    plt.rcParams["font.family"] = "serif"
+    plt.rcParams["font.serif"] = [FONT_FAMILY, "Times New Roman", "Times"]
     plt.rcParams["axes.unicode_minus"] = False
-    sns.set_theme(style=SEABORN_THEME)
-    plt.rcParams["font.family"] = FONT_FAMILY
-
     unique_maps = sorted(df["Map"].unique())
     print(f"📂 저장 위치: {SAVE_DIR}")
 

@@ -45,7 +45,7 @@ LEGEND_ORDER = [
 # Global
 # =========================
 HOME_DIR   = os.path.expanduser("~")
-ROOT_DIR   = os.path.join(HOME_DIR, "evacuation_100s")
+ROOT_DIR   = os.path.join(HOME_DIR, "ablations2")
 OUT_DIR    = ROOT_DIR
 SAVE_NAME  = "evac100_multi"
 SAVE_DPI   = 300
@@ -55,7 +55,7 @@ MAX_EPISODE = 5000
 
 # --- Figure / fonts ---
 FIGSIZE = (15, 10)
-FONT_SIZES = {"title": 30, "axes": 35, "ticks": 30, "legend": 30}
+FONT_SIZES = {"title": 30, "axes": 50, "ticks": 45, "legend": 30}
 FONT_MODE = "serif"              # "serif" | "sans" | "mono" | "custom"
 FONT_FAMILY = "DejaVu Serif"
 FONT_FALLBACKS: List[str] = []
@@ -91,15 +91,16 @@ EMA_ALPHA_MIN    = 0.05
 EMA_ALPHA_MAX    = 0.50
 
 # --- Lines ---
-DEFAULT_LINEWIDTH = 2
+DEFAULT_LINEWIDTH = 5
 H_BLUE   = 253/360.0
+H_SKY = 197/360.0
 H_ORANGE = 30/360.0
 H_GREEN  = 120/360.0
 H_RED    = 0/360.0
 H_PURPLE = 280/360.0
 H_YELLOW = 55/360.0
 
-COLOR_CYCLE_HUES = [H_RED, H_ORANGE, H_PURPLE, H_YELLOW, H_GREEN, H_GREEN, 0.58, 0.33, 0.12, 0.75, 0.5, 0.5]
+COLOR_CYCLE_HUES = [H_BLUE, H_SKY, H_PURPLE, H_YELLOW, H_GREEN, H_GREEN, 0.58, 0.33, 0.12, 0.75, 0.5, 0.5]
 DEFAULT_S = 0.75
 DEFAULT_L = 0.42
 GLOBAL_S_SCALE = 0.9
@@ -520,9 +521,9 @@ def plot_all(series_list: List[Series], out_dir: str):
     if PLOT_TITLE:
         ax.set_title(PLOT_TITLE, fontsize=FONT_SIZES["title"])
 
-    if handles:
-        ordered = _apply_legend_order(ax, handles, LEGEND_ORDER)
-        ax.legend(handles=ordered, title=LEGEND_TITLE, frameon=False, loc=LEGEND_LOC)
+    # if handles:
+    #     ordered = _apply_legend_order(ax, handles, LEGEND_ORDER)
+    #     ax.legend(handles=ordered, title=LEGEND_TITLE, frameon=False, loc=LEGEND_LOC)
 
     fig.tight_layout()
     os.makedirs(out_dir, exist_ok=True)
