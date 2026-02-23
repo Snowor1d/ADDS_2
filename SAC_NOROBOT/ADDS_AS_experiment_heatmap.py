@@ -1,22 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""
-Parallel experiment runner (fixed slots per map):
-
-- map별로 정확히 test_num개의 결과 폴더만 생성:
-    Result_{map_id}_{robot_ver}_{slot}  where slot = 0..test_num-1
-
-- 어떤 슬롯이든 에러/크래시가 나면 그 슬롯 폴더를 정리한 뒤 같은 슬롯을 재시도
-  => 최종적으로 "성공 폴더"가 map당 test_num개 보장
-  => 시도 횟수는 늘어도, 폴더 개수는 늘지 않음
-
-- worker 프로세스가 죽어서 BrokenProcessPool이 발생해도 풀 재생성 후 계속
-
-주의:
-- robot_version='Q'이고 GPU를 쓰면 병렬을 크게 늘리면 CUDA 컨텍스트/메모리 문제 가능.
-  안전하게는 max_workers=1 추천.
-"""
 
 import os
 import re
@@ -45,40 +29,30 @@ import torch.nn.functional as F
 # =========================
 # 실험 파라미터 (원본 유지)
 # =========================
-
-
-
 VIS_SAVE_EVERY = 5
-
-visualization_mode  = 'cont_png_every'   # 'off', 'cont_mp4', 'cont_png_every', 'cont_png'
+visualization_mode  = 'off'   # 'off', 'cont_mp4', 'cont_png_every', 'cont_png'
 run_iteration       = 1
 number_of_agents    = 30
-max_step_num        = 100
-robot_version       = 'Q'     # 'N','T','Q'
-robot_learned_model = 'FE_1000_to_1299_5000ep.pth'
-test_num            =  2
+max_step_num        = 3000
+robot_version       = 'N'     # 'N','T','Q'
+robot_learned_model = 'FE_105_108_128.pth'
+test_num            =  3
 #map_list = [1239]
-map_list = [105] 
-# real test maps : 130, 131, 134, 300, 301, 303, 305, 306, 307
-#map_list            = [150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191, 192, 193, 194, 195, 196, 197, 198, 199]
-# 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191, 192, 193, 194, 195, 196, 197, 198, 199
-# 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191, 192, 193, 194, 195, 196, 197, 198, 199, \
-# 200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213, 214, 215, 216, 217, 218, 219, 220, 221, 222, 223, 224, 225, 226, 227, 228, 229, 230, 231, 232, 233, 234, 235, 236, 237, 238, 239, 240, 241, 242, 243, 244, 245, 246, 247, 248, 249
-# 130, 131, 132, 133, 134
-EXP_NAME = "0210/images"
+map_list = [105]
+EXP_NAME = "0223/NOROBOT/get_heatmap"
+
 CROWD_COLOR = "#0000FF"
 ROBOT_COLOR = "#FF0000"
 SINGLE_COLOR_EDGES = True
 SHOW_AGENT_HEADING = False
 SHOW_ROBOT_HEADING = False
-ROBOT_HEADING_SCALE = 1.2   
+ROBOT_HEADING_SCALE = 1.2
 
 TRAIL_TARGET = "robot"  # robot / crowd / none
 TRAIL_STYLE  = "persist"
 MAX_TRAIL    = 2000
 ROBOT_STYLE  = "image"
 ROBOT_IMAGE_PATH  = "images/robot.png"
-#ROBOT_IMAGE_SCALE = 5
 EXIT_SIZE = 5.0
 SNAP_EXIT_TO_BOUNDARY = False
 
@@ -87,6 +61,19 @@ ANNOTATE_MODE       = "every_n"
 ANNOTATE_EVERY      = 50
 ANNOTATE_STYLE      = "subway"
 ANNOTATE_FONTSIZE   = 20
+
+
+# =========================
+# [NEW] heatmap options
+# =========================
+ENABLE_HEATMAP = True          # heatmap 생성 여부
+HEATMAP_W = 200                # heatmap x 해상도
+HEATMAP_H = 200                # heatmap y 해상도
+HEATMAP_BLACK_OBSTACLES = True
+HEATMAP_OBS_THRESHOLD = 1
+HEATMAP_EVERY = 1              # 몇 step마다 누적할지 (1이면 매 step)
+HEATMAP_LOG_SCALE = True      # png 저장 시 log 스케일 적용 여부
+HEATMAP_CMAP = "turbo"         # blue->red 느낌: turbo/jet 추천
 
 
 # =========================
@@ -289,9 +276,145 @@ def build_ego_global_frames(env):
 
 
 # =========================
+# [NEW] heatmap helpers
+# =========================
+def _world_to_heat_px(x: float, y: float, env) -> tuple[int, int]:
+    """
+    env 좌표계를 heatmap (HEATMAP_W, HEATMAP_H) 픽셀로 변환
+    """
+    ix = int(np.clip(x / env.width  * HEATMAP_W, 0, HEATMAP_W - 1))
+    iy = int(np.clip(y / env.height * HEATMAP_H, 0, HEATMAP_H - 1))
+    return ix, iy
+
+def _accumulate_points(heat: np.ndarray, points_xy: list[tuple[float, float]], env, w: float = 1.0):
+    """
+    heat[y, x] += w for each point
+    heat shape: (HEATMAP_H, HEATMAP_W)
+    """
+    if heat is None or (not points_xy):
+        return
+    for (x, y) in points_xy:
+        ix, iy = _world_to_heat_px(x, y, env)
+        heat[iy, ix] += w
+
+def _get_crowd_positions(env) -> list[tuple[float, float]]:
+    """
+    crowd agent 위치를 env.agents에서 수집.
+    - agent.dead == 1 이면 제외
+    - robot은 env.robot로 분리되어 있으므로 여기서는 crowd만 모으는 용도
+    """
+    out: list[tuple[float, float]] = []
+
+    agents = getattr(env, "agents", None)
+    if agents is None:
+        return out
+
+    for a in agents:
+        try:
+            # 죽은 agent 제외
+            if getattr(a, "dead", 0) == 1:
+                continue
+
+            # 위치
+            if not hasattr(a, "xy"):
+                continue
+            x, y = a.xy
+            out.append((float(x), float(y)))
+        except Exception:
+            # 하나가 이상해도 전체는 계속
+            continue
+
+    return out
+def _save_heatmap_png(
+    heat: np.ndarray,
+    out_png: str,
+    log_scale: bool = False,
+    cmap: str = "turbo",
+    obstacle_mask: np.ndarray | None = None,
+    cbar_label: str = None
+):
+    """
+    heat를 png로 저장 (blue->red colormap) + colorbar 포함
+    + obstacle_mask가 있으면 해당 영역을 검정색으로 표시
+
+    - log_scale=True면 log1p 스케일로 시각화
+    """
+    if heat is None:
+        return
+
+    arr = heat.astype(np.float32)
+
+    # 보기 좋게 y축 뒤집기
+    arr = np.flipud(arr)
+
+    # 시각화용 변환
+    disp = np.log1p(arr) if log_scale else arr
+
+    vmax = float(disp.max()) if disp.size else 0.0
+    if vmax <= 0:
+        vmax = 1.0
+
+    # obstacle mask도 flip 맞춰줌
+    if obstacle_mask is not None:
+        mask = np.flipud(obstacle_mask.astype(bool))
+        # mask 위치는 "검정"으로 보이도록 0으로 강제
+        disp = disp.copy()
+        disp[mask] = 0.0
+    else:
+        mask = None
+
+    fig = plt.figure(figsize=(6.4, 5.4), dpi=200)
+    ax = fig.add_subplot(111)
+
+    im = ax.imshow(disp, cmap=cmap, vmin=0.0, vmax=vmax, interpolation="nearest")
+    ax.set_axis_off()
+
+    # obstacle은 진짜 검정으로 확실히 덮고 싶으면, 검정 레이어를 한 번 더 얹기
+    if mask is not None:
+        overlay = np.zeros((*mask.shape, 4), dtype=np.float32)  # RGBA
+        overlay[..., 3] = mask.astype(np.float32)              # alpha=1 on obstacles
+        ax.imshow(overlay, interpolation="nearest")            # 검정색(0,0,0,1)
+
+    cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.02)
+
+    if cbar_label is not None:
+        label_text = cbar_label
+    else:
+        label_text = "log(1 + visit count)" if log_scale else "visit count"
+
+    cbar.set_label(label_text)
+    fig.tight_layout(pad=0.05)
+    fig.savefig(out_png, bbox_inches="tight", pad_inches=0.02)
+    plt.close(fig)
+
+def load_slot_heatmap(test_dir: str):
+    cpath = os.path.join(test_dir, "crowd_heat.npy")
+    rpath = os.path.join(test_dir, "robot_heat.npy")
+    if not (os.path.exists(cpath) and os.path.exists(rpath)):
+        return None, None
+    try:
+        return np.load(cpath), np.load(rpath)
+    except Exception:
+        return None, None
+
+def _downsample_u8_to_heatmap_mask(full_u8: np.ndarray) -> np.ndarray:
+    """
+    full_u8: (MAP_H, MAP_W) uint8 지도 이미지 (env.return_current_image로 획득)
+    return: (HEATMAP_H, HEATMAP_W) bool mask, True=obstacle
+    """
+    x = torch.from_numpy(full_u8).float().unsqueeze(0).unsqueeze(0)  # (1,1,H,W)
+    y = F.adaptive_max_pool2d(x, (HEATMAP_H, HEATMAP_W))             # (1,1,HEATMAP_H,HEATMAP_W)
+    m = y.squeeze(0).squeeze(0).cpu().numpy().astype(np.uint8)       # (HEATMAP_H,HEATMAP_W)
+    # obstacle 판정 (임계치 이상이면 obstacle)
+    return (m >= HEATMAP_OBS_THRESHOLD) & (m < 100)
+# =========================
 # episode runner
 # =========================
 def run_one_episode(map_id: int):
+    
+    crowd_points = 0
+    heat_steps = 0
+
     step_num = 0
     env = model.FightingModel(
         number_of_agents,
@@ -317,7 +440,6 @@ def run_one_episode(map_id: int):
         max_trail=MAX_TRAIL,
         robot_style=ROBOT_STYLE,
         robot_image_path=ROBOT_IMAGE_PATH,
-        #robot_image_scale=ROBOT_IMAGE_SCALE,
         exit_size=EXIT_SIZE,
         snap_exit_to_boundary=SNAP_EXIT_TO_BOUNDARY,
         annotate_robot_path=ANNOTATE_ROBOT_PATH,
@@ -338,12 +460,40 @@ def run_one_episode(map_id: int):
     collected_frames = []
 
     episode_log = []
+
+    # heatmap buffers
+    crowd_heat = None
+    robot_heat = None
+    if ENABLE_HEATMAP:
+        crowd_heat = np.zeros((HEATMAP_H, HEATMAP_W), dtype=np.float32)
+        robot_heat = np.zeros((HEATMAP_H, HEATMAP_W), dtype=np.float32)
+
+    obstacle_mask = None
+    if ENABLE_HEATMAP and HEATMAP_BLACK_OBSTACLES:
+        full_map_u8 = env.return_current_image(MAP_H, MAP_W)
+        obstacle_mask = _downsample_u8_to_heatmap_mask(full_map_u8)
+
     try:
         while True:
             env.step()
             step_num += 1
             alive = env.alived_agents()
             episode_log.append(alive)
+
+            # [NEW] heatmap accumulate
+            if ENABLE_HEATMAP and (step_num % HEATMAP_EVERY == 0):
+                heat_steps += 1
+
+                # robot: step 기준으로 1점
+                # if hasattr(env, "robot"):
+                #     rx, ry = env.robot.xy
+                #     _accumulate_points(robot_heat, [(float(rx), float(ry))], env, w=1.0)
+
+
+                # crowd: 죽은 애 제외된 위치들
+                crowd_xy = _get_crowd_positions(env)
+                _accumulate_points(crowd_heat, crowd_xy, env, w=1.0)
+                crowd_points += len(crowd_xy)
 
             if visualization_mode != 'off':
                 if save_mp4:
@@ -363,12 +513,12 @@ def run_one_episode(map_id: int):
             if alive < 1:
                 evacuated_all = True
                 all_life = env.calculate_all_agents_life_time()
-                return step_num, evacuated_all, all_life, episode_log, collected_frames
+                return step_num, evacuated_all, all_life, episode_log, collected_frames, crowd_heat, robot_heat, crowd_points, heat_steps, obstacle_mask
 
             if step_num >= max_step_num:
                 evacuated_all = False
                 all_life = env.calculate_all_agents_life_time()
-                return step_num, evacuated_all, all_life, episode_log, collected_frames
+                return step_num, evacuated_all, all_life, episode_log, collected_frames, crowd_heat, robot_heat, crowd_points, heat_steps, obstacle_mask
 
     finally:
         del env
@@ -392,8 +542,13 @@ def worker_run_slot_until_success(map_id: int, slot: int, test_dir: str, max_ret
             if os.path.exists(test_dir):
                 shutil.rmtree(test_dir, ignore_errors=True)
             os.makedirs(test_dir, exist_ok=False)
+            # obstacle_mask = None
+            # if ENABLE_HEATMAP and HEATMAP_BLACK_OBSTACLES:
+            #     # 장애물 마스크는 해당 맵에서 고정이므로 1회 생성
+            #     full_map_u8 = model.return_current_image(MAP_H, MAP_W)
+            #     obstacle_mask = _downsample_u8_to_heatmap_mask(full_map_u8)
 
-            steps, evacuated_all, all_life, ep_log, vis_frames = run_one_episode(map_id)
+            steps, evacuated_all, all_life, ep_log, vis_frames, crowd_heat, robot_heat, crowd_points, heat_steps, obstacle_mask = run_one_episode(map_id)
 
             evacuation_100_time = steps if evacuated_all else max_step_num
             all_agents_life_time = all_life
@@ -404,6 +559,33 @@ def worker_run_slot_until_success(map_id: int, slot: int, test_dir: str, max_ret
                 f"all_agents_life_time={all_agents_life_time}\n"
             )
             write_list_txt(os.path.join(test_dir, "episode_log.txt"), ep_log)
+
+            # [NEW] heatmap 저장
+            if ENABLE_HEATMAP:
+                np.save(os.path.join(test_dir, "crowd_heat.npy"), crowd_heat)
+                np.save(os.path.join(test_dir, "robot_heat.npy"), robot_heat)
+
+                # 분모 저장
+                write_txt(os.path.join(test_dir, "heatmap_denoms.txt"),
+                          f"crowd_points={crowd_points}\nheat_steps={heat_steps}\n")
+
+                # (A) 점 기준 density
+                crowd_density_points = crowd_heat / float(max(1, crowd_points))
+                #robot_density_steps  = robot_heat / float(max(1, heat_steps))  # robot은 step당 1점이니까 이게 자연스러움
+
+                np.save(os.path.join(test_dir, "crowd_density_points.npy"), crowd_density_points)
+                #np.save(os.path.join(test_dir, "robot_density_steps.npy"), robot_density_steps)
+
+                _save_heatmap_png(crowd_density_points, os.path.join(test_dir, "crowd_density_points.png"),
+                                  log_scale=False, cmap=HEATMAP_CMAP, obstacle_mask = obstacle_mask, cbar_label = "Density (Visit Ratio)")
+                # _save_heatmap_png(robot_density_steps, os.path.join(test_dir, "robot_density_steps.png"),
+                #                   log_scale=False, cmap=HEATMAP_CMAP, obstacle_mask = obstacle_mask, cbar_label = "Density (Visit Ratio)")
+
+                # 원본 count heatmap도 원하면 같이 (지금처럼)
+                _save_heatmap_png(crowd_heat, os.path.join(test_dir, "crowd_heat.png"),
+                                  log_scale=HEATMAP_LOG_SCALE, cmap=HEATMAP_CMAP, obstacle_mask = obstacle_mask)
+                # _save_heatmap_png(robot_heat, os.path.join(test_dir, "robot_heat.png"),
+                #                    log_scale=HEATMAP_LOG_SCALE, cmap=HEATMAP_CMAP, obstacle_mask = obstacle_mask)
 
             # visualization 저장
             if visualization_mode == 'cont_mp4':
@@ -467,9 +649,10 @@ def main():
     result_root = init_result_root(EXP_NAME)
     print(f"[INFO] Result root at: {result_root}")
 
-    # GPU(Q)면 안전하게 1 권장
+    # GPU(Q)면 안전하게 1 권장 (필요하면 아래에서 직접 1로 고정해도 됨)
     if robot_version == 'Q':
-        max_workers =  min(6, os.cpu_count() or 1)
+        max_workers = min(6, os.cpu_count() or 1)
+        # max_workers = 1  # <- GPU 터지면 이거 추천
     else:
         max_workers = min(6, os.cpu_count() or 1)
 
@@ -559,6 +742,71 @@ def main():
             save_step_series(os.path.join(map_robot_dir, "episode_log_mean.txt"), mean_series)
             save_step_series(os.path.join(map_robot_dir, "episode_log_min.txt"),  min_series)
             save_step_series(os.path.join(map_robot_dir, "episode_log_max.txt"),  max_series)
+
+            # [NEW] map 단위 heatmap(sum/avg) 생성
+            if ENABLE_HEATMAP:
+                map_obstacle_mask = None
+                if HEATMAP_BLACK_OBSTACLES:
+                    temp_env = model.FightingModel(number_of_agents, width=MAP_W, height=MAP_H, model_num=map_id, robot=robot_version)
+                    if robot_version == 'Q':
+                        temp_env.use_model(robot_learned_model)
+                    full_map_u8 = temp_env.return_current_image(MAP_H, MAP_W)
+                    map_obstacle_mask = _downsample_u8_to_heatmap_mask(full_map_u8)
+                    del temp_env # 마스크만 빼오고 메모리 해제
+
+                crowd_sum = np.zeros((HEATMAP_H, HEATMAP_W), dtype=np.float32)
+                robot_sum = np.zeros((HEATMAP_H, HEATMAP_W), dtype=np.float32)
+                count = 0
+
+                for slot in range(test_num):
+                    test_dir = os.path.join(map_robot_dir, f"Result_{map_id}_{robot_version}_{slot}")
+                    if not is_slot_success(test_dir):
+                        continue
+                    c, r = load_slot_heatmap(test_dir)
+                    if c is None or r is None:
+                        continue
+                    crowd_sum += c
+                    robot_sum += r
+                    count += 1
+
+                np.save(os.path.join(map_robot_dir, "crowd_heat_sum.npy"), crowd_sum)
+                #np.save(os.path.join(map_robot_dir, "robot_heat_sum.npy"), robot_sum)
+                _save_heatmap_png(
+                    crowd_sum,
+                    os.path.join(map_robot_dir, "crowd_heat_sum.png"),
+                    log_scale=HEATMAP_LOG_SCALE,
+                    cmap=HEATMAP_CMAP,
+                    obstacle_mask = map_obstacle_mask
+                )
+                # _save_heatmap_png(
+                #     robot_sum,
+                #     os.path.join(map_robot_dir, "robot_heat_sum.png"),
+                #     log_scale=HEATMAP_LOG_SCALE,
+                #     cmap=HEATMAP_CMAP,
+                #     obstacle_mask = map_obstacle_mask
+                # )
+
+                if count > 0:
+                    crowd_avg = crowd_sum / float(count)
+                    #robot_avg = robot_sum / float(count)
+
+                    np.save(os.path.join(map_robot_dir, "crowd_heat_avg.npy"), crowd_avg)
+                    # np.save(os.path.join(map_robot_dir, "robot_heat_avg.npy"), robot_avg)
+
+                    _save_heatmap_png(
+                        crowd_avg,
+                        os.path.join(map_robot_dir, "crowd_heat_avg.png"),
+                        log_scale=HEATMAP_LOG_SCALE,
+                        cmap=HEATMAP_CMAP,
+                        obstacle_mask = map_obstacle_mask
+                    )
+                    # _save_heatmap_png(
+                    #     robot_avg,
+                    #     os.path.join(map_robot_dir, "robot_heat_avg.png"),
+                    #     log_scale=HEATMAP_LOG_SCALE,
+                    #     cmap=HEATMAP_CMAP,
+                    #     obstacle_mask = map_obstacle_mask
+                    # )
 
             print(f"[Map {map_id}] Summary updated at {map_robot_dir}")
 
