@@ -1819,7 +1819,7 @@ if __name__ == "__main__":
             with open(epsilon_path, "w") as f:
                 f.write(str(agent.epsilon) + "\n")
                 f.write(str(agent.epsilon_long) + "\n")
-                f.write(str(agent.alpha))
+                f.write(str(agent.alpha.item()))
 
             # 체크포인트 저장
             if (global_episode >= START_UPDATE_EPISODE) and (global_episode % 100 == 0):
