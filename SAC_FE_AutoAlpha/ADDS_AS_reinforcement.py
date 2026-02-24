@@ -1166,7 +1166,7 @@ class FrameStack2: #for ego
 class SACAgent:
     def __init__(self, input_shape=(50,50), gamma=GAMMA_START, alpha=0.2, tau=0.995, lr=1e-4, batch_size=64, replay_size=int(1e5), device="cpu", start_epsilon = 1.0, start_epsilon_long = 0.1, long_epsilon_min=0):
         self.gamma = gamma
-        self.alpha = torch.tensor(alpha, dtype=torch.float32, device=self.device)
+        self.alpha = torch.tensor(alpha, dtype=torch.float32, device='cpu')
         self.tau = tau
         self.batch_size = batch_size
         self.device = torch.device(device)
