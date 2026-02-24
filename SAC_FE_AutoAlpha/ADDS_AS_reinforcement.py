@@ -1322,14 +1322,14 @@ class SACAgent:
 
         # 1. Replay Buffer에서 샘플 가져오기
         ego_s, glob_s, robot_s, a, r, ego_s2, glob_s2, robot_s2, d = self.replay_buffer.sample(self.batch_size)
-        alpha = self.log_alpha.exp().detach()
+        self.alpha = self.log_alpha.exp().detach()
 
         with torch.no_grad():
             next_a, next_logp = self.policy.sample_action(ego_s2, glob_s2, robot_s2)
             q1_next = self.q1_target(ego_s2, glob_s2, next_a, robot_s2)
             q2_next = self.q2_target(ego_s2, glob_s2, next_a, robot_s2)
             q_next = torch.min(q1_next, q2_next).squeeze(-1)
-            q_target = r + self.gamma * (1 - d) * (q_next - alpha * next_logp)
+            q_target = r + self.gamma * (1 - d) * (q_next - self.alpha * next_logp)
 
         # ----- Update Q1, Q2 -----
         q1_val = self.q1(ego_s, glob_s, a, robot_s).squeeze(-1)  # (B,) #q value를 scalar 값으로
@@ -1359,7 +1359,7 @@ class SACAgent:
         q_new = torch.min(q1_new, q2_new).squeeze(-1)  # (B,)
 
         # policy loss = alpha * log_prob - Q
-        policy_loss = (alpha * log_prob - q_new).mean() #여기서 self.alpha * log_prob가 entropy term
+        policy_loss = (self.alpha * log_prob - q_new).mean() #여기서 self.alpha * log_prob가 entropy term
         # policy_loss는 PyTorch의 스칼라 텐서로, 자동 미분 지원
         # 계산된 기울기는 각 파라미터의 .grad 속성에 저장
 
