@@ -63,7 +63,7 @@ FONT_FALLBACKS: List[str] = []
 # --- Titles / axes / legend ---
 PLOT_TITLE      = ""
 XLABEL          = "Training Episode"
-YLABEL          = "Time Step"
+YLABEL          = "Time (s)"
 LEGEND_TITLE    = ""
 LEGEND_LOC      = "upper right"
 
@@ -77,8 +77,8 @@ RAW_TRACE_ALPHA     = 0.18
 RAW_TRACE_LINEWIDTH = 1
 
 # --- Y clipping ---
-CLIP_Y_MIN: Optional[float] = None
-CLIP_Y_MAX: Optional[float] = None
+CLIP_Y_MIN: Optional[float] = 0
+CLIP_Y_MAX: Optional[float] = 2600
 
 # --- Unified smoothing controls ---
 SMOOTH_ENABLE    = True
@@ -491,7 +491,7 @@ def plot_all(series_list: List[Series], out_dir: str):
         stmp = apply_smoothing(s)
         ydraw = stmp.y_smooth if (stmp.y_smooth is not None) else s.y
         xarr = np.asarray(s.x, dtype=float)
-        yarr = np.asarray(ydraw, dtype=float)
+        yarr = np.asarray(ydraw, dtype=float)/2
         n = min(len(xarr), len(yarr))
         xarr = xarr[:n]; yarr = yarr[:n]
 
