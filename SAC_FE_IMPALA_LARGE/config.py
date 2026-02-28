@@ -80,7 +80,7 @@ RANDOM_EXIT = False
 
 
 # -------------- PATH -------------------
-LOG_DIR = "Log_FE_IMPALA_300maps"
+LOG_DIR = "Log_FE_IMPALA_LARGE_300maps"
 #LOG_DIR = "SOTA_MODELS"
 #LOG_DIR = "Log_test"
 PORT_NUM = 8000
