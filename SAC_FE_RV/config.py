@@ -5,7 +5,7 @@ BATCH_SIZE = 128
 INTRINSIC_ETA = 0.1 #intrinsic reward
 START_BATCH_TIMES = 1
 START_UPDATE_EPISODE = 500
-DEVICE = "cpu"
+DEVICE = "cuda"
 
 GAMMA_START = 0.99
 GAMMA_END = 0.99
@@ -26,7 +26,7 @@ MAP_NUM = -1 #if not used, -2, if random, -1
 # 70x70 : 50,53,54
 # 100x100 : 105, 108, 128
 # unseen maps : 500, 501, 502, 503
-MAP_NUM_RANDOM = [105, 108, 128] # 300 maps
+MAP_NUM_RANDOM = list(range(1000, 1300))
 
 # MAP_NUM_RANDOM = [1001, 1004, 1007, 1010, 1013, 1016, 1019, 1022, 1025, 1028,
 #  1031, 1034, 1037, 1040, 1043, 1046, 1049, 1052, 1055, 1058,
@@ -80,10 +80,10 @@ RANDOM_EXIT = False
 
 
 # -------------- PATH -------------------
-LOG_DIR = "Log_FE_AutoAlpha_105_108_128"
+LOG_DIR = "Log_FE_RV_300maps"
 #LOG_DIR = "SOTA_MODELS"
 #LOG_DIR = "Log_test"
-PORT_NUM = 7100
+PORT_NUM = 7500
 
 # --------------- SAC ALGORITHM PARAMETER ---------------
 LOG_STD_MAX = 0.5
