@@ -51,7 +51,7 @@ SAVE_NAME  = "evac100_multi"
 SAVE_DPI   = 300
 SAVE_FORMAT= "png"
 
-MAX_EPISODE = 5000
+MAX_EPISODE = 7000
 
 # --- Figure / fonts ---
 FIGSIZE = (15, 10)
@@ -78,7 +78,7 @@ RAW_TRACE_LINEWIDTH = 1
 
 # --- Y clipping ---
 CLIP_Y_MIN: Optional[float] = 250
-CLIP_Y_MAX: Optional[float] = 2700
+CLIP_Y_MAX: Optional[float] = 3500
 
 # --- Unified smoothing controls ---
 SMOOTH_ENABLE    = True
@@ -91,7 +91,7 @@ EMA_ALPHA_MIN    = 0.05
 EMA_ALPHA_MAX    = 0.50
 
 # --- Lines ---
-DEFAULT_LINEWIDTH = 5
+DEFAULT_LINEWIDTH = 3
 H_BLUE   = 253/360.0
 H_SKY = 197/360.0
 H_ORANGE = 30/360.0
@@ -521,9 +521,9 @@ def plot_all(series_list: List[Series], out_dir: str):
     if PLOT_TITLE:
         ax.set_title(PLOT_TITLE, fontsize=FONT_SIZES["title"])
 
-    # if handles:
-    #     ordered = _apply_legend_order(ax, handles, LEGEND_ORDER)
-    #     ax.legend(handles=ordered, title=LEGEND_TITLE, frameon=False, loc=LEGEND_LOC)
+    if handles:
+        ordered = _apply_legend_order(ax, handles, LEGEND_ORDER)
+        ax.legend(handles=ordered, title=LEGEND_TITLE, frameon=False, loc=LEGEND_LOC)
 
     fig.tight_layout()
     os.makedirs(out_dir, exist_ok=True)

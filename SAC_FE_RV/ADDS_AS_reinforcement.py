@@ -938,7 +938,7 @@ class ImpalaBlock(nn.Module):
 
 class ImpalaCNN(nn.Module):
     # compress=False 로 설정하면 256 압축을 생략합니다.
-    def __init__(self, input_shape, in_channels=4, channels=[16, 32, 64], out_dim=256, compress=True):
+    def __init__(self, input_shape, in_channels=4, channels=[32, 64, 64], out_dim=256, compress=True):
         super(ImpalaCNN, self).__init__()
         h, w = input_shape
         self.blocks = nn.ModuleList()
@@ -983,8 +983,8 @@ class QNetwork(nn.Module):
         self.use_robot_state = use_robot
        
         # --- Ego & Global Encoders ---
-        self.ego_enc = ImpalaCNN(input_shape=ego_shape, compress=True)
-        self.glob_enc = ImpalaCNN(input_shape=global_shape, compress=True)
+        self.ego_enc = ImpalaCNN(input_shape=ego_shape, compress=False)
+        self.glob_enc = ImpalaCNN(input_shape=global_shape, compress=False)
        
         # Robot State
         robot_feat_dim = 0
@@ -1065,8 +1065,8 @@ class PolicyNetwork(nn.Module):
         self.use_robot_state = use_robot
 
         # --- Ego & Global Encoders ---
-        self.ego_enc = ImpalaCNN(input_shape=ego_shape, compress=True)
-        self.glob_enc = ImpalaCNN(input_shape=global_shape, compress=True)
+        self.ego_enc = ImpalaCNN(input_shape=ego_shape, compress=False)
+        self.glob_enc = ImpalaCNN(input_shape=global_shape, compress=False)
 
         # Robot State
         self.robot_feat_dim = 0
