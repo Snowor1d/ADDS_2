@@ -1281,8 +1281,8 @@ class QNetwork(nn.Module):
         self.use_robot_state = use_robot
        
         # --- Ego & Global Encoders ---
-        self.ego_enc = ImpalaCNN(input_shape=ego_shape, compress=False)
-        self.glob_enc = ImpalaCNN(input_shape=global_shape, compress=False)
+        self.ego_enc = ImpalaCNN(input_shape=ego_shape, compress=True)
+        self.glob_enc = ImpalaCNN(input_shape=global_shape, compress=True)
        
         # Robot State
         robot_feat_dim = 0
@@ -1370,8 +1370,8 @@ class CentralizedQNetwork(nn.Module):
         self.robot_dim = robot_dim
 
         # shared ego encoder
-        self.ego_enc = ImpalaCNN(input_shape=ego_shape, compress=False)
-        self.glob_enc = ImpalaCNN(input_shape=global_shape, compress=False)
+        self.ego_enc = ImpalaCNN(input_shape=ego_shape, compress=True)
+        self.glob_enc = ImpalaCNN(input_shape=global_shape, compress=True)
 
         self.single_ego_feat_dim = self.ego_enc.out_dim
         self.global_feat_dim = self.glob_enc.out_dim
