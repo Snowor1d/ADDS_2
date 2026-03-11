@@ -50,13 +50,14 @@ import torch.nn.functional as F
 
 VIS_SAVE_EVERY = 5
 
-visualization_mode  = 'off'   # 'off', 'cont_mp4', 'cont_png_every', 'cont_png'
+visualization_mode  = 'cont_png_every'   # 'off', 'cont_mp4', 'cont_png_every', 'cont_png'
 run_iteration       = 1
 number_of_agents    = 30
-max_step_num        = 1000
+max_step_num        = 100
 robot_version       = 'Q'     # 'N','T','Q'
-robot_learned_model = 'FE_105_108_128.pth'
-test_num            =  10
+robot_learned_model = 'FE_1000_to_1299_5000ep.pth'
+test_num            =  2
+#map_list = [1239]
 map_list = [105] 
 # real test maps : 130, 131, 134, 300, 301, 303, 305, 306, 307
 #map_list            = [150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191, 192, 193, 194, 195, 196, 197, 198, 199]
@@ -64,7 +65,7 @@ map_list = [105]
 # 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191, 192, 193, 194, 195, 196, 197, 198, 199, \
 # 200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213, 214, 215, 216, 217, 218, 219, 220, 221, 222, 223, 224, 225, 226, 227, 228, 229, 230, 231, 232, 233, 234, 235, 236, 237, 238, 239, 240, 241, 242, 243, 244, 245, 246, 247, 248, 249
 # 130, 131, 132, 133, 134
-EXP_NAME = "0309/test"
+EXP_NAME = "0210/images"
 CROWD_COLOR = "#0000FF"
 ROBOT_COLOR = "#FF0000"
 SINGLE_COLOR_EDGES = True
@@ -72,7 +73,7 @@ SHOW_AGENT_HEADING = False
 SHOW_ROBOT_HEADING = False
 ROBOT_HEADING_SCALE = 1.2   
 
-TRAIL_TARGET = "none"  # robot / crowd / none
+TRAIL_TARGET = "robot"  # robot / crowd / none
 TRAIL_STYLE  = "persist"
 MAX_TRAIL    = 2000
 ROBOT_STYLE  = "image"
@@ -86,7 +87,6 @@ ANNOTATE_MODE       = "every_n"
 ANNOTATE_EVERY      = 50
 ANNOTATE_STYLE      = "subway"
 ANNOTATE_FONTSIZE   = 20
-ACTION_SCALE = 4
 
 
 # =========================
@@ -317,6 +317,7 @@ def run_one_episode(map_id: int):
         max_trail=MAX_TRAIL,
         robot_style=ROBOT_STYLE,
         robot_image_path=ROBOT_IMAGE_PATH,
+        #robot_image_scale=ROBOT_IMAGE_SCALE,
         exit_size=EXIT_SIZE,
         snap_exit_to_boundary=SNAP_EXIT_TO_BOUNDARY,
         annotate_robot_path=ANNOTATE_ROBOT_PATH,
@@ -324,6 +325,7 @@ def run_one_episode(map_id: int):
         annotate_every=ANNOTATE_EVERY,
         annotate_style=ANNOTATE_STYLE,
         annotate_fontsize=ANNOTATE_FONTSIZE,
+
         agent_heading_scale=1.8,
         agent_heading_color="#000000",
         agent_heading_linewidth=1.5,
@@ -336,19 +338,12 @@ def run_one_episode(map_id: int):
     collected_frames = []
 
     episode_log = []
-    reward_logs = {}
-
     try:
         while True:
             env.step()
             step_num += 1
             alive = env.alived_agents()
             episode_log.append(alive)
-
-            if step_num % ACTION_SCALE == 0:
-                reward_terms = extract_reward_terms(env)
-                for k, v in reward_terms.items():
-                    reward_logs.setdefault(k, []).append(float(v))
 
             if visualization_mode != 'off':
                 if save_mp4:
@@ -368,12 +363,12 @@ def run_one_episode(map_id: int):
             if alive < 1:
                 evacuated_all = True
                 all_life = env.calculate_all_agents_life_time()
-                return step_num, evacuated_all, all_life, episode_log, reward_logs, collected_frames
+                return step_num, evacuated_all, all_life, episode_log, collected_frames
 
             if step_num >= max_step_num:
                 evacuated_all = False
                 all_life = env.calculate_all_agents_life_time()
-                return step_num, evacuated_all, all_life, episode_log, reward_logs, collected_frames
+                return step_num, evacuated_all, all_life, episode_log, collected_frames
 
     finally:
         del env
@@ -398,7 +393,7 @@ def worker_run_slot_until_success(map_id: int, slot: int, test_dir: str, max_ret
                 shutil.rmtree(test_dir, ignore_errors=True)
             os.makedirs(test_dir, exist_ok=False)
 
-            steps, evacuated_all, all_life, ep_log, reward_logs, vis_frames = run_one_episode(map_id)
+            steps, evacuated_all, all_life, ep_log, vis_frames = run_one_episode(map_id)
 
             evacuation_100_time = steps if evacuated_all else max_step_num
             all_agents_life_time = all_life
@@ -409,7 +404,6 @@ def worker_run_slot_until_success(map_id: int, slot: int, test_dir: str, max_ret
                 f"all_agents_life_time={all_agents_life_time}\n"
             )
             write_list_txt(os.path.join(test_dir, "episode_log.txt"), ep_log)
-            save_named_series_dict(test_dir, reward_logs)
 
             # visualization 저장
             if visualization_mode == 'cont_mp4':
@@ -473,15 +467,17 @@ def main():
     result_root = init_result_root(EXP_NAME)
     print(f"[INFO] Result root at: {result_root}")
 
+    # GPU(Q)면 안전하게 1 권장
     if robot_version == 'Q':
-        max_workers = min(6, os.cpu_count() or 1)
+        max_workers =  min(6, os.cpu_count() or 1)
     else:
         max_workers = min(6, os.cpu_count() or 1)
 
     for it in range(run_iteration):
         print(f"\n=== Iteration {it+1}/{run_iteration} ===")
 
-        slots = []
+        # map별 고정 슬롯 디렉토리 생성
+        slots = []  # (map_id, slot, test_dir)
         map_robot_dirs = {}
 
         for map_id in map_list:
@@ -496,15 +492,18 @@ def main():
                 test_dir = os.path.join(map_robot_dir, f"Result_{map_id}_{robot_version}_{slot}")
                 slots.append((map_id, slot, test_dir))
 
+        # 이미 성공한 슬롯은 건너뜀
         pending = [(mid, s, td) for (mid, s, td) in slots if not is_slot_success(td)]
         done = {(mid, s): is_slot_success(td) for (mid, s, td) in slots}
 
         print(f"[INFO] total slots = {len(slots)}, pending = {len(pending)}")
 
+        # pending 슬롯이 없어질 때까지 반복
         while pending:
             try:
                 with ProcessPoolExecutor(max_workers=max_workers) as ex:
                     futures = {}
+                    # 현재 라운드에서 최대 max_workers만 제출
                     batch = pending[:max_workers]
                     pending = pending[max_workers:]
 
@@ -518,7 +517,9 @@ def main():
                         try:
                             res = fut.result()
                         except Exception as e:
+                            # worker 프로세스가 죽었거나(pickle/환경 문제 포함)
                             print(f"[CRASH][Map {mid}][slot {s}] -> {repr(e)}")
+                            # 같은 슬롯을 다시 pending에 넣음
                             pending.append((mid, s, td))
                             continue
 
@@ -527,9 +528,11 @@ def main():
                             print(f"[OK][Map {mid}][slot {s}] attempt={res.get('attempt')}")
                         else:
                             print(f"[GIVEUP][Map {mid}][slot {s}] attempt={res.get('attempt')} error={res.get('error')}")
+                            # giveup이면 일단 pending에 다시 넣지 않음 (원하면 넣어도 됨)
 
             except BrokenProcessPool:
                 print("[WARN] BrokenProcessPool detected. Recreating executor and continuing...")
+                # 풀 깨짐: 아직 완료 안 된 슬롯들을 다시 pending에 넣고 계속
                 still = []
                 for (mid, s, td) in slots:
                     if not is_slot_success(td):
@@ -537,6 +540,7 @@ def main():
                 pending = still
                 continue
 
+        # map별 요약파일 갱신 (슬롯 성공 폴더들만 기준)
         for map_id in map_list:
             map_robot_dir = map_robot_dirs[map_id]
             evac_times, life_times, episode_logs = load_all_slot_logs(map_robot_dir, map_id, robot_version)
@@ -553,138 +557,13 @@ def main():
 
             mean_series, min_series, max_series = aggregate_episode_logs(episode_logs)
             save_step_series(os.path.join(map_robot_dir, "episode_log_mean.txt"), mean_series)
-            save_step_series(os.path.join(map_robot_dir, "episode_log_min.txt"), min_series)
-            save_step_series(os.path.join(map_robot_dir, "episode_log_max.txt"), max_series)
-
-            reward_dicts = []
-            for slot, test_dir in list_slot_dirs(map_robot_dir, map_id, robot_version):
-                if not is_slot_success(test_dir):
-                    continue
-                d = read_reward_series_from_dir(test_dir)
-                if d:
-                    reward_dicts.append(d)
-
-            avg_reward_dict = aggregate_named_series_dict(reward_dicts)
-            save_named_series_dict(map_robot_dir, avg_reward_dict)
+            save_step_series(os.path.join(map_robot_dir, "episode_log_min.txt"),  min_series)
+            save_step_series(os.path.join(map_robot_dir, "episode_log_max.txt"),  max_series)
 
             print(f"[Map {map_id}] Summary updated at {map_robot_dir}")
 
         print(f"[ITER {it+1}] Done.")
 
-def save_named_series_dict(base_dir: str, series_dict: dict):
-    """
-    series_dict = {
-        "reward_A": [..],
-        "reward_B": [..],
-        ...
-    }
-    -> base_dir/reward_A.txt, reward_B.txt, ...
-    """
-    os.makedirs(base_dir, exist_ok=True)
-    for name, series in series_dict.items():
-        path = os.path.join(base_dir, f"{name}.txt")
-        with open(path, "w", encoding="utf-8") as f:
-            for v in series:
-                f.write(f"{float(v)}\n")
-
-def read_series_txt(path: str):
-    if not os.path.exists(path):
-        return None
-    vals = []
-    with open(path, "r", encoding="utf-8") as f:
-        for line in f:
-            s = line.strip()
-            if not s:
-                continue
-            try:
-                vals.append(float(s))
-            except Exception:
-                pass
-    return vals
-
-def read_reward_series_from_dir(test_dir: str):
-    """
-    test_dir 안의 reward_*.txt를 모두 읽어서 dict로 반환
-    """
-    out = {}
-    if not os.path.exists(test_dir):
-        return out
-
-    for fn in os.listdir(test_dir):
-        if re.fullmatch(r"reward_[A-Za-z0-9_]+\.txt", fn):
-            name = fn[:-4]  # remove .txt
-            vals = read_series_txt(os.path.join(test_dir, fn))
-            if vals is not None:
-                out[name] = vals
-    return out
-
-def aggregate_named_series_dict(list_of_series_dicts):
-    """
-    여러 episode의 reward dict를 평균 시계열로 합침.
-    길이가 다르면 존재하는 값들만 평균.
-    """
-    if not list_of_series_dicts:
-        return {}
-
-    all_names = set()
-    for d in list_of_series_dicts:
-        all_names.update(d.keys())
-
-    aggregated = {}
-    for name in sorted(all_names):
-        logs = [d[name] for d in list_of_series_dicts if name in d and d[name] is not None]
-        if not logs:
-            continue
-
-        max_len = max(len(x) for x in logs)
-        mean_series = []
-        for i in range(max_len):
-            bucket = [x[i] for x in logs if len(x) > i]
-            if bucket:
-                mean_series.append(float(np.mean(bucket)))
-        aggregated[name] = mean_series
-
-    return aggregated
-
-def extract_reward_terms(env):
-    """
-    env에서 현재 reward 각 항(dict)을 꺼내오는 어댑터 함수.
-    반드시 dict 형태로 반환되게 맞춰주면 됨.
-
-    우선순위:
-    1) env.latest_reward_terms
-    2) env.reward_terms
-    3) env.get_reward_terms()
-    """
-
-    raw = {
-        "reward_A" : env.reward_based_alived() * REWARD_A,
-        "reward_B" : env.reward_based_all_agents_danger() * REWARD_B,
-        "reward_penalty" : env.reward_penalty() * REWARD_D,
-        "reward_fixed" : -0.5,
-        "reward_based_farthest_agent_distance" : env.reward_based_farthest_agent_distance() * REWARD_L 
-    }
-
-    # if hasattr(env, "latest_reward_terms"):
-    #     raw = env.latest_reward_terms
-    # elif hasattr(env, "reward_terms"):
-    #     raw = env.reward_terms
-    # elif hasattr(env, "get_reward_terms") and callable(env.get_reward_terms):
-    #     raw = env.get_reward_terms()
-    
-    # if raw is None:
-    #     return {}
-
-    # if isinstance(raw, dict):
-    #     out = {}
-    #     for k, v in raw.items():
-    #         try:
-    #             out[str(k)] = float(v)
-    #         except Exception:
-    #             pass
-    #     return out
-
-    return raw
 
 if __name__ == "__main__":
     main()
