@@ -1483,8 +1483,8 @@ class PolicyNetwork(nn.Module):
         self.use_robot_state = use_robot
 
         # --- Ego & Global Encoders ---
-        self.ego_enc = ImpalaCNN(input_shape=ego_shape, compress=False)
-        self.glob_enc = ImpalaCNN(input_shape=global_shape, compress=False)
+        self.ego_enc = ImpalaCNN(input_shape=ego_shape, compress=True)
+        self.glob_enc = ImpalaCNN(input_shape=global_shape, compress=True)
 
         # Robot State
         self.robot_feat_dim = 0
