@@ -674,7 +674,7 @@ def worker_process(
 
                             reward=float(reward),
                             done=bool(done),
-                            agent_index=int(agent_i),
+                            agent_index=-1,
                         )
                         transition_queue.put(msg)  # blocking
                     except Exception as e:
