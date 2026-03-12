@@ -655,28 +655,28 @@ def worker_process(
                     try:
                         total_reward += reward  # timestep reward는 1번만 누적
 
-                        for agent_i in range(MAX_ROBOTS):
-                            if buffered_joint_mask[agent_i] < 0.5:
-                                continue
+                        # for agent_i in range(MAX_ROBOTS):
+                        #     if buffered_joint_mask[agent_i] < 0.5:
+                        #         continue
 
-                            msg = TransitionMsg(
-                                worker_id=worker_id,
-                                joint_ego_state=np.copy(buffered_joint_ego_state),
-                                global_state=np.copy(buffered_global_state),
-                                joint_robot_state=np.copy(buffered_joint_robot_state),
-                                joint_action=np.copy(buffered_joint_action),
-                                joint_mask=np.copy(buffered_joint_mask),
+                        msg = TransitionMsg(
+                            worker_id=worker_id,
+                            joint_ego_state=np.copy(buffered_joint_ego_state),
+                            global_state=np.copy(buffered_global_state),
+                            joint_robot_state=np.copy(buffered_joint_robot_state),
+                            joint_action=np.copy(buffered_joint_action),
+                            joint_mask=np.copy(buffered_joint_mask),
 
-                                next_joint_ego_state=np.copy(next_joint_ego_state),
-                                next_global_state=np.copy(next_global_state),
-                                next_joint_robot_state=np.copy(next_joint_robot_state),
-                                next_joint_mask=np.copy(next_joint_mask),
+                            next_joint_ego_state=np.copy(next_joint_ego_state),
+                            next_global_state=np.copy(next_global_state),
+                            next_joint_robot_state=np.copy(next_joint_robot_state),
+                            next_joint_mask=np.copy(next_joint_mask),
 
-                                reward=float(reward),
-                                done=bool(done),
-                                agent_index=int(agent_i),
-                            )
-                            transition_queue.put(msg)  # blocking
+                            reward=float(reward),
+                            done=bool(done),
+                            agent_index=int(agent_i),
+                        )
+                        transition_queue.put(msg)  # blocking
                     except Exception as e:
                         print(f"[Worker {worker_id}] transition_queue.put error: {e}")
                         abnormal_reward = 1
@@ -2236,20 +2236,22 @@ if __name__ == "__main__":
             pass
         else:
             # ReplayBuffer에 push
-            agent.replay_buffer.push(
-                msg.joint_ego_state,
-                msg.global_state,
-                msg.joint_robot_state,
-                msg.joint_action,
-                msg.joint_mask,
-                msg.next_joint_ego_state,
-                msg.next_global_state,
-                msg.next_joint_robot_state,
-                msg.next_joint_mask,
-                msg.reward,
-                msg.done,
-                msg.agent_index,
-            )
+            for agent_i in range(MAX_ROBOTS):
+                if msg.joint_mask[agent_i] > 0.5:                    
+                    agent.replay_buffer.push(
+                        msg.joint_ego_state,
+                        msg.global_state,
+                        msg.joint_robot_state,
+                        msg.joint_action,
+                        msg.joint_mask,
+                        msg.next_joint_ego_state,
+                        msg.next_global_state,
+                        msg.next_joint_robot_state,
+                        msg.next_joint_mask,
+                        msg.reward,
+                        msg.done,
+                        agent_i
+                    )
 
             # 업데이트 스케줄: transition 수에 비례해서 update 횟수 누적
             if global_episode >= START_UPDATE_EPISODE:
