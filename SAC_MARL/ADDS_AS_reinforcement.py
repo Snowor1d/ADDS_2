@@ -2195,8 +2195,8 @@ if __name__ == "__main__":
     N_WORKERS_WARMUP = 10
     N_WORKERS_TRAIN = int(N_ENVS)
 
-    transition_queue = ctx.Queue(maxsize=2*N_WORKERS_WARMUP)
-    stats_queue = ctx.Queue(maxsize=2*N_WORKERS_WARMUP)
+    transition_queue = ctx.Queue(maxsize=2*N_WORKERS_WARMUP*THE_NUMBER_OF_ROBOTS)
+    stats_queue = ctx.Queue(maxsize=2*N_WORKERS_WARMUP*THE_NUMBER_OF_ROBOTS)
     param_queue = mp.Queue(maxsize=1)
 
     workers = [None] * N_WORKERS
@@ -2360,8 +2360,8 @@ if __name__ == "__main__":
                 pass
 
             print("[Main] Re-creating Queues...")
-            transition_queue = ctx.Queue(maxsize=2*N_WORKERS_TRAIN)
-            stats_queue = ctx.Queue(maxsize=2*N_WORKERS_TRAIN)
+            transition_queue = ctx.Queue(maxsize=2*N_WORKERS_TRAIN*THE_NUMBER_OF_ROBOTS)
+            stats_queue = ctx.Queue(maxsize=2*N_WORKERS_TRAIN*THE_NUMBER_OF_ROBOTS)
 
             # 새 worker 시작
             current_n_workers = N_WORKERS_TRAIN
