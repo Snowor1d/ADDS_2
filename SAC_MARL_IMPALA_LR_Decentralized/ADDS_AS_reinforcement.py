@@ -89,6 +89,8 @@ def gather_agent_tensor(x, agent_index):
     idx = agent_index.view(*view_shape).expand(*expand_shape)
     return x.gather(1, idx).squeeze(1)
 
+
+
 @dataclass
 class TransitionMsg:
     worker_id: int
@@ -1666,7 +1668,7 @@ class SACAgent:
             device=self.device,
         )
 
-        self.q1 = CentralizedQNetwork(
+        self.q1 = QNetwork(
             ego_shape=(EGO_MAP_SIZE, EGO_MAP_SIZE),
             global_shape=(DOWNSAMPLE_MAP_SIZE, DOWNSAMPLE_MAP_SIZE),
             action_dim=2,
@@ -1675,7 +1677,7 @@ class SACAgent:
             use_robot=ROBOT_STATE_EMBEDDING,
         ).to(self.device)
 
-        self.q2 = CentralizedQNetwork(
+        self.q2 = QNetwork(
             ego_shape=(EGO_MAP_SIZE, EGO_MAP_SIZE),
             global_shape=(DOWNSAMPLE_MAP_SIZE, DOWNSAMPLE_MAP_SIZE),
             action_dim=2,
@@ -1684,7 +1686,7 @@ class SACAgent:
             use_robot=ROBOT_STATE_EMBEDDING,
         ).to(self.device)
 
-        self.q1_target = CentralizedQNetwork(
+        self.q1_target = QNetwork(
             ego_shape=(EGO_MAP_SIZE, EGO_MAP_SIZE),
             global_shape=(DOWNSAMPLE_MAP_SIZE, DOWNSAMPLE_MAP_SIZE),
             action_dim=2,
@@ -1693,7 +1695,7 @@ class SACAgent:
             use_robot=ROBOT_STATE_EMBEDDING,
         ).to(self.device)
 
-        self.q2_target = CentralizedQNetwork(
+        self.q2_target = QNetwork(
             ego_shape=(EGO_MAP_SIZE, EGO_MAP_SIZE),
             global_shape=(DOWNSAMPLE_MAP_SIZE, DOWNSAMPLE_MAP_SIZE),
             action_dim=2,
@@ -1801,31 +1803,46 @@ class SACAgent:
 
         self.alpha = self.log_alpha.exp().detach()
 
+        # --------------------------------------------------
+        # selected agent의 local observation/action 추출
+        # --------------------------------------------------
+        ego_i, robot_i, action_i = self.gather_local_from_joint(
+            joint_ego, joint_robot, joint_action, agent_index
+        )
+        next_ego_i, next_robot_i, _ = self.gather_local_from_joint(
+            next_joint_ego, next_joint_robot, joint_action, agent_index
+        )
+
         # -----------------------
         # 1) Critic target
         # -----------------------
         with torch.no_grad():
-            next_joint_action, next_joint_logp = self.sample_joint_actions(
-                next_joint_ego, next_global_state, next_joint_robot, next_joint_mask
-            )  # (B,N,A), (B,N)
-
-            next_logp_i = gather_agent_tensor(next_joint_logp.unsqueeze(-1), agent_index).squeeze(-1)
+            next_action_i, next_logp_i = self.sample_local_actions(
+                next_ego_i, next_global_state, next_robot_i
+            )  # (B,A), (B,)
 
             q1_next = self.q1_target(
-                next_joint_ego, next_global_state, next_joint_action, next_joint_robot, next_joint_mask
-            )
+                next_ego_i, next_global_state, next_action_i, next_robot_i
+            ).squeeze(-1)
+
             q2_next = self.q2_target(
-                next_joint_ego, next_global_state, next_joint_action, next_joint_robot, next_joint_mask
-            )
-            q_next = torch.min(q1_next, q2_next).squeeze(-1)
+                next_ego_i, next_global_state, next_action_i, next_robot_i
+            ).squeeze(-1)
+
+            q_next = torch.min(q1_next, q2_next)
 
             q_target = reward + self.gamma * (1 - done) * (q_next - self.alpha * next_logp_i)
 
         # -----------------------
         # 2) Critic update
         # -----------------------
-        q1_val = self.q1(joint_ego, global_state, joint_action, joint_robot, joint_mask).squeeze(-1)
-        q2_val = self.q2(joint_ego, global_state, joint_action, joint_robot, joint_mask).squeeze(-1)
+        q1_val = self.q1(
+            ego_i, global_state, action_i, robot_i
+        ).squeeze(-1)
+
+        q2_val = self.q2(
+            ego_i, global_state, action_i, robot_i
+        ).squeeze(-1)
 
         loss_q1 = F.mse_loss(q1_val, q_target)
         loss_q2 = F.mse_loss(q2_val, q_target)
@@ -1845,14 +1862,19 @@ class SACAgent:
         # -----------------------
         # 3) Actor update
         # -----------------------
-        new_joint_action, joint_logp = self.sample_joint_actions(
-            joint_ego, global_state, joint_robot, joint_mask
+        new_action_i, logp_i = self.sample_local_actions(
+            ego_i, global_state, robot_i
         )
-        logp_i = gather_agent_tensor(joint_logp.unsqueeze(-1), agent_index).squeeze(-1)
 
-        q1_new = self.q1(joint_ego, global_state, new_joint_action, joint_robot, joint_mask)
-        q2_new = self.q2(joint_ego, global_state, new_joint_action, joint_robot, joint_mask)
-        q_new = torch.min(q1_new, q2_new).squeeze(-1)
+        q1_new = self.q1(
+            ego_i, global_state, new_action_i, robot_i
+        ).squeeze(-1)
+
+        q2_new = self.q2(
+            ego_i, global_state, new_action_i, robot_i
+        ).squeeze(-1)
+
+        q_new = torch.min(q1_new, q2_new)
 
         policy_loss = (self.alpha * logp_i - q_new).mean()
 
@@ -1956,6 +1978,27 @@ class SACAgent:
         joint_action = torch.stack(actions, dim=1)   # (B,N,A)
         joint_logp = torch.stack(log_probs, dim=1)   # (B,N)
         return joint_action, joint_logp
+    
+    def gather_local_from_joint(
+        self,
+        joint_ego,          # (B,N,4,E,E)
+        joint_robot,        # (B,N,R)
+        joint_action,       # (B,N,A)
+        agent_index         # (B,)
+    ):
+        ego_i = gather_agent_tensor(joint_ego, agent_index)        # (B,4,E,E)
+        robot_i = gather_agent_tensor(joint_robot, agent_index)    # (B,R)
+        action_i = gather_agent_tensor(joint_action, agent_index)  # (B,A)
+        return ego_i, robot_i, action_i
+    
+    def sample_local_actions(self, ego_state, global_state, robot_state):
+        """
+        ego_state:   (B,4,E,E)
+        global_state:(B,4,G,G)
+        robot_state: (B,R)
+        """
+        action, log_prob = self.policy.sample_action(ego_state, global_state, robot_state)
+        return action, log_prob
 
 ##########################################################################
 # TensorBoard 모니터링 함수: total_reward.txt 파일의 새 라인을 지속적으로 읽어 기록
