@@ -82,10 +82,10 @@ RANDOM_EXIT = False
 
 
 # -------------- PATH -------------------
-LOG_DIR = "Log_MARL_LocalReward_105"
+LOG_DIR = "Log_MARL_vanCNN_LR_105_108_128"
 #LOG_DIR = "SOTA_MODELS"
 #LOG_DIR = "Log_test"
-PORT_NUM = 7500
+PORT_NUM = 7231
 
 # --------------- SAC ALGORITHM PARAMETER ---------------
 LOG_STD_MAX = 0.5
