@@ -33,60 +33,83 @@ DEBUG_DIR_TEMP = os.path.join(home_dir, LOG_DIR)
 DEBUG_DIR = os.path.join(DEBUG_DIR_TEMP, "debug_frames")
 DEBUG_EVERY_EP = 1  
 DEBUG_STEPS = {100, 200, 300}  # 초반 3번 boundary만 저장
+MAX_ROBOTS = 3
+ACTION_DIM = 2
 
-
-
-def save_debug_triplet(save_dir: str, worker_id: int, episode_idx: int, step: int,
+def save_debug_triplet(save_dir: str, worker_id: int, episode_idx: int, step: int, agent_idx: int,
                        full_u8: np.ndarray,
                        ego_f: np.ndarray,
                        glob_f: np.ndarray,
                        ego_state: np.ndarray = None,
                        global_state: np.ndarray = None):
     """
-    full_u8: (H,W) uint8
-    ego_f, glob_f: float32 [0,1] single frame
-    ego_state/global_state: (4,H,W) float32 [0,1] stack (optional)
+    agent_idx를 추가로 받아 여러 로봇의 이미지를 충돌 없이 저장합니다.
     """
+    import imageio
+    import numpy as np
+    from pathlib import Path
+
     d = Path(save_dir) / f"w{worker_id:02d}"
     d.mkdir(parents=True, exist_ok=True)
 
-    # base name
-    stem = f"ep{episode_idx:06d}_st{step:06d}"
+    # 공통 파일명 (Global, Full Map용)
+    step_stem = f"ep{episode_idx:06d}_st{step:06d}"
+    # 개별 로봇 파일명 (Ego Map용)
+    agent_stem = f"{step_stem}_agent{agent_idx:02d}"
 
-    # full map 저장 (uint8 그대로)
-    imageio.imwrite(str(d / f"{stem}_full.png"), full_u8)
-
-    # ego/global frame 저장 (float -> uint8 변환)
-    ego_u8 = np.clip(ego_f * 255.0, 0, 255).astype(np.uint8)
+    # 1. 공통 이미지 저장 (동일한 스텝에서 여러 번 호출되더라도 덮어쓰기 되므로 문제없음)
+    imageio.imwrite(str(d / f"{step_stem}_full.png"), full_u8)
+    
     glob_u8 = np.clip(glob_f * 255.0, 0, 255).astype(np.uint8)
-    imageio.imwrite(str(d / f"{stem}_ego.png"), ego_u8)
-    imageio.imwrite(str(d / f"{stem}_glob.png"), glob_u8)
-
-    # stack 확인(옵션): 채널 4장을 한 이미지로 합쳐서 저장
-    if ego_state is not None:
-        # (4,H,W) -> 가로로 붙이기
-        es = np.clip(ego_state * 255.0, 0, 255).astype(np.uint8)
-        grid = np.concatenate([es[i] for i in range(es.shape[0])], axis=1)
-        imageio.imwrite(str(d / f"{stem}_egoStack.png"), grid)
+    imageio.imwrite(str(d / f"{step_stem}_glob.png"), glob_u8)
 
     if global_state is not None:
         gs = np.clip(global_state * 255.0, 0, 255).astype(np.uint8)
-        grid = np.concatenate([gs[i] for i in range(gs.shape[0])], axis=1)
-        imageio.imwrite(str(d / f"{stem}_globStack.png"), grid)
+        grid_glob = np.concatenate([gs[i] for i in range(gs.shape[0])], axis=1)
+        imageio.imwrite(str(d / f"{step_stem}_globStack.png"), grid_glob)
 
+    # 2. 개별 로봇 이미지 저장 (파일명에 agent_idx가 들어가서 충돌 안 함)
+    ego_u8 = np.clip(ego_f * 255.0, 0, 255).astype(np.uint8)
+    imageio.imwrite(str(d / f"{agent_stem}_ego.png"), ego_u8)
+
+    if ego_state is not None:
+        es = np.clip(ego_state * 255.0, 0, 255).astype(np.uint8)
+        grid_ego = np.concatenate([es[i] for i in range(es.shape[0])], axis=1)
+        imageio.imwrite(str(d / f"{agent_stem}_egoStack.png"), grid_ego)
+
+def gather_agent_tensor(x, agent_index):
+    """
+    x: (B, N, ...)
+    agent_index: (B,)
+    return: (B, ...)
+    """
+    B = x.shape[0]
+    view_shape = [B, 1] + [1] * (x.ndim - 2)
+    expand_shape = [B, 1] + list(x.shape[2:])
+    idx = agent_index.view(*view_shape).expand(*expand_shape)
+    return x.gather(1, idx).squeeze(1)
 
 @dataclass
 class TransitionMsg:
     worker_id: int
-    ego_state: np.ndarray          # (4, EGO, EGO)
-    global_state: np.ndarray       # (4, DOWN, DOWN)
-    robot_state: np.ndarray
-    action: np.ndarray
+
+    # centralized critic용 joint observation
+    joint_ego_state: np.ndarray          # (MAX_ROBOTS, 4, EGO, EGO)
+    global_state: np.ndarray             # (4, DOWN, DOWN)
+    joint_robot_state: np.ndarray        # (MAX_ROBOTS, ROBOT_STATE_DIM)
+    joint_action: np.ndarray             # (MAX_ROBOTS, ACTION_DIM)
+    joint_mask: np.ndarray               # (MAX_ROBOTS,) float32 or bool
+
+    next_joint_ego_state: np.ndarray     # (MAX_ROBOTS, 4, EGO, EGO)
+    next_global_state: np.ndarray        # (4, DOWN, DOWN)
+    next_joint_robot_state: np.ndarray   # (MAX_ROBOTS, ROBOT_STATE_DIM)
+    next_joint_mask: np.ndarray          # (MAX_ROBOTS,)
+
     reward: float
-    next_ego_state: np.ndarray
-    next_global_state: np.ndarray
-    next_robot_state: np.ndarray
     done: bool
+
+    # 어떤 robot의 actor loss용 샘플인지
+    agent_index: int
 
 @dataclass
 class EpisodeStatMsg:
@@ -291,18 +314,21 @@ def worker_process(
     seed: int = 0,
 ):
     """
-    각 worker 프로세스에서 실행되는 함수.
-    - FightingModel을 생성해서 에피소드 무한히 반복
-    - transition은 transition_queue에 넣고
-    - 에피소드가 끝날 때 에피소드 통계는 stats_queue에 넣음
+    Multi-robot worker process for CTDE / Centralized SAC.
+
+    - Actor: shared PolicyNetwork, each robot acts from its own (ego, global, robot_state)
+    - Critic training data: joint observation/action with zero-padding up to MAX_ROBOTS
+    - For each reward emission step, one joint transition is duplicated for each real robot
+      with different agent_index.
     """
-    import model  # 여기에 import 해야 fork/spawn 모두 안전
+    import model
+    import traceback
+
 
     np.random.seed(seed + worker_id)
     random.seed(seed + worker_id)
 
     max_steps = MAX_STEPS
-
     episode_idx = 0
 
     device = torch.device("cpu")
@@ -314,30 +340,88 @@ def worker_process(
     ).to(device)
     policy.eval()
 
-    def _robot_world_to_px(env_model):
-        rx, ry = env_model.robot.xy  # world coords
-        ix = int(np.clip(rx / env_model.width  * MAP_W, 0, MAP_W - 1))
+    def _pad_robots(robots, max_robots=MAX_ROBOTS):
+        real = list(robots[:max_robots])
+        while len(real) < max_robots:
+            real.append(None)
+        return real
+
+    def _robot_world_to_px(env_model, robot):
+        rx, ry = robot.xy
+        ix = int(np.clip(rx / env_model.width * MAP_W, 0, MAP_W - 1))
         iy = int(np.clip(ry / env_model.height * MAP_H, 0, MAP_H - 1))
         return ix, iy
 
-    def _build_ego_global_frames(env_model):
-        full = env_model.return_current_image(MAP_H, MAP_W)  # (H,W) uint8
-        ix, iy = _robot_world_to_px(env_model)
+    def _get_robot_state(env_model, rb, idx):
+        """
+        Robot state getter.
+        Priority:
+        1) robot object method: rb.return_current_robot_state()
+        2) env method with idx: env_model.return_current_robot_state(idx)
+        3) env method with robot object: env_model.return_current_robot_state(rb)
+        """
+        if rb is None:
+            return np.zeros((ROBOT_STATE_DIM,), dtype=np.float32)
 
-        ego = ego_crop_from_full_map(full, (ix, iy), EGO_MAP_SIZE, pad_value=50)  # (EGO,EGO) uint8
-        glob = downsample_full_map(full, DOWNSAMPLE_MAP_SIZE)                    # (DOWN,DOWN) uint8
-
-        ego_f = ego.astype(np.float32) / 255.0
-        glob_f = glob.astype(np.float32) / 255.0
-        return full, ego_f, glob_f
-   
-    # hearbeats = ctx.Array('d', N_WORKERS)
-    # for i in range(N_WORKERS):
-    #     heartbeats[i] = time.time()
+        return np.array(env_model.return_current_robot_state(rb.robot_index))
 
 
-    while True:  # 무한히 에피소드 반복
-        # ----- 1) 환경 생성 -----
+    def _build_joint_frames(env_model, robots_padded):
+        """
+        Returns
+        -------
+        full_u8          : (MAP_H, MAP_W) uint8
+        ego_frames       : (MAX_ROBOTS, EGO_MAP_SIZE, EGO_MAP_SIZE) float32 [0,1]
+        glob_frame       : (DOWNSAMPLE_MAP_SIZE, DOWNSAMPLE_MAP_SIZE) float32 [0,1]
+        joint_robot_state: (MAX_ROBOTS, ROBOT_STATE_DIM) float32
+        joint_mask       : (MAX_ROBOTS,) float32
+        """
+        full_u8 = env_model.return_current_image(MAP_H, MAP_W)  # uint8
+        glob_u8 = downsample_full_map(full_u8, DOWNSAMPLE_MAP_SIZE)
+        glob_f = glob_u8.astype(np.float32) / 255.0
+
+        ego_list = []
+        robot_state_list = []
+        mask_list = []
+
+        for i, rb in enumerate(robots_padded):
+            rb = robots_padded[i]
+            if rb is None:
+                ego_f = np.zeros((EGO_MAP_SIZE, EGO_MAP_SIZE), dtype=np.float32)
+                rs = np.zeros((ROBOT_STATE_DIM,), dtype=np.float32)
+                m = 0.0
+            else:
+                ix, iy = _robot_world_to_px(env_model, rb)
+                ego_u8 = ego_crop_from_full_map(full_u8, (ix, iy), EGO_MAP_SIZE, pad_value=50)
+                ego_f = ego_u8.astype(np.float32) / 255.0
+                rs = _get_robot_state(env_model, rb, i)
+                m = 1.0
+
+            ego_list.append(ego_f)
+            robot_state_list.append(rs)
+            mask_list.append(m)
+
+        ego_frames = np.stack(ego_list, axis=0)                    # (N,E,E)
+        joint_robot_state = np.stack(robot_state_list, axis=0)     # (N,R)
+        joint_mask = np.array(mask_list, dtype=np.float32)         # (N,)
+
+        return full_u8, ego_frames, glob_f, joint_robot_state, joint_mask
+
+    def _all_robots_finished(robots_padded):
+        real_count = 0
+        finished_count = 0
+        for rb in robots_padded:
+            if rb is None:
+                continue
+            real_count += 1
+            if getattr(rb, "is_game_finished", False):
+                finished_count += 1
+        return (real_count > 0) and (finished_count == real_count)
+
+    while True:
+        # --------------------------------------------------
+        # 1) environment create
+        # --------------------------------------------------
         while True:
             try:
                 if CROWD_NUMBER_MIN == CROWD_NUMBER_MAX:
@@ -350,40 +434,59 @@ def worker_process(
                     MAP_W,
                     MAP_H,
                     model_num=-1,
-                    robot='Q'
+                    robot='Q',
+                    robot_num=THE_NUMBER_OF_ROBOTS
                 )
                 break
             except Exception as e:
                 print(f"[Worker {worker_id}] env create error: {e}, retrying...")
 
-        # ----- 2) 초기 state 세팅 -----
-        full_u8, ego_f, glob_f = _build_ego_global_frames(env_model)
-        ego_stack = FrameStack2(4)
+        robots_real = list(getattr(env_model, "robots", []))
+        robots_padded = _pad_robots(robots_real, max_robots=MAX_ROBOTS)
+
+        if sum(rb is not None for rb in robots_padded) == 0:
+            print(f"[Worker {worker_id}] WARNING: env_model.robots is empty.")
+
+        # --------------------------------------------------
+        # 2) initial joint state
+        # --------------------------------------------------
+        full_u8, ego_frames, glob_frame, joint_robot_state, joint_mask = _build_joint_frames(env_model, robots_padded)
+
+        ego_stacks = [FrameStack2(4) for _ in range(MAX_ROBOTS)]
         glob_stack = FrameStack2(4)
 
-        ego_state = ego_stack.reset(ego_f)
-        global_state = glob_stack.reset(glob_f)
-        robot_state = np.array(env_model.return_current_robot_state(), dtype=np.float32)
-   
+        joint_ego_state_list = []
+        for i in range(MAX_ROBOTS):
+            s_i = ego_stacks[i].reset(ego_frames[i])   # (4,E,E)
+            joint_ego_state_list.append(s_i)
+        joint_ego_state = np.stack(joint_ego_state_list, axis=0)   # (N,4,E,E)
 
-        # 에피소드 통계 변수
+        global_state = glob_stack.reset(glob_frame)                 # (4,G,G)
+
+        # --------------------------------------------------
+        # episode stats
+        # --------------------------------------------------
         total_reward = 0.0
         evacuation_time_80 = max_steps
         evacuation_time_100 = max_steps
         agent_total_lifetime = 0.0
         abnormal_reward = 0
 
-        # transition을 만들기 위해 buffer
-        buffered_ego_state = np.copy(ego_state)
+        # --------------------------------------------------
+        # transition buffers (joint)
+        # --------------------------------------------------
+        buffered_joint_ego_state = np.copy(joint_ego_state)
         buffered_global_state = np.copy(global_state)
-        buffered_robot_state = np.copy(robot_state)
-        buffered_action = np.zeros((2,), dtype=np.float32)
+        buffered_joint_robot_state = np.copy(joint_robot_state)
+        buffered_joint_action = np.zeros((MAX_ROBOTS, ACTION_DIM), dtype=np.float32)
+        buffered_joint_mask = np.copy(joint_mask)
+
         eps = 0.0
         with epsilon_shared.get_lock():
             eps = float(epsilon_shared.value)
 
         try:
-
+            # latest actor params
             try:
                 while True:
                     new_sd = param_queue.get_nowait()
@@ -392,99 +495,138 @@ def worker_process(
                 pass
 
             for step in range(max_steps):
-                # -----------------------------
-                # 1) ACTION_SCALE 간격으로만 action 선택
-                # -----------------------------
-                # heartbeats[worker_id] = time.time()
+                # ------------------------------------------
+                # 1) action selection every ACTION_SCALE
+                # ------------------------------------------
                 if step % ACTION_SCALE == 0:
+                    # refresh robot handles if env may replace them internally
+                    robots_real = list(getattr(env_model, "robots", []))
+                    robots_padded = _pad_robots(robots_real, max_robots=MAX_ROBOTS)
 
-                    full_u8, ego_f, glob_f = _build_ego_global_frames(env_model)
+                    full_u8, ego_frames, glob_frame, joint_robot_state, joint_mask = _build_joint_frames(
+                        env_model, robots_padded
+                    )
 
-                    if (
-                        DEBUG_SAVE
-                       
-                    ):  
+                    if DEBUG_SAVE:
+                        # 1. 공통 이미지(Global, Full)는 한 번만 Flip 처리
                         full_u8_r = np.flip(np.flip(full_u8, axis=-1), axis=-2)
-                        ego_f_r   = np.flip(np.flip(ego_f,   axis=-1), axis=-2)
-                        glob_f_r  = np.flip(np.flip(glob_f,  axis=-1), axis=-2)
-                        print("저장합니다")
-                        save_debug_triplet(
-                            save_dir=DEBUG_DIR,
-                            worker_id=worker_id,
-                            episode_idx=episode_idx,
-                            step=step,
-                            full_u8=np.flip(full_u8_r, axis=1),
-                            ego_f=np.flip(ego_f_r, axis=1),
-                            glob_f=np.flip(glob_f_r, axis=1),
-                            ego_state=ego_state,
-                            global_state=global_state
-                        )
+                        glob_f_r = np.flip(np.flip(glob_frame, axis=-1), axis=-2)
+                        
+                        full_u8_to_save = np.flip(full_u8_r, axis=1)
+                        glob_f_to_save = np.flip(glob_f_r, axis=1)
+
+                        # 2. 살아있는 모든 로봇을 순회하며 개별 저장
+                        for agent_i in range(MAX_ROBOTS):
+                            if joint_mask[agent_i] < 0.5:
+                                continue  # 패딩된 빈자리(None)나 죽은 로봇은 건너뜀
+
+                            # 해당 로봇의 Ego 이미지만 Flip 처리
+                            ego_f_r = np.flip(np.flip(ego_frames[agent_i], axis=-1), axis=-2)
+                            ego_f_to_save = np.flip(ego_f_r, axis=1)
+
+                            save_debug_triplet(
+                                save_dir=DEBUG_DIR,
+                                worker_id=worker_id,
+                                episode_idx=episode_idx,
+                                step=step,
+                                agent_idx=agent_i,  # <--- 어떤 로봇인지 식별자 추가
+                                full_u8=full_u8_to_save,
+                                ego_f=ego_f_to_save,
+                                glob_f=glob_f_to_save,
+                                ego_state=joint_ego_state[agent_i] if step > 0 else None,
+                                global_state=global_state
+                            )
+
+                    # ACTION_SCALE boundary에서만 실제 stack append
                     if step > 0:
-                        ego_state = ego_stack.append(ego_f)
-                        global_state = glob_stack.append(glob_f)
-                    dx = 0
-                    dy = 0
-                    # --- epsilon-greedy ---
-                    if np.random.rand() < eps or policy is None:
-                        # pure random
-                        dx = np.random.uniform(-2, 2)
-                        dy = np.random.uniform(-2, 2)
-                        action_np = np.array([dx, dy], dtype=np.float32)
-                    else:
-                        ego_t = torch.from_numpy(ego_state).unsqueeze(0).float().to(device)
-                        glob_t = torch.from_numpy(global_state).unsqueeze(0).float().to(device)
-                        robot_t = torch.from_numpy(robot_state).unsqueeze(0).float().to(device)
+                        updated_joint_ego = []
+                        for i in range(MAX_ROBOTS):
+                            updated_joint_ego.append(ego_stacks[i].append(ego_frames[i]))
+                        joint_ego_state = np.stack(updated_joint_ego, axis=0)
+                        global_state = glob_stack.append(glob_frame)
 
-                        with torch.no_grad():
-                            action_t, _ = policy.sample_action(ego_t, glob_t, robot_t, temperature=1.0)
-                        action_np = action_t.cpu().numpy()[0].astype(np.float32) # env 내부 제한 반영
-                        dx = action_np[0]
-                        dy = action_np[1]
+                    # shared actor, per robot action selection
+                    joint_action = np.zeros((MAX_ROBOTS, ACTION_DIM), dtype=np.float32)
 
-                    real_action = env_model.robot.receive_action([dx, dy])
-                    action_np[0] = real_action[0]
-                    action_np[1] = real_action[1]
+                    for i, rb in enumerate(robots_padded):
+                        if rb is None or joint_mask[i] < 0.5:
+                            continue
 
-                    buffered_ego_state = np.copy(ego_state)
+                        ego_i = joint_ego_state[i]         # (4,E,E)
+                        robot_i = joint_robot_state[i]     # (R,)
+                        glob_i = global_state              # (4,G,G)
+
+                        if np.random.rand() < eps or policy is None:
+                            action_i = np.array([
+                                np.random.uniform(-2, 2),
+                                np.random.uniform(-2, 2)
+                            ], dtype=np.float32)
+                        else:
+                            ego_t = torch.from_numpy(ego_i).unsqueeze(0).float().to(device)
+                            glob_t = torch.from_numpy(glob_i).unsqueeze(0).float().to(device)
+                            robot_t = torch.from_numpy(robot_i).unsqueeze(0).float().to(device)
+
+                            with torch.no_grad():
+                                action_t, _ = policy.sample_action(
+                                    ego_t, glob_t, robot_t, temperature=1.0
+                                )
+                            action_i = action_t.cpu().numpy()[0].astype(np.float32)
+
+                        real_action = rb.receive_action([action_i[0], action_i[1]])
+                        joint_action[i, 0] = real_action[0]
+                        joint_action[i, 1] = real_action[1]
+
+                    buffered_joint_ego_state = np.copy(joint_ego_state)
                     buffered_global_state = np.copy(global_state)
-                    buffered_robot_state = np.copy(robot_state)
-                    buffered_action = np.copy(action_np)
+                    buffered_joint_robot_state = np.copy(joint_robot_state)
+                    buffered_joint_action = np.copy(joint_action)
+                    buffered_joint_mask = np.copy(joint_mask)
 
-                # -----------------------------
+                # ------------------------------------------
                 # 2) env step
-                # -----------------------------
+                # ------------------------------------------
                 env_model.step()
 
+                # ------------------------------------------
+                # 3) next joint state
+                # ------------------------------------------
+                robots_real = list(getattr(env_model, "robots", []))
+                robots_padded = _pad_robots(robots_real, max_robots=MAX_ROBOTS)
 
-                # -----------------------------
-                # 3) next state 계산
-                # -----------------------------
-                next_robot_state = np.array(env_model.return_current_robot_state(), dtype=np.float32)
-                _, ego_f2, glob_f2 = _build_ego_global_frames(env_model)
-                next_ego_state = ego_stack.peek_with(ego_f2)
-                next_global_state = glob_stack.peek_with(glob_f2)
+                _, next_ego_frames, next_glob_frame, next_joint_robot_state, next_joint_mask = _build_joint_frames(
+                    env_model, robots_padded
+                )
 
+                next_joint_ego_list = []
+                for i in range(MAX_ROBOTS):
+                    next_joint_ego_list.append(ego_stacks[i].peek_with(next_ego_frames[i]))
+                next_joint_ego_state = np.stack(next_joint_ego_list, axis=0)   # (N,4,E,E)
+                next_global_state = glob_stack.peek_with(next_glob_frame)       # (4,G,G)
 
-                # -----------------------------
-                # 4) done / reward 계산
-                # -----------------------------
-                done = (step >= max_steps - 1) or (env_model.robot.is_game_finished)
+                # ------------------------------------------
+                # 4) done / reward
+                # ------------------------------------------
+                all_finished = _all_robots_finished(robots_padded)
+                done = (step >= max_steps - 1) or all_finished
+
                 reward = 0.0
                 r_k = 0.0
 
-                if env_model.robot.is_game_finished:
+                if all_finished:
                     reward += FINISHED_BONUS * (1 - step / max_steps)
 
-                if REWARD_K:
+                if REWARD_K :
                     r_k += env_model.reward_penalty_collision() * REWARD_K
 
-                # ACTION_SCALE 마지막 스텝이거나 게임 끝난 경우에만 reward shaping + transition 전송
-                if ((step % ACTION_SCALE == (ACTION_SCALE - 1) and step > ACTION_SCALE) or
-                    (env_model.robot.is_game_finished and step > ACTION_SCALE)):
+                reward_emit = (
+                    (step % ACTION_SCALE == (ACTION_SCALE - 1) and step > ACTION_SCALE)
+                    or (all_finished and step > ACTION_SCALE)
+                )
 
+                if reward_emit:
                     r_a = r_b = r_c = r_d = r_e = 0.0
                     r_f = r_g = r_h = r_i = r_j = 0.0
-                    r_l = 0
+                    r_l = 0.0
 
                     if REWARD_A:
                         r_a = env_model.reward_based_alived() * REWARD_A
@@ -496,58 +638,68 @@ def worker_process(
                         r_d = env_model.reward_penalty() * REWARD_D
                     if REWARD_E:
                         r_e = env_model.reward_based_evacuated_with_robot() * REWARD_E
-                    if REWARD_F:
-                        r_f = env_model.reward_based_distance_from_near_agents() * REWARD_F
-                    if REWARD_G:
-                        r_g = env_model.reward_based_distance_from_near_agent_gain() * REWARD_G
-                    if REWARD_H:
-                        r_h = env_model.reward_based_gain_with_time_bonus() * REWARD_H
-                    if REWARD_I:
-                        r_i = env_model.reward_based_alived_root() * REWARD_I
-                    if REWARD_J:
-                        r_j = env_model.reward_based_all_agents_danger_root() * REWARD_J
-                    if REWARD_L:
-                        r_l = env_model.reward_based_farthest_agent_distance() * REWARD_L
-
-                    reward += (r_a + r_b + r_c + r_d + r_e + r_g + r_h + r_i + r_j + r_k + r_l + REWARD_FIXED)
+        
+                    reward += (
+                        r_a + r_b + r_c + r_d + r_e +
+                        r_g + r_h + r_i + r_j + r_k + r_l +
+                        REWARD_FIXED
+                    )
                     r_k = 0.0
+
                     if reward < -1e3:
                         raise RuntimeError(f"Reward collapsed: {reward}")
 
-                    # -----------------------------
-                    # 5) transition Queue로 전송
-                    # -----------------------------
+                    # --------------------------------------
+                    # 5) send one joint transition per real robot
+                    # --------------------------------------
                     try:
+                        total_reward += reward  # timestep reward는 1번만 누적
+
+                        # for agent_i in range(MAX_ROBOTS):
+                        #     if buffered_joint_mask[agent_i] < 0.5:
+                        #         continue
+
                         msg = TransitionMsg(
                             worker_id=worker_id,
-                            ego_state=buffered_ego_state,
-                            global_state=buffered_global_state,
-                            robot_state=buffered_robot_state,
-                            action=buffered_action,
+                            joint_ego_state=np.copy(buffered_joint_ego_state),
+                            global_state=np.copy(buffered_global_state),
+                            joint_robot_state=np.copy(buffered_joint_robot_state),
+                            joint_action=np.copy(buffered_joint_action),
+                            joint_mask=np.copy(buffered_joint_mask),
+
+                            next_joint_ego_state=np.copy(next_joint_ego_state),
+                            next_global_state=np.copy(next_global_state),
+                            next_joint_robot_state=np.copy(next_joint_robot_state),
+                            next_joint_mask=np.copy(next_joint_mask),
+
                             reward=float(reward),
-                            next_ego_state=next_ego_state,
-                            next_global_state=next_global_state,
-                            next_robot_state=next_robot_state,
                             done=bool(done),
+                            agent_index=-1,
                         )
                         transition_queue.put(msg)  # blocking
-                        total_reward += reward
                     except Exception as e:
                         print(f"[Worker {worker_id}] transition_queue.put error: {e}")
                         abnormal_reward = 1
 
-                    # 다음 action 선택을 위해 state/robot_state 갱신
-                    robot_state = next_robot_state
+                    # reward boundary 뒤에 실제 현재 state를 next state로 넘김
+                    joint_ego_state = np.copy(next_joint_ego_state)
+                    global_state = np.copy(next_global_state)
+                    joint_robot_state = np.copy(next_joint_robot_state)
+                    joint_mask = np.copy(next_joint_mask)
                 else:
-                    # ACTION_SCALE 중간에서도 robot_state는 최신으로 유지
-                    robot_state = next_robot_state
+                    # 중간 step에서는 최신 robot state / mask만 유지
+                    joint_robot_state = next_joint_robot_state
+                    joint_mask = next_joint_mask
 
-                # 80%, 100% 대피 시간
-                if (env_model.alived_agents() < env_model.total_agents * 0.2 and
-                        evacuation_time_80 == max_steps):
+                # ------------------------------------------
+                # 80%, 100% crowd evacuation stats
+                # ------------------------------------------
+                alive_agents = env_model.alived_agents()
+
+                if (alive_agents < env_model.total_agents * 0.2) and (evacuation_time_80 == max_steps):
                     evacuation_time_80 = step
-                if (env_model.alived_agents() < 1 and
-                        evacuation_time_100 == max_steps):
+
+                if (alive_agents < 1) and (evacuation_time_100 == max_steps):
                     evacuation_time_100 = step
 
                 if done:
@@ -555,15 +707,16 @@ def worker_process(
                         agent_total_lifetime = env_model.calculate_all_agents_life_time()
                     except Exception:
                         agent_total_lifetime = 0.0
-                    break  # 에피소드 종료
+                    break
 
         except Exception as e:
             print(f"[Worker {worker_id}] Error in episode loop: {e}")
-            import traceback
             traceback.print_exc()
             abnormal_reward = 1
 
-        # ----- 6) 에피소드 통계 전송 -----
+        # --------------------------------------------------
+        # 6) episode stat send
+        # --------------------------------------------------
         stat_msg = EpisodeStatMsg(
             worker_id=worker_id,
             episode_idx=episode_idx,
@@ -572,7 +725,7 @@ def worker_process(
             evac_time_100=int(evacuation_time_100),
             total_lifetime=float(agent_total_lifetime),
             map_num=int(env_model.map_num),
-            abnormal=int(abnormal_reward)
+            abnormal=int(abnormal_reward),
         )
         try:
             stats_queue.put(stat_msg)
@@ -580,145 +733,242 @@ def worker_process(
             print(f"[Worker {worker_id}] stats_queue.put error: {e}")
 
         episode_idx += 1
-        # 여기서 바로 while True 위로 올라가서 새 env 생성 → 동기화 없이 계속 돎
-   
    
 
 ##########################################################################
-# Replay Buffer (Ego + Global 2-branch)
+# Replay Buffer (Centralized SAC / Multi-Robot CTDE)
 ##########################################################################
 class ReplayBuffer:
     """
-    NumPy 기반 고정 크기 링 버퍼 + dtype 축소로 메모리 사용 최소화
-    - ego map / global map을 분리 저장
-    - save/load 지원 (npz)
+    Joint replay buffer for centralized critic + decentralized/shared actor.
 
-    Parameters
-    ----------
-    capacity : int
-        최대 저장 가능한 transition 개수
-    ego_state_shape : tuple of int
-        ego state shape, 예: (4, EGO, EGO)
-    global_state_shape : tuple of int
-        global state shape, 예: (4, DOWN, DOWN)
-    action_dim : int
-        액션 차원
-    robot_dim : int
-        로봇 상태 차원 (예: 3)
-    device : torch.device or str
-    state_dtype : np.dtype
-        이미지 저장 dtype (np.uint8 권장)
+    Stored transition format
+    ------------------------
+    joint_ego_state        : (MAX_ROBOTS, 4, EGO, EGO)
+    global_state           : (4, DOWN, DOWN)
+    joint_robot_state      : (MAX_ROBOTS, ROBOT_STATE_DIM)
+    joint_action           : (MAX_ROBOTS, ACTION_DIM)
+    joint_mask             : (MAX_ROBOTS,)               # 1 if real robot else 0
+
+    next_joint_ego_state   : (MAX_ROBOTS, 4, EGO, EGO)
+    next_global_state      : (4, DOWN, DOWN)
+    next_joint_robot_state : (MAX_ROBOTS, ROBOT_STATE_DIM)
+    next_joint_mask        : (MAX_ROBOTS,)
+
+    reward                 : scalar
+    done                   : scalar
+    agent_index            : scalar int
+        - which robot's actor update this sample corresponds to
+
+    Notes
+    -----
+    - Missing robots are zero-padded and masked out.
+    - Images are stored as uint8 to reduce memory usage.
+    - This buffer is compatible with centralized critic training.
     """
     def __init__(
         self,
         capacity: int,
-        ego_state_shape: Tuple[int, int, int],
-        global_state_shape: Tuple[int, int, int],
+        max_robots: int,
+        ego_state_shape: Tuple[int, int, int],      # (4,EGO,EGO)
+        global_state_shape: Tuple[int, int, int],   # (4,DOWN,DOWN)
         action_dim: int = 2,
         robot_dim: int = 3,
         device=None,
         state_dtype: np.dtype = np.uint8,
     ) -> None:
         self.capacity = int(capacity)
+        self.max_robots = int(max_robots)
         self.device = device
         self.state_dtype = state_dtype
         self.robot_dim = int(robot_dim)
+        self.action_dim = int(action_dim)
 
         self.ego_state_shape = tuple(ego_state_shape)
         self.global_state_shape = tuple(global_state_shape)
 
-        # 고정 크기 NumPy 배열 할당
-        self.ego_states = np.zeros((self.capacity, *self.ego_state_shape), dtype=self.state_dtype)
-        self.ego_next_states = np.zeros((self.capacity, *self.ego_state_shape), dtype=self.state_dtype)
+        # --------------------------------------------------
+        # image states
+        # --------------------------------------------------
+        self.joint_ego_states = np.zeros(
+            (self.capacity, self.max_robots, *self.ego_state_shape),
+            dtype=self.state_dtype
+        )
+        self.next_joint_ego_states = np.zeros(
+            (self.capacity, self.max_robots, *self.ego_state_shape),
+            dtype=self.state_dtype
+        )
 
-        self.global_states = np.zeros((self.capacity, *self.global_state_shape), dtype=self.state_dtype)
-        self.global_next_states = np.zeros((self.capacity, *self.global_state_shape), dtype=self.state_dtype)
+        self.global_states = np.zeros(
+            (self.capacity, *self.global_state_shape),
+            dtype=self.state_dtype
+        )
+        self.next_global_states = np.zeros(
+            (self.capacity, *self.global_state_shape),
+            dtype=self.state_dtype
+        )
 
-        if self.robot_dim > 0:
-            self.robot_states = np.zeros((self.capacity, self.robot_dim), dtype=np.float32)
-            self.next_robot_states = np.zeros((self.capacity, self.robot_dim), dtype=np.float32)
-        else:
-            self.robot_states = None
-            self.next_robot_states = None
+        # --------------------------------------------------
+        # robot states / actions / masks
+        # --------------------------------------------------
+        self.joint_robot_states = np.zeros(
+            (self.capacity, self.max_robots, self.robot_dim),
+            dtype=np.float32
+        )
+        self.next_joint_robot_states = np.zeros(
+            (self.capacity, self.max_robots, self.robot_dim),
+            dtype=np.float32
+        )
 
-        self.actions = np.zeros((self.capacity, action_dim), dtype=np.float32)
+        self.joint_actions = np.zeros(
+            (self.capacity, self.max_robots, self.action_dim),
+            dtype=np.float32
+        )
+
+        self.joint_masks = np.zeros(
+            (self.capacity, self.max_robots),
+            dtype=np.float32
+        )
+        self.next_joint_masks = np.zeros(
+            (self.capacity, self.max_robots),
+            dtype=np.float32
+        )
+
+        # --------------------------------------------------
+        # scalar values
+        # --------------------------------------------------
         self.rewards = np.zeros((self.capacity,), dtype=np.float32)
-        self.dones = np.zeros((self.capacity,), dtype=bool)
+        self.dones = np.zeros((self.capacity,), dtype=np.float32)
+        self.agent_indices = np.zeros((self.capacity,), dtype=np.int64)
 
         self.ptr = 0
         self.size = 0
 
-    # -----------------------
+    # ======================================================
     # utils
-    # -----------------------
+    # ======================================================
     def _to_uint8(self, x: np.ndarray) -> np.ndarray:
         """
-        float [0,1] or other -> uint8
-        이미 uint8이면 그대로 반환
+        float [0,1] -> uint8
+        uint8 -> 그대로 반환
         """
         if x.dtype == self.state_dtype:
             return x
-        # float map assumed in [0,1]
         return np.clip(x * 255.0, 0, 255).astype(self.state_dtype)
 
     def _check_shapes(
         self,
-        ego_state: np.ndarray,
+        joint_ego_state: np.ndarray,
         global_state: np.ndarray,
-        next_ego_state: np.ndarray,
+        joint_robot_state: np.ndarray,
+        joint_action: np.ndarray,
+        joint_mask: np.ndarray,
+        next_joint_ego_state: np.ndarray,
         next_global_state: np.ndarray,
+        next_joint_robot_state: np.ndarray,
+        next_joint_mask: np.ndarray,
     ) -> None:
-        if tuple(ego_state.shape) != self.ego_state_shape:
-            raise ValueError(f"ego_state shape mismatch: got {ego_state.shape}, expected {self.ego_state_shape}")
-        if tuple(next_ego_state.shape) != self.ego_state_shape:
-            raise ValueError(f"next_ego_state shape mismatch: got {next_ego_state.shape}, expected {self.ego_state_shape}")
-        if tuple(global_state.shape) != self.global_state_shape:
-            raise ValueError(f"global_state shape mismatch: got {global_state.shape}, expected {self.global_state_shape}")
-        if tuple(next_global_state.shape) != self.global_state_shape:
-            raise ValueError(f"next_global_state shape mismatch: got {next_global_state.shape}, expected {self.global_state_shape}")
+        exp_joint_ego = (self.max_robots, *self.ego_state_shape)
+        exp_global = self.global_state_shape
+        exp_joint_robot = (self.max_robots, self.robot_dim)
+        exp_joint_action = (self.max_robots, self.action_dim)
+        exp_joint_mask = (self.max_robots,)
 
-    # -----------------------
+        if tuple(joint_ego_state.shape) != exp_joint_ego:
+            raise ValueError(
+                f"joint_ego_state shape mismatch: got {joint_ego_state.shape}, expected {exp_joint_ego}"
+            )
+        if tuple(next_joint_ego_state.shape) != exp_joint_ego:
+            raise ValueError(
+                f"next_joint_ego_state shape mismatch: got {next_joint_ego_state.shape}, expected {exp_joint_ego}"
+            )
+        if tuple(global_state.shape) != exp_global:
+            raise ValueError(
+                f"global_state shape mismatch: got {global_state.shape}, expected {exp_global}"
+            )
+        if tuple(next_global_state.shape) != exp_global:
+            raise ValueError(
+                f"next_global_state shape mismatch: got {next_global_state.shape}, expected {exp_global}"
+            )
+        if tuple(joint_robot_state.shape) != exp_joint_robot:
+            raise ValueError(
+                f"joint_robot_state shape mismatch: got {joint_robot_state.shape}, expected {exp_joint_robot}"
+            )
+        if tuple(next_joint_robot_state.shape) != exp_joint_robot:
+            raise ValueError(
+                f"next_joint_robot_state shape mismatch: got {next_joint_robot_state.shape}, expected {exp_joint_robot}"
+            )
+        if tuple(joint_action.shape) != exp_joint_action:
+            raise ValueError(
+                f"joint_action shape mismatch: got {joint_action.shape}, expected {exp_joint_action}"
+            )
+        if tuple(joint_mask.shape) != exp_joint_mask:
+            raise ValueError(
+                f"joint_mask shape mismatch: got {joint_mask.shape}, expected {exp_joint_mask}"
+            )
+        if tuple(next_joint_mask.shape) != exp_joint_mask:
+            raise ValueError(
+                f"next_joint_mask shape mismatch: got {next_joint_mask.shape}, expected {exp_joint_mask}"
+            )
+
+    # ======================================================
     # main API
-    # -----------------------
+    # ======================================================
     def push(
         self,
-        ego_state: np.ndarray,
+        joint_ego_state: np.ndarray,
         global_state: np.ndarray,
-        robot_state: Optional[np.ndarray],
-        action: np.ndarray,
-        reward: float,
-        next_ego_state: np.ndarray,
+        joint_robot_state: np.ndarray,
+        joint_action: np.ndarray,
+        joint_mask: np.ndarray,
+        next_joint_ego_state: np.ndarray,
         next_global_state: np.ndarray,
-        next_robot_state: Optional[np.ndarray],
+        next_joint_robot_state: np.ndarray,
+        next_joint_mask: np.ndarray,
+        reward: float,
         done: bool,
+        agent_index: int,
     ) -> None:
         """
-        ego_state: (4,EGO,EGO) float32 [0,1] or uint8
-        global_state: (4,DOWN,DOWN) float32 [0,1] or uint8
+        Parameters
+        ----------
+        joint_ego_state : np.ndarray
+            shape (MAX_ROBOTS, 4, EGO, EGO), float [0,1] or uint8
+        global_state : np.ndarray
+            shape (4, DOWN, DOWN), float [0,1] or uint8
+        joint_robot_state : np.ndarray
+            shape (MAX_ROBOTS, robot_dim)
+        joint_action : np.ndarray
+            shape (MAX_ROBOTS, action_dim)
+        joint_mask : np.ndarray
+            shape (MAX_ROBOTS,)
         """
-        self._check_shapes(ego_state, global_state, next_ego_state, next_global_state)
+        self._check_shapes(
+            joint_ego_state, global_state, joint_robot_state, joint_action, joint_mask,
+            next_joint_ego_state, next_global_state, next_joint_robot_state, next_joint_mask
+        )
+
+        if not (0 <= int(agent_index) < self.max_robots):
+            raise ValueError(f"agent_index out of range: {agent_index}, max_robots={self.max_robots}")
 
         i = self.ptr
 
-        ego_u8 = self._to_uint8(ego_state)
-        ego2_u8 = self._to_uint8(next_ego_state)
-        glob_u8 = self._to_uint8(global_state)
-        glob2_u8 = self._to_uint8(next_global_state)
+        self.joint_ego_states[i] = self._to_uint8(joint_ego_state)
+        self.next_joint_ego_states[i] = self._to_uint8(next_joint_ego_state)
 
-        self.ego_states[i] = ego_u8
-        self.ego_next_states[i] = ego2_u8
-        self.global_states[i] = glob_u8
-        self.global_next_states[i] = glob2_u8
+        self.global_states[i] = self._to_uint8(global_state)
+        self.next_global_states[i] = self._to_uint8(next_global_state)
 
-        if self.robot_dim > 0:
-            if robot_state is None or next_robot_state is None:
-                raise ValueError("Buffer robot_dim > 0, but robot_state or next_robot_state is None.")
-            self.robot_states[i] = robot_state
-            self.next_robot_states[i] = next_robot_state
+        self.joint_robot_states[i] = joint_robot_state.astype(np.float32, copy=False)
+        self.next_joint_robot_states[i] = next_joint_robot_state.astype(np.float32, copy=False)
 
-        self.actions[i] = action
+        self.joint_actions[i] = joint_action.astype(np.float32, copy=False)
+        self.joint_masks[i] = joint_mask.astype(np.float32, copy=False)
+        self.next_joint_masks[i] = next_joint_mask.astype(np.float32, copy=False)
+
         self.rewards[i] = float(reward)
-        self.dones[i] = bool(done)
+        self.dones[i] = float(done)
+        self.agent_indices[i] = int(agent_index)
 
         self.ptr = (i + 1) % self.capacity
         self.size = min(self.size + 1, self.capacity)
@@ -726,118 +976,166 @@ class ReplayBuffer:
     def sample(self, batch_size: int):
         if self.size < batch_size:
             raise ValueError(f"Not enough samples: size={self.size}, batch_size={batch_size}")
+
         idx = np.random.choice(self.size, batch_size, replace=False)
 
-        # NumPy -> torch.Tensor 변환 (float32)
-        batch_ego = torch.from_numpy(self.ego_states[idx].astype(np.float32) / 255.0).to(self.device)
-        batch_ego2 = torch.from_numpy(self.ego_next_states[idx].astype(np.float32) / 255.0).to(self.device)
+        # images -> float32 [0,1]
+        batch_joint_ego = torch.from_numpy(
+            self.joint_ego_states[idx].astype(np.float32) / 255.0
+        ).to(self.device)
 
-        batch_global = torch.from_numpy(self.global_states[idx].astype(np.float32) / 255.0).to(self.device)
-        batch_global2 = torch.from_numpy(self.global_next_states[idx].astype(np.float32) / 255.0).to(self.device)
+        batch_next_joint_ego = torch.from_numpy(
+            self.next_joint_ego_states[idx].astype(np.float32) / 255.0
+        ).to(self.device)
 
-        if self.robot_dim > 0:
-            batch_robot = torch.from_numpy(self.robot_states[idx]).to(self.device)
-            batch_robot2 = torch.from_numpy(self.next_robot_states[idx]).to(self.device)
-        else:
-            batch_robot = None
-            batch_robot2 = None
+        batch_global = torch.from_numpy(
+            self.global_states[idx].astype(np.float32) / 255.0
+        ).to(self.device)
 
-        batch_actions = torch.from_numpy(self.actions[idx]).to(self.device)
-        batch_rewards = torch.from_numpy(self.rewards[idx]).to(self.device)
-        batch_dones = torch.from_numpy(self.dones[idx].astype(np.float32)).to(self.device)
+        batch_next_global = torch.from_numpy(
+            self.next_global_states[idx].astype(np.float32) / 255.0
+        ).to(self.device)
 
-        # 반환 순서: ego, global, robot, action, reward, next_ego, next_global, next_robot, done
+        batch_joint_robot = torch.from_numpy(
+            self.joint_robot_states[idx]
+        ).to(self.device)
+
+        batch_next_joint_robot = torch.from_numpy(
+            self.next_joint_robot_states[idx]
+        ).to(self.device)
+
+        batch_joint_action = torch.from_numpy(
+            self.joint_actions[idx]
+        ).to(self.device)
+
+        batch_joint_mask = torch.from_numpy(
+            self.joint_masks[idx]
+        ).to(self.device)
+
+        batch_next_joint_mask = torch.from_numpy(
+            self.next_joint_masks[idx]
+        ).to(self.device)
+
+        batch_reward = torch.from_numpy(
+            self.rewards[idx]
+        ).to(self.device)
+
+        batch_done = torch.from_numpy(
+            self.dones[idx]
+        ).to(self.device)
+
+        batch_agent_index = torch.from_numpy(
+            self.agent_indices[idx]
+        ).to(self.device)
+
         return (
-            batch_ego,
-            batch_global,
-            batch_robot,
-            batch_actions,
-            batch_rewards,
-            batch_ego2,
-            batch_global2,
-            batch_robot2,
-            batch_dones,
+            batch_joint_ego,         # (B,N,4,E,E)
+            batch_global,            # (B,4,G,G)
+            batch_joint_robot,       # (B,N,R)
+            batch_joint_action,      # (B,N,A)
+            batch_joint_mask,        # (B,N)
+
+            batch_next_joint_ego,    # (B,N,4,E,E)
+            batch_next_global,       # (B,4,G,G)
+            batch_next_joint_robot,  # (B,N,R)
+            batch_next_joint_mask,   # (B,N)
+
+            batch_reward,            # (B,)
+            batch_done,              # (B,)
+            batch_agent_index,       # (B,)
         )
 
     def __len__(self) -> int:
         return self.size
 
-    # -----------------------
+    # ======================================================
     # save / load
-    # -----------------------
+    # ======================================================
     def save(self, filepath: Union[str, bytes, os.PathLike]) -> None:
         """
-        압축 npz 파일로 저장 (현재 size 만큼만 포함)
+        Save current valid data into compressed npz.
         """
         save_dict = {
-            # ego/global
-            "ego_states": self.ego_states[: self.size],
-            "ego_next_states": self.ego_next_states[: self.size],
-            "global_states": self.global_states[: self.size],
-            "global_next_states": self.global_next_states[: self.size],
+            # data
+            "joint_ego_states": self.joint_ego_states[:self.size],
+            "next_joint_ego_states": self.next_joint_ego_states[:self.size],
+            "global_states": self.global_states[:self.size],
+            "next_global_states": self.next_global_states[:self.size],
 
-            # action/reward/done
-            "actions": self.actions[: self.size],
-            "rewards": self.rewards[: self.size],
-            "dones": self.dones[: self.size],
+            "joint_robot_states": self.joint_robot_states[:self.size],
+            "next_joint_robot_states": self.next_joint_robot_states[:self.size],
+            "joint_actions": self.joint_actions[:self.size],
+            "joint_masks": self.joint_masks[:self.size],
+            "next_joint_masks": self.next_joint_masks[:self.size],
+
+            "rewards": self.rewards[:self.size],
+            "dones": self.dones[:self.size],
+            "agent_indices": self.agent_indices[:self.size],
 
             # meta
             "size": self.size,
             "ptr": self.ptr,
             "capacity": self.capacity,
-            "state_dtype": np.dtype(self.state_dtype).name,
+            "max_robots": self.max_robots,
             "robot_dim": self.robot_dim,
-
+            "action_dim": self.action_dim,
+            "state_dtype": np.dtype(self.state_dtype).name,
             "ego_state_shape": np.array(self.ego_state_shape, dtype=np.int32),
             "global_state_shape": np.array(self.global_state_shape, dtype=np.int32),
         }
-
-        if self.robot_dim > 0:
-            save_dict["robot_states"] = self.robot_states[: self.size]
-            save_dict["next_robot_states"] = self.next_robot_states[: self.size]
 
         np.savez_compressed(filepath, **save_dict)
 
     def load(self, filepath: Union[str, bytes, os.PathLike]) -> None:
         """
-        저장된 npz 파일을 읽어 버퍼 상태 복원
+        Restore replay buffer from compressed npz.
         """
         data = np.load(filepath, allow_pickle=False)
 
-        # 필수 키 체크 (새 포맷)
-        required = ["ego_states", "ego_next_states", "global_states", "global_next_states",
-                    "actions", "rewards", "dones", "size", "ptr", "capacity",
-                    "state_dtype", "robot_dim", "ego_state_shape", "global_state_shape"]
+        required = [
+            "joint_ego_states", "next_joint_ego_states",
+            "global_states", "next_global_states",
+            "joint_robot_states", "next_joint_robot_states",
+            "joint_actions", "joint_masks", "next_joint_masks",
+            "rewards", "dones", "agent_indices",
+            "size", "ptr", "capacity", "max_robots",
+            "robot_dim", "action_dim", "state_dtype",
+            "ego_state_shape", "global_state_shape",
+        ]
         for k in required:
             if k not in data.files:
                 raise ValueError(
                     f"[ReplayBuffer.load] '{k}' not found in npz. "
-                    "This looks like an old buffer format. (single-state) "
-                    "Need a legacy converter if you want to load it."
+                    "This file is not the new centralized multi-robot format."
                 )
 
         cap = int(data["capacity"])
+        max_robots = int(data["max_robots"])
         prev_robot_dim = int(data["robot_dim"])
+        prev_action_dim = int(data["action_dim"])
         prev_dtype = np.dtype(str(data["state_dtype"]))
 
         ego_shape = tuple(data["ego_state_shape"].astype(int).tolist())
         global_shape = tuple(data["global_state_shape"].astype(int).tolist())
 
-        # config 변화(용량/shape/robot_dim/dtype) 감지 시 재초기화
-        if (
+        need_reinit = (
             cap != self.capacity
+            or max_robots != self.max_robots
             or prev_robot_dim != self.robot_dim
+            or prev_action_dim != self.action_dim
             or prev_dtype != self.state_dtype
             or ego_shape != self.ego_state_shape
             or global_shape != self.global_state_shape
-        ):
-            action_dim = int(data["actions"].shape[1])
+        )
+
+        if need_reinit:
             device = self.device
             self.__init__(
                 capacity=cap,
+                max_robots=max_robots,
                 ego_state_shape=ego_shape,
                 global_state_shape=global_shape,
-                action_dim=action_dim,
+                action_dim=prev_action_dim,
                 robot_dim=prev_robot_dim,
                 device=device,
                 state_dtype=prev_dtype,
@@ -846,43 +1144,22 @@ class ReplayBuffer:
         self.size = int(data["size"])
         self.ptr = int(data["ptr"])
 
-        # 데이터 복사
-        self.ego_states[: self.size] = data["ego_states"]
-        self.ego_next_states[: self.size] = data["ego_next_states"]
-        self.global_states[: self.size] = data["global_states"]
-        self.global_next_states[: self.size] = data["global_next_states"]
+        self.joint_ego_states[:self.size] = data["joint_ego_states"]
+        self.next_joint_ego_states[:self.size] = data["next_joint_ego_states"]
 
-        self.actions[: self.size] = data["actions"]
-        self.rewards[: self.size] = data["rewards"]
-        self.dones[: self.size] = data["dones"]
+        self.global_states[:self.size] = data["global_states"]
+        self.next_global_states[:self.size] = data["next_global_states"]
 
-        if self.robot_dim > 0:
-            if "robot_states" not in data.files or "next_robot_states" not in data.files:
-                raise ValueError("robot_dim > 0인데 robot_states/next_robot_states가 저장 파일에 없음.")
-            self.robot_states[: self.size] = data["robot_states"]
-            self.next_robot_states[: self.size] = data["next_robot_states"]
+        self.joint_robot_states[:self.size] = data["joint_robot_states"]
+        self.next_joint_robot_states[:self.size] = data["next_joint_robot_states"]
 
-class ResidualBlock(nn.Module):
-    def __init__(self, in_channels, out_channels):
-        super(ResidualBlock, self).__init__()
-        # stride=1로만 운영 (downsample하지 않음)
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
-        self.bn1 = nn.BatchNorm2d(out_channels)
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1)
-        self.bn2 = nn.BatchNorm2d(out_channels)
+        self.joint_actions[:self.size] = data["joint_actions"]
+        self.joint_masks[:self.size] = data["joint_masks"]
+        self.next_joint_masks[:self.size] = data["next_joint_masks"]
 
-        # in/out 채널 다르면 skip 연결에 1×1 Conv
-        if in_channels != out_channels:
-            self.skip = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1)
-        else:
-            self.skip = nn.Identity()
-
-    def forward(self, x):
-        residual = self.skip(x)
-        out = F.silu(self.bn1(self.conv1(x)))
-        out = self.bn2(self.conv2(out))
-        out = out + residual
-        return F.silu(out)
+        self.rewards[:self.size] = data["rewards"]
+        self.dones[:self.size] = data["dones"]
+        self.agent_indices[:self.size] = data["agent_indices"]
        
 class EpsilonScheduler:
     """
@@ -924,6 +1201,76 @@ class EpsilonScheduler:
 
    
 
+
+##########################################################################
+# 1) IMPALA CNN Components
+##########################################################################
+class ResidualBlock(nn.Module):
+    def __init__(self, channels):
+        super(ResidualBlock, self).__init__()
+        self.conv1 = nn.Conv2d(channels, channels, kernel_size=3, padding=1)
+        self.conv2 = nn.Conv2d(channels, channels, kernel_size=3, padding=1)
+
+    def forward(self, x):
+        out = F.silu(x)
+        out = self.conv1(out)
+        out = F.silu(out)
+        out = self.conv2(out)
+        return out + x  # Skip connection
+
+class ImpalaBlock(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super(ImpalaBlock, self).__init__()
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1)
+        # 이미지 크기를 절반으로 줄이는 Max Pooling (stride=2)
+        self.max_pool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self.res1 = ResidualBlock(out_channels)
+        self.res2 = ResidualBlock(out_channels)
+
+    def forward(self, x):
+        x = self.conv(x)
+        x = self.max_pool(x)
+        x = self.res1(x)
+        x = self.res2(x)
+        return x
+
+class ImpalaCNN(nn.Module):
+    # compress=False 로 설정하면 256 압축을 생략합니다.
+    def __init__(self, input_shape, in_channels=4, channels=[16, 32, 32], out_dim=256, compress=True):
+        super(ImpalaCNN, self).__init__()
+        h, w = input_shape
+        self.blocks = nn.ModuleList()
+        
+        cur_channels = in_channels
+        for c in channels:
+            self.blocks.append(ImpalaBlock(cur_channels, c))
+            cur_channels = c
+            h = (h + 2 * 1 - 3) // 2 + 1
+            w = (w + 2 * 1 - 3) // 2 + 1
+
+        self.flatten_dim = cur_channels * h * w
+        self.compress = compress
+        
+        if self.compress:
+            self.fc = nn.Sequential(
+                nn.SiLU(),
+                nn.Linear(self.flatten_dim, out_dim),
+                nn.SiLU()
+            )
+            self.out_dim = out_dim
+        else:
+            # 압축하지 않을 경우 Identity(아무것도 안 함)를 통과시키고 원래 차원 반환
+            self.fc = nn.Identity()
+            self.out_dim = self.flatten_dim
+
+    def forward(self, x):
+        for block in self.blocks:
+            x = block(x)
+        x = torch.flatten(x, 1)
+        x = self.fc(x)
+        return x
+
+
 class CNNEncoder(nn.Module):
     def __init__(self, input_shape=(50, 50), in_channels=4):
         super().__init__()
@@ -957,13 +1304,13 @@ class CNNEncoder(nn.Module):
 # 3) Critic (Q) Network
 ##########################################################################
 class QNetwork(nn.Module):
-    def __init__(self, ego_shape=(50, 50), global_shape=(50, 50), action_dim=2, robot_dim = 3, use_robot: bool = True):
+    def __init__(self, ego_shape=(25, 25), global_shape=(50, 50), action_dim=2, robot_dim = 3, use_robot: bool = True):
         super(QNetwork, self).__init__()
         self.use_robot_state = use_robot
        
         # --- Ego & Global Encoders ---
-        self.ego_enc = CNNEncoder(input_shape=ego_shape, in_channels=4)
-        self.glob_enc = CNNEncoder(input_shape=global_shape, in_channels=4)
+        self.ego_enc = ImpalaCNN(input_shape=ego_shape, compress=True)
+        self.glob_enc = ImpalaCNN(input_shape=global_shape, compress=True)
        
         # Robot State
         robot_feat_dim = 0
@@ -1018,10 +1365,14 @@ class QNetwork(nn.Module):
         img_film = (1.0 + gamma) * img + beta
 
         feats = [img_film]
-
         if self.use_robot_state:
             feats.append(r)
         feats.append(action)
+        combined = torch.cat(feats, dim=1)
+
+        # if self.use_robot_state:
+        #     feats.append(r)
+        # feats.append(action)
         combined = torch.cat(feats, dim=1)
 
         out = F.silu(self.fc1(combined))
@@ -1029,11 +1380,131 @@ class QNetwork(nn.Module):
         q_val = self.q_out(out)
         return q_val
 
+
+class CentralizedQNetwork(nn.Module):
+    def __init__(
+        self,
+        ego_shape=(25, 25),
+        global_shape=(50, 50),
+        action_dim=2,
+        robot_dim=3,
+        max_robots=3,
+        use_robot: bool = True,
+    ):
+        super().__init__()
+        self.use_robot_state = use_robot
+        self.max_robots = max_robots
+        self.action_dim = action_dim
+        self.robot_dim = robot_dim
+
+        # shared ego encoder
+        self.ego_enc = CNNEncoder(input_shape=ego_shape, in_channels=4)
+        self.glob_enc = CNNEncoder(input_shape=global_shape, in_channels=4)
+
+        self.single_ego_feat_dim = self.ego_enc.out_dim
+        self.global_feat_dim = self.glob_enc.out_dim
+
+        self.all_ego_feat_dim = self.single_ego_feat_dim * max_robots
+        self.img_dim = self.global_feat_dim + self.all_ego_feat_dim
+
+        robot_embed_dim = 32
+        if self.use_robot_state:
+            self.robot_fc = nn.Sequential(
+                nn.Linear(robot_dim, robot_embed_dim),
+                nn.SiLU()
+            )
+            self.all_robot_feat_dim = robot_embed_dim * max_robots
+        else:
+            self.robot_fc = None
+            self.all_robot_feat_dim = 0
+
+        self.all_action_dim = action_dim * max_robots
+
+        cond_dim = self.all_action_dim + self.all_robot_feat_dim
+        hidden = 256
+        self.film = nn.Sequential(
+            nn.Linear(cond_dim, hidden),
+            nn.SiLU(),
+            nn.Linear(hidden, 2 * self.img_dim)
+        )
+        nn.init.zeros_(self.film[-1].weight)
+        nn.init.zeros_(self.film[-1].bias)
+
+        fusion_dim = self.img_dim + self.all_action_dim + self.all_robot_feat_dim
+        self.fc1 = nn.Linear(fusion_dim, 512)
+        self.fc2 = nn.Linear(512, 256)
+        self.q_out = nn.Linear(256, 1)
+
+    def forward(
+        self,
+        joint_ego_state,     # (B, N, 4, E, E)
+        global_state,        # (B, 4, G, G)
+        joint_action,        # (B, N, A)
+        joint_robot_state,   # (B, N, R)
+        joint_mask=None      # (B, N)
+    ):
+        B, N, C, H, W = joint_ego_state.shape
+        assert N == self.max_robots
+
+        # 1) shared ego encoding
+        ego_flat = joint_ego_state.reshape(B * N, C, H, W)
+        ego_feat = self.ego_enc(ego_flat).reshape(B, N, -1)   # (B, N, Fego)
+
+        # mask 적용
+        if joint_mask is not None:
+            ego_feat = ego_feat * joint_mask.unsqueeze(-1).float()
+
+        ego_feat_cat = ego_feat.reshape(B, -1)  # (B, N*Fego)
+
+        # 2) global encoding
+        glob_feat = self.glob_enc(global_state)  # (B, Fglob)
+
+        # 3) image fusion
+        img_feat = torch.cat([glob_feat, ego_feat_cat], dim=1)  # (B, img_dim)
+
+        # 4) robot embedding
+        if self.use_robot_state:
+            robot_flat = joint_robot_state.reshape(B * N, self.robot_dim)
+            robot_feat = self.robot_fc(robot_flat).reshape(B, N, -1)  # (B, N, Frobot)
+            if joint_mask is not None:
+                robot_feat = robot_feat * joint_mask.unsqueeze(-1).float()
+            robot_feat_cat = robot_feat.reshape(B, -1)
+        else:
+            robot_feat_cat = None
+
+        # 5) joint action flatten
+        if joint_mask is not None:
+            joint_action = joint_action * joint_mask.unsqueeze(-1).float()
+        action_cat = joint_action.reshape(B, -1)
+
+        # 6) FiLM conditioning
+        if self.use_robot_state:
+            cond = torch.cat([action_cat, robot_feat_cat], dim=1)
+        else:
+            cond = action_cat
+
+        gamma_beta = self.film(cond)
+        gamma, beta = gamma_beta.chunk(2, dim=1)
+        img_film = (1.0 + gamma) * img_feat + beta
+
+        # 7) final Q head
+        feats = [img_film, action_cat]
+        if self.use_robot_state:
+            feats.append(robot_feat_cat)
+
+        x = torch.cat(feats, dim=1)
+        x = F.silu(self.fc1(x))
+        x = F.silu(self.fc2(x))
+        q = self.q_out(x)
+        return q  
+
+
+
 ##########################################################################
 # 4) Policy (Actor) Network
 ##########################################################################
 class PolicyNetwork(nn.Module):
-    def __init__(self, ego_shape=(50,50), global_shape=(50,50), robot_dim = 3, use_robot: bool = True):
+    def __init__(self, ego_shape=(25,25), global_shape=(50,50), robot_dim = 3, use_robot: bool = True):
         super(PolicyNetwork, self).__init__()
         self.log_std_min = LOG_STD_MIN
         self.log_std_max = LOG_STD_MAX
@@ -1166,7 +1637,7 @@ class FrameStack2: #for ego
 class SACAgent:
     def __init__(self, input_shape=(50,50), gamma=GAMMA_START, alpha=0.2, tau=0.995, lr=1e-4, batch_size=64, replay_size=int(1e5), device="cpu", start_epsilon = 1.0, start_epsilon_long = 0.1, long_epsilon_min=0):
         self.gamma = gamma
-        self.alpha = alpha
+        self.alpha = torch.tensor(alpha, dtype=torch.float32, device='cpu')
         self.tau = tau
         self.batch_size = batch_size
         self.device = torch.device(device)
@@ -1177,10 +1648,15 @@ class SACAgent:
         # Multimodal Flag
         self.use_robot_state = ROBOT_STATE_EMBEDDING
         self.robot_dim = ROBOT_STATE_DIM if self.use_robot_state else 0
+        
+        self.target_entropy = -2
+        self.log_alpha = torch.tensor(np.log(self.alpha), requires_grad=True, device=self.device)
+        self.alpha_optimizer = optim.AdamW([self.log_alpha], lr=lr)
 
         # Replay buffer
         self.replay_buffer = ReplayBuffer(
             capacity=int(replay_size),
+            max_robots=MAX_ROBOTS,
             ego_state_shape=(4, EGO_MAP_SIZE, EGO_MAP_SIZE),
             global_state_shape=(4, DOWNSAMPLE_MAP_SIZE, DOWNSAMPLE_MAP_SIZE),
             action_dim=2,
@@ -1188,39 +1664,41 @@ class SACAgent:
             device=self.device,
         )
 
-        # Critic networks
-        self.q1 = QNetwork(
+        self.q1 = CentralizedQNetwork(
             ego_shape=(EGO_MAP_SIZE, EGO_MAP_SIZE),
             global_shape=(DOWNSAMPLE_MAP_SIZE, DOWNSAMPLE_MAP_SIZE),
             action_dim=2,
             robot_dim=ROBOT_STATE_DIM,
+            max_robots=MAX_ROBOTS,
             use_robot=ROBOT_STATE_EMBEDDING,
         ).to(self.device)
 
-        self.q2 = QNetwork(
+        self.q2 = CentralizedQNetwork(
             ego_shape=(EGO_MAP_SIZE, EGO_MAP_SIZE),
             global_shape=(DOWNSAMPLE_MAP_SIZE, DOWNSAMPLE_MAP_SIZE),
             action_dim=2,
             robot_dim=ROBOT_STATE_DIM,
+            max_robots=MAX_ROBOTS,
             use_robot=ROBOT_STATE_EMBEDDING,
         ).to(self.device)
 
-        self.q1_target = QNetwork(
+        self.q1_target = CentralizedQNetwork(
             ego_shape=(EGO_MAP_SIZE, EGO_MAP_SIZE),
             global_shape=(DOWNSAMPLE_MAP_SIZE, DOWNSAMPLE_MAP_SIZE),
             action_dim=2,
             robot_dim=ROBOT_STATE_DIM,
+            max_robots=MAX_ROBOTS,
             use_robot=ROBOT_STATE_EMBEDDING,
         ).to(self.device)
 
-        self.q2_target = QNetwork(
+        self.q2_target = CentralizedQNetwork(
             ego_shape=(EGO_MAP_SIZE, EGO_MAP_SIZE),
             global_shape=(DOWNSAMPLE_MAP_SIZE, DOWNSAMPLE_MAP_SIZE),
             action_dim=2,
             robot_dim=ROBOT_STATE_DIM,
+            max_robots=MAX_ROBOTS,
             use_robot=ROBOT_STATE_EMBEDDING,
         ).to(self.device)
-
 
         # self.q1_target, self.q2_target -> Q의 Ground Truth 근사치 제공
         # q-network 업데이트 시 사용하는 Target 값을 제공
@@ -1310,64 +1788,88 @@ class SACAgent:
     # Update (one gradient step)
     # ------------------------------------------------- #
     def update(self):
-        if len(self.replay_buffer) < self.batch_size*START_BATCH_TIMES:
+        if len(self.replay_buffer) < self.batch_size * START_BATCH_TIMES:
             return
-       
-        # sample = self.replay_buffer.sample(self.batch_size)
-        #states, actions, rewards, next_states, dones = self.replay_buffer.sample(self.batch_size)
 
-        # 1. Replay Buffer에서 샘플 가져오기
-        ego_s, glob_s, robot_s, a, r, ego_s2, glob_s2, robot_s2, d = self.replay_buffer.sample(self.batch_size)
+        (
+            joint_ego, global_state, joint_robot, joint_action, joint_mask,
+            next_joint_ego, next_global_state, next_joint_robot, next_joint_mask,
+            reward, done, agent_index
+        ) = self.replay_buffer.sample(self.batch_size)
 
+        self.alpha = self.log_alpha.exp().detach()
+
+        # -----------------------
+        # 1) Critic target
+        # -----------------------
         with torch.no_grad():
-            next_a, next_logp = self.policy.sample_action(ego_s2, glob_s2, robot_s2)
-            q1_next = self.q1_target(ego_s2, glob_s2, next_a, robot_s2)
-            q2_next = self.q2_target(ego_s2, glob_s2, next_a, robot_s2)
-            q_next = torch.min(q1_next, q2_next).squeeze(-1)
-            q_target = r + self.gamma * (1 - d) * (q_next - self.alpha * next_logp)
+            next_joint_action, next_joint_logp = self.sample_joint_actions(
+                next_joint_ego, next_global_state, next_joint_robot, next_joint_mask
+            )  # (B,N,A), (B,N)
 
-        # ----- Update Q1, Q2 -----
-        q1_val = self.q1(ego_s, glob_s, a, robot_s).squeeze(-1)  # (B,) #q value를 scalar 값으로
-        q2_val = self.q2(ego_s, glob_s, a, robot_s).squeeze(-1)
-       
-        loss_q1 = F.mse_loss(q1_val, q_target) # q의 실제와 예측 차이 계산
+            next_logp_i = gather_agent_tensor(next_joint_logp.unsqueeze(-1), agent_index).squeeze(-1)
+
+            q1_next = self.q1_target(
+                next_joint_ego, next_global_state, next_joint_action, next_joint_robot, next_joint_mask
+            )
+            q2_next = self.q2_target(
+                next_joint_ego, next_global_state, next_joint_action, next_joint_robot, next_joint_mask
+            )
+            q_next = torch.min(q1_next, q2_next).squeeze(-1)
+
+            q_target = reward + self.gamma * (1 - done) * (q_next - self.alpha * next_logp_i)
+
+        # -----------------------
+        # 2) Critic update
+        # -----------------------
+        q1_val = self.q1(joint_ego, global_state, joint_action, joint_robot, joint_mask).squeeze(-1)
+        q2_val = self.q2(joint_ego, global_state, joint_action, joint_robot, joint_mask).squeeze(-1)
+
+        loss_q1 = F.mse_loss(q1_val, q_target)
         loss_q2 = F.mse_loss(q2_val, q_target)
+
         max_grad_norm = 1.0
 
-        self.q1_optimizer.zero_grad() #이전 단계의 기울기 초기화, optimizer.step()이 호출 될때 기울기가 누적되지 않도록 함
+        self.q1_optimizer.zero_grad()
         loss_q1.backward()
-        # 손실값으로부터 모든 파라미터에 대한 기울기 계산
-        torch.nn.utils.clip_grad_norm_(self.q1.parameters(), max_grad_norm)      
-        self.q1_optimizer.step() # q1 update
-        # optimizer가 저장된 기울기(.grad)를 사용하여 네트워크의 파라미터 업데이트
+        torch.nn.utils.clip_grad_norm_(self.q1.parameters(), max_grad_norm)
+        self.q1_optimizer.step()
 
         self.q2_optimizer.zero_grad()
         loss_q2.backward()
         torch.nn.utils.clip_grad_norm_(self.q2.parameters(), max_grad_norm)
-        self.q2_optimizer.step() # q2 update
+        self.q2_optimizer.step()
 
-        # ----- Update Policy -----
-        # re-sample action from current policy
-        new_action, log_prob = self.policy.sample_action(ego_s, glob_s, robot_s)
-        q1_new = self.q1(ego_s, glob_s, new_action, robot_s)
-        q2_new = self.q2(ego_s, glob_s, new_action, robot_s)
-        q_new = torch.min(q1_new, q2_new).squeeze(-1)  # (B,)
+        # -----------------------
+        # 3) Actor update
+        # -----------------------
+        new_joint_action, joint_logp = self.sample_joint_actions(
+            joint_ego, global_state, joint_robot, joint_mask
+        )
+        logp_i = gather_agent_tensor(joint_logp.unsqueeze(-1), agent_index).squeeze(-1)
 
-        # policy loss = alpha * log_prob - Q
-        policy_loss = (self.alpha * log_prob - q_new).mean() #여기서 self.alpha * log_prob가 entropy term
-        # policy_loss는 PyTorch의 스칼라 텐서로, 자동 미분 지원
-        # 계산된 기울기는 각 파라미터의 .grad 속성에 저장
+        q1_new = self.q1(joint_ego, global_state, new_joint_action, joint_robot, joint_mask)
+        q2_new = self.q2(joint_ego, global_state, new_joint_action, joint_robot, joint_mask)
+        q_new = torch.min(q1_new, q2_new).squeeze(-1)
+
+        policy_loss = (self.alpha * logp_i - q_new).mean()
+
+        alpha_loss = -(self.log_alpha * (logp_i + self.target_entropy).detach()).mean()
+
+        self.alpha_optimizer.zero_grad()
+        alpha_loss.backward()
+        self.alpha_optimizer.step()
 
         self.policy_optimizer.zero_grad()
         policy_loss.backward()
         torch.nn.utils.clip_grad_norm_(self.policy.parameters(), max_grad_norm)
         self.policy_optimizer.step()
-        # optimizer가 저장된 기울기(.grad)를 사용하여 네트워크의 파라미터 업데이트
 
-        # soft update
+        # -----------------------
+        # 4) Soft update
+        # -----------------------
         self.soft_update(self.q1, self.q1_target)
         self.soft_update(self.q2, self.q2_target)
-
     # ------------------------------------------------- #
     # Save / Load
     # ------------------------------------------------- #
@@ -1424,6 +1926,34 @@ class SACAgent:
         self.replay_buffer.load(filepath)
         print("Replay buffer loaded.")
         print("Replay buffer size:", len(self.replay_buffer))
+
+    def sample_joint_actions(self, joint_ego, global_state, joint_robot_state, joint_mask):
+        """
+        joint_ego: (B, N, 4, E, E)
+        global_state: (B, 4, G, G)
+        joint_robot_state: (B, N, R)
+        joint_mask: (B, N)
+        """
+        B, N, C, H, W = joint_ego.shape
+        actions = []
+        log_probs = []
+
+        for i in range(N):
+            ego_i = joint_ego[:, i]               # (B,4,E,E)
+            robot_i = joint_robot_state[:, i]     # (B,R)
+
+            act_i, logp_i = self.policy.sample_action(ego_i, global_state, robot_i)
+            m_i = joint_mask[:, i].float().unsqueeze(-1)
+
+            act_i = act_i * m_i
+            logp_i = logp_i * joint_mask[:, i].float()
+
+            actions.append(act_i)
+            log_probs.append(logp_i)
+
+        joint_action = torch.stack(actions, dim=1)   # (B,N,A)
+        joint_logp = torch.stack(log_probs, dim=1)   # (B,N)
+        return joint_action, joint_logp
 
 ##########################################################################
 # TensorBoard 모니터링 함수: total_reward.txt 파일의 새 라인을 지속적으로 읽어 기록
@@ -1619,6 +2149,7 @@ if __name__ == "__main__":
    
     epsilon_path = os.path.join(log_dir, "start_epsilon.txt")
     start_epsilon = 0
+    start_alpha = ALPHA_START
     if os.path.exists(epsilon_path):
         with open(epsilon_path, "r") as f:
             try:
@@ -1626,21 +2157,25 @@ if __name__ == "__main__":
                 if len(lines) >= 2:
                     start_epsilon = float(lines[0].strip())
                     start_epsilon_long = float(lines[1].strip())
+                    start_alpha = float(lines[2].strip())
                     print(f"Loaded start_epsilon: {start_epsilon}, start_epsilon_long: {start_epsilon_long}")
                 else:
                     print("Not enough lines in start_epsilon.txt. Resetting values.")
                     start_epsilon = START_EPSILON
                     start_epsilon_long = START_LONG_EPSILON  # 기본값 설정
+                    start_alpha = ALPHA_START
             except ValueError:
                 print("Invalid value in start_epsilon.txt. Resetting to defaults.")
                 start_epsilon = START_EPSILON
                 start_epsilon_long = START_LONG_EPSILON  # 기본값 설정
+                start_alpha = ALPHA_START
     else:
         start_epsilon = START_EPSILON
         start_epsilon_long = START_LONG_EPSILON  # 기본값 설정
+        start_alpha = ALPHA_START
         print("No start_epsilon.txt found. Initializing values to defaults.")
     epsilon_shared = mp.Value('d', start_epsilon)
-    agent = SACAgent(input_shape=(50,50), alpha=ALPHA_START, lr=float(LR), start_epsilon=start_epsilon, start_epsilon_long = float(START_LONG_EPSILON), long_epsilon_min=float(LONG_EPSILON_MIN), batch_size=int(BATCH_SIZE), replay_size=int(BUFFER_SIZE), device=DEVICE)
+    agent = SACAgent(input_shape=(50,50), alpha=start_alpha, lr=float(LR), start_epsilon=start_epsilon, start_epsilon_long = float(START_LONG_EPSILON), long_epsilon_min=float(LONG_EPSILON_MIN), batch_size=int(BATCH_SIZE), replay_size=int(BUFFER_SIZE), device=DEVICE)
     print(f"Agent initialized, lr={LR}, alpha={agent.alpha}, batch_size={BATCH_SIZE}, replay_size={BUFFER_SIZE}")
     replay_buffer_path = os.path.join(log_dir, "replay_buffer.npz")
 
@@ -1688,8 +2223,8 @@ if __name__ == "__main__":
     N_WORKERS_WARMUP = 10
     N_WORKERS_TRAIN = int(N_ENVS)
 
-    transition_queue = ctx.Queue(maxsize=2*N_WORKERS_WARMUP)
-    stats_queue = ctx.Queue(maxsize=2*N_WORKERS_WARMUP)
+    transition_queue = ctx.Queue(maxsize=2*N_WORKERS_WARMUP*THE_NUMBER_OF_ROBOTS)
+    stats_queue = ctx.Queue(maxsize=2*N_WORKERS_WARMUP*THE_NUMBER_OF_ROBOTS)
     param_queue = mp.Queue(maxsize=1)
 
     workers = [None] * N_WORKERS
@@ -1729,12 +2264,22 @@ if __name__ == "__main__":
             pass
         else:
             # ReplayBuffer에 push
-            agent.replay_buffer.push(
-                msg.ego_state, msg.global_state, msg.robot_state,
-                msg.action, msg.reward,
-                msg.next_ego_state, msg.next_global_state, msg.next_robot_state,
-                msg.done
-            )
+            for agent_i in range(MAX_ROBOTS):
+                if msg.joint_mask[agent_i] > 0.5:                    
+                    agent.replay_buffer.push(
+                        msg.joint_ego_state,
+                        msg.global_state,
+                        msg.joint_robot_state,
+                        msg.joint_action,
+                        msg.joint_mask,
+                        msg.next_joint_ego_state,
+                        msg.next_global_state,
+                        msg.next_joint_robot_state,
+                        msg.next_joint_mask,
+                        msg.reward,
+                        msg.done,
+                        agent_i
+                    )
 
             # 업데이트 스케줄: transition 수에 비례해서 update 횟수 누적
             if global_episode >= START_UPDATE_EPISODE:
@@ -1790,7 +2335,6 @@ if __name__ == "__main__":
                     f.write(f"{s_msg.total_lifetime}\n")
 
             # alpha/gamma/epsilon 스케줄 업데이트 (episode 기준)
-            agent.update_alpha(ALPHA_START, ALPHA_END, ALPHA_DECAY_STEPS, global_episode)
             agent.update_gamma(GAMMA_START, GAMMA_END, GAMMA_SCHEDULE_STEP, global_episode)
             agent.epsilon = max(
                 epsilon_scheduler.get_epsilon(agent.epsilon, global_episode),
@@ -1803,7 +2347,8 @@ if __name__ == "__main__":
             # epsilon 저장
             with open(epsilon_path, "w") as f:
                 f.write(str(agent.epsilon) + "\n")
-                f.write(str(agent.epsilon_long))
+                f.write(str(agent.epsilon_long) + "\n")
+                f.write(str(agent.alpha.item()))
 
             # 체크포인트 저장
             if (global_episode >= START_UPDATE_EPISODE) and (global_episode % 100 == 0):
@@ -1845,8 +2390,8 @@ if __name__ == "__main__":
                 pass
 
             print("[Main] Re-creating Queues...")
-            transition_queue = ctx.Queue(maxsize=2*N_WORKERS_TRAIN)
-            stats_queue = ctx.Queue(maxsize=2*N_WORKERS_TRAIN)
+            transition_queue = ctx.Queue(maxsize=2*N_WORKERS_TRAIN*THE_NUMBER_OF_ROBOTS)
+            stats_queue = ctx.Queue(maxsize=2*N_WORKERS_TRAIN*THE_NUMBER_OF_ROBOTS)
 
             # 새 worker 시작
             current_n_workers = N_WORKERS_TRAIN
