@@ -1673,7 +1673,6 @@ class SACAgent:
             global_shape=(DOWNSAMPLE_MAP_SIZE, DOWNSAMPLE_MAP_SIZE),
             action_dim=2,
             robot_dim=ROBOT_STATE_DIM,
-            max_robots=MAX_ROBOTS,
             use_robot=ROBOT_STATE_EMBEDDING,
         ).to(self.device)
 
@@ -1682,7 +1681,6 @@ class SACAgent:
             global_shape=(DOWNSAMPLE_MAP_SIZE, DOWNSAMPLE_MAP_SIZE),
             action_dim=2,
             robot_dim=ROBOT_STATE_DIM,
-            max_robots=MAX_ROBOTS,
             use_robot=ROBOT_STATE_EMBEDDING,
         ).to(self.device)
 
@@ -1691,7 +1689,6 @@ class SACAgent:
             global_shape=(DOWNSAMPLE_MAP_SIZE, DOWNSAMPLE_MAP_SIZE),
             action_dim=2,
             robot_dim=ROBOT_STATE_DIM,
-            max_robots=MAX_ROBOTS,
             use_robot=ROBOT_STATE_EMBEDDING,
         ).to(self.device)
 
@@ -1700,7 +1697,6 @@ class SACAgent:
             global_shape=(DOWNSAMPLE_MAP_SIZE, DOWNSAMPLE_MAP_SIZE),
             action_dim=2,
             robot_dim=ROBOT_STATE_DIM,
-            max_robots=MAX_ROBOTS,
             use_robot=ROBOT_STATE_EMBEDDING,
         ).to(self.device)
 
