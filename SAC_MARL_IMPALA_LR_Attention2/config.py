@@ -1,4 +1,5 @@
-# Soft Actor Critic for Multi-Agent Reinforcement Learning with Local Rewards
+# Soft Actor Critic for Multi-Agent Reinforcement Learning with 
+# Local Reward, Impala CNN, Attention for fused state (global+ego+auxiliary state), individual Q valued
 # ------------- BASIC PARAMETERS ------------------
 LR = 1e-4
 BUFFER_SIZE = 1000000

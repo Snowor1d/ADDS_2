@@ -1567,6 +1567,7 @@ class CentralizedQNetwork(nn.Module):
         q = self.q_out(x)
         return q  
 
+
 class CentralizedAttentionQNetwork(nn.Module):
     def __init__(
         self,
@@ -1576,15 +1577,14 @@ class CentralizedAttentionQNetwork(nn.Module):
         robot_dim=3,
         max_robots=3,
         use_robot: bool = True,
-        embed_dim=128,  # Attention 내부 연산을 위한 통일된 차원
-        num_heads=4     # Multi-head Attention의 헤드 수
+        embed_dim=128,  
+        num_heads=4     
     ):
         super().__init__()
         self.use_robot_state = use_robot
         self.max_robots = max_robots
         
         # --- 1) 기본 인코더 (차원 압축 포함) ---
-        # 이미지 피처를 embed_dim으로 맞추기 위해 Linear 층 추가
         self.ego_enc = ImpalaCNN(input_shape=ego_shape, compress=True)
         self.ego_to_embed = nn.Linear(self.ego_enc.out_dim, embed_dim)
         
@@ -1592,11 +1592,10 @@ class CentralizedAttentionQNetwork(nn.Module):
         self.glob_to_embed = nn.Linear(self.glob_enc.out_dim, embed_dim)
 
         if self.use_robot_state:
-            # 로봇 상태와 행동을 함께 처리할 인코더
             self.robot_action_enc = nn.Sequential(
                 nn.Linear(robot_dim + action_dim, embed_dim),
                 nn.SiLU(),
-                nn.Linear(embed_dim, embed_dim) # Attention 입력 차원과 통일
+                nn.Linear(embed_dim, embed_dim) 
             )
         else:
             self.action_enc = nn.Sequential(
@@ -1605,16 +1604,23 @@ class CentralizedAttentionQNetwork(nn.Module):
                 nn.Linear(embed_dim, embed_dim)
             )
 
-        # --- 2) 핵심: Attention 레이어 ---
-        # 각 로봇의 피처를 Query, Key, Value로 사용하여 상호작용 모델링
-        # batch_first=True로 설정하여 (B, N, F) 순서 유지
+        self.agent_fuse = nn.Sequential(
+            nn.Linear(embed_dim * 3, embed_dim),
+            nn.SiLU(),
+            nn.Linear(embed_dim, embed_dim)
+        )
+
+        # Attention Layer
         self.attention = nn.MultiheadAttention(embed_dim=embed_dim, num_heads=num_heads, batch_first=True)
         
-        # --- 3) 최종 Q Head ---
-        # Attention 결과(압축됨) + Global 피처
-        self.fc1 = nn.Linear(embed_dim + embed_dim, 256)
+        # LayerNorm for normalization
+        self.layer_norm = nn.LayerNorm(embed_dim)
+        
+        # --- 3) 최종 Q Head (Per-agent 출력용) ---
+        # 이제 각 에이전트 피처(embed_dim) + Global 피처(embed_dim)가 결합되므로 입력은 embed_dim * 2
+        self.fc1 = nn.Linear(embed_dim * 2, 256)
         self.fc2 = nn.Linear(256, 128)
-        self.q_out = nn.Linear(128, 1)
+        self.q_out = nn.Linear(128, 1) # 최종 출력은 (B, N, 1)
 
     def forward(
         self,
@@ -1622,63 +1628,69 @@ class CentralizedAttentionQNetwork(nn.Module):
         global_state,        # (B, 4, G, G)
         joint_action,        # (B, N, A)
         joint_robot_state,   # (B, N, R)
-        joint_mask=None      # (B, N) - 활성화된 로봇 마스크
+        joint_mask=None      # (B, N)
     ):
         B, N, C, H, W = joint_ego_state.shape
         
-        # 1) Global 인코딩 (모든 로봇 공통)
-        glob_feat = self.glob_enc(global_state)  # (B, Fglob)
+        # 1) Global 인코딩 
+        glob_feat = self.glob_enc(global_state)  
         glob_embed = F.silu(self.glob_to_embed(glob_feat)) # (B, embed_dim)
 
         # 2) 개별 로봇별 인코딩 (N 차원 유지)
-        # Ego 이미지 처리
         ego_flat = joint_ego_state.reshape(B * N, C, H, W)
-        ego_feat = self.ego_enc(ego_flat) # (B*N, Fego)  # 각 로봇의 egocentric image의 feature 추출
-        ego_embed = F.silu(self.ego_to_embed(ego_feat)).reshape(B, N, -1) # (B, N, embed_dim) 추출된 각 이미지의 feature를 embed_dim으로 변환
+        ego_feat = self.ego_enc(ego_flat) 
+        ego_embed = F.silu(self.ego_to_embed(ego_feat)).reshape(B, N, -1) 
 
-        # 로봇 상태 및 행동 처리
         if self.use_robot_state:
-            # (B, N, R+A) 형태로 합침
-            robot_action_input = torch.cat([joint_robot_state, joint_action], dim=-1) # robot state와 robot action 합치기
+            robot_action_input = torch.cat([joint_robot_state, joint_action], dim=-1) 
             robot_action_flat = robot_action_input.reshape(B * N, -1)
-            agent_embed = self.robot_action_enc(robot_action_flat).reshape(B, N, -1) # (B, N, embed_dim) #robot state와 action을 embed_dim으로 변환
+            agent_embed = self.robot_action_enc(robot_action_flat).reshape(B, N, -1) 
         else:
             action_flat = joint_action.reshape(B * N, -1)
-            agent_embed = self.action_enc(action_flat).reshape(B, N, -1) # (B, N, embed_dim)
+            agent_embed = self.action_enc(action_flat).reshape(B, N, -1) 
 
-        # 개별 로봇 피처 통합 (Ego 이미지 + 상태/행동)
-        full_agent_embed = ego_embed + agent_embed # (B, N, embed_dim)
+        glob_embed_expanded = glob_embed.unsqueeze(1).expand(-1, N, -1)
 
-        # 마스킹 처리 (죽은 로봇 피처 제거)
+        #fusion with ego, agent, global features
+        cat_embed = torch.cat([ego_embed, agent_embed, glob_embed_expanded], dim=-1)
+        full_agent_embed = self.agent_fuse(cat_embed) 
+
         if joint_mask is not None:
             full_agent_embed = full_agent_embed * joint_mask.unsqueeze(-1).float()
 
-        # Self Attention
-        # 자기 자신을 Query, Key, Value로 사용하여 다른 로봇과의 관계 학습
-        # attn_output: 각 로봇 입장에서 다른 로봇 정보를 고려한 통합 피처 (B, N, embed_dim)
-        attn_output, _ = self.attention(query=full_agent_embed, key=full_agent_embed, value=full_agent_embed)
-
-        # 4) 순열 불변성(Permutation Invariance) 확보를 위한 Pooling
-        # N 차원에 대해 평균을 취하여 하나의 팀 벡터로 압축 (B, embed_dim)
-        # 마스킹을 고려하여 평균 계산
         if joint_mask is not None:
-            # 활성화된 로봇 수로 나눔
-            valid_robots = joint_mask.sum(dim=1, keepdim=True).float()
-            # 0으로 나누는 것 방지
-            valid_robots = torch.clamp(valid_robots, min=1.0)
-            team_embed = attn_output.sum(dim=1) / valid_robots # 실제로 있는 로봇 수로 나누기
+                    # joint_mask == 0 인 곳이 True가 되어 Attention 계산 시 -inf 처리됨
+            key_padding_mask = (joint_mask == 0).bool()
         else:
-            team_embed = attn_output.mean(dim=1) # (B, embed_dim)
+            key_padding_mask = None
 
-        # 5) 최종 Q Head
-        # 팀 전체 정보 + 글로벌 환경 정보
-        z = torch.cat([team_embed, glob_embed], dim=-1) # (B, embed_dim * 2)
-        z = F.silu(self.fc1(z))
-        z = F.silu(self.fc2(z))
-        q = self.q_out(z)
+        # Self Attention
+        attn_output, _ = self.attention(
+            query=full_agent_embed,
+            key = full_agent_embed,
+            value = full_agent_embed,
+            key_padding_mask = key_padding_mask
+        )
+        # LayerNorm
+        agent_embed_updated = self.layer_norm(full_agent_embed + attn_output)
+
+        if joint_mask is not None:
+            agent_embed_updated = agent_embed_updated * joint_mask.unsqueeze(-1).float()
+
+        glob_embed_expanded = glob_embed.unsqueeze(1).expand(-1, N, -1)
         
+        z = torch.cat([agent_embed_updated, glob_embed_expanded], dim=-1) # (B, N, embed_dim * 2)
+        
+        z = F.silu(self.fc1(z)) # (B, N, 256)
+        z = F.silu(self.fc2(z)) # (B, N, 128)
+        
+        # Q value for each robot
+        q = self.q_out(z) 
+        
+        if joint_mask is not None:
+            q = q * joint_mask.unsqueeze(-1).float()
+            
         return q
-
 
 
 ##########################################################################
@@ -2006,21 +2018,29 @@ class SACAgent:
 
             next_logp_i = gather_agent_tensor(next_joint_logp.unsqueeze(-1), agent_index).squeeze(-1)
 
-            q1_next = self.q1_target(
+            q1_next_all = self.q1_target(
+                            next_joint_ego, next_global_state, next_joint_action, next_joint_robot, next_joint_mask
+                        ) # (B, N, 1)
+            q2_next_all = self.q2_target(
                 next_joint_ego, next_global_state, next_joint_action, next_joint_robot, next_joint_mask
-            )
-            q2_next = self.q2_target(
-                next_joint_ego, next_global_state, next_joint_action, next_joint_robot, next_joint_mask
-            )
-            q_next = torch.min(q1_next, q2_next).squeeze(-1)
+            ) # (B, N, 1)
+            
+            # [NEW] (B, N, 1)에서 현재 학습 중인 agent_index의 Q값만 추출!
+            q1_next_i = gather_agent_tensor(q1_next_all, agent_index).squeeze(-1) # (B,)
+            q2_next_i = gather_agent_tensor(q2_next_all, agent_index).squeeze(-1) # (B,)
+            
+            q_next = torch.min(q1_next_i, q2_next_i) # (B,)
 
+            # reward는 (B,) 형태일 것이므로 그대로 계산 가능
             q_target = reward + self.gamma * (1 - done) * (q_next - self.alpha * next_logp_i)
 
         # -----------------------
         # 2) Critic update
         # -----------------------
-        q1_val = self.q1(joint_ego, global_state, joint_action, joint_robot, joint_mask).squeeze(-1)
-        q2_val = self.q2(joint_ego, global_state, joint_action, joint_robot, joint_mask).squeeze(-1)
+        q1_val_all = self.q1(joint_ego, global_state, joint_action, joint_robot, joint_mask)
+        q2_val_all = self.q2(joint_ego, global_state, joint_action, joint_robot, joint_mask)
+        q1_val = gather_agent_tensor(q1_val_all, agent_index).squeeze(-1) # (B,)
+        q2_val = gather_agent_tensor(q2_val_all, agent_index).squeeze(-1) # (B,)
 
         loss_q1 = F.mse_loss(q1_val, q_target)
         loss_q2 = F.mse_loss(q2_val, q_target)
@@ -2045,9 +2065,13 @@ class SACAgent:
         )
         logp_i = gather_agent_tensor(joint_logp.unsqueeze(-1), agent_index).squeeze(-1)
 
-        q1_new = self.q1(joint_ego, global_state, new_joint_action, joint_robot, joint_mask)
-        q2_new = self.q2(joint_ego, global_state, new_joint_action, joint_robot, joint_mask)
-        q_new = torch.min(q1_new, q2_new).squeeze(-1)
+        q1_new_all = self.q1(joint_ego, global_state, new_joint_action, joint_robot, joint_mask) 
+        q2_new_all = self.q2(joint_ego, global_state, new_joint_action, joint_robot, joint_mask) 
+
+        q1_new_i = gather_agent_tensor(q1_new_all, agent_index).squeeze(-1) # (B,)
+        q2_new_i = gather_agent_tensor(q2_new_all, agent_index).squeeze(-1) # (B,)
+
+        q_new = torch.min(q1_new_i, q2_new_i)
 
         policy_loss = (self.alpha * logp_i - q_new).mean()
 
