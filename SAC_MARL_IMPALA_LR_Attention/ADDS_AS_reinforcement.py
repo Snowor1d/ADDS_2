@@ -27,7 +27,7 @@ from queue import Empty, Full # for Empty
 from pathlib import Path
 import imageio.v2 as imageio
 
-DEBUG_SAVE = True
+DEBUG_SAVE = False
 home_dir = os.path.expanduser("~")
 DEBUG_DIR_TEMP = os.path.join(home_dir, LOG_DIR)
 DEBUG_DIR = os.path.join(DEBUG_DIR_TEMP, "debug_frames")
@@ -1845,7 +1845,7 @@ class SACAgent:
             device=self.device,
         )
 
-        self.q1 = CentralizedQNetwork(
+        self.q1 = CentralizedAttentionQNetwork(
             ego_shape=(EGO_MAP_SIZE, EGO_MAP_SIZE),
             global_shape=(DOWNSAMPLE_MAP_SIZE, DOWNSAMPLE_MAP_SIZE),
             action_dim=2,
@@ -1854,7 +1854,7 @@ class SACAgent:
             use_robot=ROBOT_STATE_EMBEDDING,
         ).to(self.device)
 
-        self.q2 = CentralizedQNetwork(
+        self.q2 = CentralizedAttentionQNetwork(
             ego_shape=(EGO_MAP_SIZE, EGO_MAP_SIZE),
             global_shape=(DOWNSAMPLE_MAP_SIZE, DOWNSAMPLE_MAP_SIZE),
             action_dim=2,
@@ -1863,7 +1863,7 @@ class SACAgent:
             use_robot=ROBOT_STATE_EMBEDDING,
         ).to(self.device)
 
-        self.q1_target = CentralizedQNetwork(
+        self.q1_target = CentralizedAttentionQNetwork(
             ego_shape=(EGO_MAP_SIZE, EGO_MAP_SIZE),
             global_shape=(DOWNSAMPLE_MAP_SIZE, DOWNSAMPLE_MAP_SIZE),
             action_dim=2,
@@ -1872,7 +1872,7 @@ class SACAgent:
             use_robot=ROBOT_STATE_EMBEDDING,
         ).to(self.device)
 
-        self.q2_target = CentralizedQNetwork(
+        self.q2_target = CentralizedAttentionQNetwork(
             ego_shape=(EGO_MAP_SIZE, EGO_MAP_SIZE),
             global_shape=(DOWNSAMPLE_MAP_SIZE, DOWNSAMPLE_MAP_SIZE),
             action_dim=2,
