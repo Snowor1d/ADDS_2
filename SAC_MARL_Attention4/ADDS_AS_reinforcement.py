@@ -2090,8 +2090,8 @@ class SACAgent:
         baseline_q_list = []
 
         with torch.no_grad():
-            B = joint_ego.shpae[0]
-            batch_indices = torch.arrange(B, device=self.device)
+            B = joint_ego.shape[0]
+            batch_indices = torch.arange(B, device=self.device)
 
             for _ in range(K):
                 # 3-1. 모든 로봇에 대해 또 다른 대체 행동(Alt Action) 샘플링
