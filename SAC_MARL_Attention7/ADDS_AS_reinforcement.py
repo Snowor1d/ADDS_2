@@ -1302,9 +1302,9 @@ class ImpalaBlock(nn.Module):
         x = self.res1(x)
         x = self.res2(x)
         return x
+    
 
 class ImpalaCNN(nn.Module):
-    # compress=False 로 설정하면 256 압축을 생략합니다.
     def __init__(self, input_shape, in_channels=4, channels=[16, 32, 32], out_dim=256, compress=True):
         super(ImpalaCNN, self).__init__()
         h, w = input_shape
@@ -1314,11 +1314,16 @@ class ImpalaCNN(nn.Module):
         for c in channels:
             self.blocks.append(ImpalaBlock(cur_channels, c))
             cur_channels = c
+            # MaxPool2d(kernel=3, stride=2, padding=1)에 의한 크기 변화 공식 적용
             h = (h + 2 * 1 - 3) // 2 + 1
             w = (w + 2 * 1 - 3) // 2 + 1
 
-        self.flatten_dim = cur_channels * h * w
         self.compress = compress
+        
+        self.out_channels_2d = cur_channels 
+        self.out_h = h
+        self.out_w = w
+        self.flatten_dim = cur_channels * h * w
         
         if self.compress:
             self.fc = nn.Sequential(
@@ -1328,17 +1333,17 @@ class ImpalaCNN(nn.Module):
             )
             self.out_dim = out_dim
         else:
-            # 압축하지 않을 경우 Identity(아무것도 안 함)를 통과시키고 원래 차원 반환
             self.fc = nn.Identity()
             self.out_dim = self.flatten_dim
 
     def forward(self, x):
         for block in self.blocks:
             x = block(x)
-        x = torch.flatten(x, 1)
-        x = self.fc(x)
+            
+        if self.compress:
+            x = torch.flatten(x, 1)
+            x = self.fc(x)
         return x
-
 
 class CNNEncoder(nn.Module):
     def __init__(self, input_shape=(50, 50), in_channels=4):
@@ -1618,10 +1623,11 @@ class CentralizedAttentionQNetwork(nn.Module):
         
         self.glob_enc = ImpalaCNN(input_shape=global_shape, compress=False) # for 2d
 
-        self.global_channels_2d = 32 # ammend? match with global need
-        self.global_spatial_size = 6 * 6 # ammend? match with global need
-        flattened_global_dim = self.global_channels_2d * self.global_spatial_size
-
+        self.global_channels_2d = self.glob_enc.out_channels_2d
+        self.global_spatial_size = self.glob_enc.out_h * self.glob_enc.out_w
+        flattened_global_dim = self.glob_enc.flatten_dim
+        
+        
         # Robot stat encoding for query of spatial attention
         self.robot_state_only_enc = nn.Sequential(
             nn.Linear(robot_dim, 32),
@@ -1773,8 +1779,8 @@ class PolicyNetwork(nn.Module):
         self.ego_enc = ImpalaCNN(input_shape=ego_shape, compress=True)
         self.glob_enc = ImpalaCNN(input_shape=global_shape, compress=False)
 
-        self.global_channels_2d = 32
-        self.global_spatial_size = 6*6
+        self.global_channels_2d = self.glob_enc.out_channels_2d
+        self.global_spatial_size = self.glob_enc.out_h * self.glob_enc.out_w
         flattened_global_dim = self.global_channels_2d * self.global_spatial_size
 
         #robot state encoding
