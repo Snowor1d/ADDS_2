@@ -5,7 +5,7 @@ BATCH_SIZE = 128
 INTRINSIC_ETA = 0.1 #intrinsic reward
 START_BATCH_TIMES = 1
 START_UPDATE_EPISODE = 500
-DEVICE = "cuda"
+DEVICE = "cpu"
 
 GAMMA_START = 0.99
 GAMMA_END = 0.99
@@ -47,7 +47,7 @@ MAP_NUM = -1 #if not used, -2, if random, -1
 
 
 
-#MAP_NUM_RANDOM = list(range(1000, 1300))
+MAP_NUM_RANDOM = list(range(1000, 1300))
 #MAP_NUM_RANDOM = [1506]
 
 SCALE_CHECK = 0 # want to check reward scale?

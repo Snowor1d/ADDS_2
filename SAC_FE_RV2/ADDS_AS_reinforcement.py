@@ -978,7 +978,7 @@ class ImpalaCNN(nn.Module):
 # 3) Critic (Q) Network
 ##########################################################################
 class QNetwork(nn.Module):
-    def __init__(self, ego_shape=(25, 25), global_shape=(50, 50), action_dim=2):
+    def __init__(self, ego_shape=(25, 25), global_shape=(50, 50), action_dim=2, robot_dim=3, use_robot = True):
         super(QNetwork, self).__init__()
         
         # --- 글로벌 변수 직접 참조 ---
@@ -1049,7 +1049,7 @@ class QNetwork(nn.Module):
 # 4) Policy (Actor) Network
 ##########################################################################
 class PolicyNetwork(nn.Module):
-    def __init__(self, ego_shape=(25,25), global_shape=(50,50)):
+    def __init__(self, ego_shape=(25,25), global_shape=(50,50), robot_dim=ROBOT_STATE_DIM, use_robot=ROBOT_STATE_EMBEDDING):
         super(PolicyNetwork, self).__init__()
         self.use_ego = EGO_USE
         self.use_robot = ROBOT_STATE_EMBEDDING
