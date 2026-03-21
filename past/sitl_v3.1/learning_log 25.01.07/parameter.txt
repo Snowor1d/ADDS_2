@@ -1,3 +1,0 @@
-lr = 5e-5
-reward scale : /300
-epsilon_deacy : 0.99
