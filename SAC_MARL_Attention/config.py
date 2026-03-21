@@ -83,7 +83,7 @@ RANDOM_EXIT = False
 
 
 # -------------- PATH -------------------
-LOG_DIR = "Log_MARL_Attention9_105_108_128"
+LOG_DIR = "Log_MARL_Attention_105_108_128"
 #LOG_DIR = "SOTA_MODELS"
 #LOG_DIR = "Log_test"
 PORT_NUM = 7787
