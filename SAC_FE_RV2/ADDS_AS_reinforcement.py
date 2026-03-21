@@ -978,110 +978,155 @@ class ImpalaCNN(nn.Module):
 # 3) Critic (Q) Network
 ##########################################################################
 class QNetwork(nn.Module):
-    def __init__(self, ego_shape=(25, 25), global_shape=(50, 50), action_dim=2, robot_dim=3, use_robot = True):
+    def __init__(self, ego_shape=(25, 25), global_shape=(50, 50), action_dim=2, robot_dim = 3, use_robot: bool = True):
         super(QNetwork, self).__init__()
-        
-        # --- 글로벌 변수 직접 참조 ---
-        self.use_ego = EGO_USE
-        self.use_film = FILM_USE
-        self.use_robot = ROBOT_STATE_EMBEDDING
-
-        # Encoders
+        self.use_robot_state = use_robot
+       
+        # --- Ego & Global Encoders ---
+        # EGO_USE에 따라 encoder 생성 여부 결정
+        self.ego_enc = ImpalaCNN(input_shape=ego_shape, compress=False) if EGO_USE else None
         self.glob_enc = ImpalaCNN(input_shape=global_shape, compress=False)
-        self.img_dim = self.glob_enc.out_dim
-        
-        if self.use_ego:
-            self.ego_enc = ImpalaCNN(input_shape=ego_shape, compress=False)
-            self.img_dim += self.ego_enc.out_dim
-        
+       
         # Robot State
         robot_feat_dim = 0
-        if self.use_robot:
+        if self.use_robot_state:
+            robot_input_dim = 3
+            robot_embed_dim = 32
             self.robot_fc = nn.Sequential(
-                nn.Linear(ROBOT_STATE_DIM, 32),
+                nn.Linear(robot_input_dim, robot_embed_dim),
                 nn.SiLU()
             )
-            robot_feat_dim = 32
+            robot_feat_dim = robot_embed_dim
+        else:
+            self.robot_fc = None
 
-        # FiLM Layer (FILM_USE가 True일 때만 생성)
-        if self.use_film:
-            cond_dim = action_dim + robot_feat_dim
+        # Feature Dimension 계산
+        self.img_dim = self.glob_enc.out_dim
+        if EGO_USE:
+            self.img_dim += self.ego_enc.out_dim
+
+        # FiLM Layer: FiLM_USE가 True일 때만 레이어 구성
+        cond_dim = action_dim + (robot_feat_dim if self.use_robot_state else 0)
+        if FiLM_USE:
+            hidden = 256
             self.film = nn.Sequential(
-                nn.Linear(cond_dim, 256),
+                nn.Linear(cond_dim, hidden),
                 nn.SiLU(),
-                nn.Linear(256, 2 * self.img_dim)
+                nn.Linear(hidden, 2 * self.img_dim)
             )
             nn.init.zeros_(self.film[-1].weight)
             nn.init.zeros_(self.film[-1].bias)
+        else:
+            self.film = None
 
-        # Final MLP
         fusion_dim = self.img_dim + robot_feat_dim + action_dim
         self.fc1 = nn.Linear(fusion_dim, 512)
         self.fc2 = nn.Linear(512, 256)
         self.q_out = nn.Linear(256, 1)
 
     def forward(self, ego_state, global_state, action, robot_state=None):
-        # 1. Feature Extraction
+        # 1. Image Features
         g = self.glob_enc(global_state)
-        img = torch.cat([self.ego_enc(ego_state), g], dim=1) if self.use_ego else g
+        if EGO_USE:
+            e = self.ego_enc(ego_state)
+            img = torch.cat([e, g], dim=1)
+        else:
+            img = g
 
-        r = self.robot_fc(robot_state) if self.use_robot else None
+        r = None
+        if self.use_robot_state:
+            if robot_state is None:
+                raise ValueError("Model requires robot_state, but input is None")
+            r = self.robot_fc(robot_state)
 
-        # 2. Conditioning (FiLM or Identity)
-        img_features = img
-        if self.use_film:
-            cond = torch.cat([action, r], dim=1) if r is not None else action
+        # 2. Conditioning (FiLM or Cat)
+        if self.use_robot_state:
+            cond = torch.cat([action, r], dim=1)
+        else:
+            cond = action
+        
+        # FiLM 사용 여부에 따른 분기
+        if FiLM_USE:
             gamma_beta = self.film(cond)
             gamma, beta = gamma_beta.chunk(2, dim=1)
-            img_features = (1.0 + gamma) * img + beta
+            img_processed = (1.0 + gamma) * img + beta
+        else:
+            img_processed = img
 
-        # 3. Final Fusion
-        feats = [img_features]
-        if r is not None: feats.append(r)
+        feats = [img_processed]
+        if self.use_robot_state:
+            feats.append(r)
         feats.append(action)
-        
         combined = torch.cat(feats, dim=1)
+
         out = F.silu(self.fc1(combined))
         out = F.silu(self.fc2(out))
-        return self.q_out(out)
-
+        q_val = self.q_out(out)
+        return q_val
+    
+    
 ##########################################################################
 # 4) Policy (Actor) Network
 ##########################################################################
 class PolicyNetwork(nn.Module):
-    def __init__(self, ego_shape=(25,25), global_shape=(50,50), robot_dim=ROBOT_STATE_DIM, use_robot=ROBOT_STATE_EMBEDDING):
+    def __init__(self, ego_shape=(25,25), global_shape=(50,50), robot_dim = 3, use_robot: bool = True):
         super(PolicyNetwork, self).__init__()
-        self.use_ego = EGO_USE
-        self.use_robot = ROBOT_STATE_EMBEDDING
-        
+        self.log_std_min = LOG_STD_MIN
+        self.log_std_max = LOG_STD_MAX
+        self.use_robot_state = use_robot
+
+        # --- Encoders ---
+        self.ego_enc = ImpalaCNN(input_shape=ego_shape, compress=False) if EGO_USE else None
         self.glob_enc = ImpalaCNN(input_shape=global_shape, compress=False)
-        fusion_dim = self.glob_enc.out_dim
-        
-        if self.use_ego:
-            self.ego_enc = ImpalaCNN(input_shape=ego_shape, compress=False)
+
+        # Robot State
+        self.robot_feat_dim = 0
+        if self.use_robot_state :
+            robot_input_dim = 3
+            robot_embed_dim = 32
+            self.robot_fc = nn.Sequential(
+                nn.Linear(robot_input_dim, robot_embed_dim),
+                nn.SiLU()
+            )
+            self.robot_feat_dim = robot_embed_dim
+
+        # Fusion Dimension 계산
+        fusion_dim = self.glob_enc.out_dim + self.robot_feat_dim
+        if EGO_USE:
             fusion_dim += self.ego_enc.out_dim
 
-        if self.use_robot:
-            self.robot_fc = nn.Sequential(nn.Linear(ROBOT_STATE_DIM, 32), nn.SiLU())
-            fusion_dim += 32
-            
         self.fc_backbone = nn.Sequential(
-            nn.Linear(fusion_dim, 512), nn.SiLU(),
-            nn.Linear(512, 256), nn.SiLU(),
-            nn.Linear(256, 64), nn.SiLU()
+            nn.Linear(fusion_dim, 512),
+            nn.SiLU(),
+            nn.Linear(512, 256),
+            nn.SiLU(),
+            nn.Linear(256, 64),
+            nn.SiLU()
         )
+       
         self.mean_head = nn.Linear(64, 2)
         self.log_std_head = nn.Linear(64, 2)
 
     def backbone(self, ego_state, global_state, robot_state=None):
         g = self.glob_enc(global_state)
         feature_list = []
-        if self.use_ego: feature_list.append(self.ego_enc(ego_state))
+        
+        if EGO_USE:
+            e = self.ego_enc(ego_state)
+            feature_list.append(e)
+            
         feature_list.append(g)
-        if self.use_robot: feature_list.append(self.robot_fc(robot_state))
+       
+        if self.use_robot_state:
+            if robot_state is None:
+                raise ValueError("Policy requires robot_state, but input is None.")
+            r = self.robot_fc(robot_state)
+            feature_list.append(r)
 
         combined = torch.cat(feature_list, dim=1)
-        return self.fc_backbone(combined)
+        feat = self.fc_backbone(combined)
+        return feat
+
 
     def forward(self, ego_state, global_state, robot_state=None):
         feat = self.backbone(ego_state, global_state, robot_state)
@@ -1314,25 +1359,26 @@ class SACAgent:
         if len(self.replay_buffer) < self.batch_size * START_BATCH_TIMES:
             return
        
-        # 1. 샘플링
+        # 1. Replay Buffer에서 샘플 가져오기
         ego_s, glob_s, robot_s, a, r, ego_s2, glob_s2, robot_s2, d = self.replay_buffer.sample(self.batch_size)
         
-        # EGO_USE 전역 변수에 따라 입력 무효화
-        if not EGO_USE:
-            ego_s, ego_s2 = None, None
+        # 만약 EGO_USE가 False라면, forward 시 ego_s가 계산에 들어가지 않도록 None 처리 가능
+        # (이미 네트워크 __init__에서 encoder를 안 만들었으므로 전달해도 무관하지만 명시적 처리를 위해)
+        curr_ego = ego_s if EGO_USE else None
+        next_ego = ego_s2 if EGO_USE else None
 
         self.alpha = self.log_alpha.exp().detach()
 
-        # Target Q 계산
         with torch.no_grad():
-            next_a, next_logp = self.policy.sample_action(ego_s2, glob_s2, robot_s2)
-            q1_t = self.q1_target(ego_s2, glob_s2, next_a, robot_s2)
-            q2_t = self.q2_target(ego_s2, glob_s2, next_a, robot_s2)
-            q_target = r + self.gamma * (1 - d) * (torch.min(q1_t, q2_t).squeeze(-1) - self.alpha * next_logp)
+            next_a, next_logp = self.policy.sample_action(next_ego, glob_s2, robot_s2)
+            q1_next = self.q1_target(next_ego, glob_s2, next_a, robot_s2)
+            q2_next = self.q2_target(next_ego, glob_s2, next_a, robot_s2)
+            q_next = torch.min(q1_next, q2_next).squeeze(-1)
+            q_target = r + self.gamma * (1 - d) * (q_next - self.alpha * next_logp)
 
-        # Q1, Q2 업데이트
-        q1_val = self.q1(ego_s, glob_s, a, robot_s).squeeze(-1)
-        q2_val = self.q2(ego_s, glob_s, a, robot_s).squeeze(-1)
+        # ----- Update Q1, Q2 -----
+        q1_val = self.q1(curr_ego, glob_s, a, robot_s).squeeze(-1)
+        q2_val = self.q2(curr_ego, glob_s, a, robot_s).squeeze(-1)
         
         loss_q = F.mse_loss(q1_val, q_target) + F.mse_loss(q2_val, q_target)
         
