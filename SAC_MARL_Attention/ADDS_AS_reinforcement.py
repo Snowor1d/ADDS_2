@@ -1305,7 +1305,7 @@ class ImpalaBlock(nn.Module):
     
 
 class ImpalaCNN(nn.Module):
-    def __init__(self, input_shape, in_channels=4, channels=[16, 32, 32], out_dim=256, compress=True):
+    def __init__(self, input_shape, in_channels=4, channels=[32, 64, 64], out_dim=256, compress=True):
         super(ImpalaCNN, self).__init__()
         h, w = input_shape
         self.blocks = nn.ModuleList()
