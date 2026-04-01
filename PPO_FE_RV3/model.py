@@ -33,7 +33,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 
-from ADDS_AS_reinforcement import SACAgent, ReplayBuffer, PolicyNetwork, QNetwork, ACTION_SCALE, FrameStack, FrameStack2
+from ADDS_AS_reinforcement import PPOAgent, ACTION_SCALE, FrameStack, FrameStack2
 from config import *
 import json
 import ast
@@ -427,7 +427,7 @@ def union_obstacles_to_polygons(raw_obstacles, min_area=1e-8):
 class FightingModel(Model):
     """A model with some number of agents."""
 
-    def __init__(self, number_agents: int, width: int, height: int, model_num = -1, robot = 'Q', robot_num = 1):
+    def __init__(self, number_agents: int, width: int, height: int, model_num = -1, robot = 'Q'):
         #print("model_num :", model_num)
         super().__init__()
         #print("height :", height)
@@ -440,7 +440,6 @@ class FightingModel(Model):
         
         self.crowds = []
         self.step_n = 0
-        self.robot_num = robot_num
 
         self.robot_type = robot
         self.spaces_of_map = []
@@ -451,7 +450,7 @@ class FightingModel(Model):
         
         self.agent_id = 1000
         self.agent_num = 0
-        self.robots = []
+
 
         self.using_model = False
         self.total_agents = number_agents
@@ -529,7 +528,7 @@ class FightingModel(Model):
         self.construct_map()
         self.random_agent_distribute_outdoor(number_agents, 1)
         if (self.robot_version != 'N'):
-            self.make_robot(self.robot_num)
+            self.make_robot()
         self.step_count = 0
 
         self.now_evacuated = 0
@@ -949,7 +948,7 @@ class FightingModel(Model):
             for exit_idx in range(len(self._exit_polys)):
                 q, _ = self.nearest_point_on_exit(exit_idx, (cx, cy))
                 # 기존 네비메쉬 기반 거리 사용
-                d = self.robots[-1].point_to_point_distance((cx, cy), q)
+                d = self.robot.point_to_point_distance((cx, cy), q)
 
                 if d < best:
                     best = d
@@ -1657,8 +1656,8 @@ class FightingModel(Model):
 
 
                                   
-    def make_robot(self, robot_num):
-        self.robot_placement(robot_num, padding=2.0) #로봇 배치 
+    def make_robot(self):
+        self.robot_placement() #로봇 배치 
 
 
     def reward_distance_sum(self):
@@ -1824,17 +1823,18 @@ class FightingModel(Model):
     def robot_placement(self, n_robots: int = 1, padding: float = 1.0):
         self._occupied_positions = [(getattr(a, "xy", a.pos)[0], getattr(a, "xy", a.pos)[1])
                                     for a in getattr(self, "robots", [])]
+        self.robots = []
         for _ in range(n_robots):
             x, y = _sample_safe_pos(self, padding=padding)
             self._occupied_positions.append((x, y))
 
-            robot = RobotAgent(self.agent_id, self, [x, y], 3, len(self.robots))
+            self.robot = RobotAgent(self.agent_id, self, [x, y], 3)
             self.agent_id += 10
-            self.robots.append(robot)
-            self.schedule.add(self.robots[-1])
+            self.robots.append(self.robot)
+            self.schedule.add(self.robot)
             # ✨ 연속 공간에 배치
-            self.space.place_agent(self.robots[-1], (x, y))
-            self.agents.append(self.robots[-1])
+            self.space.place_agent(self.robot, (x, y))
+            self.agents.append(self.robot)
     
 
     # 군중 배치 교체 (연속 좌표 사용)
@@ -1943,66 +1943,64 @@ class FightingModel(Model):
         self.stats.collect(self)
         self.step_n += 1
         self.step_count += 1
-        for robot in self.robots:
+
+        if (self.robot_version == 'Q'):
+            # 1) full map (uint8) 가져오기 (학습 때랑 동일: MAP_H, MAP_W)
+            #print("MAP_H :", MAP_H)
+            full_map = self.return_current_image(MAP_H, MAP_W)  # (H,W) uint8
+
+            # 2) ACTION_SCALE boundary 여부 확인
+            # (예: ACTION_SCALE=4일 때, step 1, 5, 9... 에서 새로운 행동 결정)
+            is_boundary = ((self.step_n - 1) % ACTION_SCALE == 0)
+
+            # 3) ego/global frame 만들기
+            # _build_ego_global_frames 내부 구현에 따라 반환값이 np.array 형태여야 함
+            ego_f, glob_f = self.build_ego_global_frames(full_map)
+
+            # 4) frame stack 업데이트
+            if self._first_step:
+                ego_state = self.ego_stack.reset(ego_f)     # (4, EGO, EGO)
+                glob_state = self.glob_stack.reset(glob_f)  # (4, DOWN, DOWN)
+                self._first_step = False
+            elif is_boundary:
+                # 행동 결정 시점에는 스택에 실제로 push
+                ego_state = self.ego_stack.append(ego_f)
+                glob_state = self.glob_stack.append(glob_f)
+            else:
+                # 행동 결정 시점이 아니면 "현재 프레임이 들어왔다면?" 가정만 하고 스택 상태 유지
+                ego_state = self.ego_stack.peek_with(ego_f)
+                glob_state = self.glob_stack.peek_with(glob_f)
+
+            # 5) 로봇 상태 가져오기 (항상 필요할 수 있음)
+            robot_state = np.array(self.return_current_robot_state(), dtype=np.float32)
+
+        # 6) 로봇 행동 결정 및 수행
+        if self.robot_version == 'Q':
+            if self.using_model and is_boundary:
+                # ---------------------------------------------------------
+                # [수정됨] Agent의 select_action과 인터페이스 통일
+                # 내부적으로 agent.select_action(ego, global, robot, deterministic=True) 호출
+                # ---------------------------------------------------------
+                action, _ = self.sac_agent.select_action(ego_state, glob_state, robot_state, deterministic=False)
                 
-            if (self.robot_version == 'Q'):
-                # 1) full map (uint8) 가져오기 (학습 때랑 동일: MAP_H, MAP_W)
-                #print("MAP_H :", MAP_H)
-                full_map = self.return_current_image(MAP_H, MAP_W)  # (H,W) uint8
+                dx, dy = float(action[0]), float(action[1])
 
-                # 2) ACTION_SCALE boundary 여부 확인
-                # (예: ACTION_SCALE=4일 때, step 1, 5, 9... 에서 새로운 행동 결정)
-                is_boundary = ((self.step_n - 1) % ACTION_SCALE == 0)
+                # 환경에 행동 적용 (실제 이동량이나 결과 반환 가능)
+                real_action = self.robot.receive_action([dx, dy])
 
-                # 3) ego/global frame 만들기
-                # _build_ego_global_frames 내부 구현에 따라 반환값이 np.array 형태여야 함
-                ego_f, glob_f = self.build_ego_global_frames(full_map, robot.robot_index)
+            # 로그 출력 (ACTION_SCALE 주기마다 혹은 SCALE_CHECK 시)
+            if self.using_model and ((self.step_n % ACTION_SCALE == (ACTION_SCALE - 1)) and SCALE_CHECK):
+                # (주의) 각 reward 함수들이 정의되어 있어야 함
+                print(f"reward_based_alived : {self.reward_based_alived() * REWARD_A:.4f}")
+                print(f"reward_based_all_agents_danger : {self.reward_based_all_agents_danger() * REWARD_B:.4f}")
+                print(f"reward_penalty : {self.reward_penalty() * REWARD_D:.4f}")
+                print(f"reward_fixed : {REWARD_FIXED}")
+                print(f"reward_based_farthest_agent_distance : {self.reward_based_farthest_agent_distance() * REWARD_L:.4f}")
 
-                # 4) frame stack 업데이트
-                if self._first_step:
-                    ego_state = self.ego_stack.reset(ego_f)     # (4, EGO, EGO)
-                    glob_state = self.glob_stack.reset(glob_f)  # (4, DOWN, DOWN)
-                    self._first_step = False
-                elif is_boundary:
-                    # 행동 결정 시점에는 스택에 실제로 push
-                    ego_state = self.ego_stack.append(ego_f)
-                    glob_state = self.glob_stack.append(glob_f)
-                else:
-                    # 행동 결정 시점이 아니면 "현재 프레임이 들어왔다면?" 가정만 하고 스택 상태 유지
-                    ego_state = self.ego_stack.peek_with(ego_f)
-                    glob_state = self.glob_stack.peek_with(glob_f)
-
-                # 5) 로봇 상태 가져오기 (항상 필요할 수 있음)
-                robot_state = np.array(self.return_current_robot_state(robot.robot_index), dtype=np.float32)
-
-            # 6) 로봇 행동 결정 및 수행
-            if self.robot_version == 'Q':
-                if self.using_model and is_boundary:
-                    # ---------------------------------------------------------
-                    # [수정됨] Agent의 select_action과 인터페이스 통일
-                    # 내부적으로 agent.select_action(ego, global, robot, deterministic=True) 호출
-                    # ---------------------------------------------------------
-                    action, _ = self.sac_agent.select_action(ego_state, glob_state, robot_state, deterministic=False)
-                    
-                    dx, dy = float(action[0]), float(action[1])
-
-                    # 환경에 행동 적용 (실제 이동량이나 결과 반환 가능)
-                    real_action = self.robots[robot.robot_index].receive_action([dx, dy])
-
-                # 로그 출력 (ACTION_SCALE 주기마다 혹은 SCALE_CHECK 시)
-                if self.using_model and ((self.step_n % ACTION_SCALE == (ACTION_SCALE - 1)) and SCALE_CHECK):
-                    # (주의) 각 reward 함수들이 정의되어 있어야 함
-                    print(f"reward_based_alived : {self.reward_based_alived() * REWARD_A:.4f}")
-                    print(f"reward_based_all_agents_danger : {self.reward_based_all_agents_danger() * REWARD_B:.4f}")
-                    print(f"reward_penalty : {self.reward_penalty_robot_index(self.robot_index) * REWARD_D:.4f}")
-                    print(f"reward_fixed : {REWARD_FIXED}")
-                    print(f"reward_collison_penalty : {self.reward_penalty_collision()}")
-                    #print(f"reward_based_farthest_agent_distance : {self.reward_based_farthest_agent_distance() * REWARD_L:.4f}")
-
-            elif self.robot_version == 'T':
-                self.robots[robot.robot_index].robot_policy_going_exit()
-            # elif self.robot_version == 'R':
-            #     self.robot.robot_policy_go_and_back()
+        elif self.robot_version == 'T':
+            self.robot.robot_policy_going_exit()
+        # elif self.robot_version == 'R':
+        #     self.robot.robot_policy_go_and_back()
 
         # 7) 환경 진행 (Mesa schedule step)
         self.schedule.step()
@@ -2057,36 +2055,62 @@ class FightingModel(Model):
         #print("tracked 되고 있는 수 : ", num)
         return reward
     
-    def reward_penalty_robot_index(self, robot_index):
+    def reward_penalty(self):
         reward = 0
         guided_num = 0
         for agent in self.crowds:
             if(agent.type == 0 and agent.dead == False):
                 guided_num += 1
-        if(guided_num == 0 and self.robots[robot_index].danger<5):
+        if(guided_num == 0 and self.robot.danger<5):
             return -1
         return 0
-
-    def reward_penalty(self):
-        reward = 0
-        for i in range(len(self.robots)):
-            reward += self.reward_penalty_robot_index(i)
-        return reward
     
-    def reward_penalty_collision(self):
-        reward = 0
-        for i in range(len(self.robots)):
-            reward += self.reward_penalty_collision_robot_index(i)
-        return reward
-    
-    def agents_near_robot_num_robot_index(self, robot_index):
+    def agents_near_robot_num(self):
         agent_total = 0
         for agent in self.crowds:
-            if (agent.type == 0 and agent.dead == False and agent.following_robot_index == robot_index):
+            if (agent.type == 0 and agent.dead == False):
                 agent_total += 1
         return agent_total
 
     
+    def reward_based_distance_from_near_agent_gain(self):
+        guided_num = 0
+        for agent in self.crowds:
+            if(agent.type == 0 and agent.dead == False):
+                guided_num += 1
+        
+        if (guided_num > 0):
+            self.before_minimum_distance = 0
+            return 0 
+        
+        minimum_distance = 999999
+        for agent in self.crowds:
+            if(agent.type == 0 or agent.type ==1 or agent.type == 2) and (agent.dead == False):
+                distance = self.robot.point_to_point_distance(self.robot.xy, agent.xy)
+                if(distance < minimum_distance):
+                    minimum_distance = distance
+        
+        self.before_minimum_distance = self.minimum_distance
+        self.minimum_distance = minimum_distance
+
+        if(self.before_minimum_distance == 0 or self.minimum_distance == 0):
+            return 0
+        
+        return (self.before_minimum_distance - self.minimum_distance)
+        
+    def reward_based_gain_with_time_bonus(self):
+        reward=0
+        #robot이 agent를 끌어당기면 +reward
+        for agent in self.crowds:
+            if(agent.type == 0 or agent.type == 1 or agent.type == 2 ) and (agent.dead == False):
+                if(agent.robot_tracked>0):
+                    reward += agent.gain
+
+        if (self.alived_agents()<self.total_agents*0.4):
+            reward = reward * 2
+
+        #print("tracked 되고 있는 수 : ", num)
+        return reward
     
     def reward_based_alived(self):
         reward = 0
@@ -2095,6 +2119,17 @@ class FightingModel(Model):
         reward = -self.alived_agents()/self.total_agents
         return reward
     
+    def reward_based_alived_root(self):
+        reward = 0
+        num = 0
+        reward = -math.sqrt(self.alived_agents()/self.total_agents)
+
+        return reward
+
+    def reward_evacuation(self):
+        if(self.step_n<3):
+            return 0
+        return -self.robot.danger/100
         
 
     def return_agent_id(self, agent_id):
@@ -2108,26 +2143,85 @@ class FightingModel(Model):
         input_shape = (50, 50)
         num_actions = 4
 
-        self.sac_agent = SACAgent(input_shape, start_epsilon=0)
+        self.sac_agent = PPOAgent(input_shape, start_epsilon=0)
         if (USING_TRAINED_MODEL):
             self.sac_agent.load_model(file_path)
         self.using_model = True
         self.sac_agent.policy.eval()
 
+    
+    def reward_based_distance_from_near_agents(self):
+        guided_num = 0
+        for agent in self.crowds:
+            if(agent.type == 0 and agent.dead == False):
+                guided_num += 1
+        
+        if (guided_num > 0):
+            return 0 
+        
+        minimum_distance = 999999
+        for agent in self.crowds:
+            if(agent.type == 0 or agent.type ==1 or agent.type == 2) and (agent.dead == False):
+                distance = self.robot.point_to_point_distance(self.robot.xy, agent.xy)
+                if(distance < minimum_distance):
+                    minimum_distance = distance
+        if(minimum_distance == 999999):
+            return 0
+        if(minimum_distance < 8):
+            return 0
+        return -minimum_distance
+    
+    def reward_based_all_agents_danger_log(self):
+        reward = 0
+        for agent in self.crowds:
+            if(agent.type == 0 or agent.type == 1 or agent.type == 2) and (agent.dead == False):
+                reward += agent.danger
+        return -math.log(reward+1)
 
-    def reward_penalty_collision_robot_index(self, robot_index):
-        if self.robots[robot_index].collision_check :
+    def reward_based_all_agents_danger_root(self):
+        reward = 0
+        for agent in self.crowds:
+            if(agent.type == 0 or agent.type == 1 or agent.type == 2) and (agent.dead == False):
+                reward += agent.danger
+        return -math.sqrt(reward)
+        
+
+    def reward_based_new_founded_agent_danger(self):
+        reward = self.new_founded_agent_danger
+        self.new_founded_agent_danger = 0
+        return reward
+
+    def reward_based_farthest_agent_distance(self):
+        farthest_distance = 0
+        for agent in self.crowds:
+            if(agent.type == 0 or agent.type ==1 or agent.type == 2) and (agent.dead == False):
+                distance = self.robot.point_to_point_distance(self.robot.xy, agent.xy)
+                if (distance>farthest_distance):
+                    farthest_distance = distance
+        return -farthest_distance/((self.width**2 + self.height**2)**0.5)
+    
+    def reward_based_near_agents_exist(self):
+        
+        for agent in self.crowds:
+            if(agent.dead == False):
+                distance = self.robot.point_to_point_distance(self.robot.xy, agent.xy)
+                if (distance<20):
+                    return 0
+        return -2
+
+    def reward_penalty_collision(self):
+        if self.robot.collision_check :
             return -1
         else :
             return 0
 
-    def return_current_robot_state(self, robot_index):
-        if (self.agents_near_robot_num_robot_index(robot_index) == 0):
+    def return_current_robot_state(self):
+        if (self.agents_near_robot_num() == 0):
             agent_num = 0
         else:
             agent_num = 1
 
-        return (self.robots[robot_index].xy[0]/MAP_H, self.robots[robot_index].xy[1]/MAP_W, agent_num)
+        return (self.robot.xy[0]/MAP_H, self.robot.xy[1]/MAP_W, agent_num)
     
     # 연속 → 라스터 (RL 프레임) 교체
     def return_current_image(self, H: int = 100, W: int = 100):
@@ -2177,8 +2271,8 @@ class FightingModel(Model):
         return [random.randint(0, self.width-1), random.randint(0, self.height-1)]
 
     
-    def return_robot(self, robot_index):
-        return self.robots[robot_index]
+    def return_robot(self):
+        return self.robot
 
     def calculate_all_agents_life_time(self):
         total_life_time = 0
@@ -2244,14 +2338,14 @@ class FightingModel(Model):
                     if P.contains(Point(x, y)):
                         self.static_grid[iy, ix] = max(self.static_grid[iy, ix], 100)
 
-    def _robot_world_to_px(self, robot_index):
-        rx, ry = self.robots[robot_index].xy  # world coords
+    def _robot_world_to_px(self):
+        rx, ry = self.robot.xy  # world coords
         ix = int(np.clip(rx / self.width  * MAP_W, 0, MAP_W - 1))
         iy = int(np.clip(ry / self.height * MAP_H, 0, MAP_H - 1))
         return ix, iy
 
-    def build_ego_global_frames(self, full_map_u8: np.ndarray, robot_index=0):
-        ix, iy = self._robot_world_to_px(robot_index)
+    def build_ego_global_frames(self, full_map_u8: np.ndarray):
+        ix, iy = self._robot_world_to_px()
 
         ego_u8 = ego_crop_from_full_map(full_map_u8, (ix, iy), EGO_MAP_SIZE, pad_value=50)     # (EGO,EGO)
         glob_u8 = downsample_full_map(full_map_u8, DOWNSAMPLE_MAP_SIZE)                       # (DOWN,DOWN)

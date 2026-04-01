@@ -70,8 +70,26 @@ DARK_GREY = (150, 150, 150)
 ############################
 pygame.init()
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+pygame.joystick.init()
+screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 pygame.display.set_caption("ADDS Imitation Learning - Multi Robot")
 clock = pygame.time.Clock()
+
+joystick = None
+if pygame.joystick.get_count() > 0:
+    joystick = pygame.joystick.Joystick(0)   # 첫 번째 장치
+    joystick.init()
+    print(f"[INFO] Joystick connected: {joystick.get_name()}")
+else:
+    print("[INFO] No physical joystick detected. Fallback to on-screen UI.")
+
+pygame.display.set_caption("ADDS Imitation Learning - Multi Robot")
+clock = pygame.time.Clock()
+
+def apply_deadzone(val, dz=0.12):
+    if abs(val) < dz:
+        return 0.0
+    return val
 
 ############################
 # 리플레이 & 리워드 로그
@@ -489,12 +507,38 @@ def main():
 
             # ===== 각 로봇 action 계산 =====
             robot_actions = [(0.0, 0.0) for _ in range(n_robots)]
+            
+            # 1) 기본은 기존 UI 조이스틱 값 반영
             for i in range(ui_robot_count):
                 cx, cy = joystick_centers[i]
                 kx, ky = knob_positions[i]
                 user_dx, user_dy = get_joystick_action((cx, cy), (kx, ky))
                 env_dx, env_dy = user_dx, -user_dy
                 robot_actions[i] = (env_dx, env_dy)
+
+            # 2) 물리 조이스틱이 있으면 Robot 1(action index 0)을 덮어씀
+            if joystick is not None and n_robots > 0:
+                pygame.event.pump()  # 조이스틱 상태 갱신
+
+                axis_x = apply_deadzone(joystick.get_axis(0))   # 좌우
+                axis_y = apply_deadzone(joystick.get_axis(1))   # 상하
+
+                env_dx = axis_x * MAX_MOVE
+                env_dy = -axis_y * MAX_MOVE   # 기존 코드와 좌표계 맞춤
+
+                robot_actions[0] = (env_dx, env_dy)
+
+                # 화면 조이스틱도 같이 움직여 보이게 하고 싶으면
+                if ui_robot_count >= 1:
+                    cx, cy = joystick_centers[0]
+                    knob_positions[0] = [
+                        cx + axis_x * JOYSTICK_RADIUS,
+                        cy + axis_y * JOYSTICK_RADIUS
+                    ]
+
+            # ui_robot_count보다 많은 로봇은 0 action
+            for i in range(ui_robot_count, n_robots):
+                robot_actions[i] = (0.0, 0.0)
 
             # ui_robot_count보다 많은 로봇이 있으면 나머지는 0 action
             for i in range(ui_robot_count, n_robots):

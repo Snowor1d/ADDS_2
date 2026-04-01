@@ -1386,7 +1386,7 @@ class SACAgent:
     def update(self):
         if len(self.replay_buffer) < self.batch_size * START_BATCH_TIMES:
             return
-       
+            
         # 1. Replay Buffer에서 샘플 가져오기
         ego_s, glob_s, robot_s, a, r, ego_s2, glob_s2, robot_s2, d = self.replay_buffer.sample(self.batch_size)
         
