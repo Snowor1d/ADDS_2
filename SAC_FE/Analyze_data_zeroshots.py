@@ -3,6 +3,7 @@ import re
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+import matplotlib.ticker as ticker
 
 # =========================================================
 # [USER CONFIG] 여기만 바꾸면 됨
@@ -10,13 +11,13 @@ import seaborn as sns
 ROOT_DIR = os.path.expanduser("~/Result_zero")
 SAVE_DIR = ROOT_DIR
 
-ORDER_LIST = ["3maps", "30maps", "100maps", "300maps"]
+ORDER_LIST = ["3maps", "10maps", "30maps", "100maps", "300maps"]
 
 # --- Font ---
 FONT_FAMILY = "DejaVu Serif"
 
 # --- Figure ---
-FIGSIZE = (18, 6)
+FIGSIZE = (18, 7)
 SAVE_DPI = 300
 
 # --- Bar style ---
@@ -56,12 +57,12 @@ SEABORN_THEME = "whitegrid"
 # "bar"  → 막대그래프만
 # "line" → 꺾은선그래프만
 # "both" → 같은 figure에 막대 + 꺾은선 같이 표시
-PLOT_MODE = "bar"
+PLOT_MODE = "line"
 
 # --- Line style ---
 LINE_MARKER = "o"
-LINE_LINEWIDTH = 2.5
-LINE_MARKERSIZE = 8
+LINE_LINEWIDTH = 7
+LINE_MARKERSIZE = 12
 LINE_COLOR = "#d62728"   # 선은 다른 색으로 (논문용 대비 좋음)
 
 FIX_Y_LIM = True
@@ -217,6 +218,12 @@ def plot_bar_charts(df):
         if FIX_Y_LIM:
             ax.set_ylim(Y_LIM_MIN, Y_LIM_MAX)
 
+        def hide_zero_formatter(x, pose):
+            if x==0:
+                return ""
+            return f"{int(x)}"
+
+        ax.yaxis.set_major_formatter(ticker.FuncFormatter(hide_zero_formatter))
         plt.tight_layout()
 
         save_name = f"Graph_Map_{map_id}_Avg_{PLOT_MODE}.png"
