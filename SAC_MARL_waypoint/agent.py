@@ -979,50 +979,71 @@ class RobotAgent(CrowdAgent):
         else:
             return False
 
-
     def _planner_direction_to_goal(self, goal):
-        """
-        Returns a unit direction (dx, dy) toward planner target.
-        If mesh planner is unavailable, fallback to straight direction.
-        """
         if goal is None:
             return 0.0, 0.0
 
         gx = goal[0] - self.xy[0]
         gy = goal[1] - self.xy[1]
+        dist_to_goal = math.hypot(gx, gy)
         fallback_dx, fallback_dy = self._safe_normalize(gx, gy)
 
         try:
-            goal_mesh = self.choice_safe_mesh(goal)
+            if [int(round(goal[0])), int(round(goal[1]))] not in self.model.match_grid_to_mesh.keys():
+                return fallback_dx, fallback_dy
+            goal_mesh = self.model.match_grid_to_mesh[int(round(goal[0])), int(round(goal[1]))] 
             now_mesh = self.choice_safe_mesh(self.xy)
 
-            next_mesh = self.model.next_vertex_matrix[now_mesh][goal_mesh]
+            # 1) 가시성 최적화: 목표 지점까지 장애물 없이 직선으로 갈 수 있다면 바로 직진
+            # (이 함수는 따로 구현되어 있다고 가정하거나, 단순히 dist가 가까우면 수행)
+            if now_mesh == goal_mesh :
+                return fallback_dx, fallback_dy
 
-            # planner impossible -> straight fallback
+            next_mesh = self.model.next_vertex_matrix[now_mesh][goal_mesh]
             if next_mesh is None:
                 return fallback_dx, fallback_dy
 
-            # already same mesh -> go directly to goal
-            if now_mesh == next_mesh or now_mesh == goal_mesh:
-                return fallback_dx, fallback_dy
+            # 2) 공유 변(Shared Edge) 찾기
+            # now_mesh와 next_mesh의 정점들 중 공통된 2개의 정점을 찾습니다.
+            shared_vertices = [v for v in now_mesh if v in next_mesh]
 
-            next_mesh_middle = (
-                (next_mesh[0][0] + next_mesh[1][0] + next_mesh[2][0]) / 3.0,
-                (next_mesh[0][1] + next_mesh[1][1] + next_mesh[2][1]) / 3.0,
-            )
+            if len(shared_vertices) >= 2:
+                # 공유 변의 양 끝점
+                v1, v2 = shared_vertices[0], shared_vertices[1]
+                
+                # 변의 중앙점 대신, 로봇 위치에서 이 선분(v1-v2)에 내린 수선의 발(Clamped)을 찾음
+                # 이것이 '가장 가까운 통로' 지점이 됩니다.
+                target_pt = self._closest_point_on_segment(v1, v2, self.xy)
+                
+                # 만약 로봇이 이미 이 타겟 근처에 있다면, 다음 메쉬의 중심으로 타겟을 옮겨서 '통과'하게 만듦
+                if math.hypot(target_pt[0] - self.xy[0], target_pt[1] - self.xy[1]) < 0.2:
+                    target_pt = (
+                        (next_mesh[0][0] + next_mesh[1][0] + next_mesh[2][0]) / 3.0,
+                        (next_mesh[0][1] + next_mesh[1][1] + next_mesh[2][1]) / 3.0,
+                    )
+            else:
+                # 공유 변을 찾지 못한 경우 기존 무게중심 방식 유지
+                target_pt = (
+                    (next_mesh[0][0] + next_mesh[1][0] + next_mesh[2][0]) / 3.0,
+                    (next_mesh[0][1] + next_mesh[1][1] + next_mesh[2][1]) / 3.0,
+                )
 
-            dx = next_mesh_middle[0] - self.xy[0]
-            dy = next_mesh_middle[1] - self.xy[1]
-            dx, dy = self._safe_normalize(dx, dy)
-
-            # degenerate case -> fallback
-            if abs(dx) < 1e-9 and abs(dy) < 1e-9:
-                return fallback_dx, fallback_dy
-
-            return dx, dy
+            dx = target_pt[0] - self.xy[0]
+            dy = target_pt[1] - self.xy[1]
+            return self._safe_normalize(dx, dy)
 
         except Exception:
             return fallback_dx, fallback_dy
+
+    def _closest_point_on_segment(self, v1, v2, p):
+        """선분 v1-v2 위에서 점 p와 가장 가까운 점을 반환"""
+        dx, dy = v2[0] - v1[0], v2[1] - v1[1]
+        mag_sq = dx**2 + dy**2
+        if mag_sq < 1e-9: return v1
+        
+        t = ((p[0] - v1[0]) * dx + (p[1] - v1[1]) * dy) / mag_sq
+        t = max(0.1, min(0.9, t))  # 벽에 너무 붙지 않도록 0.1~0.9 사이로 클램핑(여유 공간)
+        return (v1[0] + t * dx, v1[1] + t * dy)
         
     def robot_policy_Q(self):
         K_WALL = 1500

@@ -26,14 +26,14 @@ from collections import deque
 from typing import List, Tuple
 from visibility_atlas import VisibilityAtlas
 from typing import Optional
-#import cv2
+import cv2
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 
-from ADDS_AS_reinforcement import SACAgent, ReplayBuffer, PolicyNetwork, QNetwork, ACTION_SCALE, FrameStack, FrameStack2
+from ADDS_AS_reinforcement import SACAgent, ReplayBuffer, PolicyNetwork, ACTION_SCALE, FrameStack, FrameStack2
 from config import *
 import json
 import ast
@@ -321,36 +321,57 @@ def normalize_map_to_50(obs, target=50):
         x = x.unsqueeze(0)  # (1,C,H,W)
         y = F.adaptive_max_pool2d(x, (target, target))
         return y.squeeze(0).numpy()
- 
-def ego_crop_from_full_map(full_map: np.ndarray,
-                           robot_xy_px: tuple[int, int],
-                           ego_size: int,
-                           pad_value: int = 50) -> np.ndarray:
-    """
-    full_map: (H, W) uint8
-    robot_xy_px: (ix, iy) in pixel coords (0..W-1, 0..H-1)
-    return: (ego_size, ego_size) uint8
-    """
+def ego_crop_from_full_map(full_map, robot_xy_px, ego_size, robot_angle=0.0, pad_value=50):
+    # 1. 입력값 타입 강제
+    if full_map is None: return np.full((ego_size, ego_size), pad_value, dtype=np.uint8)
+    
     H, W = full_map.shape
-    cx, cy = robot_xy_px
-    half = ego_size // 2
-
-    # 원하는 crop 좌표(맵 좌표 기준)
-    x0, x1 = cx - half, cx - half + ego_size
-    y0, y1 = cy - half, cy - half + ego_size
-
-    # 맵과 겹치는 부분
+    cx, cy = int(round(robot_xy_px[0])), int(round(robot_xy_px[1]))
+    
+    margin_size = int(ego_size * 1.6)
+    half_m = margin_size // 2
+    
+    # 2. 캔버스 생성 및 물리적 복사 (ascontiguousarray 역할 수행)
+    temp_crop = np.full((margin_size, margin_size), pad_value, dtype=np.uint8)
+    
+    x0, y0 = cx - half_m, cy - half_m
+    x1, y1 = x0 + margin_size, y0 + margin_size
+    
     sx0, sx1 = max(0, x0), min(W, x1)
     sy0, sy1 = max(0, y0), min(H, y1)
+    
+    if sx1 > sx0 and sy1 > sy0:
+        dx0, dy0 = sx0 - x0, sy0 - y0
+        # 이 시점에서 temp_crop은 이미 메모리가 연속적으로 할당됨
+        temp_crop[dy0:dy0+(sy1-sy0), dx0:dx0+(sx1-sx0)] = full_map[sy0:sy1, sx0:sx1]
 
-    crop = np.full((ego_size, ego_size), pad_value, dtype=full_map.dtype)
+    # 3. 회전 행렬 안전하게 생성
+    angle_deg = np.degrees(robot_angle)
+    rotate_angle = -(angle_deg - 90)
+    
+    center = (margin_size / 2.0, margin_size / 2.0) # float center가 더 정확함
+    M = cv2.getRotationMatrix2D(center, rotate_angle, 1.0)
+    
+    if M is None: return np.full((ego_size, ego_size), pad_value, dtype=np.uint8)
 
-    # crop 안에서 어디에 붙일지 offset
-    dx0 = sx0 - x0
-    dy0 = sy0 - y0
+    # 4. WarpAffine 실행 (가장 위험한 구간)
+    # 메모리 오정렬 방지를 위해 copy()를 사용하여 전달
+    try:
+        rotated = cv2.warpAffine(
+            temp_crop.copy(), # 강제 복사로 메모리 레이아웃 정렬
+            M, 
+            (margin_size, margin_size),
+            flags=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_CONSTANT,
+            borderValue=int(pad_value)
+        )
+    except Exception:
+        # OpenCV 에러 발생 시 회전 없이 반환하여 덤프 방지
+        rotated = temp_crop
 
-    crop[dy0:dy0 + (sy1 - sy0), dx0:dx0 + (sx1 - sx0)] = full_map[sy0:sy1, sx0:sx1]
-    return crop
+    # 5. 최종 슬라이싱
+    start = (margin_size - ego_size) // 2
+    return np.ascontiguousarray(rotated[start:start+ego_size, start:start+ego_size])
 
 
 def downsample_full_map(full_map: np.ndarray, target: int) -> np.ndarray:
@@ -2134,7 +2155,19 @@ class FightingModel(Model):
         else:
             agent_num = 1
 
-        return (self.robots[robot_index].xy[0]/MAP_H, self.robots[robot_index].xy[1]/MAP_W, agent_num)
+        angle = self.robots[robot_index].angle
+        sin_a = np.sin(angle)
+        cos_a = np.cos(angle)
+    
+
+        return (
+
+            self.robots[robot_index].xy[0] / MAP_H,
+            self.robots[robot_index].xy[1] / MAP_W,
+            agent_num,
+            sin_a,
+            cos_a
+        )
     
     # 연속 → 라스터 (RL 프레임) 교체
     def return_current_image(self, H: int = 100, W: int = 100):
@@ -2260,7 +2293,7 @@ class FightingModel(Model):
     def build_ego_global_frames(self, full_map_u8: np.ndarray, robot_index=0):
         ix, iy = self._robot_world_to_px(robot_index)
 
-        ego_u8 = ego_crop_from_full_map(full_map_u8, (ix, iy), EGO_MAP_SIZE, pad_value=50)     # (EGO,EGO)
+        ego_u8 = ego_crop_from_full_map(full_map_u8, (ix, iy), EGO_MAP_SIZE, self.robots[robot_index].angle, pad_value=50)     # (EGO,EGO)
         glob_u8 = downsample_full_map(full_map_u8, DOWNSAMPLE_MAP_SIZE)                       # (DOWN,DOWN)
 
         ego_f = ego_u8.astype(np.float32) / 255.0

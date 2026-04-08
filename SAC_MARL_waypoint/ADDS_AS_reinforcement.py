@@ -195,7 +195,7 @@ class EpisodeStatMsg:
 STATE_SHAPE = (4, 50, 50)
 INPUT_MAP_SIZE = 50
 ROBOT_STATE_EMBEDDING = True
-ROBOT_STATE_DIM = 3
+ROBOT_STATE_DIM = 5
 
 # Timer instances
 sim_timer = Timer()
@@ -232,32 +232,59 @@ def write_heartbeat(ep: int):
 def ego_crop_from_full_map(full_map: np.ndarray,
                            robot_xy_px: tuple[int, int],
                            ego_size: int,
+                           robot_angle: float = 0.0,
                            pad_value: int = 50) -> np.ndarray:
     """
     full_map: (H, W) uint8
-    robot_xy_px: (ix, iy) in pixel coords (0..W-1, 0..H-1)
-    return: (ego_size, ego_size) uint8
+    robot_xy_px: (ix, iy) in pixel coords
+    ego_size: 최종 결과 이미지의 크기
+    robot_angle: 로봇의 현재 각도 (radian)
+    return: (ego_size, ego_size) uint8, 로봇 정면이 위를 향함
     """
     H, W = full_map.shape
     cx, cy = robot_xy_px
-    half = ego_size // 2
+    
+    # 1. 회전 시 모서리 여유를 위해 더 큰 영역을 먼저 추출 (대각선 길이 고려)
+    # sqrt(2) * ego_size 만큼 여유를 둡니다.
+    margin_size = int(ego_size * 1.5)
+    half_m = margin_size // 2
+    
+    x0, x1 = cx - half_m, cx - half_m + margin_size
+    y0, y1 = cy - half_m, cy - half_m + margin_size
 
-    # 원하는 crop 좌표(맵 좌표 기준)
-    x0, x1 = cx - half, cx - half + ego_size
-    y0, y1 = cy - half, cy - half + ego_size
-
-    # 맵과 겹치는 부분
+    # 맵 범위를 벗어나는 부분 처리
     sx0, sx1 = max(0, x0), min(W, x1)
     sy0, sy1 = max(0, y0), min(H, y1)
 
-    crop = np.full((ego_size, ego_size), pad_value, dtype=full_map.dtype)
+    # 여유 영역만큼의 배경 생성
+    temp_crop = np.full((margin_size, margin_size), pad_value, dtype=full_map.dtype)
+    dx0, dy0 = sx0 - x0, sy0 - y0
+    temp_crop[dy0:dy0 + (sy1 - sy0), dx0:dx0 + (sx1 - sx0)] = full_map[sy0:sy1, sx0:sx1]
 
-    # crop 안에서 어디에 붙일지 offset
-    dx0 = sx0 - x0
-    dy0 = sy0 - y0
+    # 2. 회전 행렬 생성
+    # robot_angle이 0일 때 '위'를 보게 하려면, OpenCV 기준으로는 추가 보정이 필요할 수 있음
+    # 일반적으로 위쪽 방향은 -90도(또는 pi/2)이므로 이를 맞춰줍니다.
+    # 로봇의 정면 각도가 0(우측)이라면, -90도를 더해 위를 보게 만듭니다.
+    angle_deg = np.degrees(robot_angle)
+    
+    # 정면이 위(Up)로 오게 하기 위해: 
+    # 로봇이 보는 방향(angle_deg)을 이미지의 90도(위) 방향으로 회전시킴
+    rotate_angle = -(angle_deg - 90) 
 
-    crop[dy0:dy0 + (sy1 - sy0), dx0:dx0 + (sx1 - sx0)] = full_map[sy0:sy1, sx0:sx1]
-    return crop
+    center = (margin_size // 2, margin_size // 2)
+    M = cv2.getRotationMatrix2D(center, rotate_angle, 1.0)
+
+    # 3. 이미지 회전 수행
+    rotated_crop = cv2.warpAffine(temp_crop, M, (margin_size, margin_size), 
+                                  flags=cv2.INTER_LINEAR, 
+                                  borderMode=cv2.BORDER_CONSTANT, 
+                                  borderValue=pad_value)
+
+    # 4. 중심에서 최종 ego_size만큼 크롭
+    start = (margin_size - ego_size) // 2
+    final_crop = rotated_crop[start:start + ego_size, start:start + ego_size]
+
+    return final_crop
 
 def downsample_full_map(full_map: np.ndarray, target: int) -> np.ndarray:
     """
@@ -374,6 +401,30 @@ def gamma_ascent_schedule(parameter_start: float,
     return parameter_start + (parameter_end - parameter_start) * progress
 
 
+# --------------------------------------------------
+# 헬퍼 클래스: FRAME_STEP 간격 FrameStack
+# --------------------------------------------------
+class FrameStackWithStep:
+    def __init__(self, k, step):
+        self.k = k
+        self.step = step
+        self.history = []
+        self.max_len = (k - 1) * step + 1
+
+    def update(self, frame):
+        self.history.append(frame)
+        if len(self.history) > self.max_len:
+            self.history.pop(0)
+        
+        # 현재부터 역순으로 step 간격만큼 프레임 추출
+        stacked = []
+        curr_idx = len(self.history) - 1
+        for i in range(self.k):
+            idx = max(0, curr_idx - i * self.step)
+            stacked.append(self.history[idx])
+        
+        return np.stack(stacked, axis=0) # (k, H, W)
+
 def worker_process(
     worker_id: int,
     transition_queue: mp.Queue,
@@ -382,25 +433,16 @@ def worker_process(
     param_queue: mp.Queue,
     seed: int = 0,
 ):
-    """
-    Multi-robot worker process for CTDE / Centralized SAC.
-
-    - Actor: shared PolicyNetwork, each robot acts from its own (ego, global, robot_state)
-    - Critic training data: joint observation/action with zero-padding up to MAX_ROBOTS
-    - For each reward emission step, one joint transition is duplicated for each real robot
-      with different agent_index.
-    """
     import model
     import traceback
 
-
+    # --------------------------------------------------
+    # 1) 초기 설정 및 시드
+    # --------------------------------------------------
     np.random.seed(seed + worker_id)
     random.seed(seed + worker_id)
-
-    max_steps = MAX_STEPS
-    episode_idx = 0
-
     device = torch.device("cpu")
+
     policy = PolicyNetwork(
         ego_shape=(EGO_MAP_SIZE, EGO_MAP_SIZE),
         global_shape=(DOWNSAMPLE_MAP_SIZE, DOWNSAMPLE_MAP_SIZE),
@@ -431,6 +473,7 @@ def worker_process(
         """
         if rb is None:
             return np.zeros((ROBOT_STATE_DIM,), dtype=np.float32)
+    
 
         return np.array(env_model.return_current_robot_state(rb.robot_index))
 
@@ -461,7 +504,7 @@ def worker_process(
                 m = 0.0
             else:
                 ix, iy = _robot_world_to_px(env_model, rb)
-                ego_u8 = ego_crop_from_full_map(full_u8, (ix, iy), EGO_MAP_SIZE, pad_value=50)
+                ego_u8 = ego_crop_from_full_map(full_u8, (ix, iy), EGO_MAP_SIZE, rb.angle, pad_value=50)
                 ego_f = ego_u8.astype(np.float32) / 255.0
                 rs = _get_robot_state(env_model, rb, i)
                 m = 1.0
@@ -487,75 +530,61 @@ def worker_process(
                 finished_count += 1
         return (real_count > 0) and (finished_count == real_count)
 
-    while True:
-        # --------------------------------------------------
-        # 1) environment create
-        # --------------------------------------------------
-        while True:
-            try:
-                if CROWD_NUMBER_MIN == CROWD_NUMBER_MAX:
-                    number_of_agents = CROWD_NUMBER_MIN
-                else:
-                    number_of_agents = random.randint(CROWD_NUMBER_MIN, CROWD_NUMBER_MAX)
 
-                env_model = model.FightingModel(
-                    number_of_agents,
-                    MAP_W,
-                    MAP_H,
-                    model_num=-1,
-                    robot='Q',
-                    robot_num=THE_NUMBER_OF_ROBOTS
-                )
-                break
-            except Exception as e:
-                print(f"[Worker {worker_id}] env create error: {e}, retrying...")
+    # 로봇별 독립적 타임라인 및 데이터 보존용 클래스
+    class RobotTimeline:
+        def __init__(self):
+            self.s_ego = None      # (N, 4, E, E)
+            self.s_glob = None     # (4, G, G)
+            self.s_robot = None    # (N, R)
+            self.joint_a = None    # (N, A)
+            self.mask = None       # (N,)
+            self.accum_reward = 0.0
+            self.delta_t = 0
+            self.active = False    # 현재 진행중인 액션 유무
+
+    # --------------------------------------------------
+    # 2) 에피소드 루프
+    # --------------------------------------------------
+    episode_idx = 0
+    while True:
+        # 환경 생성 (생략된 기존 로직 사용)
+        if CROWD_NUMBER_MIN == CROWD_NUMBER_MAX:
+            number_of_agents = CROWD_NUMBER_MIN
+        else:
+            number_of_agents = random.randint(CROWD_NUMBER_MIN, CROWD_NUMBER_MAX)
+    
+        env_model = model.FightingModel(
+            number_of_agents,
+            MAP_W,
+            MAP_H, 
+            model_num=-1,
+            robot='Q',
+            robot_num=THE_NUMBER_OF_ROBOTS
+        )
 
         robots_real = list(getattr(env_model, "robots", []))
         robots_padded = _pad_robots(robots_real, max_robots=MAX_ROBOTS)
 
-        if sum(rb is not None for rb in robots_padded) == 0:
-            print(f"[Worker {worker_id}] WARNING: env_model.robots is empty.")
+        # 상태 관리 객체들
+        # FRAME_STEP 주기를 고려한 FrameStack (내부적으로 history를 길게 가져감)
+        # 예: 4개 프레임을 쌓는데 간격이 5라면 총 15스텝 전까지의 기록이 필요함
+        ego_stacks = [FrameStackWithStep(4, FRAME_STEP) for _ in range(MAX_ROBOTS)]
+        glob_stack = FrameStackWithStep(4, FRAME_STEP)
+        
+        timelines = [RobotTimeline() for _ in range(MAX_ROBOTS)]
+        current_executing_actions = np.zeros((MAX_ROBOTS, ACTION_DIM), dtype=np.float32)
 
-        # --------------------------------------------------
-        # 2) initial joint state
-        # --------------------------------------------------
-        full_u8, ego_frames, glob_frame, joint_robot_state, joint_mask = _build_joint_frames(env_model, robots_padded)
-
-        ego_stacks = [FrameStack2(4) for _ in range(MAX_ROBOTS)]
-        glob_stack = FrameStack2(4)
-
-        joint_ego_state_list = []
-        for i in range(MAX_ROBOTS):
-            s_i = ego_stacks[i].reset(ego_frames[i])   # (4,E,E)
-            joint_ego_state_list.append(s_i)
-        joint_ego_state = np.stack(joint_ego_state_list, axis=0)   # (N,4,E,E)
-
-        global_state = glob_stack.reset(glob_frame)                 # (4,G,G)
-
-        # --------------------------------------------------
-        # episode stats
-        # --------------------------------------------------
         total_reward = 0.0
-        evacuation_time_80 = max_steps
-        evacuation_time_100 = max_steps
-        agent_total_lifetime = 0.0
         abnormal_reward = 0
+        evacuation_time_80 = MAX_STEPS
+        evacuation_time_100 = MAX_STEPS
+        agent_total_lifetime = 0.0
 
-        # --------------------------------------------------
-        # transition buffers (joint)
-        # --------------------------------------------------
-        buffered_joint_ego_state = np.copy(joint_ego_state)
-        buffered_global_state = np.copy(global_state)
-        buffered_joint_robot_state = np.copy(joint_robot_state)
-        buffered_joint_action = np.zeros((MAX_ROBOTS, ACTION_DIM), dtype=np.float32)
-        buffered_joint_mask = np.copy(joint_mask)
 
-        eps = 0.0
-        with epsilon_shared.get_lock():
-            eps = float(epsilon_shared.value)
 
         try:
-            # latest actor params
+            # 최신 파라미터 로드
             try:
                 while True:
                     new_sd = param_queue.get_nowait()
@@ -563,203 +592,101 @@ def worker_process(
             except queue.Empty:
                 pass
 
-            for step in range(max_steps):
-                # ------------------------------------------
-                # 1) action selection every ACTION_SCALE
-                # ------------------------------------------
-                if step % ACTION_SCALE == 0:
-                    # refresh robot handles if env may replace them internally
-                    robots_real = list(getattr(env_model, "robots", []))
-                    robots_padded = _pad_robots(robots_real, max_robots=MAX_ROBOTS)
 
-                    full_u8, ego_frames, glob_frame, joint_robot_state, joint_mask = _build_joint_frames(
-                        env_model, robots_padded
-                    )
+            for step in range(MAX_STEPS):
+                # A. 현재 시점의 원본 프레임 및 상태 관측
+                full_u8, ego_frames, glob_f, joint_robot_state, joint_mask = _build_joint_frames(env_model, robots_padded)
+                
+                # B. FRAME_STEP 간격을 반영한 Stacked State 업데이트
+                # 매 스텝 호출하지만 내부적으로는 간격에 맞춰 데이터를 쌓음
+                curr_glob_state = glob_stack.update(glob_f)
+                curr_joint_ego = np.stack([ego_stacks[i].update(ego_frames[i]) for i in range(MAX_ROBOTS)], axis=0)
 
-                    if DEBUG_SAVE:
-                        # 1. 공통 이미지(Global, Full)는 한 번만 Flip 처리
-                        full_u8_r = np.flip(np.flip(full_u8, axis=-1), axis=-2)
-                        glob_f_r = np.flip(np.flip(glob_frame, axis=-1), axis=-2)
-                        
-                        full_u8_to_save = np.flip(full_u8_r, axis=1)
-                        glob_f_to_save = np.flip(glob_f_r, axis=1)
 
-                        # 2. 살아있는 모든 로봇을 순회하며 개별 저장
-                        for agent_i in range(MAX_ROBOTS):
-                            if joint_mask[agent_i] < 0.5:
-                                continue  # 패딩된 빈자리(None)나 죽은 로봇은 건너뜀
+                any_finished = any(getattr(rb, "is_game_finished", False) for rb in robots_padded if rb is not None)
+                global_done = any_finished or (step == MAX_STEPS - 1)
+                eps = 0.0
+                with epsilon_shared.get_lock():
+                    eps = float(epsilon_shared.value)
+                # C. 로봇별 이벤트 체크 (Action 결정 및 Transition 생성)
+                for i, rb in enumerate(robots_padded):
+                    if rb is None: continue
+                    
+                    # 새 오더 필요성 체크 (도착/충돌/최초 시작)
+                    is_finished = getattr(rb, "is_game_finished", False)
+                    needs_new = getattr(rb, "new_order_need", False) or step == 0
 
-                            # 해당 로봇의 Ego 이미지만 Flip 처리
-                            ego_f_r = np.flip(np.flip(ego_frames[agent_i], axis=-1), axis=-2)
-                            ego_f_to_save = np.flip(ego_f_r, axis=1)
-
-                            save_debug_triplet(
-                                save_dir=DEBUG_DIR,
+                    if needs_new or is_finished:
+                        # 1. 이전 액션 마감 및 Transition 전송
+                        if timelines[i].active:
+                            msg = TransitionMsg(
                                 worker_id=worker_id,
-                                episode_idx=episode_idx,
-                                step=step,
-                                agent_idx=agent_i,  # <--- 어떤 로봇인지 식별자 추가
-                                full_u8=full_u8_to_save,
-                                ego_f=ego_f_to_save,
-                                glob_f=glob_f_to_save,
-                                ego_state=joint_ego_state[agent_i] if step > 0 else None,
-                                global_state=global_state
+                                joint_ego_state=np.copy(timelines[i].s_ego),
+                                global_state=np.copy(timelines[i].s_glob),
+                                joint_robot_state=np.copy(timelines[i].s_robot),
+                                joint_action=np.copy(timelines[i].joint_a),
+                                joint_mask=np.copy(timelines[i].mask),
+                                next_joint_ego_state=np.copy(curr_joint_ego),
+                                next_global_state=np.copy(curr_glob_state),
+                                next_joint_robot_state=np.copy(joint_robot_state),
+                                next_joint_mask=np.copy(joint_mask),
+                                reward=float(timelines[i].accum_reward),
+                                done=bool(global_done),
+                                agent_index=i,
+                                delta_t=float(timelines[i].delta_t)
                             )
+                            transition_queue.put(msg)
+                            timelines[i].active = False
 
-                    # ACTION_SCALE boundary에서만 실제 stack append
-                    if step > 0:
-                        updated_joint_ego = []
-                        for i in range(MAX_ROBOTS):
-                            updated_joint_ego.append(ego_stacks[i].append(ego_frames[i]))
-                        joint_ego_state = np.stack(updated_joint_ego, axis=0)
-                        global_state = glob_stack.append(glob_frame)
-
-                    # shared actor, per robot action selection
-                    joint_action = np.zeros((MAX_ROBOTS, ACTION_DIM), dtype=np.float32)
-
-                    for i, rb in enumerate(robots_padded):
-                        if rb is None or joint_mask[i] < 0.5:
+                        if global_done: 
                             continue
-
-                        ego_i = joint_ego_state[i]         # (4,E,E)
-                        robot_i = joint_robot_state[i]     # (R,)
-                        glob_i = global_state              # (4,G,G)
-
-                        if np.random.rand() < eps or policy is None:
+                        # 2. 인라인 액션 선택 (기존 방식 유지 + 3D 확장)
+                        if np.random.rand() < eps:
+                            # Waypoint: [radius, theta_idx, speed]
                             action_i = np.array([
-                                np.random.uniform(-2, 2),
-                                np.random.uniform(-2, 2)
+                                np.random.uniform(0.5, 2.0),           # radius
+                                np.random.randint(0, DIRECTION_N),    # theta_idx
+                                np.random.uniform(0.5, 1.5)            # speed
                             ], dtype=np.float32)
                         else:
-                            ego_t = torch.from_numpy(ego_i).unsqueeze(0).float().to(device)
-                            glob_t = torch.from_numpy(glob_i).unsqueeze(0).float().to(device)
-                            robot_t = torch.from_numpy(robot_i).unsqueeze(0).float().to(device)
+                            ego_t = torch.from_numpy(curr_joint_ego[i]).unsqueeze(0).float().to(device)
+                            glob_t = torch.from_numpy(curr_glob_state).unsqueeze(0).float().to(device)
+                            robot_t = torch.from_numpy(joint_robot_state[i]).unsqueeze(0).float().to(device)
 
                             with torch.no_grad():
-                                action_t, _ = policy.sample_action(
-                                    ego_t, glob_t, robot_t, temperature=1.0
-                                )
+                                # PolicyNetwork가 3차원 출력을 한다고 가정
+                                action_t, _ = policy.sample_action(ego_t, glob_t, robot_t)
                             action_i = action_t.cpu().numpy()[0].astype(np.float32)
+                        # 3. 로봇에게 전달 및 현재 실행 리스트 갱신
+                        rb.receive_action_from_policy(action_i)
+                        rb.new_order_need = False
+                        current_executing_actions[i] = action_i
 
-                        real_action = rb.receive_action([action_i[0], action_i[1]])
-                        joint_action[i, 0] = real_action[0]
-                        joint_action[i, 1] = real_action[1]
+                        # 4. 출발 시점의 스냅샷(Joint) 저장
+                        timelines[i].s_ego = np.copy(curr_joint_ego)
+                        timelines[i].s_glob = np.copy(curr_glob_state)
+                        timelines[i].s_robot = np.copy(joint_robot_state)
+                        timelines[i].joint_a = np.copy(current_executing_actions)
+                        timelines[i].mask = np.copy(joint_mask)
+                        timelines[i].accum_reward = 0.0
+                        timelines[i].delta_t = 0
+                        timelines[i].active = True
+                
+                if global_done :
+                    break
 
-                    buffered_joint_ego_state = np.copy(joint_ego_state)
-                    buffered_global_state = np.copy(global_state)
-                    buffered_joint_robot_state = np.copy(joint_robot_state)
-                    buffered_joint_action = np.copy(joint_action)
-                    buffered_joint_mask = np.copy(joint_mask)
-
-                # ------------------------------------------
-                # 2) env step
-                # ------------------------------------------
+                # D. 환경 시뮬레이션
                 env_model.step()
 
-                # ------------------------------------------
-                # 3) next joint state
-                # ------------------------------------------
-                robots_real = list(getattr(env_model, "robots", []))
-                robots_padded = _pad_robots(robots_real, max_robots=MAX_ROBOTS)
-
-                _, next_ego_frames, next_glob_frame, next_joint_robot_state, next_joint_mask = _build_joint_frames(
-                    env_model, robots_padded
-                )
-
-                next_joint_ego_list = []
-                for i in range(MAX_ROBOTS):
-                    next_joint_ego_list.append(ego_stacks[i].peek_with(next_ego_frames[i]))
-                next_joint_ego_state = np.stack(next_joint_ego_list, axis=0)   # (N,4,E,E)
-                next_global_state = glob_stack.peek_with(next_glob_frame)       # (4,G,G)
-
-                # ------------------------------------------
-                # 4) done / reward
-                # ------------------------------------------
-                all_finished = _all_robots_finished(robots_padded)
-                done = (step >= max_steps - 1) or all_finished
-
-                reward = 0.0
-                r_k = [0, 0, 0]
-
-                if all_finished:
-                    reward += FINISHED_BONUS * (1 - step / max_steps)
-
-                if REWARD_K :
-                    for rb in robots_real:
-                        r_k[rb.robot_index] += env_model.reward_penalty_collision_robot_index(rb.robot_index) * REWARD_K
-
-                reward_emit = (
-                    (step % ACTION_SCALE == (ACTION_SCALE - 1) and step > ACTION_SCALE)
-                    or (all_finished and step > ACTION_SCALE)
-                )
-
-                if reward_emit:
-                    r_a = r_b = r_c = 0
-
-                    r_d = [0, 0, 0]
-
-                    if REWARD_A:
-                        r_a = env_model.reward_based_alived() * REWARD_A
-                    if REWARD_B:
-                        r_b = env_model.reward_based_all_agents_danger() * REWARD_B
-                    if REWARD_D:
-                        for rb in robots_real:
-                            r_d[rb.robot_index] += env_model.reward_penalty_robot_index(rb.robot_index) * REWARD_D
-        
-                    reward += (
-                        r_a + r_b + REWARD_FIXED
-                    )
-                    reward_a = reward + r_d[0] + r_k[0]
-                    reward_b = reward + r_d[1] + r_k[1]
-                    reward_c = reward + r_d[2] + r_k[2]
-                    r_d = [0, 0, 0]
-                    r_k = [0, 0, 0]
-                    if reward < -1e3:
-                        raise RuntimeError(f"Reward collapsed: {reward}")
-
-                    # --------------------------------------
-                    # 5) send one joint transition per real robot
-                    # --------------------------------------
-                    try:
-                        total_reward += reward  # timestep reward는 1번만 누적
-
-                        # for agent_i in range(MAX_ROBOTS):
-                        #     if buffered_joint_mask[agent_i] < 0.5:
-                        #         continue
-
-                        msg = TransitionMsg(
-                            worker_id=worker_id,
-                            joint_ego_state=np.copy(buffered_joint_ego_state),
-                            global_state=np.copy(buffered_global_state),
-                            joint_robot_state=np.copy(buffered_joint_robot_state),
-                            joint_action=np.copy(buffered_joint_action),
-                            joint_mask=np.copy(buffered_joint_mask),
-
-                            next_joint_ego_state=np.copy(next_joint_ego_state),
-                            next_global_state=np.copy(next_global_state),
-                            next_joint_robot_state=np.copy(next_joint_robot_state),
-                            next_joint_mask=np.copy(next_joint_mask),
-
-                            reward_a=float(reward_a),
-                            reward_b=float(reward_b),
-                            reward_c=float(reward_c),
-                            done=bool(done),
-                            agent_index=-1,
-                        )
-                        transition_queue.put(msg)  # blocking
-                    except Exception as e:
-                        print(f"[Worker {worker_id}] transition_queue.put error: {e}")
-                        abnormal_reward = 1
-
-                    # reward boundary 뒤에 실제 현재 state를 next state로 넘김
-                    joint_ego_state = np.copy(next_joint_ego_state)
-                    global_state = np.copy(next_global_state)
-                    joint_robot_state = np.copy(next_joint_robot_state)
-                    joint_mask = np.copy(next_joint_mask)
-                else:
-                    # 중간 step에서는 최신 robot state / mask만 유지
-                    joint_robot_state = next_joint_robot_state
-                    joint_mask = next_joint_mask
+                # E. 개별 로봇 보상 누적 (매 물리 스텝마다 발생한 페널티 합산)
+                for i, rb in enumerate(robots_padded):
+                    if rb is not None and timelines[i].active:
+                        # env_model에서 해당 로봇의 이번 스텝 개별 보상을 계산하여 반환
+                        # (Collision penalty, Distance reward, Step penalty 등)
+                        r_step = env_model.calculate_robot_immediate_reward(i)
+                        timelines[i].accum_reward += r_step
+                        timelines[i].delta_t += 1
+                        total_reward += r_step # 통계용
 
                 # ------------------------------------------
                 # 80%, 100% crowd evacuation stats
@@ -772,15 +699,13 @@ def worker_process(
                 if (alive_agents < 1) and (evacuation_time_100 == max_steps):
                     evacuation_time_100 = step
 
-                if done:
-                    try:
-                        agent_total_lifetime = env_model.calculate_all_agents_life_time()
-                    except Exception:
-                        agent_total_lifetime = 0.0
-                    break
+            try:
+                agent_total_lifetime = env_model.calculate_all_agents_life_time()
+            except: 
+                agent_total_lifetime = 0.0
 
         except Exception as e:
-            print(f"[Worker {worker_id}] Error in episode loop: {e}")
+            print(f"[Worker {worker_id}] Error: {e}")
             traceback.print_exc()
             abnormal_reward = 1
 
@@ -803,6 +728,7 @@ def worker_process(
             print(f"[Worker {worker_id}] stats_queue.put error: {e}")
 
         episode_idx += 1
+
    
 
 ##########################################################################
@@ -842,7 +768,7 @@ class ReplayBuffer:
         max_robots: int,
         ego_state_shape: Tuple[int, int, int],      # (4,EGO,EGO)
         global_state_shape: Tuple[int, int, int],   # (4,DOWN,DOWN)
-        action_dim: int = 2,
+        action_dim: int = 3,
         robot_dim: int = 3,
         device=None,
         state_dtype: np.dtype = np.uint8,
@@ -853,7 +779,7 @@ class ReplayBuffer:
         self.state_dtype = state_dtype
         self.robot_dim = int(robot_dim)
         self.action_dim = int(action_dim)
-
+        self.delta_ts = np.zeros((self.capacity,), dtype=np.float32)
         self.ego_state_shape = tuple(ego_state_shape)
         self.global_state_shape = tuple(global_state_shape)
 
@@ -998,6 +924,7 @@ class ReplayBuffer:
         reward: float,
         done: bool,
         agent_index: int,
+        delta_t: float,
     ) -> None:
         """
         Parameters
@@ -1039,6 +966,7 @@ class ReplayBuffer:
         self.rewards[i] = float(reward)
         self.dones[i] = float(done)
         self.agent_indices[i] = int(agent_index)
+        self.delta_ts[i] = max(float(delta_t), 1.0)
 
         self.ptr = (i + 1) % self.capacity
         self.size = min(self.size + 1, self.capacity)
@@ -1098,6 +1026,10 @@ class ReplayBuffer:
             self.agent_indices[idx]
         ).to(self.device)
 
+        batch_delta_t = torch.from_numpy(
+            self.delta_ts[idx]
+        ).to(self.device)
+
         return (
             batch_joint_ego,         # (B,N,4,E,E)
             batch_global,            # (B,4,G,G)
@@ -1113,6 +1045,7 @@ class ReplayBuffer:
             batch_reward,            # (B,)
             batch_done,              # (B,)
             batch_agent_index,       # (B,)
+            batch_delta_t,
         )
 
     def __len__(self) -> int:
@@ -1152,6 +1085,7 @@ class ReplayBuffer:
             "state_dtype": np.dtype(self.state_dtype).name,
             "ego_state_shape": np.array(self.ego_state_shape, dtype=np.int32),
             "global_state_shape": np.array(self.global_state_shape, dtype=np.int32),
+            "delta_ts": self.delta_ts[:self.size],
         }
 
         np.savez_compressed(filepath, **save_dict)
@@ -1170,7 +1104,7 @@ class ReplayBuffer:
             "rewards", "dones", "agent_indices",
             "size", "ptr", "capacity", "max_robots",
             "robot_dim", "action_dim", "state_dtype",
-            "ego_state_shape", "global_state_shape",
+            "ego_state_shape", "global_state_shape", "delta_ts"
         ]
         for k in required:
             if k not in data.files:
@@ -1230,6 +1164,7 @@ class ReplayBuffer:
         self.rewards[:self.size] = data["rewards"]
         self.dones[:self.size] = data["dones"]
         self.agent_indices[:self.size] = data["agent_indices"]
+        self.delta_ts[:self.size] = data["delta_ts"]
        
 class EpsilonScheduler:
     """
@@ -1373,205 +1308,6 @@ class CNNEncoder(nn.Module):
         x = F.silu(self.bn3(self.conv3(x)))
         x = x.view(x.size(0), -1) # Flatten
         return x
-
-
-##########################################################################
-# 3) Critic (Q) Network
-##########################################################################
-class QNetwork(nn.Module):
-    def __init__(self, ego_shape=(25, 25), global_shape=(50, 50), action_dim=2, robot_dim = 3, use_robot: bool = True):
-        super(QNetwork, self).__init__()
-        self.use_robot_state = use_robot
-       
-        # --- Ego & Global Encoders ---
-        self.ego_enc = ImpalaCNN(input_shape=ego_shape, compress=True)
-        self.glob_enc = ImpalaCNN(input_shape=global_shape, compress=True)
-       
-        # Robot State
-        robot_feat_dim = 0
-        if self.use_robot_state:
-            robot_input_dim = 3
-            robot_embed_dim = 32
-            self.robot_fc = nn.Sequential(
-                nn.Linear(robot_input_dim, robot_embed_dim),
-                nn.SiLU()
-            )
-            robot_feat_dim = robot_embed_dim
-        else:
-            self.robot_fc = None
-
-        self.img_dim = self.ego_enc.out_dim + self.glob_enc.out_dim
-        cond_dim = action_dim + (robot_feat_dim if self.use_robot_state else 0)
-        hidden = 256
-        self.film = nn.Sequential(
-            nn.Linear(cond_dim, hidden),
-            nn.SiLU(),
-            nn.Linear(hidden, 2 * self.img_dim)
-        )
-
-        nn.init.zeros_(self.film[-1].weight)
-        nn.init.zeros_(self.film[-1].bias)
-
-        fusion_dim = self.img_dim + robot_feat_dim + action_dim
-        self.fc1 = nn.Linear(fusion_dim, 512)
-        self.fc2 = nn.Linear(512, 256)
-        self.q_out = nn.Linear(256, 1)
-
-    def forward(self, ego_state, global_state, action, robot_state=None):
-        # 1. Image Features
-        e = self.ego_enc(ego_state)
-        g = self.glob_enc(global_state)
-        img = torch.cat([e, g], dim=1)
-
-        r = None
-        if self.use_robot_state:
-            if robot_state is None:
-                raise ValueError("Model requires robot_state, but input is None")
-            r = self.robot_fc(robot_state)
-
-        # 2. Robot Features
-        if self.use_robot_state:
-            cond = torch.cat([action, r], dim=1)
-        else:
-            cond = action
-        
-        gamma_beta = self.film(cond)
-        gamma, beta = gamma_beta.chunk(2, dim=1)
-        img_film = (1.0 + gamma) * img + beta
-
-        feats = [img_film]
-        if self.use_robot_state:
-            feats.append(r)
-        feats.append(action)
-        combined = torch.cat(feats, dim=1)
-
-        # if self.use_robot_state:
-        #     feats.append(r)
-        # feats.append(action)
-        combined = torch.cat(feats, dim=1)
-
-        out = F.silu(self.fc1(combined))
-        out = F.silu(self.fc2(out))
-        q_val = self.q_out(out)
-        return q_val
-
-
-class CentralizedQNetwork(nn.Module):
-    def __init__(
-        self,
-        ego_shape=(25, 25),
-        global_shape=(50, 50),
-        action_dim=2,
-        robot_dim=3,
-        max_robots=3,
-        use_robot: bool = True,
-    ):
-        super().__init__()
-        self.use_robot_state = use_robot
-        self.max_robots = max_robots
-        self.action_dim = action_dim
-        self.robot_dim = robot_dim
-
-        # shared ego encoder
-        self.ego_enc = ImpalaCNN(input_shape=ego_shape, compress=True)
-        self.glob_enc = ImpalaCNN(input_shape=global_shape, compress=True)
-
-        self.single_ego_feat_dim = self.ego_enc.out_dim
-        self.global_feat_dim = self.glob_enc.out_dim
-
-        self.all_ego_feat_dim = self.single_ego_feat_dim * max_robots
-        self.img_dim = self.global_feat_dim + self.all_ego_feat_dim
-
-        robot_embed_dim = 32
-        if self.use_robot_state:
-            self.robot_fc = nn.Sequential(
-                nn.Linear(robot_dim, robot_embed_dim),
-                nn.SiLU()
-            )
-            self.all_robot_feat_dim = robot_embed_dim * max_robots
-        else:
-            self.robot_fc = None
-            self.all_robot_feat_dim = 0
-
-        self.all_action_dim = action_dim * max_robots
-
-        cond_dim = self.all_action_dim + self.all_robot_feat_dim
-        hidden = 256
-        self.film = nn.Sequential(
-            nn.Linear(cond_dim, hidden),
-            nn.SiLU(),
-            nn.Linear(hidden, 2 * self.img_dim)
-        )
-        nn.init.zeros_(self.film[-1].weight)
-        nn.init.zeros_(self.film[-1].bias)
-
-        fusion_dim = self.img_dim + self.all_action_dim + self.all_robot_feat_dim
-        self.fc1 = nn.Linear(fusion_dim, 512)
-        self.fc2 = nn.Linear(512, 256)
-        self.q_out = nn.Linear(256, 1)
-
-    def forward(
-        self,
-        joint_ego_state,     # (B, N, 4, E, E)
-        global_state,        # (B, 4, G, G)
-        joint_action,        # (B, N, A)
-        joint_robot_state,   # (B, N, R)
-        joint_mask=None      # (B, N)
-    ):
-        B, N, C, H, W = joint_ego_state.shape
-        assert N == self.max_robots
-
-        # 1) shared ego encoding
-        ego_flat = joint_ego_state.reshape(B * N, C, H, W)
-        ego_feat = self.ego_enc(ego_flat).reshape(B, N, -1)   # (B, N, Fego)
-
-        # mask 적용
-        if joint_mask is not None:
-            ego_feat = ego_feat * joint_mask.unsqueeze(-1).float()
-
-        ego_feat_cat = ego_feat.reshape(B, -1)  # (B, N*Fego)
-
-        # 2) global encoding
-        glob_feat = self.glob_enc(global_state)  # (B, Fglob)
-
-        # 3) image fusion
-        img_feat = torch.cat([glob_feat, ego_feat_cat], dim=1)  # (B, img_dim)
-
-        # 4) robot embedding
-        if self.use_robot_state:
-            robot_flat = joint_robot_state.reshape(B * N, self.robot_dim)
-            robot_feat = self.robot_fc(robot_flat).reshape(B, N, -1)  # (B, N, Frobot)
-            if joint_mask is not None:
-                robot_feat = robot_feat * joint_mask.unsqueeze(-1).float()
-            robot_feat_cat = robot_feat.reshape(B, -1)
-        else:
-            robot_feat_cat = None
-
-        # 5) joint action flatten
-        if joint_mask is not None:
-            joint_action = joint_action * joint_mask.unsqueeze(-1).float()
-        action_cat = joint_action.reshape(B, -1)
-
-        # 6) FiLM conditioning
-        if self.use_robot_state:
-            cond = torch.cat([action_cat, robot_feat_cat], dim=1)
-        else:
-            cond = action_cat
-
-        gamma_beta = self.film(cond)
-        gamma, beta = gamma_beta.chunk(2, dim=1)
-        img_film = (1.0 + gamma) * img_feat + beta
-
-        # 7) final Q head
-        feats = [img_film, action_cat]
-        if self.use_robot_state:
-            feats.append(robot_feat_cat)
-
-        x = torch.cat(feats, dim=1)
-        x = F.silu(self.fc1(x))
-        x = F.silu(self.fc2(x))
-        q = self.q_out(x)
-        return q  
     
 class SpatioContextualAttention(nn.Module):
     def __init__(self, global_channels, context_dim, embed_dim=64):
@@ -1976,7 +1712,7 @@ class SACAgent:
             max_robots=MAX_ROBOTS,
             ego_state_shape=(4, EGO_MAP_SIZE, EGO_MAP_SIZE),
             global_state_shape=(4, DOWNSAMPLE_MAP_SIZE, DOWNSAMPLE_MAP_SIZE),
-            action_dim=2,
+            action_dim=3,
             robot_dim=self.robot_dim,
             device=self.device,
         )
@@ -2102,84 +1838,85 @@ class SACAgent:
 
 
 
-    # ------------------------------------------------- #
-    # Update (one gradient step)
+# ------------------------------------------------- #
+    # Update (one gradient step) - Waypoint Optimized
     # ------------------------------------------------- #
     def update(self):
+        # 1) Replay Buffer로부터 샘플링 (delta_t 포함 필수)
         if len(self.replay_buffer) < self.batch_size * START_BATCH_TIMES:
             return
 
+        sampled = self.replay_buffer.sample(self.batch_size)
+        # buffer.sample이 반환하는 값의 순서에 맞춰서 언패킹하세요.
+        # delta_t는 해당 waypoint 액션 시작부터 종료(도달/충돌)까지 걸린 시간(또는 스텝 수)입니다.
         (
             joint_ego, global_state, joint_robot, joint_action, joint_mask,
             next_joint_ego, next_global_state, next_joint_robot, next_joint_mask,
-            reward, done, agent_index
-        ) = self.replay_buffer.sample(self.batch_size)
+            reward, done, agent_index, delta_t 
+        ) = sampled
 
+        # 다수 로봇 환경일 경우의 순열 처리 (기존 유지)
         if MAX_ROBOTS > 1:
             (
                 joint_ego, joint_robot, joint_action, joint_mask,
                 next_joint_ego, next_joint_robot, next_joint_mask,
                 agent_index
             ) = random_permute_joint_batch(
-                joint_ego,
-                joint_robot,
-                joint_action,
-                joint_mask,
-                next_joint_ego,
-                next_joint_robot,
-                next_joint_mask,
+                joint_ego, joint_robot, joint_action, joint_mask,
+                next_joint_ego, next_joint_robot, next_joint_mask,
                 agent_index,
             )
 
         self.alpha = self.log_alpha.exp().detach()
 
         # -----------------------
-        # 1) Critic target
+        # 1) Critic target (Waypoint 핵심: 가변 감마)
         # -----------------------
         with torch.no_grad():
+            # 다음 상태에서의 행동 샘플링
             next_joint_action, next_joint_logp = self.sample_joint_actions(
                 next_joint_ego, next_global_state, next_joint_robot, next_joint_mask
-            )  # (B,N,A), (B,N)
+            )
 
+            # 현재 학습 대상 에이전트의 log_prob 추출
             next_logp_i = gather_agent_tensor(next_joint_logp.unsqueeze(-1), agent_index).squeeze(-1)
 
+            # Target Q 네트워크 평가
             q1_next_all = self.q1_target(
-                            next_joint_ego, next_global_state, next_joint_action, next_joint_robot, next_joint_mask
-                        ) # (B, N, 1)
+                next_joint_ego, next_global_state, next_joint_action, next_joint_robot, next_joint_mask
+            )
             q2_next_all = self.q2_target(
                 next_joint_ego, next_global_state, next_joint_action, next_joint_robot, next_joint_mask
-            ) # (B, N, 1)
+            )
             
-            # [NEW] (B, N, 1)에서 현재 학습 중인 agent_index의 Q값만 추출!
-            q1_next_i = gather_agent_tensor(q1_next_all, agent_index).squeeze(-1) # (B,)
-            q2_next_i = gather_agent_tensor(q2_next_all, agent_index).squeeze(-1) # (B,)
-            
-            q_next = torch.min(q1_next_i, q2_next_i) # (B,)
+            q1_next_i = gather_agent_tensor(q1_next_all, agent_index).squeeze(-1)
+            q2_next_i = gather_agent_tensor(q2_next_all, agent_index).squeeze(-1)
+            q_next = torch.min(q1_next_i, q2_next_i)
 
-            # reward는 (B,) 형태일 것이므로 그대로 계산 가능
-            q_target = reward + self.gamma * (1 - done) * (q_next - self.alpha * next_logp_i)
+            # [핵심] Waypoint 방식의 가변 할인율 적용
+            # delta_t가 클수록(도착까지 오래 걸릴수록) 미래 가치를 더 많이 할인합니다.
+            adjusted_gamma = torch.pow(self.gamma, delta_t)
+            q_target = reward + adjusted_gamma * (1 - done) * (q_next - self.alpha * next_logp_i)
 
         # -----------------------
         # 2) Critic update
         # -----------------------
         q1_val_all = self.q1(joint_ego, global_state, joint_action, joint_robot, joint_mask)
         q2_val_all = self.q2(joint_ego, global_state, joint_action, joint_robot, joint_mask)
-        q1_val = gather_agent_tensor(q1_val_all, agent_index).squeeze(-1) # (B,)
-        q2_val = gather_agent_tensor(q2_val_all, agent_index).squeeze(-1) # (B,)
+        q1_val = gather_agent_tensor(q1_val_all, agent_index).squeeze(-1)
+        q2_val = gather_agent_tensor(q2_val_all, agent_index).squeeze(-1)
 
         loss_q1 = F.mse_loss(q1_val, q_target)
         loss_q2 = F.mse_loss(q2_val, q_target)
 
-        max_grad_norm = 1.0
-
         self.q1_optimizer.zero_grad()
         loss_q1.backward()
-        torch.nn.utils.clip_grad_norm_(self.q1.parameters(), max_grad_norm)
+        torch.nn.utils.clip_grad_norm_(self.q1.parameters(), 1.0)
         self.q1_optimizer.step()
 
         self.q2_optimizer.zero_grad()
         loss_q2.backward()
-        torch.nn.utils.clip_grad_norm_(self.q2.parameters(), max_grad_norm)
+        torch.nn.utils.clip_grad_norm_(self.q2.parameters(), 1.0)
         self.q2_optimizer.step()
 
         # -----------------------
@@ -2190,16 +1927,17 @@ class SACAgent:
         )
         logp_i = gather_agent_tensor(joint_logp.unsqueeze(-1), agent_index).squeeze(-1)
 
-        q1_new_all = self.q1(joint_ego, global_state, new_joint_action, joint_robot, joint_mask) 
-        q2_new_all = self.q2(joint_ego, global_state, new_joint_action, joint_robot, joint_mask) 
+        q1_new_all = self.q1(joint_ego, global_state, new_joint_action, joint_robot, joint_mask)
+        q2_new_all = self.q2(joint_ego, global_state, new_joint_action, joint_robot, joint_mask)
 
-        q1_new_i = gather_agent_tensor(q1_new_all, agent_index).squeeze(-1) # (B,)
-        q2_new_i = gather_agent_tensor(q2_new_all, agent_index).squeeze(-1) # (B,)
-
+        q1_new_i = gather_agent_tensor(q1_new_all, agent_index).squeeze(-1)
+        q2_new_i = gather_agent_tensor(q2_new_all, agent_index).squeeze(-1)
         q_new = torch.min(q1_new_i, q2_new_i)
 
+        # Policy loss: Entropy-regularized Q maximization
         policy_loss = (self.alpha * logp_i - q_new).mean()
 
+        # Alpha (Temperature) update
         alpha_loss = -(self.log_alpha * (logp_i + self.target_entropy).detach()).mean()
 
         self.alpha_optimizer.zero_grad()
@@ -2208,7 +1946,7 @@ class SACAgent:
 
         self.policy_optimizer.zero_grad()
         policy_loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.policy.parameters(), max_grad_norm)
+        torch.nn.utils.clip_grad_norm_(self.policy.parameters(), 1.0)
         self.policy_optimizer.step()
 
         # -----------------------
