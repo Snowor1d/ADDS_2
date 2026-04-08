@@ -28,14 +28,14 @@ from pathlib import Path
 import imageio.v2 as imageio
 import torch.distributions as dist
 
-DEBUG_SAVE = False
+DEBUG_SAVE = True
 home_dir = os.path.expanduser("~")
 DEBUG_DIR_TEMP = os.path.join(home_dir, LOG_DIR)
 DEBUG_DIR = os.path.join(DEBUG_DIR_TEMP, "debug_frames")
 DEBUG_EVERY_EP = 1  
 DEBUG_STEPS = {100, 200, 300}  # 초반 3번 boundary만 저장
 MAX_ROBOTS = 3
-ACTION_DIM = 2
+ACTION_DIM = 3
 
 def save_debug_triplet(save_dir: str, worker_id: int, episode_idx: int, step: int, agent_idx: int,
                        full_u8: np.ndarray,
@@ -172,13 +172,12 @@ class TransitionMsg:
     next_global_state: np.ndarray        # (4, DOWN, DOWN)
     next_joint_robot_state: np.ndarray   # (MAX_ROBOTS, ROBOT_STATE_DIM)
     next_joint_mask: np.ndarray          # (MAX_ROBOTS,)
-    reward_a : float
-    reward_b : float
-    reward_c : float
+    reward: float
     done: bool
 
     # 어떤 robot의 actor loss용 샘플인지
     agent_index: int
+    delta_t: float
 
 @dataclass
 class EpisodeStatMsg:
@@ -424,6 +423,20 @@ class FrameStackWithStep:
             stacked.append(self.history[idx])
         
         return np.stack(stacked, axis=0) # (k, H, W)
+    def get_stack(self):
+        """히스토리에 변화를 주지 않고 현재 시점의 스택된 프레임만 반환"""
+        if not self.history:
+            # 히스토리가 비어있을 경우에 대한 예외 처리 (필요 시)
+            return None 
+            
+        stacked = []
+        curr_idx = len(self.history) - 1
+        for i in range(self.k):
+            # 히스토리가 충분하지 않을 때는 가장 오래된 프레임(0번)으로 패딩
+            idx = max(0, curr_idx - i * self.step)
+            stacked.append(self.history[idx])
+        
+        return np.stack(stacked, axis=0) # (k, H, W)
 
 def worker_process(
     worker_id: int,
@@ -596,7 +609,36 @@ def worker_process(
             for step in range(MAX_STEPS):
                 # A. 현재 시점의 원본 프레임 및 상태 관측
                 full_u8, ego_frames, glob_f, joint_robot_state, joint_mask = _build_joint_frames(env_model, robots_padded)
-                
+                if DEBUG_SAVE:
+                    # 1. 공통 이미지(Global, Full)는 한 번만 Flip 처리
+                    full_u8_r = np.flip(np.flip(full_u8, axis=-1), axis=-2)
+                    glob_f_r = np.flip(np.flip(glob_f, axis=-1), axis=-2)
+                    
+                    full_u8_to_save = np.flip(full_u8_r, axis=1)
+                    glob_f_to_save = np.flip(glob_f_r, axis=1)
+
+                    # 2. 살아있는 모든 로봇을 순회하며 개별 저장
+                    for agent_i in range(MAX_ROBOTS):
+                        if joint_mask[agent_i] < 0.5:
+                            continue  # 패딩된 빈자리(None)나 죽은 로봇은 건너뜀
+
+                        # 해당 로봇의 Ego 이미지만 Flip 처리
+                        ego_f_r = np.flip(np.flip(ego_frames[agent_i], axis=-1), axis=-2)
+                        ego_f_to_save = np.flip(ego_f_r, axis=1)
+
+                        save_debug_triplet(
+                            save_dir=DEBUG_DIR,
+                            worker_id=worker_id,
+                            episode_idx=episode_idx,
+                            step=step,
+                            agent_idx=agent_i,  # <--- 어떤 로봇인지 식별자 추가
+                            full_u8=full_u8_to_save,
+                            ego_f=ego_f_to_save,
+                            glob_f=glob_f_to_save,
+                            ego_state=ego_stacks[agent_i].get_stack() if step > 0 else None,
+                            global_state=glob_stack.get_stack() if step >0 else None
+                        )
+
                 # B. FRAME_STEP 간격을 반영한 Stacked State 업데이트
                 # 매 스텝 호출하지만 내부적으로는 간격에 맞춰 데이터를 쌓음
                 curr_glob_state = glob_stack.update(glob_f)
@@ -699,10 +741,10 @@ def worker_process(
                 # ------------------------------------------
                 alive_agents = env_model.alived_agents()
 
-                if (alive_agents < env_model.total_agents * 0.2) and (evacuation_time_80 == max_steps):
+                if (alive_agents < env_model.total_agents * 0.2) and (evacuation_time_80 == MAX_STEPS):
                     evacuation_time_80 = step
 
-                if (alive_agents < 1) and (evacuation_time_100 == max_steps):
+                if (alive_agents < 1) and (evacuation_time_100 == MAX_STEPS):
                     evacuation_time_100 = step
 
             try:
@@ -2356,51 +2398,22 @@ if __name__ == "__main__":
             # ReplayBuffer에 push
             for agent_i in range(MAX_ROBOTS):
                 if msg.joint_mask[agent_i] > 0.5:
-                    if (agent_i == 0):                    
-                        agent.replay_buffer.push(
-                            msg.joint_ego_state,
-                            msg.global_state,
-                            msg.joint_robot_state,
-                            msg.joint_action,
-                            msg.joint_mask,
-                            msg.next_joint_ego_state,
-                            msg.next_global_state,
-                            msg.next_joint_robot_state,
-                            msg.next_joint_mask,
-                            msg.reward_a,
-                            msg.done,
-                            agent_i
-                        )
-                    elif (agent_i == 1):
-                        agent.replay_buffer.push(
-                            msg.joint_ego_state,
-                            msg.global_state,
-                            msg.joint_robot_state,
-                            msg.joint_action,
-                            msg.joint_mask,
-                            msg.next_joint_ego_state,
-                            msg.next_global_state,
-                            msg.next_joint_robot_state,
-                            msg.next_joint_mask,
-                            msg.reward_b,
-                            msg.done,
-                            agent_i
-                        )
-                    elif (agent_i == 2):
-                        agent.replay_buffer.push(
-                            msg.joint_ego_state,
-                            msg.global_state,
-                            msg.joint_robot_state,
-                            msg.joint_action,
-                            msg.joint_mask,
-                            msg.next_joint_ego_state,
-                            msg.next_global_state,
-                            msg.next_joint_robot_state,
-                            msg.next_joint_mask,
-                            msg.reward_c,
-                            msg.done,
-                            agent_i
-                        )
+                  
+                    agent.replay_buffer.push(
+                        msg.joint_ego_state,
+                        msg.global_state,
+                        msg.joint_robot_state,
+                        msg.joint_action,
+                        msg.joint_mask,
+                        msg.next_joint_ego_state,
+                        msg.next_global_state,
+                        msg.next_joint_robot_state,
+                        msg.next_joint_mask,
+                        msg.reward,
+                        msg.done,
+                        agent_i,
+                        msg.delta_t
+                    )
 
             # 업데이트 스케줄: transition 수에 비례해서 update 횟수 누적
             if global_episode >= START_UPDATE_EPISODE:
