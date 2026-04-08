@@ -22,7 +22,7 @@ from dataclasses import dataclass
 import multiprocessing as mp
 import queue
 from queue import Empty, Full # for Empty
-
+import cv2
 
 from pathlib import Path
 import imageio.v2 as imageio
@@ -683,7 +683,13 @@ def worker_process(
                     if rb is not None and timelines[i].active:
                         # env_model에서 해당 로봇의 이번 스텝 개별 보상을 계산하여 반환
                         # (Collision penalty, Distance reward, Step penalty 등)
-                        r_step = env_model.calculate_robot_immediate_reward(i)
+                        r_step = 0 
+                        r_step += env_model.reward_penalty_collision_robot_index(rb.robot_index) * REWARD_K
+                        if REWARD_A:
+                            r_step += env_model.reward_based_alived() * REWARD_A
+                        if REWARD_B:    
+                            r_step += env_model.reward_based_all_agents_danger() * REWARD_B
+                        r_step += REWARD_FIXED
                         timelines[i].accum_reward += r_step
                         timelines[i].delta_t += 1
                         total_reward += r_step # 통계용

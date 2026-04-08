@@ -99,8 +99,8 @@ ALPHA_DECAY_STEPS = 3000
 
 REWARD_A = 2 #reward_based_alived
 REWARD_B = 0.003 #reward_based_all_agents_danger
-REWARD_D = 2 #reward_based_penalty
-REWARD_K = 6 #reward_penalty_collsion
+REWARD_D = 0 #reward_based_penalty
+REWARD_K = 10 #reward_penalty_collsion
 REWARD_FIXED = -0.5
 
 REWARD_I = 0 #reward_based_alived_root
