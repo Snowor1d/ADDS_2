@@ -33,7 +33,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 
-from ADDS_AS_reinforcement import SACAgent, ReplayBuffer, PolicyNetwork, QNetwork, ACTION_SCALE, FrameStack, FrameStack2
+from ADDS_AS_reinforcement import SACAgent, ReplayBuffer, PolicyNetwork, ACTION_SCALE, FrameStack, FrameStack2
 from config import *
 import json
 import ast

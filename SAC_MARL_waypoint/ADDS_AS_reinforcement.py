@@ -1750,7 +1750,7 @@ class SACAgent:
         self.use_robot_state = ROBOT_STATE_EMBEDDING
         self.robot_dim = ROBOT_STATE_DIM if self.use_robot_state else 0
         
-        self.target_entropy = -2
+        self.target_entropy = -3
         self.log_alpha = torch.tensor(np.log(self.alpha), requires_grad=True, device=self.device)
         self.alpha_optimizer = optim.AdamW([self.log_alpha], lr=lr)
 
