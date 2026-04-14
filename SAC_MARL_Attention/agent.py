@@ -880,7 +880,7 @@ class RobotAgent(CrowdAgent):
 
         self.action[0] = action[0]
         self.action[1] = action[1]
-
+        
         
         if(self.now_exploration == 1):
             print("exploration 중")

@@ -1,5 +1,5 @@
 # Soft Actor Critic for Multi-Agent Reinforcement Learning with 
-# Local Reward, Impala CNN, Attention for fused state (global+ego+auxiliary state), individual Q valued, film with ego info (Only Q), spatial attention
+# velocity rollback
 # ------------- BASIC PARAMETERS ------------------
 LR = 1e-4
 BUFFER_SIZE = 1000000
@@ -9,8 +9,8 @@ START_BATCH_TIMES = 1
 START_UPDATE_EPISODE = 500
 DEVICE = "cpu"
 
-GAMMA_START = 0.997
-GAMMA_END = 0.997
+GAMMA_START = 0.999
+GAMMA_END = 0.999
 GAMMA_SCHEDULE_STEP = 1000
 MAP_H = 100
 MAP_W = 100
@@ -83,7 +83,7 @@ RANDOM_EXIT = False
 
 
 # -------------- PATH -------------------
-LOG_DIR = "Log_MARL_waypoint2_105_108_128"
+LOG_DIR = "Log_MARL_waypoint3_105_108_128"
 #LOG_DIR = "SOTA_MODELS"
 #LOG_DIR = "Log_test"
 PORT_NUM = 8100
@@ -127,7 +127,7 @@ USE_MARL_BASELINE = False
 
 R_MIN = 2
 R_MAX = 10
-SPD_MIN = 0.5
+SPD_MIN = 1.2
 SPD_MAX = 2
 DIRECTION_N= 12
 FRAME_STEP = 4
