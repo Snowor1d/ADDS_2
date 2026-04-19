@@ -1921,11 +1921,12 @@ class SACAgent:
                 r_m, _, d_m, _, spd_m, _ = self.policy.forward(ego_t, global_t, robot_t)
                 
                 # Sigmoid 스케일링 (PolicyNetwork.sample_action 내부 로직과 일치시켜야 함)
-                r = R_MIN + (R_MAX - R_MIN) * torch.sigmoid(r_m)
-                spd = SPD_MIN + (SPD_MAX - SPD_MIN) * torch.sigmoid(spd_m)
-                dir_vec = -1.0 + (1.0 - (-1.0)) * torch.sigmoid(d_m) # dx, dy를 [-1, 1]로
+
+                r = R_MIN + (R_MAX - R_MIN) * torch.sigmoid(r_m) #radius
+                spd = SPD_MIN + (SPD_MAX - SPD_MIN) * torch.sigmoid(spd_m) #speed 
+                dir_vec = -1.0 + (1.0 - (-1.0)) * torch.sigmoid(d_m) #direction vector
                 
-                action_t = torch.cat([r, dir_vec, spd], dim=-1) # [1, 4] 차원 완성
+                action_t = torch.cat([r, dir_vec, spd], dim=-1) 
             else:
                 # 비결정적(Stochastic) 선택: sample_action 사용 (reparameterization trick)
                 action_t, _ = self.policy.sample_action(ego_t, global_t, robot_t)
@@ -1998,8 +1999,7 @@ class SACAgent:
             q2_next_i = gather_agent_tensor(q2_next_all, agent_index).squeeze(-1)
             q_next = torch.min(q1_next_i, q2_next_i)
 
-            # [핵심] Waypoint 방식의 가변 할인율 적용
-            # delta_t가 클수록(도착까지 오래 걸릴수록) 미래 가치를 더 많이 할인합니다.
+            # delta_t increase -> discount more
             adjusted_gamma = torch.pow(self.gamma, delta_t)
             q_target = reward + adjusted_gamma * (1 - done) * (q_next - self.alpha * next_logp_i)
 
