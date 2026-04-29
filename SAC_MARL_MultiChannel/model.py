@@ -578,6 +578,7 @@ class FightingModel(Model):
 
         self.static_grid = np.zeros((self.height, self.width), dtype = np.uint8)
         self._render_static_map(self.height, self.width)
+        self._build_static_channels(self.height, self.width)
 
         self.glob_stack = FrameStackWithStep(4, FRAME_STEP)
     
@@ -2114,16 +2115,11 @@ class FightingModel(Model):
 
     def return_current_image(self, H: int = 100, W: int = 100):
         """
-        Return object-separated raster state for RL.
-
-        Output:
-            img: np.ndarray, shape = (4, H, W), dtype=np.uint8
-
-        Channels:
-            0: obstacle / wall
-            1: exit
-            2: crowd
-            3: robot
+        Output shape: (4,H,W)
+        0: obstacle
+        1: exit
+        2: crowd
+        3: robot
         """
 
         OBSTACLE_CH = 0
@@ -2131,50 +2127,38 @@ class FightingModel(Model):
         CROWD_CH = 2
         ROBOT_CH = 3
 
-        img = np.zeros((4, H, W), dtype=np.uint8)
+        # static channel을 미리 만들어두었다면 그대로 복사
+        if hasattr(self, "static_channels") and self.static_channels.shape[1:] == (H, W):
+            img = np.zeros((4, H, W), dtype=np.uint8)
+            img[OBSTACLE_CH] = self.static_channels[OBSTACLE_CH]
+            img[EXIT_CH] = self.static_channels[EXIT_CH]
+        else:
+            img = np.zeros((4, H, W), dtype=np.uint8)
+
+            static = self.static_grid
+            if static.shape != (H, W):
+                static = cv2.resize(static, (W, H), interpolation=cv2.INTER_NEAREST)
+
+            img[OBSTACLE_CH][static == 50] = 255
+            img[EXIT_CH][static == 100] = 255
 
         def to_px(x, y):
             ix = int(np.clip(x / self.width  * W, 0, W - 1))
             iy = int(np.clip(y / self.height * H, 0, H - 1))
             return ix, iy
 
-        # -------------------------------------------------
-        # 1. Static map: obstacle / exit
-        # -------------------------------------------------
-        static = self.static_grid
-
-        # 혹시 static_grid 크기가 요청한 H, W와 다르면 보정
-        if static.shape != (H, W):
-            static = cv2.resize(static, (W, H), interpolation=cv2.INTER_NEAREST)
-
-        # _render_static_map() 기준:
-        # obstacle/wall = 50
-        # exit = 100
-        img[OBSTACLE_CH][static == 50] = 255
-        img[EXIT_CH][static == 100] = 255
-
-        # 만약 출구와 장애물이 겹치거나 max 처리 때문에 100 이상이 될 가능성이 있다면
-        # 아래처럼 해도 됨:
-        # img[EXIT_CH][static >= 100] = 255
-
-        # -------------------------------------------------
-        # 2. Crowd channel
-        # -------------------------------------------------
         for ag in self.crowds:
             if ag.dead:
                 continue
-
             ix, iy = to_px(ag.xy[0], ag.xy[1])
             img[CROWD_CH, iy, ix] = 255
 
-        # -------------------------------------------------
-        # 3. Robot channel
-        # -------------------------------------------------
         for rb in getattr(self, "robots", []):
             ix, iy = to_px(rb.xy[0], rb.xy[1])
             img[ROBOT_CH, iy, ix] = 255
 
         return img
+
     def update_obstacles(self, new_polys):
         # self._obstacle_polys = new_polys
         # self.obstacles_version += 1
@@ -2276,6 +2260,46 @@ class FightingModel(Model):
         ego_f = ego_u8.astype(np.float32) / 255.0
         glob_f = glob_u8.astype(np.float32) / 255.0
         return ego_f, glob_f
+    
+    def _build_static_channels(self, H: int = 100, W: int = 100):
+        """
+        Static object channels for RL image state.
+
+        Output:
+            self.static_channels: np.ndarray, shape = (4, H, W), dtype=np.uint8
+
+        Channels:
+            0: obstacle / wall
+            1: exit
+            2: crowd      # dynamic, initially zero
+            3: robot      # dynamic, initially zero
+        """
+
+        OBSTACLE_CH = 0
+        EXIT_CH = 1
+        CROWD_CH = 2
+        ROBOT_CH = 3
+
+        static_channels = np.zeros((4, H, W), dtype=np.uint8)
+
+        static = self.static_grid
+
+        # static_grid 크기가 다르면 보정
+        if static.shape != (H, W):
+            static = cv2.resize(static, (W, H), interpolation=cv2.INTER_NEAREST)
+
+        # _render_static_map() 기준:
+        # obstacle/wall = 50
+        # exit = 100
+        static_channels[OBSTACLE_CH][static == 50] = 255
+        static_channels[EXIT_CH][static == 100] = 255
+
+        # dynamic channel은 여기서는 비워둠
+        static_channels[CROWD_CH, :, :] = 0
+        static_channels[ROBOT_CH, :, :] = 0
+
+        self.static_channels = static_channels
+        self.static_channels_shape = (H, W)
 
     # def _policy_deterministic_action(self, ego_state_4chw, glob_state_4chw, robot_state):
     #     """
