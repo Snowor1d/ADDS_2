@@ -1916,7 +1916,7 @@ class FightingModel(Model):
         
         for robot in self.robots:
                 
-            if (self.robot_version == 'Q'):
+            if (self.robot_version == 'Q' and self.using_model):
                 # 1) full map (uint8) 가져오기 (학습 때랑 동일: MAP_H, MAP_W)
                 #print("MAP_H :", MAP_H)
                 full_map = self.return_current_image(MAP_H, MAP_W)  # (H,W) uint8
