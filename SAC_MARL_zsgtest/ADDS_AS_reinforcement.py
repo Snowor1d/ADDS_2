@@ -408,6 +408,10 @@ def zsg_metric_path(map_num: int, robot_num: int) -> str:
     fname = f"zsg_evacuation_100_map_{map_num}_robot_{robot_num}.txt"
     return os.path.join(ZSG_DIR, fname)
 
+def zsg_all_maps_metric_path(robot_num: int) -> str:
+    fname = f"zsg_evacuation_100_all_maps_robot_{robot_num}.txt"
+    return os.path.join(ZSG_DIR, fname)
+
 def alpha_decay_schedule(parameter_start: float,
                    parameter_end: float,
                    decay_steps: int,
@@ -2326,20 +2330,23 @@ def run_zero_shot_evaluation(
 ):
     """
     ZSG_MAP, ZSG_ROBOT_NUM, ZSG_ITERATION 기준으로 zero-shot 평가 수행.
-    각 map_num / robot_num 조합별 evacuation_100 평균을 txt와 TensorBoard에 기록.
+
+    저장 내용:
+    1) 각 map_num / robot_num 조합별 evacuation_100 평균
+    2) 각 robot_num별 전체 zero-shot map 평균
     """
     print(f"[ZeroShot] Start evaluation at episode {episode}")
 
-    # select_action 내부에서 exploration이 먼저 적용되므로,
-    # 평가 중에는 epsilon을 임시로 0으로 고정해야 함.
     old_epsilon = agent.epsilon
     agent.epsilon = 0.0
 
     results = {}
 
     try:
-        for map_num in ZSG_MAP:
-            for robot_num in ZSG_ROBOT_NUM:
+        for robot_num in ZSG_ROBOT_NUM:
+            robot_map_avg_list = []
+
+            for map_num in ZSG_MAP:
                 evac100_list = []
 
                 for it in range(ZSG_ITERATION):
@@ -2356,16 +2363,22 @@ def run_zero_shot_evaluation(
                     evac100_list.append(evac100)
 
                 avg_evac100 = float(np.mean(evac100_list))
+                robot_map_avg_list.append(avg_evac100)
+
                 results[(map_num, robot_num)] = avg_evac100
 
-                # 1) txt 저장
+                # --------------------------------------------------
+                # 1) map별 txt 저장
+                # --------------------------------------------------
                 path = zsg_metric_path(map_num, robot_num)
                 ensure_file(path)
 
                 with open(path, "a") as f:
                     f.write(f"{episode}\t{avg_evac100:.6f}\n")
 
-                # 2) TensorBoard 저장
+                # --------------------------------------------------
+                # 2) map별 TensorBoard 저장
+                # --------------------------------------------------
                 tb_tag = f"ZeroShot/Evacuation100/map_{map_num}/robot_{robot_num}"
                 writer.add_scalar(tb_tag, avg_evac100, episode)
 
@@ -2375,6 +2388,33 @@ def run_zero_shot_evaluation(
                     f"avg_evac100={avg_evac100:.2f}, "
                     f"raw={evac100_list}"
                 )
+
+            # --------------------------------------------------
+            # 3) robot_num별 전체 zero-shot map 평균
+            # --------------------------------------------------
+            all_maps_avg = float(np.mean(robot_map_avg_list))
+            results[("all_maps", robot_num)] = all_maps_avg
+
+            # txt 저장
+            all_path = zsg_all_maps_metric_path(robot_num)
+            ensure_file(all_path)
+
+            with open(all_path, "a") as f:
+                f.write(f"{episode}\t{all_maps_avg:.6f}\n")
+
+            # TensorBoard 저장
+            writer.add_scalar(
+                f"ZeroShot/Evacuation100/all_maps/robot_{robot_num}",
+                all_maps_avg,
+                episode
+            )
+
+            print(
+                f"[ZeroShot] episode={episode}, "
+                f"ALL_MAPS, robot={robot_num}, "
+                f"avg_evac100={all_maps_avg:.2f}, "
+                f"map_avgs={robot_map_avg_list}"
+            )
 
         writer.flush()
 
