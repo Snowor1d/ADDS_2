@@ -49,7 +49,7 @@ MAP_NUM = -1 #if not used, -2, if random, -1
 # MAP_NUM_RANDOM = [1014, 1042, 1068, 1095, 1127, 1153, 1186, 1219, 1264, 1298] # 10 maps
 
 
-MAP_NUM_RANDOM = [105]
+MAP_NUM_RANDOM = list(range(1000, 1300))
 #MAP_NUM_RANDOM = list(range(1000, 1300))
 #MAP_NUM_RANDOM = [1506]
 
@@ -83,10 +83,10 @@ RANDOM_EXIT = False
 
 
 # -------------- PATH -------------------
-LOG_DIR = "Log_MARL"
+LOG_DIR = "Log_MARL_zsgtest"
 #LOG_DIR = "SOTA_MODELS"
 #LOG_DIR = "Log_test"
-PORT_NUM = 8100
+PORT_NUM = 8150
 
 # --------------- SAC ALGORITHM PARAMETER ---------------
 LOG_STD_MAX = 0.5
@@ -133,7 +133,7 @@ DIRECTION_N= 12
 FRAME_STEP = 4
 
 ZSG_MAP = [1500, 1501, 1502, 1503]
-ZSG_CYCLE_EPISODE = 500
+ZSG_CYCLE_EPISODE = 100
 ZSG_ITERATION = 10
 ZSG_ROBOT_NUM = [1]
 
