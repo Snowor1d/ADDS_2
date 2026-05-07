@@ -84,7 +84,7 @@ RANDOM_EXIT = False
 
 
 # -------------- PATH -------------------
-LOG_DIR = "Log_MARL_zsgtest"
+LOG_DIR = "Log_MARL_zsgtest_cl"
 #LOG_DIR = "SOTA_MODELS"
 #LOG_DIR = "Log_test"
 PORT_NUM = 8150
@@ -133,10 +133,17 @@ SPD_MAX = 2
 DIRECTION_N= 12
 FRAME_STEP = 4
 
-ZSG_MAP = [1500, 1501, 1502, 1503, 1504, 1505, 1506, 1507, 1508, 1509]
+ZSG_MAP = [1500, 1501, 1502, 1503, 1504, 1505, 1506, 1507, 1508]
 ZSG_CYCLE_EPISODE = 500
 ZSG_ITERATION = 10
 ZSG_ROBOT_NUM = [1]
+
+
+# for curriculum learning
+MIN_LEVEL = 0
+MAX_LEVEL = 6
+CURRICULUM_LEARNING = {0: 2000, 1: 2000, 2: 2000, 3: 2000, 4: 2000, 5: 2000}
+CHECK_AVERAGE_FOR_STEPS = 100
 
 
 # --------------- crowd evacuation parameter -----------------
