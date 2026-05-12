@@ -225,7 +225,7 @@ def update_layout_from_env(env):
 def create_env_and_renderer(map_id:int, n_agents:int, world_w:int, world_h:int):
     #print("map_id : ", map_id)
     env = FightingModel(number_agents=n_agents, width=world_w, height=world_h,
-                        model_num=map_id, robot=ROBOT_VERSION_FOR_MODEL, robot_num=THE_NUMBER_OF_ROBOTS, difficulty=0)
+                        model_num=map_id, robot=ROBOT_VERSION_FOR_MODEL, robot_num=THE_NUMBER_OF_ROBOTS, difficulty=3)
     renderer = make_renderer(world_w, world_h) if USE_CONTINUOUS_RENDERER else None
     update_layout_from_env(env)
     return env, renderer

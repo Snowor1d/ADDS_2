@@ -26,22 +26,22 @@ from matplotlib.ticker import MultipleLocator
 # 1. Directory & Structure Config
 # =========================
 HOME_DIR = os.path.expanduser("~")
-ROOT_DIR = os.path.join(HOME_DIR, "ablations_marl") # 실제 데이터가 있는 최상위 경로로 수정하세요
+ROOT_DIR = os.path.join(HOME_DIR, "ablations3") # 실제 데이터가 있는 최상위 경로로 수정하세요
 OUT_DIR  = os.path.join(ROOT_DIR, "plots")
 
 # 탐색할 폴더 리스트 (순서대로 범례/그래프에 적용됨)
 MAP_NUMBERS  = ["3maps", "10maps", "30maps", "100maps", "300maps"]
-ABLATIONS    = ["velocity", "waypoint"]
+ABLATIONS    = ["NotEgo", "NotEpsilon", "NotFiLM", "Ours"]
 GRAPH_TARGETS= ["eva100s", "rewards"]
 
 # =========================
 # 2. Data Processing Config
 # =========================
-MAX_EPISODE = 12000
+MAX_EPISODE = 7000
 
 # 여러 개의 txt 파일이 있을 때 음영을 그리는 방식
 # "std" (표준편차), "minmax" (최소-최대), "se" (표준오차), None (음영 없음)
-SHADE_MODE  = "std" 
+SHADE_MODE  = "None" 
 SHADE_ALPHA = 0.2
 
 # Target별 특화 설정 (스케일, Y축 데이터 클리핑, Y축 뷰 범위 지정, Y축 라벨)
@@ -51,10 +51,10 @@ TARGET_CONFIGS = {
         "scale": 0.5,           # 기존 코드의 yarr / 2 반영
         "clip_min": 250,        # 데이터를 이 값 이하로 내려가지 않게 자름
         "clip_max": 3500,       # 데이터를 이 값 이상으로 올라가지 않게 자름
-        "ylim_min": 200,          # ★ 그래프 y축 뷰의 최소값 (None이면 자동)
-        "ylim_max": 3000,       # ★ 그래프 y축 뷰의 최대값 (None이면 자동)
-        "yticks_interval" : 500,
-        "xticks_interval" : 4000
+        "ylim_min": 270,          # ★ 그래프 y축 뷰의 최소값 (None이면 자동)
+        "ylim_max": 850,       # ★ 그래프 y축 뷰의 최대값 (None이면 자동)
+        "yticks_interval" : 200,
+        "xticks_interval" : 2000
     },
     "rewards": {
         "ylabel": "Reward",
@@ -72,7 +72,7 @@ TARGET_CONFIGS = {
 # =========================
 SAVE_DPI    = 300
 SAVE_FORMAT = "png"
-FIGSIZE_SINGLE = (12, 8)
+FIGSIZE_SINGLE = (15, 8)
 FIGSIZE_COMBINED = (20, 8)
 
 FONT_SIZES = {"title": 0, "axes": 35, "ticks": 35, "legend": 30}
@@ -107,10 +107,10 @@ MARKER_EDGEWIDTH = 1.2
 # ls: 흑백 호환을 위한 선 스타일 ("-": 실선, "--": 파선, "-.": 1점쇄선, ":": 점선)
 # marker: 각 Ablation을 명확히 구분하기 위한 모양
 ABLATION_STYLES = {
-    "waypoint":       {"color": "#3769f3", "ls": "-",  "lw": 3.5, "marker": "o"},
-    "velocity":     {"color": "#f04a4a", "ls": "-", "lw": 3.5, "marker": "s"},
-    "NotEpsilon": {"color": "#e27227", "ls": "-", "lw": 3.5, "marker": "^"},
-    "NotFiLM":    {"color": "#723e16", "ls": "-",  "lw": 3.5, "marker": "D"}
+    "Ours":       {"color": "#3769f3", "ls": "-",  "lw": 4.5, "marker": "o"},
+    "NotEgo":     {"color": "#f04a4a", "ls": "-", "lw": 4.5, "marker": "s"},
+    "NotEpsilon": {"color": "#e27227", "ls": "-", "lw": 4.5, "marker": "^"},
+    "NotFiLM":    {"color": "#723e16", "ls": "-",  "lw": 4.5, "marker": "D"}
 }
 
 # 정의되지 않은 Ablation이 들어올 경우를 대비한 기본 사이클
@@ -308,7 +308,6 @@ def draw_on_axis(ax, series_list: List[AggregatedSeries], target: str):
         ax.set_xlim(0, max_x)
     
     # ==========================================
-    # ★ 여기가 빠져있었습니다! 이 세 줄을 추가해 주세요.
     y_step = TARGET_CONFIGS.get(target, {}).get("yticks_interval")
     if y_step is not None:
         ax.yaxis.set_major_locator(MultipleLocator(y_step))
@@ -329,9 +328,9 @@ def draw_on_axis(ax, series_list: List[AggregatedSeries], target: str):
         ax.grid(**GRID_STYLE)
         
     # Legend
-    leg = ax.legend(frameon=False, loc="best")  
-    for line in leg.get_lines():
-        line.set_marker("None")
+    # leg = ax.legend(frameon=False, loc="best")  
+    # for line in leg.get_lines():
+    #     line.set_marker("None")
 
 def create_single_plot(map_name: str, target: str, series_list: List[AggregatedSeries]):
     fig, ax = plt.subplots(figsize=FIGSIZE_SINGLE)

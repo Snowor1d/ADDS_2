@@ -305,8 +305,8 @@ def _params_from_difficulty(W: int, H: int, difficulty: int) -> Dict[str, float]
             "disallow_same_side": 1.0,
 
             # density/quota
-            "large_count_min": 1, "large_count_max": 3,
-            "small_count_min": 2, "small_count_max": 6,
+            "large_count_min": 1, "large_count_max": 2,
+            "small_count_min": 1, "small_count_max": 3,
             "density_large_ratio": 0.4,
 
             # spacing
@@ -316,7 +316,7 @@ def _params_from_difficulty(W: int, H: int, difficulty: int) -> Dict[str, float]
 
             # large shape mix
             "large_block_bias": 0.30,
-            "L_shape_bias": 0.10,
+            "L_shape_bias": 0.05,
             "U_shape_bias": 0.05,
             "wall_rect_bias": 0.25,
             "large_conv_bias": 0.4,
@@ -382,23 +382,23 @@ def _params_from_difficulty(W: int, H: int, difficulty: int) -> Dict[str, float]
 
     if d <= 1:
         p.update({
-            "density_min": 0.10, "density_max": 0.20,
+            "density_min": 0.05, "density_max": 0.10,
             "large_count_min": 1, "large_count_max": 2,
-            "small_count_min": 2, "small_count_max": 4,
+            "small_count_min": 1, "small_count_max": 2,
         })
         return p
 
     if d <= 2:
         p.update({
-            "density_min": 0.15, "density_max": 0.25,
+            "density_min": 0.05, "density_max": 0.15,
             "large_count_min": 1, "large_count_max": 2,
-            "small_count_min": 2, "small_count_max": 4,
+            "small_count_min": 1, "small_count_max": 3,
         })
         return p
 
     if d <= 3:
         p.update({
-            "density_min": 0.20, "density_max": 0.30,
+            "density_min": 0.1, "density_max": 0.20,
             "large_count_min": 1, "large_count_max": 3,
             "small_count_min": 2, "small_count_max": 4,
         })
@@ -406,22 +406,26 @@ def _params_from_difficulty(W: int, H: int, difficulty: int) -> Dict[str, float]
 
     if d == 4:
         p.update({
-            "density_min": 0.25, "density_max": 0.35,
-            "large_count_min": 1, "large_count_max": 3,
-            "small_count_min": 3, "small_count_max": 6,
+            "density_min": 0.15, "density_max": 0.25,
+            "large_count_min": 2, "large_count_max": 4,
+            "small_count_min": 2, "small_count_max": 5,
         })
         return p
 
     if d == 5:
         p.update({
-            "density_min": 0.25, "density_max": 0.40,
+            "density_min": 0.20, "density_max": 0.30,
+            "large_count_min": 2, "large_count_max": 5,
+            "small_count_min": 2, "small_count_max": 6,
 
         })
         return p
 
     # HARD
     p.update({
-        "density_min": 0.30, "density_max": 0.45,
+        "density_min": 0.25, "density_max": 0.35,
+        "large_count_min": 2, "large_count_max": 5,
+        "small_count_min": 3, "small_count_max": 7,
     })
     return p
 
