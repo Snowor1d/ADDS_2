@@ -380,6 +380,14 @@ def _params_from_difficulty(W: int, H: int, difficulty: int) -> Dict[str, float]
 
     p = base_common()
 
+    if d == 0:
+        p.update({
+            "density_min": 0, "density_max": 0,
+            "large_count_min": 0, "large_count_max": 0,
+            "small_count_min": 0, "small_count_max": 0,
+        })
+        return p
+
     if d <= 1:
         p.update({
             "density_min": 0.05, "density_max": 0.10,
