@@ -28,7 +28,7 @@ from pathlib import Path
 import imageio.v2 as imageio
 import torch.distributions as dist
 
-DEBUG_SAVE = False
+DEBUG_SAVE = True
 home_dir = os.path.expanduser("~")
 DEBUG_DIR_TEMP = os.path.join(home_dir, LOG_DIR)
 DEBUG_DIR = os.path.join(DEBUG_DIR_TEMP, "debug_frames")
@@ -192,6 +192,11 @@ class EpisodeStatMsg:
 
     difficulty: int
     is_random_curriculum: int
+
+    reward_collision: float
+    reward_A: float
+    reward_B: float
+    reward_fixed: float
 
 STATE_SHAPE = (4, 50, 50)
 INPUT_MAP_SIZE = 50
@@ -770,7 +775,12 @@ def worker_process(
         abnormal_reward = 0
         evacuation_time_80 = MAX_STEPS
         evacuation_time_100 = MAX_STEPS
-        agent_total_lifetime = 0.0      
+        agent_total_lifetime = 0.0
+
+        episode_reward_collision = 0.0
+        episode_reward_A = 0.0
+        episode_reward_B = 0.0
+        episode_reward_fixed = 0.0      
 
         try:
             # 최신 파라미터 로드
@@ -901,13 +911,30 @@ def worker_process(
                     if rb is not None and timelines[i].active:
                         # env_model에서 해당 로봇의 이번 스텝 개별 보상을 계산하여 반환
                         # (Collision penalty, Distance reward, Step penalty 등)
-                        r_step = 0 
-                        r_step += env_model.reward_penalty_collision_robot_index(rb.robot_index) * REWARD_K
+                        r_step = 0.0
+                        r_collision = env_model.reward_penalty_collision_robot_index(rb.robot_index) * REWARD_K
+                        r_step += r_collision
+                        episode_reward_collision += r_collision
+
                         if REWARD_A:
-                            r_step += env_model.reward_based_alived() * REWARD_A
-                        if REWARD_B:    
-                            r_step += env_model.reward_based_all_agents_danger() * REWARD_B
-                        r_step += REWARD_FIXED
+                            r_A = env_model.reward_based_alived() * REWARD_A
+                        else:
+                            r_A = 0.0
+
+                        r_step += r_A
+                        episode_reward_A += r_A
+
+                        if REWARD_B:
+                            r_B = env_model.reward_based_all_agents_danger() * REWARD_B
+                        else :
+                            r_B= 0.0
+                        r_step += r_B
+                        episode_reward_B += r_B
+
+                        r_fixed = REWARD_FIXED
+                        r_step += r_fixed
+                        episode_reward_fixed += r_fixed
+
                         timelines[i].accum_reward += r_step
                         timelines[i].delta_t += 1
                         total_reward += r_step # 통계용
@@ -940,6 +967,12 @@ def worker_process(
             worker_id=worker_id,
             episode_idx=episode_idx,
             total_reward=float(total_reward),
+
+            reward_collision = float(episode_reward_collision),
+            reward_A = float(episode_reward_A),
+            reward_B = float(episode_reward_B),
+            reward_fixed = float(episode_reward_fixed),
+
             evac_time_80=int(evacuation_time_80),
             evac_time_100=int(evacuation_time_100),
             total_lifetime=float(agent_total_lifetime),
@@ -2613,6 +2646,12 @@ if __name__ == "__main__":
 
     # ----- 1) TensorBoard/로그 파일 설정 (기존 코드 유지 가능) -----
     total_reward_file = os.path.join(log_dir, "total_reward.txt")
+
+    reward_collision_file = os.path.join(log_dir, "reward_collision.txt")
+    reward_A_file = os.path.join(log_dir, "reward_A.txt")
+    reward_B_file = os.path.join(log_dir, "reward_B.txt")
+    reward_fixed_file = os.path.join(log_dir, "reward_fixed.txt")
+
     tb_log_dir = os.path.join(log_dir, "tensorboard_logs")
     evacuation_time_80_file = os.path.join(log_dir, "evacuation_80.txt")
     evacuation_time_100_file = os.path.join(log_dir, "evacuation_100.txt")
@@ -2626,8 +2665,16 @@ if __name__ == "__main__":
 
 
     # 파일 존재 보장
-    for path in [total_reward_file, evacuation_time_80_file,
-                 evacuation_time_100_file, total_lifetime_file]:
+    for path in [
+        total_reward_file,
+        reward_collision_file,
+        reward_A_file,
+        reward_B_file,
+        reward_fixed_file,
+        evacuation_time_80_file,
+        evacuation_time_100_file,
+        total_lifetime_file
+    ]:
         if not os.path.exists(path):
             open(path, "w").close()
 
@@ -2662,6 +2709,34 @@ if __name__ == "__main__":
         daemon=True
     )
     monitor_thread_lifetime.start()
+
+    monitor_thread_reward_collision = threading.Thread(
+        target=monitor_metric,
+        args=(reward_collision_file, "Reward/Collision", tb_log_dir),
+        daemon=True
+    )
+    monitor_thread_reward_collision.start()
+
+    monitor_thread_reward_A = threading.Thread(
+        target=monitor_metric,
+        args=(reward_A_file, "Reward/A", tb_log_dir),
+        daemon=True
+    )
+    monitor_thread_reward_A.start()
+
+    monitor_thread_reward_B = threading.Thread(
+        target=monitor_metric,
+        args=(reward_B_file, "Reward/B", tb_log_dir),
+        daemon=True
+    )
+    monitor_thread_reward_B.start()
+
+    monitor_thread_reward_fixed = threading.Thread(
+        target=monitor_metric,
+        args=(reward_fixed_file, "Reward/Fixed", tb_log_dir),
+        daemon=True
+    )
+    monitor_thread_reward_fixed.start()
 
     # monitor_thread_100_vs_ls = threading.Thread(
     #     target=monitor_metric,
@@ -2889,20 +2964,38 @@ if __name__ == "__main__":
             ensure_file(map_metric_path("evacuation_100", s_msg.map_num))
 
             if s_msg.abnormal != 1:
+
                 with open(map_metric_path("reward", s_msg.map_num), "a") as f:
                     f.write(f"{s_msg.total_reward}\n")
+
                 with open(map_metric_path("evacuation_100", s_msg.map_num), "a") as f:
                     f.write(f"{s_msg.evac_time_100}\n")
 
                 with open(total_reward_file, "a") as f:
                     f.write(f"{s_msg.total_reward}\n")
+
+                with open(reward_collision_file, "a") as f:
+                    f.write(f"{s_msg.reward_collision}\n")
+
+                with open(reward_A_file, "a") as f:
+                    f.write(f"{s_msg.reward_A}\n")
+
+                with open(reward_B_file, "a") as f:
+                    f.write(f"{s_msg.reward_B}\n")
+
+                with open(reward_fixed_file, "a") as f:
+                    f.write(f"{s_msg.reward_fixed}\n")
+
                 with open(evacuation_time_80_file, "a") as f:
                     f.write(f"{s_msg.evac_time_80}\n")
+
                 with open(evacuation_time_100_file, "a") as f:
                     f.write(f"{s_msg.evac_time_100}\n")
+
                 with open(total_lifetime_file, "a") as f:
                     f.write(f"{s_msg.total_lifetime}\n")
 
+    
             # --------------------------------------------------
             # Random-map curriculum update
             # --------------------------------------------------

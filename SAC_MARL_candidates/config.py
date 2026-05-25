@@ -85,7 +85,7 @@ RANDOM_EXIT = False
 
 
 # -------------- PATH -------------------
-LOG_DIR = "Log_MARL_zsgtest_cl"
+LOG_DIR = "Log_MARL_candidates"
 #LOG_DIR = "SOTA_MODELS"
 #LOG_DIR = "Log_test"
 PORT_NUM = 8155
@@ -141,7 +141,7 @@ ZSG_ROBOT_NUM = [1]
 
 
 # for curriculum learning
-MIN_LEVEL = 0
+MIN_LEVEL = 1
 MAX_LEVEL = 6
 CURRICULUM_LEARNING = {0: 1500, 1: 1500, 2: 1500, 3: 1500, 4: 1500, 5: 1500}
 CHECK_AVERAGE_FOR_STEPS = 100

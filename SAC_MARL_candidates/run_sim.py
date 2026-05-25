@@ -23,7 +23,7 @@ from config import *
 SCREEN_WIDTH, SCREEN_HEIGHT = 1280, 900     # 창 크기
 PANEL_RIGHT_WIDTH = 300                     # 우측 패널 고정 폭
 PADDING = 10                                # 좌/우/상/하 패딩
-ROBOT_NUM = 3
+ROBOT_NUM = 1
 
 # 기본 월드 크기(리셋 시 사용). 더 크게 바꿔도 화면 내에 자동으로 맞춰 그려짐
 GRID_W, GRID_H = MAP_W, MAP_H
@@ -225,7 +225,7 @@ def update_layout_from_env(env):
 def create_env_and_renderer(map_id:int, n_agents:int, world_w:int, world_h:int):
     #print("map_id : ", map_id)
     env = FightingModel(number_agents=n_agents, width=world_w, height=world_h,
-                        model_num=map_id, robot=ROBOT_VERSION_FOR_MODEL, robot_num=THE_NUMBER_OF_ROBOTS, difficulty=6)
+                        model_num=map_id, robot=ROBOT_VERSION_FOR_MODEL, robot_num=THE_NUMBER_OF_ROBOTS, difficulty=1)
     renderer = make_renderer(world_w, world_h) if USE_CONTINUOUS_RENDERER else None
     update_layout_from_env(env)
     return env, renderer

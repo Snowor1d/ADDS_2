@@ -28,7 +28,7 @@ from pathlib import Path
 import imageio.v2 as imageio
 import torch.distributions as dist
 
-DEBUG_SAVE = False
+DEBUG_SAVE = True
 home_dir = os.path.expanduser("~")
 DEBUG_DIR_TEMP = os.path.join(home_dir, LOG_DIR)
 DEBUG_DIR = os.path.join(DEBUG_DIR_TEMP, "debug_frames")

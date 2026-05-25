@@ -317,7 +317,7 @@ def _params_from_difficulty(W: int, H: int, difficulty: int) -> Dict[str, float]
             # large shape mix
             "large_block_bias": 0.30,
             "L_shape_bias": 0.05,
-            "U_shape_bias": 0.05,
+            "U_shape_bias": 0.0,
             "wall_rect_bias": 0.25,
             "large_conv_bias": 0.4,
 
@@ -390,9 +390,9 @@ def _params_from_difficulty(W: int, H: int, difficulty: int) -> Dict[str, float]
 
     if d <= 1:
         p.update({
-            "density_min": 0.05, "density_max": 0.10,
-            "large_count_min": 1, "large_count_max": 2,
-            "small_count_min": 1, "small_count_max": 2,
+            "density_min": 0.02, "density_max": 0.10,
+            "large_count_min": 0, "large_count_max": 1,
+            "small_count_min": 1, "small_count_max": 1,
         })
         return p
 

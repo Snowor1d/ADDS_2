@@ -87,7 +87,7 @@ RANDOM_EXIT = False
 LOG_DIR = "Log_MARL_zsgtest_cl"
 #LOG_DIR = "SOTA_MODELS"
 #LOG_DIR = "Log_test"
-PORT_NUM = 8155
+PORT_NUM = 8171
 
 # --------------- SAC ALGORITHM PARAMETER ---------------
 LOG_STD_MAX = 0.5
