@@ -199,7 +199,7 @@ class EpisodeStatMsg:
 STATE_SHAPE = (4, 50, 50)
 INPUT_MAP_SIZE = 50
 ROBOT_STATE_EMBEDDING = True
-ROBOT_STATE_DIM = 5
+ROBOT_STATE_DIM = 6
 
 # Timer instances
 sim_timer = Timer()
@@ -217,11 +217,6 @@ BY_MAP_DIR = os.path.join(log_dir, "by_map")
 os.makedirs(BY_MAP_DIR, exist_ok = True)
 os.makedirs(log_dir, exist_ok=True)
 os.makedirs(log_dir, exist_ok=True)
-# heat_logger = HeatMapLogger(   #@for heat_map
-#     save_root = os.path.join(log_dir, "heat_maps"),
-#     map_size = (MAP_W, MAP_H),
-#     known_maps = MAP_NUM_RANDOM
-# )
 
 HEARTBEAT_PATH = os.path.join(log_dir, "heartbeat.txt")
 
@@ -455,8 +450,11 @@ def pad_robots(robots, max_robots=MAX_ROBOTS):
 
 def robot_world_to_px(env_model, robot):
     rx, ry = robot.xy
-    ix = int(np.clip(rx / env_model.width * MAP_W, 0, MAP_W - 1))
-    iy = int(np.clip(ry / env_model.height * MAP_H, 0, MAP_H - 1))
+    W = int(env_model.width)
+    H = int(env_model.height)
+    ix = int(np.clip(rx / max(1, env_model.width) * W, 0, W - 1))
+    iy = int(np.clip(ry / max(1, env_model.height) * H, 0, H - 1))
+    
     return ix, iy
 
 
@@ -480,7 +478,7 @@ def build_joint_frames(env_model, robots_padded, return_full=False):
     return_full=True:
         full_u8, ego_frames, glob_f, joint_robot_state, joint_mask
     """
-    full_u8 = env_model.return_current_image(MAP_H, MAP_W)
+    full_u8 = env_model.return_current_image(env_model.height, env_model.width)
     glob_u8 = downsample_full_map(full_u8, DOWNSAMPLE_MAP_SIZE)
     glob_f = glob_u8.astype(np.float32) / 255.0
 
@@ -635,8 +633,6 @@ def worker_process(
     
         env_model = model.FightingModel(
             number_of_agents,
-            MAP_W,
-            MAP_H, 
             model_num=-1,
             robot='Q',
             robot_num=THE_NUMBER_OF_ROBOTS
@@ -2287,8 +2283,6 @@ def evaluate_zero_shot_once(
 
     env_model = model.FightingModel(
         number_of_agents,
-        MAP_W,
-        MAP_H,
         model_num=map_num,
         robot='Q',
         robot_num=robot_num
