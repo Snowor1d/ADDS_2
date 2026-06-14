@@ -811,6 +811,13 @@ class RobotAgent(CrowdAgent):
         self.map_scale_x = 1
         self.map_scale_y = 1
     
+        self.latest_ego_f = None
+        self.latest_glob_f = None
+        self.latest_ego_state = None
+        self.latest_glob_state = None
+        self.latest_robot_state = None
+        self.latest_action = None
+
     # ------------------------------------------------------------
     # 외부에서 호출되는 단일 정책 함수
     # ------------------------------------------------------------
@@ -1178,161 +1185,25 @@ class RobotAgent(CrowdAgent):
 
         return tuple(self.xy)
 
-    # def robot_policy_Q(self):
+    def update_latest_state_images(
+        self,
+        ego_f,
+        glob_f,
+        ego_state=None,
+        glob_state=None,
+        robot_state=None,
+        action=None
+    ):
+        """
+        run_sim.py visualization/debug용으로
+        현재 policy input state를 robot 객체 안에 저장한다.
+        """
+        self.latest_ego_f = None if ego_f is None else ego_f.copy()
+        self.latest_glob_f = None if glob_f is None else glob_f.copy()
 
-    #     K_AGENT = 200
-    #     K_WALL = 1500
-    #     LAMBDA_A = 0.35
+        self.latest_ego_state = None if ego_state is None else ego_state.copy()
+        self.latest_glob_state = None if glob_state is None else glob_state.copy()
+        self.latest_robot_state = None if robot_state is None else robot_state.copy()
 
-    #     if(math.sqrt(pow(self.xy[0]-self.robot_waypoint[0], 2)+pow(self.xy[1]-self.robot_waypoint[1], 2))<2):
-    #         self.now_exploration = 0
-    #         self.robot_waypoint = [0, 0]
-
-    #     self.previous_danger = getattr(self, "danger", 1e9)
-    #     self.danger = self.model.distance_to_exit(self.xy)
-        
-    #     if(self.model.alived_agents()< 1):
-    #         self.is_game_finished = 1
-
-    #     if(self.robot_initialized == 0 ):
-    #         self.robot_initialized = 1
-    #         return (self.model.robots[self.robot_index].xy[0], self.model.robots[self.robot_index].xy[1]) ## 오호라... 처음에 리스폰 되는 거 피하려고 
-    #     self.past_xy.append(self.xy)
-
-    #     time_step = ROBOT_TIME_STEP
-
-
-    #     goal_x = 0
-    #     goal_y = 0
-        
-    #     goal_x += self.action[0]
-    #     goal_y += self.action[1]
-        
-    #     #print(f"robot desired go to {goal_x}, {goal_y}") 
-    #     self.model.robot_mode = "GUIDE"
-
-    #     intend_force = 15
-    #     desired_speed = ROBOT_SPEED_MAX
-
-            
-
-    #     desired_force = [intend_force*(desired_speed*(goal_x)), intend_force*(desired_speed*(goal_y))]; #desired_force : 사람이 탈출구쪽으로 향하려는 힘
-        
-
-    #     sense_R = self.vision_radius
-    #     bodies = self.model.space.query_radius(self.xy, sense_R)
-    #     neighbors = []
-
-    #     for b in bodies:
-    #         ref = b.ref
-    #         if (ref is None) or (ref is self) or getattr(ref, "dead", False):
-    #             continue
-    #         neighbors.append(ref)
-    #     # 현재 로봇은 군중한테 물리적 영향을 받지 않음 -> 아래 코드 주석처리
-
-    #     F_rep_x = 0
-    #     F_rep_y = 0
-
-    #     F_wx = F_wy = 0
-    #     p = Point(self.xy[0], self.xy[1])
-    #     self.collision_check = 0
-    #     obstacle_polys = self.model._obstacle_polys.copy()
-    #     obstacle_polys.append(Polygon([(0,0), (self.model.width-1,0), (self.model.width-1,self.model.height-1), (0,self.model.height-1)]))  # 맵 외곽 벽 추가
-
-    #     for poly in obstacle_polys:
-    #         # 경계선까지 최소거리
-    #         d = poly.exterior.distance(p)
-    #         if d <= self.body_radius * 1:   # 매우 근접 → 충돌 경보
-    #             self.collision_check = 1
-    #             #print("충돌함", d)
-    #         if d > 2 * self.body_radius:    # 멀면 무시
-    #             continue
-    #         q = poly.exterior.interpolate(poly.exterior.project(p))
-    #         dx = self.xy[0] - q.x
-    #         dy = self.xy[1] - q.y
-    #         dist = math.hypot(dx, dy) or 1e-9
-    #         nx, ny = dx/dist, dy/dist
-    #         # 사람이랑 같은 톤으로 지수 반발(상수는 좀 더 세게 하고 싶으면 K_WALL 따로 둬도 됨)
-    #         mag = K_WALL * math.exp(-(d / max(LAMBDA_A, 1e-6)))
-    #         F_wx += mag * nx
-    #         F_wy += mag * ny
-
-
-    #     F_x = 0
-    #     F_y = 0
-    #     F_x += desired_force[0]
-    #     F_y += desired_force[1]
-        
-
-    #     F_x += F_wx
-    #     F_y += F_wy
-
-    #     # ---- 외곽지대 나가지 않게 ----
-    #     # left 벽 (x = 0 부근)
-    #     W = self.model.width
-    #     H = self.model.height
-    #     MARGIN = 1.0         # 이 거리 안으로 들어오면 힘 발생
-    #     K_BORDER = 50     # 경계 힘 세기 (필요하면 조절)
-    #     F_wx = 0
-    #     F_wy = 0
-        
-    #     # dx = max(0.0, MARGIN - self.xy[0])
-    #     # if dx > 0.0:
-    #     #     # 왼쪽 벽에 가까우면 +x 방향으로 민다
-    #     #     F_wx += K_BORDER * dx
-
-    #     # # right 벽 (x = W 부근)
-    #     # dx = max(0.0, self.xy[0] - (W - MARGIN))
-    #     # if dx > 0.0:
-    #     #     # 오른쪽 벽에 가까우면 -x 방향으로 민다
-    #     #     F_wx -= K_BORDER * dx
-
-    #     # # bottom 벽 (y = 0 부근)
-    #     # dy = max(0.0, MARGIN - self.xy[1])
-    #     # if dy > 0.0:
-    #     #     # 아래쪽 벽에 가까우면 +y 방향
-    #     #     F_wy += K_BORDER * dy
-
-    #     # # top 벽 (y = H 부근)
-    #     # dy = max(0.0, self.xy[1] - (H - MARGIN))
-    #     # if dy > 0.0:
-    #     #     # 위쪽 벽에 가까우면 -y 방향
-    #     #     F_wy -= K_BORDER * dy
-    #     # F_x += F_wx
-    #     # F_y += F_wy
- 
-
-
-    #     if self.collision_check == 1:
-    #         self.cancel_planner()
-
-    #     vel = [0, 0]
-    #     vel[0] = F_x / self.mass
-    #     vel[1] = F_y / self.mass
-
-    #     future_xy = self.swept_move(self.xy, vel, time_step)
-    #     prev_xy = self.xy[:]
-    #     self.model.space.clamp(self.xy)
-
-    #     move_dx = self.xy[0] - prev_xy[0]
-    #     move_dy = self.xy[1] - prev_xy[1]
-    #     if math.hypot(move_dx, move_dy) > 0:
-    #         self.angle = math.atan2(move_dy, move_dx)
-    #     if self._goal_reached():
-    #         self.cancel_planner()
-    #     # vel = [0,0]
-    #     # vel[0] = F_x/self.mass
-    #     # vel[1] = F_y/self.mass
-    #     # #print("robot speed : ", vel[0], vel[1])
-    #     # #future_xy = self.xy.copy()
-    #     # # future_xy[0] += vel[0] * time_step
-    #     # # future_xy[1] += vel[1] * time_step
-    #     # future_xy = self.swept_move(self.xy, vel, time_step)
-
-    #     # self.xy = future_xy
-    #     # self.model.space.clamp(self.xy)
-    #     #self.model.space.move(self.unique_id, self.xy)
-
-
-    #     return tuple(self.xy)
-
+        if action is not None:
+            self.latest_action = np.array(action, dtype=np.float32).copy()

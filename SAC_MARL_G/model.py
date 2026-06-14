@@ -1389,6 +1389,13 @@ class FightingModel(Model):
             robot.map_scale_x = self.map_scale_x
             robot.map_scale_y = self.map_scale_y
 
+            robot.latest_ego_f = None
+            robot.latest_glob_f = None
+            robot.latest_ego_state = None
+            robot.latest_glob_state = None
+            robot.latest_robot_state = None
+            robot.glob_stack = FrameStackWithStep(4, FRAME_STEP)
+
             self.agent_id += 10
             self.robots.append(robot)
             self.schedule.add(self.robots[-1])
@@ -1523,6 +1530,14 @@ class FightingModel(Model):
 
                 # 5) 로봇 상태 가져오기 (항상 필요할 수 있음)
                 robot_state = np.array(self.return_current_robot_state(robot.robot_index), dtype=np.float32)
+                
+                robot.update_latest_state_images(ego_f, glob_f, ego_state, glob_state, robot_state)
+                print(ego_f)
+                robot.latest_ego_f = ego_f.copy()
+                robot.latest_glob_f = glob_f.copy()
+                robot.latest_ego_state = ego_state.copy()
+                robot.latest_glob_state = glob_state.copy()
+                robot.latest_robot_state = robot_state.copy()
 
             # 6) 로봇 행동 결정 및 수행
             if self.robot_version == 'Q':

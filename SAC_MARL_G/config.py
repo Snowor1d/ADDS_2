@@ -47,8 +47,8 @@ MAP_NUM = -1 #if not used, -2, if random, -1
 # MAP_NUM_RANDOM = [1014, 1042, 1068, 1095, 1127, 1153, 1186, 1219, 1264, 1298] # 10 maps
 
 
-#MAP_NUM_RANDOM = list(range(1000, 1300))
-MAP_NUM_RANDOM = [104]
+MAP_NUM_RANDOM = list(range(1000, 1300))
+#MAP_NUM_RANDOM = [104]
 #MAP_NUM_RANDOM = list(range(1000, 1300))
 #MAP_NUM_RANDOM = [1506]
 
