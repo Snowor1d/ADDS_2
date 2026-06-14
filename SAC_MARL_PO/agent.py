@@ -1210,11 +1210,11 @@ class RobotAgent(CrowdAgent):
             self.latest_action = np.array(action, dtype=np.float32).copy()
 
     def shared_visible_crowds(self, radius=None):
-        return self.model.get_shared_observable_crowds(
+        return self.model.get_shared_observed_crowds(
             radius=ROBOT_VISION if radius is None else radius
         )
     
     def can_any_robot_observe_agent(self, agent, radius=None):
-        return self.model.is_crowd_observable_by_any_robot(
+        return self.model.is_crowd_observed_by_any_robot(
             agent, radius=ROBOT_VISION if radius is None else radius
         )
