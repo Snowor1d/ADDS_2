@@ -321,6 +321,56 @@ def state_img_to_surface(img, size: int):
     img_surf = pygame.transform.scale(img_surf, (size, size))
 
     return img_surf
+def world_to_view_px(env, x, y):
+    """
+    world 좌표를 현재 MAP_VIEW 안의 pixel 좌표로 변환한다.
+    반환값은 screen 전체 좌표가 아니라, MAP_VIEW 내부 상대좌표이다.
+    """
+    px = int(np.clip(x / max(1e-9, env.width) * MAP_VIEW_W, 0, MAP_VIEW_W - 1))
+    py = int(np.clip(y / max(1e-9, env.height) * MAP_VIEW_H, 0, MAP_VIEW_H - 1))
+
+    # ContinuousRenderer에서 y축이 뒤집혀 보이면 아래 줄로 바꿔라.
+    py = MAP_VIEW_H - 1 - py
+
+    return px, py
+
+
+def draw_robot_vision_dark_overlay(screen, env, alpha=150):
+    """
+    메인 화면에서 robot vision 밖을 어둡게 표시한다.
+    - 로봇 시야 범위 자체는 바꾸지 않는다.
+    - env.robot_visibility_polygon()을 그대로 사용한다.
+    - 여러 로봇이면 모든 robot vision union 영역은 밝게 유지된다.
+    """
+    if BLACK_SHEEP_WALL:
+        return
+
+    if not hasattr(env, "robot_visibility_polygon"):
+        return
+
+    # BLACK_SHEEP_WALL == True일 때는 full observation이므로 overlay를 안 씌우고 싶으면 return
+    if not getattr(env, "is_partial_crowd_observation", lambda: False)():
+        return
+
+    # 1) 전체 맵 위에 어두운 막을 만든다.
+    overlay = pygame.Surface((MAP_VIEW_W, MAP_VIEW_H), pygame.SRCALPHA)
+    overlay.fill((0, 0, 0, alpha))
+
+    # 2) 로봇들이 볼 수 있는 영역은 overlay에서 투명하게 뚫는다.
+    for ridx, rb in enumerate(getattr(env, "robots", [])):
+        poly = env.robot_visibility_polygon(ridx, radius=ROBOT_VISION)
+        if poly is None or poly.is_empty:
+            continue
+
+        coords = list(poly.exterior.coords)
+        pts = [world_to_view_px(env, x, y) for x, y in coords]
+
+        if len(pts) >= 3:
+            pygame.draw.polygon(overlay, (0, 0, 0, 0), pts)
+
+    # 3) 메인 맵 위치에 overlay를 덮는다.
+    screen.blit(overlay, (MAP_OFFSET_X, MAP_OFFSET_Y))
+
 
 def draw_robot_state_images(screen, env, x, y, panel_w, font_small, max_y):
     if not SHOW_STATE_IMAGES:
@@ -556,6 +606,7 @@ def main():
             if (surf.get_width(), surf.get_height())!=(MAP_VIEW_W, MAP_VIEW_H):
                 surf = pygame.transform.scale(surf, (MAP_VIEW_W, MAP_VIEW_H))
             screen.blit(surf, (MAP_OFFSET_X, MAP_OFFSET_Y))
+            draw_robot_vision_dark_overlay(screen, env, alpha=150)
             last_render_ms = (time.perf_counter()-t0)*1000.0
 
         # 우측 패널

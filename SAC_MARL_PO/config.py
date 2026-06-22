@@ -12,7 +12,7 @@ DEVICE = "cuda"
 GAMMA_START = 0.999
 GAMMA_END = 0.999
 GAMMA_SCHEDULE_STEP = 1000
-THE_NUMBER_OF_ROBOTS = 3
+THE_NUMBER_OF_ROBOTS = 2
 
 #weight decay
 WD_Q = 3e-4
@@ -48,7 +48,7 @@ MAP_NUM = -1 #if not used, -2, if random, -1
 
 
 #MAP_NUM_RANDOM = list(range(1000, 1300))
-MAP_NUM_RANDOM = list(range(1000, 1300))
+MAP_NUM_RANDOM = [100, 101, 102]
 #MAP_NUM_RANDOM = list(range(1000, 1300))
 #MAP_NUM_RANDOM = [1506]
 

@@ -26,7 +26,7 @@ ROBOT_VERSION_FOR_LOG   = 'H' # 결과 폴더명에는 'H'로 기록해 비교�
 EXP_NAME = "0201/seheon_play"
 MAX_STEPS  = 3000
 MAX_EPISODES = 3
-ROBOT_NUM = 3
+ROBOT_NUM = 1
 
 ############################
 # 상단 설정 (시뮬/렌더 타이밍)
@@ -40,16 +40,51 @@ RENDER_EVERY      = max(1, TARGET_SIM_FPS // TARGET_RENDER_FPS)
 ############################
 SCREEN_WIDTH  = 1000
 SCREEN_HEIGHT = 1000
-
-CELL_SIZE = 7.5
-MAP_CW = int(MAP_W * CELL_SIZE)
-MAP_CH = int(MAP_H * CELL_SIZE)
-
+CELL_SIZE = 7.5  # fallback grid renderer에서만 사용
 PANEL_RIGHT_WIDTH = 200
 PADDING = 10
 
-MAP_OFFSET_X = PADDING
-MAP_OFFSET_Y = (SCREEN_HEIGHT - MAP_CH) // 2
+# env.width / env.height를 읽은 뒤 동적으로 계산됨
+MAP_CW = 0
+MAP_CH = 0
+MAP_OFFSET_X = 0
+MAP_OFFSET_Y = 0
+
+def compute_map_viewport(world_w: int, world_h: int):
+    """
+    우측 패널/패딩을 제외한 좌측 영역에
+    world width/height 비율을 유지하면서 map viewport를 맞춘다.
+    """
+    global MAP_CW, MAP_CH, MAP_OFFSET_X, MAP_OFFSET_Y
+
+    if world_w <= 0 or world_h <= 0:
+        raise ValueError(f"[HumanPlay] invalid world size: {world_w}x{world_h}")
+
+    avail_w = max(1, SCREEN_WIDTH - PANEL_RIGHT_WIDTH - 2 * PADDING)
+    avail_h = max(1, SCREEN_HEIGHT - 2 * PADDING)
+
+    scale = min(avail_w / float(world_w), avail_h / float(world_h))
+
+    MAP_CW = max(1, int(round(world_w * scale)))
+    MAP_CH = max(1, int(round(world_h * scale)))
+
+    MAP_OFFSET_X = PADDING + (avail_w - MAP_CW) // 2
+    MAP_OFFSET_Y = PADDING + (avail_h - MAP_CH) // 2
+
+
+def update_layout_from_env(env):
+    """
+    FightingModel이 json에서 읽어온 env.width/env.height 기준으로
+    HumanPlay viewport를 갱신한다.
+    """
+    if not hasattr(env, "width") or not hasattr(env, "height"):
+        raise AttributeError("[HumanPlay] env must have width and height.")
+
+    world_w = int(env.width)
+    world_h = int(env.height)
+
+    compute_map_viewport(world_w, world_h)
+    return world_w, world_h
 
 JOYSTICK_RADIUS = 60
 KNOB_RADIUS = 15
@@ -303,12 +338,32 @@ def get_joystick_centers(n_robots):
     return centers
 
 def draw_environment(surface, env_map):
-    for x in range(len(env_map)):
-        for y in range(len(env_map[0])):
+    """
+    fallback grid renderer.
+    MAP_W/MAP_H 없이 현재 env_map 크기와 MAP_CW/MAP_CH를 기준으로 그린다.
+    """
+    rows = len(env_map)
+    cols = len(env_map[0]) if rows > 0 else 0
+
+    if rows <= 0 or cols <= 0:
+        return
+
+    cell_w = MAP_CW / float(cols)
+    cell_h = MAP_CH / float(rows)
+
+    for x in range(rows):
+        for y in range(cols):
             val = env_map[x][y]
             if val == 20:
                 continue
-            rect = (MAP_OFFSET_X + y * CELL_SIZE, MAP_OFFSET_Y + x * CELL_SIZE, CELL_SIZE, CELL_SIZE)
+
+            rect = (
+                MAP_OFFSET_X + y * cell_w,
+                MAP_OFFSET_Y + x * cell_h,
+                max(1, int(math.ceil(cell_w))),
+                max(1, int(math.ceil(cell_h)))
+            )
+
             if val == 0:
                 color = WHITE
             elif val == 60:
@@ -321,32 +376,127 @@ def draw_environment(surface, env_map):
                 color = RED
             else:
                 color = DARK_GREY
+
             pygame.draw.rect(surface, color, rect)
 
-    for x in range(len(env_map)):
-        for y in range(len(env_map[0])):
+    for x in range(rows):
+        for y in range(cols):
             val = env_map[x][y]
             if val == 20:
-                rect = (MAP_OFFSET_X + y * CELL_SIZE, MAP_OFFSET_Y + x * CELL_SIZE, CELL_SIZE, CELL_SIZE)
+                rect = (
+                    MAP_OFFSET_X + y * cell_w,
+                    MAP_OFFSET_Y + x * cell_h,
+                    max(1, int(math.ceil(cell_w))),
+                    max(1, int(math.ceil(cell_h)))
+                )
                 pygame.draw.rect(surface, BLACK, rect)
 
 def save_continuous_mp4(frames_rgb, out_path, fps=20, dpi=200, bitrate=8000):
     if not frames_rgb:
         return
+
     h, w, _ = frames_rgb[0].shape
-    fig = plt.figure(figsize=(w / MAP_W, h / MAP_H), dpi=dpi)
+
+    # MAP_W/MAP_H 없이 실제 frame pixel 크기 기준으로 저장
+    fig = plt.figure(figsize=(w / dpi, h / dpi), dpi=dpi)
     ax = plt.axes([0, 0, 1, 1])
     ax.axis('off')
+
     im = ax.imshow(frames_rgb[0])
     writer = FFMpegWriter(fps=fps, bitrate=bitrate)
+
     with writer.saving(fig, out_path, dpi=dpi):
         for fr in frames_rgb:
             im.set_data(fr)
             writer.grab_frame()
+
     plt.close(fig)
 
 def np_rgb_to_surface(rgb):
     return pygame.surfarray.make_surface(np.transpose(rgb, (1, 0, 2)))
+
+
+def world_to_map_px(env, x, y):
+    """
+    world 좌표를 현재 PyGame map surface 내부 pixel 좌표로 변환한다.
+    반환 좌표는 screen 전체 기준이 아니라 MAP_CW x MAP_CH 내부 좌표이다.
+
+    기존 overlay에서 위치가 상하 반전되었으므로 y축을 뒤집는다.
+    """
+    px = int(np.clip(
+        float(x) / max(1e-9, float(env.width)) * (MAP_CW - 1),
+        0,
+        MAP_CW - 1
+    ))
+
+    py = int(np.clip(
+        float(y) / max(1e-9, float(env.height)) * (MAP_CH - 1),
+        0,
+        MAP_CH - 1
+    ))
+
+    # x축 기준 반전 = 상하 반전
+    py = MAP_CH - 1 - py
+
+    return px, py
+
+
+def draw_robot_vision_dark_overlay(surface, env, alpha=150):
+    """
+    BLACK_SHEEP_WALL == False일 때만
+    robot vision 밖을 어둡게 표시한다.
+
+    로봇들이 보는 영역은 공유된다고 가정하므로,
+    모든 robot visibility polygon 영역은 밝게 유지한다.
+    """
+    if BLACK_SHEEP_WALL:
+        return
+
+    if not hasattr(env, "robot_visibility_polygon"):
+        return
+
+    overlay = pygame.Surface((MAP_CW, MAP_CH), pygame.SRCALPHA)
+    overlay.fill((0, 0, 0, alpha))
+
+    for ridx, rb in enumerate(getattr(env, "robots", [])):
+        poly = env.robot_visibility_polygon(ridx, radius=ROBOT_VISION)
+
+        if poly is None or poly.is_empty:
+            continue
+
+        pts = [world_to_map_px(env, x, y) for x, y in list(poly.exterior.coords)]
+
+        if len(pts) >= 3:
+            # 시야 안쪽은 overlay를 투명하게 뚫음
+            pygame.draw.polygon(overlay, (0, 0, 0, 0), pts)
+
+    surface.blit(overlay, (MAP_OFFSET_X, MAP_OFFSET_Y))
+
+
+class RenderEnvView:
+    """
+    ContinuousRenderer에 넘기기 위한 얕은 proxy.
+
+    BLACK_SHEEP_WALL == False일 때:
+      - env.crowds 중 하나 이상의 robot에게 관측된 crowd만 renderer에 보이게 한다.
+      - 실제 env_model은 건드리지 않는다.
+      - 시뮬레이션, 보상, 저장 로직에는 영향 없음.
+
+    BLACK_SHEEP_WALL == True일 때:
+      - 원래 env.crowds를 그대로 사용한다.
+    """
+    def __init__(self, env):
+        self._env = env
+
+        if BLACK_SHEEP_WALL:
+            self.crowds = list(getattr(env, "crowds", []))
+        elif hasattr(env, "get_shared_observable_crowds"):
+            self.crowds = list(env.get_shared_observable_crowds(radius=ROBOT_VISION))
+        else:
+            self.crowds = list(getattr(env, "crowds", []))
+
+    def __getattr__(self, name):
+        return getattr(self._env, name)
 
 def draw_side_panel(surface):
     panel_rect = (SCREEN_WIDTH - PANEL_RIGHT_WIDTH, 0, PANEL_RIGHT_WIDTH, SCREEN_HEIGHT)
@@ -376,14 +526,17 @@ def main():
     while running and episode_count < MAX_EPISODES:
         env_model = FightingModel(
             number_agents=CROWD_NUMBER_MIN,
-            width=int(MAP_W),
-            height=int(MAP_H),
             model_num=MAP_NUM_FOR_RUN,
             robot=ROBOT_VERSION_FOR_MODEL,
-            robot_num = ROBOT_NUM
+            robot_num=ROBOT_NUM
         )
 
-        state = np.array(env_model.return_current_image(H=MAP_H, W=MAP_W), dtype=np.float32)
+        world_w, world_h = update_layout_from_env(env_model)
+
+        state = np.array(
+            env_model.return_current_image(H=world_h, W=world_w),
+            dtype=np.float32
+        )
 
         # ===== 멀티 로봇 가져오기 =====
         robots = list(getattr(env_model, "robots", []))
@@ -404,7 +557,7 @@ def main():
         collected_frames = []
         if USE_CONTINUOUS_RENDERER:
             renderer = ContinuousRenderer(
-                world_size=(MAP_H, MAP_W),
+                world_size=(float(world_w), float(world_h)),
                 crowd_colors={0: CONT_CROWD_COLOR, 1: CONT_CROWD_COLOR, 2: CONT_CROWD_COLOR},
 
                 show_agent_heading=CONT_SHOW_AGENT_HEADING,
@@ -429,8 +582,7 @@ def main():
                 annotate_every=CONT_ANNOTATE_EVERY,
                 annotate_style=CONT_ANNOTATE_STYLE,
                 annotate_fontsize=CONT_ANNOTATE_FONTSIZE,
-            )
-
+            )   
         step_count = 0
         total_reward = 0.0
         done = False
@@ -549,12 +701,12 @@ def main():
             while sim_acc >= sim_dt and not done:
                 # 각 로봇에 action 전달
                 for rb, (env_dx, env_dy) in zip(robots, robot_actions):
-                    rb.receive_action([env_dx, env_dy])
+                    rb.receive_action_velocity([env_dx, env_dy])
 
                 current_state = state
                 env_model.step()
 
-                img_gray = env_model.return_current_image(H=MAP_H, W=MAP_W)
+                img_gray = env_model.return_current_image(H=world_h, W=world_w)
                 reward = 0
 
                 alive = env_model.alived_agents()
@@ -590,10 +742,15 @@ def main():
                 draw_side_panel(screen)
 
                 if USE_CONTINUOUS_RENDERER:
-                    rgb = renderer.draw(env_model, step=step_count)
+                    render_env = RenderEnvView(env_model)
+
+                    rgb = renderer.draw(render_env, step=step_count)
                     surf = np_rgb_to_surface(rgb)
                     surf = pygame.transform.scale(surf, (MAP_CW, MAP_CH))
                     screen.blit(surf, (MAP_OFFSET_X, MAP_OFFSET_Y))
+
+                    # robot vision 밖은 어둡게 표시
+                    draw_robot_vision_dark_overlay(screen, env_model, alpha=150)
 
                     if CONT_VIS_MODE == "mp4":
                         if (step_count % CONT_SAVE_EVERY == 0) or (alive <= 0):

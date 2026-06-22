@@ -805,6 +805,10 @@ class RobotAgent(CrowdAgent):
         self.planner_speed = 0.0
         self.planner_active = False
         self.planner_fallback_vec = [0.0, 0.0]
+
+        self.velocity_command_active = False
+        self.velocity_command = [0.0, 0.0]
+
         self.new_order_need = True
         self.ego_stack = FrameStackWithStep(4, FRAME_STEP)
 
@@ -817,6 +821,7 @@ class RobotAgent(CrowdAgent):
         self.latest_glob_state = None
         self.latest_robot_state = None
         self.latest_action = None
+        self.latest_visibility_poly = None 
     
     # ------------------------------------------------------------
     # 외부에서 호출되는 단일 정책 함수
@@ -939,6 +944,63 @@ class RobotAgent(CrowdAgent):
         
         self.receive_action(formatted_action)
 
+    def receive_action_velocity(self, vx, vy=None):
+        """
+        로봇에게 world 좌표계 기준 속도 명령을 직접 전달한다.
+
+        사용 예:
+            robot.receive_action_velocity([vx, vy])
+            robot.receive_action_velocity(vx, vy)
+
+        입력:
+            vx, vy : world x/y 방향 속도 명령
+
+        동작:
+            - planner_target 기반 waypoint 추종을 끄고,
+            - robot_policy_Q()에서 이 속도를 바로 사용한다.
+            - 속도 크기는 ROBOT_SPEED_MAX로 clip한다.
+            - [0, 0] 또는 None을 주면 direct velocity mode를 끈다.
+        """
+        if vx is None:
+            self.velocity_command_active = False
+            self.velocity_command = [0.0, 0.0]
+            self.vel = [0.0, 0.0]
+            return np.array(self.velocity_command, dtype=float)
+
+        if vy is None:
+            if len(vx) != 2:
+                raise ValueError("Robot velocity action must be [vx, vy]")
+            vx, vy = vx[0], vx[1]
+
+        vx = float(vx)
+        vy = float(vy)
+
+        if not np.isfinite(vx) or not np.isfinite(vy):
+            raise ValueError(f"Robot velocity action must be finite. Got vx={vx}, vy={vy}")
+
+        speed = math.hypot(vx, vy)
+
+        # 속도 크기 제한
+        if speed > ROBOT_SPEED_MAX and speed > 1e-9:
+            scale = ROBOT_SPEED_MAX / speed
+            vx *= scale
+            vy *= scale
+            speed = ROBOT_SPEED_MAX
+
+        # direct velocity command mode에서는 planner를 사용하지 않는다.
+        self.planner_target = None
+        self.planner_speed = 0.0
+        self.planner_active = False
+
+        self.velocity_command = [vx, vy]
+        self.velocity_command_active = speed > 1e-5
+
+        if self.velocity_command_active:
+            self.planner_fallback_vec = [vx / speed, vy / speed]
+        else:
+            self.planner_fallback_vec = [0.0, 0.0]
+
+        return np.array(self.velocity_command, dtype=float)
 
     def receive_action(self, action):
         """
@@ -947,6 +1009,9 @@ class RobotAgent(CrowdAgent):
         """
         if action is None:
             return np.array(self.action, dtype=float)
+        
+        self.velocity_command_active = False
+        self.velocity_command = [0.0, 0.0]
 
         # 검증 (입력은 여전히 3개 [theta, r, spd] 임)
         if len(action) != 3:
@@ -1094,11 +1159,31 @@ class RobotAgent(CrowdAgent):
         #self._compute_wall_collision_flag()
 
         # 4) choose desired moving direction
-        if self.planner_active and self.planner_target is not None:
+        # if self.planner_active and self.planner_target is not None:
+        #     dir_x, dir_y = self._planner_direction_to_goal(self.planner_target)
+        #     desired_speed = self.planner_speed
+        # else:
+        #     dir_x, dir_y = 0.0, 0.0
+        #     desired_speed = 0.0
+
+        use_velocity_command = getattr(self, "velocity_command_active", False)
+
+        if use_velocity_command:
+            cmd_vx = float(self.velocity_command[0])
+            cmd_vy = float(self.velocity_command[1])
+            cmd_speed = math.hypot(cmd_vx, cmd_vy)
+
+            dir_x, dir_y = self._safe_normalize(cmd_vx, cmd_vy)
+            desired_speed = cmd_speed
+
+        elif self.planner_active and self.planner_target is not None:
+            cmd_vx, cmd_vy = 0.0, 0.0
             dir_x, dir_y = self._planner_direction_to_goal(self.planner_target)
             desired_speed = self.planner_speed
         else:
-            dir_x, dir_y = 0.0, 0.0
+            cmd_vx, cmd_vy = 0.0, 0.0
+
+            dir_x, dir_y = 0.0, 0.0 
             desired_speed = 0.0
 
         # update heading if there is meaningful motion direction
@@ -1160,8 +1245,12 @@ class RobotAgent(CrowdAgent):
         F_y = desired_force[1] + F_wy
 
         vel = [0.0, 0.0]
-        vel[0] = F_x / self.mass
-        vel[1] = F_y / self.mass
+        if use_velocity_command:
+            vel[0] = cmd_vx + F_wx / self.mass
+            vel[1] = cmd_vy + F_wy / self.mass
+        else:
+            vel[0] = F_x / self.mass
+            vel[1] = F_y / self.mass
 
         # clamp speed
         spd = math.hypot(vel[0], vel[1])

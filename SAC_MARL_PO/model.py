@@ -1861,8 +1861,28 @@ class FightingModel(Model):
             self.obstacles_version
         )
 
-        if poly is None or poly.is_empty:
+        expected_area = math.pi * float(radius) * float(radius)
+        min_valid_area = expected_area * 0.03
+
+        invalid_visibility = (
+            poly is None
+            or poly.is_empty
+            or (hasattr(poly, "area") and poly.area < min_valid_area)
+        )
+
+        if invalid_visibility:
+            rb.visibility_fail_count = getattr(rb, "visibility_fail_count", 0) + 1
+
+            cached_poly = getattr(rb, "latest_visibility_poly", None)
+            if cached_poly is not None and not cached_poly.is_empty:
+                return cached_poly
+
             return None
+
+        # 정상 polygon이면 cache 갱신
+        rb.visibility_fail_count = 0
+        rb.latest_visibility_poly = poly
+        rb.latest_visibility_xy = (float(rb.xy[0]), float(rb.xy[1]))
 
         return poly
 
