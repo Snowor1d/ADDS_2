@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.distributions import Independent, Normal
+from torch.distributions import Normal
 
 from .config import DreamerConfig
 
@@ -30,6 +30,18 @@ def env_to_raw_action(action: torch.Tensor, cfg: DreamerConfig) -> torch.Tensor:
     direction = action[..., 1:3].clamp(-1.0, 1.0)
     spd = 2.0 * (action[..., 3:4] - cfg.spd_min) / max(cfg.spd_max - cfg.spd_min, 1e-6) - 1.0
     return torch.cat([r, direction, spd], dim=-1).clamp(-1.0, 1.0)
+
+
+def normalize_robot_state(robot_state: torch.Tensor, cfg: DreamerConfig) -> torch.Tensor:
+    robot_state = torch.nan_to_num(robot_state.float(), nan=0.0, posinf=0.0, neginf=0.0)
+    robot_state = torch.clamp(robot_state, -cfg.robot_state_clip, cfg.robot_state_clip)
+    if cfg.robot_dim >= 6:
+        normalized = robot_state.clone()
+        normalized[..., 0:2] = normalized[..., 0:2].clamp(0.0, 1.0)
+        normalized[..., 2:4] = normalized[..., 2:4].clamp(-1.0, 1.0)
+        normalized[..., 4:6] = (normalized[..., 4:6] / cfg.robot_map_scale_norm).clamp(0.0, 1.0)
+        return normalized
+    return robot_state
 
 
 class ConvEncoder(nn.Module):
@@ -84,7 +96,7 @@ class JointObsEncoder(nn.Module):
         n = joint_ego.shape[-4]
         ego = joint_ego.reshape(-1, *joint_ego.shape[-3:])
         ego_feat = self.ego_encoder(ego).reshape(*leading, n, -1)
-        robot_feat = self.robot_encoder(joint_robot)
+        robot_feat = self.robot_encoder(normalize_robot_state(joint_robot, self.cfg))
         mask = joint_mask.unsqueeze(-1)
         denom = mask.sum(dim=-2).clamp_min(1.0)
         ego_pooled = (ego_feat * mask).sum(dim=-2) / denom
@@ -93,6 +105,46 @@ class JointObsEncoder(nn.Module):
         global_feat = self.global_encoder(global_state.reshape(-1, *global_state.shape[-3:]))
         global_feat = global_feat.reshape(*leading, -1)
         return self.out(torch.cat([ego_pooled, global_feat, robot_pooled], dim=-1))
+
+class TwoHotSymlogHead(nn.Module):
+    def __init__(self, in_dim: int, hidden_dim: int, bins: int, low: float, high: float) -> None:
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(in_dim, hidden_dim),
+            nn.SiLU(),
+            nn.Linear(hidden_dim, bins),
+        )
+        self.bins = int(bins)
+        self.low = float(low)
+        self.high = float(high)
+        self.register_buffer("support", torch.linspace(self.low, self.high, self.bins))
+
+    def logits(self, feat: torch.Tensor) -> torch.Tensor:
+        return self.net(feat)
+
+    def forward(self, feat: torch.Tensor) -> torch.Tensor:
+        logits = self.logits(feat)
+        symlog_value = torch.softmax(logits, dim=-1).mul(self.support).sum(dim=-1)
+        return symexp(symlog_value)
+
+    def loss(self, feat: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        logits = self.logits(feat)
+        target_dist = self.twohot(target).to(logits.device)
+        log_probs = F.log_softmax(logits, dim=-1)
+        return -(target_dist * log_probs).sum(dim=-1).mean()
+
+    def twohot(self, target: torch.Tensor) -> torch.Tensor:
+        y = symlog(target).clamp(self.low, self.high)
+        pos = (y - self.low) / (self.high - self.low) * (self.bins - 1)
+        lower = torch.floor(pos).long()
+        upper = torch.clamp(lower + 1, max=self.bins - 1)
+        lower = torch.clamp(lower, min=0, max=self.bins - 1)
+        upper_weight = (pos - lower.float()).clamp(0.0, 1.0)
+        lower_weight = 1.0 - upper_weight
+        dist = torch.zeros(*target.shape, self.bins, device=target.device, dtype=torch.float32)
+        dist.scatter_add_(-1, lower.unsqueeze(-1), lower_weight.unsqueeze(-1))
+        dist.scatter_add_(-1, upper.unsqueeze(-1), upper_weight.unsqueeze(-1))
+        return dist
 
 
 @dataclass
@@ -157,7 +209,7 @@ class RSSM(nn.Module):
         mask: torch.Tensor,
     ) -> RSSMState:
         action_flat = action.reshape(action.shape[0], -1)
-        robot_flat = robot.reshape(robot.shape[0], -1)
+        robot_flat = normalize_robot_state(robot, self.cfg).reshape(robot.shape[0], -1)
         action_embed = self.action_encoder(torch.cat([action_flat, robot_flat, mask], dim=-1))
         x = torch.cat([prev.stoch.reshape(prev.stoch.shape[0], -1), action_embed], dim=-1)
         deter = self.gru(x, prev.deter)
@@ -169,10 +221,21 @@ class RSSM(nn.Module):
         return torch.cat([state.deter, state.stoch.reshape(state.stoch.shape[0], -1)], dim=-1)
 
     def _sample(self, logits: torch.Tensor) -> torch.Tensor:
-        probs = torch.softmax(logits, dim=-1)
+        probs = self.dist_probs(logits)
         index = torch.distributions.Categorical(probs=probs).sample()
         sample = F.one_hot(index, self.cfg.discrete_size).float()
         return sample + probs - probs.detach()
+
+    def dist_probs(self, logits: torch.Tensor) -> torch.Tensor:
+        probs = torch.softmax(logits, dim=-1)
+        unimix = float(self.cfg.unimix_ratio)
+        if unimix <= 0.0:
+            return probs
+        uniform = torch.full_like(probs, 1.0 / self.cfg.discrete_size)
+        return (1.0 - unimix) * probs + unimix * uniform
+
+    def dist(self, logits: torch.Tensor) -> torch.distributions.Categorical:
+        return torch.distributions.Categorical(probs=self.dist_probs(logits))
 
 
 class WorldModel(nn.Module):
@@ -182,10 +245,12 @@ class WorldModel(nn.Module):
         self.encoder = JointObsEncoder(cfg)
         self.rssm = RSSM(cfg)
         feat_size = cfg.deter_size + cfg.stoch_size * cfg.discrete_size
-        self.reward_head = nn.Sequential(
-            nn.Linear(feat_size, cfg.hidden_size),
-            nn.SiLU(),
-            nn.Linear(cfg.hidden_size, 1),
+        self.reward_head = TwoHotSymlogHead(
+            feat_size,
+            cfg.hidden_size,
+            cfg.twohot_bins,
+            cfg.twohot_min,
+            cfg.twohot_max,
         )
         self.continue_head = nn.Sequential(
             nn.Linear(feat_size, cfg.hidden_size),
@@ -247,7 +312,7 @@ class WorldModel(nn.Module):
 
         reward_pred = self.reward_head(flat).reshape(b, t)
         continue_logit = self.continue_head(flat).reshape(b, t)
-        reward_loss = F.mse_loss(reward_pred, symlog(batch["reward"]))
+        reward_loss = self.reward_head.loss(flat, batch["reward"].reshape(b * t))
         continue_loss = F.binary_cross_entropy_with_logits(continue_logit, batch["continue"])
 
         ego_pred = self.ego_decoder(flat).reshape(b, t, self.cfg.max_robots, *self.cfg.ego_shape)
@@ -257,15 +322,15 @@ class WorldModel(nn.Module):
 
         post_logits = torch.stack([state.logits for state in posts], dim=1)
         prior_logits = torch.stack([state.logits for state in priors], dim=1)
-        post_dist = torch.distributions.Categorical(logits=post_logits)
-        prior_dist = torch.distributions.Categorical(logits=prior_logits)
+        post_dist = self.rssm.dist(post_logits)
+        prior_dist = self.rssm.dist(prior_logits)
         dyn_kl = torch.distributions.kl_divergence(
-            torch.distributions.Categorical(logits=post_logits.detach()),
+            self.rssm.dist(post_logits.detach()),
             prior_dist,
         ).sum(dim=-1).mean()
         rep_kl = torch.distributions.kl_divergence(
             post_dist,
-            torch.distributions.Categorical(logits=prior_logits.detach()),
+            self.rssm.dist(prior_logits.detach()),
         ).sum(dim=-1).mean()
         dyn_kl = torch.clamp(dyn_kl, min=self.cfg.free_nats)
         rep_kl = torch.clamp(rep_kl, min=self.cfg.free_nats)
@@ -302,17 +367,20 @@ class Actor(nn.Module):
         self.mean = nn.Linear(cfg.hidden_size, cfg.max_robots * cfg.action_dim)
         self.std = nn.Linear(cfg.hidden_size, cfg.max_robots * cfg.action_dim)
 
-    def forward(self, feat: torch.Tensor) -> Independent:
+    def forward(self, feat: torch.Tensor) -> Normal:
         h = self.net(feat)
         mean = self.mean(h).reshape(*feat.shape[:-1], self.cfg.max_robots, self.cfg.action_dim)
-        std = F.softplus(self.std(h)).reshape_as(mean) + 0.05
-        return Independent(Normal(mean, std), 2)
+        std = F.softplus(self.std(h)).reshape_as(mean)
+        std = torch.clamp(std, self.cfg.actor_std_min, self.cfg.actor_std_max)
+        return Normal(mean, std)
 
     def sample(self, feat: torch.Tensor, deterministic: bool = False) -> tuple[torch.Tensor, torch.Tensor]:
         dist = self.forward(feat)
-        raw = torch.tanh(dist.base_dist.mean) if deterministic else torch.tanh(dist.rsample())
+        pre_tanh = dist.mean if deterministic else dist.rsample()
+        raw = torch.tanh(pre_tanh)
         env_action = action_to_env(raw, self.cfg)
-        log_prob = dist.log_prob(raw)
+        log_prob = dist.log_prob(pre_tanh) - torch.log(1.0 - raw.pow(2) + 1e-6)
+        log_prob = log_prob.sum(dim=(-1, -2))
         return env_action, log_prob
 
 
@@ -320,13 +388,16 @@ class Value(nn.Module):
     def __init__(self, cfg: DreamerConfig) -> None:
         super().__init__()
         feat_size = cfg.deter_size + cfg.stoch_size * cfg.discrete_size
-        self.net = nn.Sequential(
-            nn.Linear(feat_size, cfg.hidden_size),
-            nn.SiLU(),
-            nn.Linear(cfg.hidden_size, cfg.hidden_size),
-            nn.SiLU(),
-            nn.Linear(cfg.hidden_size, 1),
+        self.head = TwoHotSymlogHead(
+            feat_size,
+            cfg.hidden_size,
+            cfg.twohot_bins,
+            cfg.twohot_min,
+            cfg.twohot_max,
         )
 
     def forward(self, feat: torch.Tensor) -> torch.Tensor:
-        return self.net(feat).squeeze(-1)
+        return self.head(feat)
+
+    def loss(self, feat: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        return self.head.loss(feat, target)
