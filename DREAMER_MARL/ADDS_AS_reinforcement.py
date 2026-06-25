@@ -22,7 +22,7 @@ from dataclasses import dataclass
 import multiprocessing as mp
 import queue
 from queue import Empty, Full # for Empty
-import cv2
+#import cv2
 
 from pathlib import Path
 import imageio.v2 as imageio
@@ -1504,8 +1504,8 @@ if __name__ == "__main__":
     for pq in param_queues:
         try:
             pq.put_nowait(initial_sd_cpu)
-        except Full:
-            pass
+        except Exception as e:
+            print(f"[Main] initial policy broadcast failed: {e}")
 
 
 
@@ -1698,7 +1698,10 @@ if __name__ == "__main__":
             # 최근 파라미터를 새 워커들에게 즉시 전송 (선택 사항)
             sd_cpu = agent.get_worker_state()
             for pq in param_queues:
-                pq.put(sd_cpu)
+                try:
+                    pq.put_nowait(sd_cpu)
+                except Exception as e:
+                    print(f"[Main] initial policy broadcast failed: {e}")
 
             last_supervise_t = time.time()
             # 전환 직후 루프 처음으로 돌아가서 안정적으로 시작
@@ -1712,8 +1715,12 @@ if __name__ == "__main__":
                         pq.get_nowait()
                 except Empty:
                     pass
+                except Exception as e:
+                    print(f"[Main] param queue drain skipped after error: {e}")
 
                 try:
                     pq.put_nowait(sd_cpu)
                 except Full:
                     pass
+                except Exception as e:
+                    print(f"[Main] policy broadcast failed: {e}")

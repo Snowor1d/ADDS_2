@@ -26,7 +26,7 @@ from collections import deque
 from typing import List, Tuple
 from visibility_atlas import VisibilityAtlas
 from typing import Optional
-import cv2
+#import cv2
 
 import torch
 import torch.nn as nn

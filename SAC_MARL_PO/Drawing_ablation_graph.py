@@ -26,18 +26,18 @@ from matplotlib.ticker import MultipleLocator
 # 1. Directory & Structure Config
 # =========================
 HOME_DIR = os.path.expanduser("~")
-ROOT_DIR = os.path.join(HOME_DIR, "ablations3") # 실제 데이터가 있는 최상위 경로로 수정하세요
+ROOT_DIR = os.path.join(HOME_DIR, "ablations4") # 실제 데이터가 있는 최상위 경로로 수정하세요
 OUT_DIR  = os.path.join(ROOT_DIR, "plots")
 
 # 탐색할 폴더 리스트 (순서대로 범례/그래프에 적용됨)
-MAP_NUMBERS  = ["3maps", "10maps", "30maps", "100maps", "300maps"]
-ABLATIONS    = ["NotEgo", "NotEpsilon", "NotFiLM", "Ours"]
-GRAPH_TARGETS= ["eva100s", "rewards"]
+MAP_NUMBERS  = ["3maps", "300maps"]
+ABLATIONS    = ["1robot", "2robots"]
+GRAPH_TARGETS= ["eva100s"]
 
 # =========================
 # 2. Data Processing Config
 # =========================
-MAX_EPISODE = 7000
+MAX_EPISODE = 4000
 
 # 여러 개의 txt 파일이 있을 때 음영을 그리는 방식
 # "std" (표준편차), "minmax" (최소-최대), "se" (표준오차), None (음영 없음)
@@ -51,8 +51,8 @@ TARGET_CONFIGS = {
         "scale": 0.5,           # 기존 코드의 yarr / 2 반영
         "clip_min": 250,        # 데이터를 이 값 이하로 내려가지 않게 자름
         "clip_max": 3500,       # 데이터를 이 값 이상으로 올라가지 않게 자름
-        "ylim_min": 270,          # ★ 그래프 y축 뷰의 최소값 (None이면 자동)
-        "ylim_max": 850,       # ★ 그래프 y축 뷰의 최대값 (None이면 자동)
+        "ylim_min": 250,          # ★ 그래프 y축 뷰의 최소값 (None이면 자동)
+        "ylim_max": 1800,       # ★ 그래프 y축 뷰의 최대값 (None이면 자동)
         "yticks_interval" : 200,
         "xticks_interval" : 2000
     },
@@ -114,7 +114,7 @@ ABLATION_STYLES = {
 }
 
 # 정의되지 않은 Ablation이 들어올 경우를 대비한 기본 사이클
-FALLBACK_COLORS = ["#332288", "#117733", "#44AA99", "#88CCEE", "#DDCC77", "#CC6677", "#AA4499", "#882255"]
+FALLBACK_COLORS = ["#332288", "#BB0000", "#44AA99", "#88CCEE", "#DDCC77", "#CC6677", "#AA4499", "#882255"]
 FALLBACK_LS     = ["-", "--", "-.", ":"]
 FALLBACK_MARKER = ["v", "<", ">", "P", "X", "h"]
 
@@ -328,9 +328,9 @@ def draw_on_axis(ax, series_list: List[AggregatedSeries], target: str):
         ax.grid(**GRID_STYLE)
         
     # Legend
-    # leg = ax.legend(frameon=False, loc="best")  
-    # for line in leg.get_lines():
-    #     line.set_marker("None")
+    leg = ax.legend(frameon=False, loc="best")  
+    for line in leg.get_lines():
+        line.set_marker("None")
 
 def create_single_plot(map_name: str, target: str, series_list: List[AggregatedSeries]):
     fig, ax = plt.subplots(figsize=FIGSIZE_SINGLE)
