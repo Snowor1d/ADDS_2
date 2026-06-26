@@ -760,15 +760,8 @@ def worker_process(
                     break
 
                 if action_boundary:
-                    dreamer_joint_action = worker_agent.select_joint_action(
-                        curr_joint_ego,
-                        curr_glob_state,
-                        joint_robot_state,
-                        joint_mask,
-                        deterministic=False,
-                    )
-
                     has_active_robot = False
+                    pending_actions = []
                     for i, rb in enumerate(robots_padded):
                         if rb is None or getattr(rb, "is_game_finished", False):
                             current_executing_actions[i] = 0.0
@@ -777,13 +770,28 @@ def worker_process(
                         if np.random.rand() < eps:
                             action_i = np.random.uniform(SPD_MIN, SPD_MAX, size=(ACTION_DIM,)).astype(np.float32)
                         else:
-                            action_i = dreamer_joint_action[i].astype(np.float32)
+                            action_i = None
 
-                        action_i = np.clip(action_i, SPD_MIN, SPD_MAX).astype(np.float32)
-                        rb.receive_action_velocity(action_i)
-                        rb.new_order_need = False
-                        current_executing_actions[i] = action_i
+                        pending_actions.append((i, rb, action_i))
                         has_active_robot = True
+
+                    dreamer_joint_action = None
+                    if any(action_i is None for _, _, action_i in pending_actions):
+                        dreamer_joint_action = worker_agent.select_joint_action(
+                            curr_joint_ego,
+                            curr_glob_state,
+                            joint_robot_state,
+                            joint_mask,
+                            deterministic=False,
+                        )
+
+                    for i, rb, action_i in pending_actions:
+                        if action_i is None:
+                            action_i = dreamer_joint_action[i].astype(np.float32)
+                        action_i = np.clip(action_i, SPD_MIN, SPD_MAX).astype(np.float32)
+                        executed_action = rb.receive_action_velocity(action_i).astype(np.float32)
+                        rb.new_order_need = False
+                        current_executing_actions[i] = executed_action
 
                     if has_active_robot:
                         timeline.s_ego = np.copy(curr_joint_ego)
