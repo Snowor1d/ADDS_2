@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import asdict
 import os
 from typing import Any, Optional
 
@@ -176,7 +177,7 @@ class DreamerAgent:
             os.makedirs(dirname, exist_ok=True)
         torch.save(
             {
-                "cfg": self.cfg,
+                "cfg": asdict(self.cfg),
                 "world_model": self.world_model.state_dict(),
                 "actor": self.actor.state_dict(),
                 "value": self.value.state_dict(),
@@ -195,7 +196,10 @@ class DreamerAgent:
         if not os.path.exists(filepath):
             print(f"[DreamerAgent] checkpoint not found: {filepath}")
             return
-        ckpt = torch.load(filepath, map_location=self.device)
+        try:
+            ckpt = torch.load(filepath, map_location=self.device, weights_only=False)
+        except TypeError:
+            ckpt = torch.load(filepath, map_location=self.device)
         try:
             self.world_model.load_state_dict(ckpt["world_model"])
             self.actor.load_state_dict(ckpt["actor"])
