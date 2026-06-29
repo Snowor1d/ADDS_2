@@ -19,7 +19,13 @@ def symexp(x: torch.Tensor) -> torch.Tensor:
 
 
 def action_to_env(raw_action: torch.Tensor, cfg: DreamerConfig) -> torch.Tensor:
-    return cfg.spd_min + 0.5 * (cfg.spd_max - cfg.spd_min) * (raw_action + 1.0)
+    env_action = cfg.spd_min + 0.5 * (cfg.spd_max - cfg.spd_min) * (raw_action + 1.0)
+    if cfg.action_dim == 2:
+        max_speed = max(abs(float(cfg.spd_min)), abs(float(cfg.spd_max)))
+        norm = torch.linalg.norm(env_action, dim=-1, keepdim=True)
+        scale = torch.clamp(max_speed / norm.clamp_min(1e-6), max=1.0)
+        env_action = env_action * scale
+    return env_action
 
 
 def env_to_raw_action(action: torch.Tensor, cfg: DreamerConfig) -> torch.Tensor:

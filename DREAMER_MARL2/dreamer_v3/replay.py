@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
+import os
+import pickle
+import time
 from typing import Any, Union
+import zipfile
 
 import numpy as np
 import torch
@@ -92,20 +96,40 @@ class DreamerSequenceReplay:
         return self._collate(chunks)
 
     def save(self, filepath: str) -> None:
+        dirname = os.path.dirname(filepath)
+        if dirname:
+            os.makedirs(dirname, exist_ok=True)
         arrays = {
             "episodes": np.array(list(self.episodes), dtype=object),
             "capacity": np.array(self.capacity, dtype=np.int64),
             "sequence_length": np.array(self.sequence_length, dtype=np.int64),
             "num_steps": np.array(self.num_steps, dtype=np.int64),
         }
-        np.savez_compressed(filepath, **arrays)
+        tmp_path = f"{filepath}.tmp"
+        with open(tmp_path, "wb") as f:
+            np.savez_compressed(f, **arrays)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, filepath)
 
-    def load(self, filepath: str) -> None:
-        data = np.load(filepath, allow_pickle=True)
-        self.capacity = int(data["capacity"])
-        self.sequence_length = int(data["sequence_length"])
-        self.episodes = deque(data["episodes"].tolist())
-        self.num_steps = int(data["num_steps"])
+    def load(self, filepath: str) -> bool:
+        try:
+            data = np.load(filepath, allow_pickle=True)
+            self.capacity = int(data["capacity"])
+            self.sequence_length = int(data["sequence_length"])
+            self.episodes = deque(data["episodes"].tolist())
+            self.num_steps = int(data["num_steps"])
+        except (OSError, EOFError, ValueError, KeyError, zipfile.BadZipFile, pickle.UnpicklingError) as exc:
+            bad_path = f"{filepath}.bad.{int(time.time())}"
+            try:
+                os.replace(filepath, bad_path)
+                print(f"[DreamerReplay] invalid replay buffer moved to {bad_path}: {exc}")
+            except OSError:
+                print(f"[DreamerReplay] invalid replay buffer ignored: {filepath}: {exc}")
+            self.episodes = deque()
+            self.num_steps = 0
+            return False
+        return True
 
     def _collate(self, chunks: list[list[DreamerStep]]) -> dict[str, torch.Tensor]:
         def stack(name: str):

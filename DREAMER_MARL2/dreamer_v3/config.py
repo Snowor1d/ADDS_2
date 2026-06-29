@@ -27,7 +27,7 @@ class DreamerConfig:
     robot_state_clip: float = 5.0
     robot_map_scale_norm: float = 4.0
 
-    horizon: int = 15
+    horizon: int = 20
     discount: float = 0.997
     lambda_: float = 0.95
     free_nats: float = 1.0
@@ -35,7 +35,7 @@ class DreamerConfig:
     kl_scale: float = 0.5
     dyn_scale: float = 0.5
     rep_scale: float = 0.1
-    entropy_scale: float = 0.0
+    entropy_scale: float = 1e-4
     actor_std_min: float = 0.05
     actor_std_max: float = 1.0
     actor_entropy_clip: float = 20.0

@@ -222,6 +222,7 @@ def make_dreamer_config(device=None) -> DreamerConfig:
 
 # Timer instances
 sim_timer = Timer()
+
 learn_timer = Timer()
 home_dir = os.path.expanduser("~")
 

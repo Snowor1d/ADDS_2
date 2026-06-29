@@ -250,7 +250,14 @@ class DreamerAgent:
 
     def load_replay_buffer(self, filepath: str) -> None:
         if os.path.exists(filepath):
-            self.replay.load(filepath)
+            loaded = self.replay.load(filepath)
+            if loaded:
+                print(
+                    f"[DreamerAgent] loaded replay buffer: {filepath} "
+                    f"episodes={self.replay.num_episodes}, steps={len(self.replay)}"
+                )
+            else:
+                print("[DreamerAgent] starting with an empty replay buffer.")
 
     def _sample_start_state(self, posts: list[RSSMState]) -> RSSMState:
         stacked_deter = torch.stack([state.deter for state in posts], dim=1)
@@ -320,6 +327,7 @@ class DreamerAgent:
         for _ in range(self.cfg.horizon):
             feat = self.world_model.rssm.get_feat(state)
             action, log_prob = self.actor.sample(feat, deterministic=False)
+            action = action * mask.unsqueeze(-1)
             state = self.world_model.rssm.img_step(state, action, robot, mask)
             next_feat = self.world_model.rssm.get_feat(state)
             rewards.append(self.world_model.reward_head(next_feat).squeeze(-1))
