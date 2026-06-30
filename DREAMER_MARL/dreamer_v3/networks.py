@@ -334,16 +334,23 @@ class WorldModel(nn.Module):
         ).sum(dim=-1).mean()
         dyn_kl = torch.clamp(dyn_kl, min=self.cfg.free_nats)
         rep_kl = torch.clamp(rep_kl, min=self.cfg.free_nats)
-        kl_loss = self.cfg.dyn_scale * dyn_kl + self.cfg.rep_scale * rep_kl
-
-        total = (
+        prediction_loss = (
             self.cfg.reward_loss_scale * reward_loss
             + self.cfg.continue_loss_scale * continue_loss
             + self.cfg.recon_loss_scale * (ego_loss + global_loss)
-            + self.cfg.kl_scale * kl_loss
+        )
+        dynamics_loss = dyn_kl
+        representation_loss = rep_kl
+        total = (
+            self.cfg.prediction_loss_scale * prediction_loss
+            + self.cfg.dynamics_loss_scale * dynamics_loss
+            + self.cfg.representation_loss_scale * representation_loss
         )
         metrics = {
             "model_loss": float(total.detach().cpu()),
+            "prediction_loss": float(prediction_loss.detach().cpu()),
+            "dynamics_loss": float(dynamics_loss.detach().cpu()),
+            "representation_loss": float(representation_loss.detach().cpu()),
             "reward_loss": float(reward_loss.detach().cpu()),
             "continue_loss": float(continue_loss.detach().cpu()),
             "recon_loss": float((ego_loss + global_loss).detach().cpu()),

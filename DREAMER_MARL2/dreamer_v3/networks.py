@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 
 import torch
 import torch.nn as nn
@@ -63,6 +64,47 @@ class ConvEncoder(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.net(x)
+
+
+class ConvDecoder(nn.Module):
+    def __init__(self, in_size: int, hidden_size: int, out_shape: tuple[int, int, int]) -> None:
+        super().__init__()
+        self.out_shape = tuple(int(x) for x in out_shape)
+        out_channels, height, width = self.out_shape
+        self.base_channels = int(hidden_size)
+        self.start_h = max(3, int(math.ceil(height / 8)))
+        self.start_w = max(3, int(math.ceil(width / 8)))
+        mid_channels = max(self.base_channels // 2, 32)
+        low_channels = max(self.base_channels // 4, 32)
+
+        self.fc = nn.Sequential(
+            nn.Linear(in_size, self.base_channels * self.start_h * self.start_w),
+            nn.SiLU(),
+        )
+        self.net = nn.Sequential(
+            nn.Conv2d(self.base_channels, self.base_channels, 3, padding=1),
+            nn.SiLU(),
+            nn.Upsample(scale_factor=2, mode="nearest"),
+            nn.Conv2d(self.base_channels, mid_channels, 3, padding=1),
+            nn.SiLU(),
+            nn.Upsample(scale_factor=2, mode="nearest"),
+            nn.Conv2d(mid_channels, low_channels, 3, padding=1),
+            nn.SiLU(),
+            nn.Upsample(scale_factor=2, mode="nearest"),
+            nn.Conv2d(low_channels, low_channels, 3, padding=1),
+            nn.SiLU(),
+            nn.Conv2d(low_channels, out_channels, 3, padding=1),
+        )
+
+    def forward(self, feat: torch.Tensor) -> torch.Tensor:
+        leading = feat.shape[:-1]
+        x = feat.reshape(-1, feat.shape[-1])
+        x = self.fc(x).reshape(-1, self.base_channels, self.start_h, self.start_w)
+        x = self.net(x)
+        _, height, width = self.out_shape
+        if x.shape[-2:] != (height, width):
+            x = F.interpolate(x, size=(height, width), mode="bilinear", align_corners=False)
+        return x.reshape(*leading, *self.out_shape)
 
 
 class JointObsEncoder(nn.Module):
@@ -258,21 +300,15 @@ class WorldModel(nn.Module):
             nn.SiLU(),
             nn.Linear(cfg.hidden_size, 1),
         )
-        ego_flat = cfg.max_robots
-        for dim in cfg.ego_shape:
-            ego_flat *= dim
-        global_flat = 1
-        for dim in cfg.global_shape:
-            global_flat *= dim
-        self.ego_decoder = nn.Sequential(
-            nn.Linear(feat_size, cfg.hidden_size),
-            nn.SiLU(),
-            nn.Linear(cfg.hidden_size, ego_flat),
+        self.ego_decoder = ConvDecoder(
+            feat_size,
+            cfg.hidden_size,
+            (cfg.max_robots * cfg.ego_shape[0], cfg.ego_shape[1], cfg.ego_shape[2]),
         )
-        self.global_decoder = nn.Sequential(
-            nn.Linear(feat_size, cfg.hidden_size),
-            nn.SiLU(),
-            nn.Linear(cfg.hidden_size, global_flat),
+        self.global_decoder = ConvDecoder(
+            feat_size,
+            cfg.hidden_size,
+            cfg.global_shape,
         )
 
     def observe(self, batch: dict[str, torch.Tensor]) -> tuple[list[RSSMState], list[RSSMState]]:
@@ -335,16 +371,23 @@ class WorldModel(nn.Module):
         ).sum(dim=-1).mean()
         dyn_kl = torch.clamp(dyn_kl, min=self.cfg.free_nats)
         rep_kl = torch.clamp(rep_kl, min=self.cfg.free_nats)
-        kl_loss = self.cfg.dyn_scale * dyn_kl + self.cfg.rep_scale * rep_kl
-
-        total = (
+        prediction_loss = (
             self.cfg.reward_loss_scale * reward_loss
             + self.cfg.continue_loss_scale * continue_loss
             + self.cfg.recon_loss_scale * (ego_loss + global_loss)
-            + self.cfg.kl_scale * kl_loss
+        )
+        dynamics_loss = dyn_kl
+        representation_loss = rep_kl
+        total = (
+            self.cfg.prediction_loss_scale * prediction_loss
+            + self.cfg.dynamics_loss_scale * dynamics_loss
+            + self.cfg.representation_loss_scale * representation_loss
         )
         metrics = {
             "model_loss": float(total.detach().cpu()),
+            "prediction_loss": float(prediction_loss.detach().cpu()),
+            "dynamics_loss": float(dynamics_loss.detach().cpu()),
+            "representation_loss": float(representation_loss.detach().cpu()),
             "reward_loss": float(reward_loss.detach().cpu()),
             "continue_loss": float(continue_loss.detach().cpu()),
             "recon_loss": float((ego_loss + global_loss).detach().cpu()),

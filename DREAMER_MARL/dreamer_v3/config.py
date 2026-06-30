@@ -32,9 +32,9 @@ class DreamerConfig:
     lambda_: float = 0.95
     free_nats: float = 1.0
     unimix_ratio: float = 0.01
-    kl_scale: float = 0.5
-    dyn_scale: float = 0.5
-    rep_scale: float = 0.1
+    prediction_loss_scale: float = 1.0
+    dynamics_loss_scale: float = 1.0
+    representation_loss_scale: float = 0.1
     entropy_scale: float = 0.0
     actor_std_min: float = 0.05
     actor_std_max: float = 1.0
