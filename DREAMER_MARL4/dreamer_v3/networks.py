@@ -359,6 +359,9 @@ class WorldModel(nn.Module):
         )
 
     def observe(self, batch: dict[str, torch.Tensor]) -> tuple[list[RSSMState], list[RSSMState]]:
+        
+        # 샘플된 실제 replay sequence를 바탕으로 RSSM/world model을 학습함
+
         joint_ego = batch["joint_ego"]
         global_state = batch["global_state"]
         joint_robot = batch["joint_robot"]
@@ -372,7 +375,7 @@ class WorldModel(nn.Module):
         zero_action = torch.zeros_like(action[:, 0])
         zero_robot = torch.zeros_like(joint_robot[:, 0])
         zero_mask = torch.zeros_like(joint_mask[:, 0])
-        for i in range(t):
+        for i in range(t): # t : 샘플된 실제 관측 sequence 길이, sequence legnth + replay context
             prev_action = zero_action if i == 0 else action[:, i - 1]
             prev_robot = zero_robot if i == 0 else joint_robot[:, i - 1]
             prev_mask = zero_mask if i == 0 else joint_mask[:, i - 1]
@@ -390,7 +393,7 @@ class WorldModel(nn.Module):
                 prev_robot = prev_robot * (1.0 - reset_robot)
                 prev_mask = prev_mask * (1.0 - reset)
             post, prior = self.rssm.obs_step(prev, prev_action, prev_robot, prev_mask, embed[:, i])
-            posts.append(post)
+            posts.append(post) # posterior는 (prev latent + action{i-1} + robot{i-1} + mask{i-1} + embed{i})를 바탕으로 만들어짐
             priors.append(prior)
             prev = post
         return posts, priors

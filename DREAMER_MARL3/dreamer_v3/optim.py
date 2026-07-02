@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import torch
 
+# LaProp : Adam/RMSProp 계열 optimizer
+# gradient를 RMS-normalize 한 후 mementum을 적용하는 optimizer 
 
 class LaProp(torch.optim.Optimizer):
     """LaProp optimizer: RMS-normalize gradients before applying momentum."""

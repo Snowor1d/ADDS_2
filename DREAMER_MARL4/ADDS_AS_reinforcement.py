@@ -211,16 +211,21 @@ def make_dreamer_config(device=None) -> DreamerConfig:
         robot_dim=ROBOT_STATE_DIM if ROBOT_STATE_EMBEDDING else 0,
         action_dim=ACTION_DIM,
         device=str(device or DEVICE),
-        replay_capacity=int(BUFFER_SIZE),
+        replay_capacity=int(DREAMER_REPLAY_CAPACITY),
         batch_size=int(DREAMER_BATCH_SIZE),
         sequence_length=int(DREAMER_SEQUENCE_LENGTH),
+        replay_context=int(DREAMER_REPLAY_CONTEXT),
         spd_min=float(SPD_MIN),
         spd_max=float(SPD_MAX),
         discount=float(GAMMA_START),
-        horizon=15,
-        lambda_=0.95,
-        target_value_tau=0.02,
-        return_norm_decay=0.99,
+        horizon=int(DREAMER_HORIZON),
+        lambda_=float(DREAMER_LAMBDA),
+        model_lr=float(DREAMER_MODEL_LR),
+        actor_lr=float(DREAMER_ACTOR_LR),
+        value_lr=float(DREAMER_VALUE_LR),
+        lr_warmup_steps=int(DREAMER_LR_WARMUP_STEPS),
+        target_value_tau=float(DREAMER_TARGET_VALUE_TAU),
+        return_norm_decay=float(DREAMER_RETURN_NORM_DECAY),
         train_ratio=float(UPDATES_PER_TRANSITION),
     )
 
@@ -1438,8 +1443,12 @@ if __name__ == "__main__":
     agent = DreamerAgent(make_dreamer_config(device=DEVICE))
     agent.epsilon = start_epsilon
     print(
-        f"DreamerV3 agent initialized, lr(model)={agent.cfg.model_lr}, "
-        f"batch_size={agent.cfg.batch_size}, replay_size={agent.cfg.replay_capacity}"
+        f"DreamerV3 agent initialized, "
+        f"lr(model/actor/value)="
+        f"{agent.cfg.model_lr}/{agent.cfg.actor_lr}/{agent.cfg.value_lr}, "
+        f"batch_size={agent.cfg.batch_size}, "
+        f"seq={agent.cfg.sequence_length}, context={agent.cfg.replay_context}, "
+        f"horizon={agent.cfg.horizon}, replay_size={agent.cfg.replay_capacity}"
     )
     replay_buffer_path = os.path.join(log_dir, "dreamer_replay.npz")
 

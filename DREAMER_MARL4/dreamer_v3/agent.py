@@ -54,7 +54,7 @@ class DreamerAgent:
         )
         self.metrics: dict[str, float] = {}
         self.epsilon = 0.0
-        self._policy_state: RSSMState | None = None
+        self._policy_state: RSSMState | None = None #RSSM latent state
         self._policy_prev_action: torch.Tensor | None = None
         self._policy_prev_robot: torch.Tensor | None = None
         self._policy_prev_mask: torch.Tensor | None = None
@@ -95,7 +95,7 @@ class DreamerAgent:
         deterministic: bool = False,
     ) -> np.ndarray:
         self.world_model.eval()
-        self.actor.eval()
+        self.actor.eval() # Inference mode -> gradient 계산 없이 action만 뽑기
         with torch.no_grad():
             batch = {
                 "joint_ego": torch.from_numpy(joint_ego_np[None].astype(np.float32)).to(self.device),
@@ -108,7 +108,7 @@ class DreamerAgent:
                 batch["global_state"],
                 batch["joint_robot"],
                 batch["joint_mask"],
-            )
+            ) #관측을 encoder에 통과시켜 embedding vector 만듦
             if self._policy_state is None:
                 self._policy_state = self.world_model.rssm.initial(1, self.device)
             if self._policy_prev_action is None:
@@ -123,26 +123,26 @@ class DreamerAgent:
             if self._policy_prev_mask is None:
                 self._policy_prev_mask = torch.zeros_like(batch["joint_mask"])
             post, _ = self.world_model.rssm.obs_step(
-                self._policy_state,
-                self._policy_prev_action,
-                self._policy_prev_robot,
+                self._policy_state, # 이전 latent state
+                self._policy_prev_action, # 이전 action
+                self._policy_prev_robot, # 이전 robot state
                 self._policy_prev_mask,
-                embed,
+                embed, #현재 관측 embed와, 이전 latent, action / robot / mask를 이용해 posterior latent, 'post' 만듦
             )
             self._policy_state = RSSMState(
                 deter=post.deter.detach(),
                 stoch=post.stoch.detach(),
                 logits=post.logits.detach(),
             )
-            feat = self.world_model.rssm.get_feat(post)
-            action, _ = self.actor.sample(feat, deterministic=deterministic)
+            feat = self.world_model.rssm.get_feat(post) # embedding
+            action, _ = self.actor.sample(feat, deterministic=deterministic) # posterior latent에서 action 샘플
             mask = batch["joint_mask"].unsqueeze(-1)
             action = action * mask
             self._policy_prev_action = action.detach()
             self._policy_prev_robot = batch["joint_robot"].detach()
             self._policy_prev_mask = batch["joint_mask"].detach()
         self.actor.train()
-        self.world_model.train()
+        self.world_model.train() # train 모드로 변환
         return action[0].detach().cpu().numpy().astype(np.float32)
 
     def reset_policy_state(self) -> None:
@@ -177,7 +177,7 @@ class DreamerAgent:
                 start,
                 batch,
                 start_index,
-            )
+            ) # posterior 중 하나를 start state로 골라서 상상 rollout하고 actor 업데이트
             self.actor_opt.zero_grad(set_to_none=True)
             actor_loss.backward()
             actor_grad_norm = self._adaptive_grad_clip(self.actor.parameters())
@@ -201,7 +201,7 @@ class DreamerAgent:
             self.value_opt.zero_grad(set_to_none=True)
             value_loss.backward()
             value_grad_norm = self._adaptive_grad_clip(self.value.parameters())
-            self.value_opt.step()
+            self.value_opt.step() # value를 imagined return과 replay posterior value target 쪽으로 업데이트
             self._update_target_value()
         finally:
             self._set_requires_grad(self.world_model, True)
@@ -409,7 +409,7 @@ class DreamerAgent:
         entropies = []
         log_probs = []
 
-        for _ in range(self.cfg.horizon):
+        for _ in range(self.cfg.horizon): # img step 
             feat = feats[-1]
             action, log_prob = self._sample_reinforce_action(feat)
             action = action * mask.unsqueeze(-1)

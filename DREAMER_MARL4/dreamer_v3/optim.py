@@ -76,10 +76,10 @@ class LaProp(torch.optim.Optimizer):
                 if weight_decay != 0.0:
                     param.mul_(1.0 - lr * weight_decay)
 
-                exp_avg_sq.mul_(beta2).addcmul_(grad, grad, value=1.0 - beta2)
+                exp_avg_sq.mul_(beta2).addcmul_(grad, grad, value=1.0 - beta2) #  grad^2 평균을gradient 스케일로 추정
                 bias_correction2 = 1.0 - beta2 ** step
-                denom = exp_avg_sq.div(bias_correction2).sqrt().add_(eps)
-                normalized_grad = grad / denom
+                denom = exp_avg_sq.div(bias_correction2).sqrt().add_(eps) # bias-corrected RMS gradient scale
+                normalized_grad = grad / denom # 최근 gradient들의 평균적인 크기
 
                 exp_avg.mul_(beta1).add_(normalized_grad, alpha=1.0 - beta1)
                 bias_correction1 = 1.0 - beta1 ** step
