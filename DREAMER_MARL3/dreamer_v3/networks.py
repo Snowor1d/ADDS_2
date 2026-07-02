@@ -19,6 +19,46 @@ def symexp(x: torch.Tensor) -> torch.Tensor:
     return torch.sign(x) * (torch.exp(torch.abs(x)) - 1.0)
 
 
+class RMSNorm(nn.Module):
+    def __init__(self, dim: int, eps: float = 1e-8) -> None:
+        super().__init__()
+        self.eps = eps
+        self.weight = nn.Parameter(torch.ones(dim))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        scale = torch.rsqrt(x.pow(2).mean(dim=-1, keepdim=True) + self.eps)
+        return x * scale * self.weight
+
+
+class ChannelRMSNorm(nn.Module):
+    def __init__(self, channels: int, eps: float = 1e-8) -> None:
+        super().__init__()
+        self.eps = eps
+        self.weight = nn.Parameter(torch.ones(1, channels, 1, 1))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        scale = torch.rsqrt(x.pow(2).mean(dim=1, keepdim=True) + self.eps)
+        return x * scale * self.weight
+
+
+def linear_block(in_dim: int, out_dim: int) -> list[nn.Module]:
+    return [nn.Linear(in_dim, out_dim), RMSNorm(out_dim), nn.SiLU()]
+
+
+def conv_block(
+    in_channels: int,
+    out_channels: int,
+    kernel_size: int,
+    stride: int = 1,
+    padding: int = 0,
+) -> list[nn.Module]:
+    return [
+        nn.Conv2d(in_channels, out_channels, kernel_size, stride=stride, padding=padding),
+        ChannelRMSNorm(out_channels),
+        nn.SiLU(),
+    ]
+
+
 def action_to_env(raw_action: torch.Tensor, cfg: DreamerConfig) -> torch.Tensor:
     env_action = cfg.spd_min + 0.5 * (cfg.spd_max - cfg.spd_min) * (raw_action + 1.0)
     if cfg.action_dim == 2:
@@ -42,12 +82,9 @@ class ConvEncoder(nn.Module):
     def __init__(self, in_channels: int, out_size: int, input_shape: tuple[int, int]) -> None:
         super().__init__()
         self.conv = nn.Sequential(
-            nn.Conv2d(in_channels, 32, 4, stride=2, padding=1),
-            nn.SiLU(),
-            nn.Conv2d(32, 64, 4, stride=2, padding=1),
-            nn.SiLU(),
-            nn.Conv2d(64, 128, 4, stride=2, padding=1),
-            nn.SiLU(),
+            *conv_block(in_channels, 32, 4, stride=2, padding=1),
+            *conv_block(32, 64, 4, stride=2, padding=1),
+            *conv_block(64, 128, 4, stride=2, padding=1),
         )
         with torch.no_grad():
             dummy = torch.zeros(1, in_channels, *input_shape)
@@ -55,8 +92,7 @@ class ConvEncoder(nn.Module):
             flat_dim = int(conv_out.numel())
         self.proj = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(flat_dim, out_size),
-            nn.SiLU(),
+            *linear_block(flat_dim, out_size),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -75,21 +111,16 @@ class ConvDecoder(nn.Module):
         low_channels = max(self.base_channels // 4, 32)
 
         self.fc = nn.Sequential(
-            nn.Linear(in_size, self.base_channels * self.start_h * self.start_w),
-            nn.SiLU(),
+            *linear_block(in_size, self.base_channels * self.start_h * self.start_w),
         )
         self.net = nn.Sequential(
-            nn.Conv2d(self.base_channels, self.base_channels, 3, padding=1),
-            nn.SiLU(),
+            *conv_block(self.base_channels, self.base_channels, 3, padding=1),
             nn.Upsample(scale_factor=2, mode="nearest"),
-            nn.Conv2d(self.base_channels, mid_channels, 3, padding=1),
-            nn.SiLU(),
+            *conv_block(self.base_channels, mid_channels, 3, padding=1),
             nn.Upsample(scale_factor=2, mode="nearest"),
-            nn.Conv2d(mid_channels, low_channels, 3, padding=1),
-            nn.SiLU(),
+            *conv_block(mid_channels, low_channels, 3, padding=1),
             nn.Upsample(scale_factor=2, mode="nearest"),
-            nn.Conv2d(low_channels, low_channels, 3, padding=1),
-            nn.SiLU(),
+            *conv_block(low_channels, low_channels, 3, padding=1),
             nn.Conv2d(low_channels, out_channels, 3, padding=1),
         )
 
@@ -108,10 +139,8 @@ class VectorDecoder(nn.Module):
     def __init__(self, in_size: int, hidden_size: int, out_size: int) -> None:
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(in_size, hidden_size),
-            nn.SiLU(),
-            nn.Linear(hidden_size, hidden_size),
-            nn.SiLU(),
+            *linear_block(in_size, hidden_size),
+            *linear_block(hidden_size, hidden_size),
             nn.Linear(hidden_size, out_size),
         )
 
@@ -128,16 +157,12 @@ class JointObsEncoder(nn.Module):
         self.ego_encoder = ConvEncoder(c_ego, cfg.hidden_size, (ego_h, ego_w))
         self.global_encoder = ConvEncoder(c_global, cfg.hidden_size, (global_h, global_w))
         self.robot_encoder = nn.Sequential(
-            nn.Linear(cfg.robot_dim, 64),
-            nn.SiLU(),
-            nn.Linear(64, 64),
-            nn.SiLU(),
+            *linear_block(cfg.robot_dim, 64),
+            *linear_block(64, 64),
         )
         self.out = nn.Sequential(
-            nn.Linear(cfg.hidden_size * 2 + 64, cfg.embed_size),
-            nn.SiLU(),
-            nn.Linear(cfg.embed_size, cfg.embed_size),
-            nn.SiLU(),
+            *linear_block(cfg.hidden_size * 2 + 64, cfg.embed_size),
+            *linear_block(cfg.embed_size, cfg.embed_size),
         )
 
     def forward(
@@ -165,10 +190,11 @@ class TwoHotSymlogHead(nn.Module):
     def __init__(self, in_dim: int, hidden_dim: int, bins: int, low: float, high: float) -> None:
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(in_dim, hidden_dim),
-            nn.SiLU(),
+            *linear_block(in_dim, hidden_dim),
             nn.Linear(hidden_dim, bins),
         )
+        nn.init.zeros_(self.net[-1].weight)
+        nn.init.zeros_(self.net[-1].bias)
         self.bins = int(bins)
         self.low = float(low)
         self.high = float(high)
@@ -217,18 +243,15 @@ class RSSM(nn.Module):
         joint_action_dim = cfg.max_robots * cfg.action_dim
         joint_robot_dim = cfg.max_robots * cfg.robot_dim
         self.action_encoder = nn.Sequential(
-            nn.Linear(joint_action_dim + joint_robot_dim + cfg.max_robots, cfg.action_embed_size),
-            nn.SiLU(),
+            *linear_block(joint_action_dim + joint_robot_dim + cfg.max_robots, cfg.action_embed_size),
         )
         self.gru = nn.GRUCell(self.stoch_flat + cfg.action_embed_size, cfg.deter_size)
         self.prior = nn.Sequential(
-            nn.Linear(cfg.deter_size, cfg.hidden_size),
-            nn.SiLU(),
+            *linear_block(cfg.deter_size, cfg.hidden_size),
             nn.Linear(cfg.hidden_size, self.stoch_flat),
         )
         self.posterior = nn.Sequential(
-            nn.Linear(cfg.deter_size + cfg.embed_size, cfg.hidden_size),
-            nn.SiLU(),
+            *linear_block(cfg.deter_size + cfg.embed_size, cfg.hidden_size),
             nn.Linear(cfg.hidden_size, self.stoch_flat),
         )
 
@@ -308,8 +331,7 @@ class WorldModel(nn.Module):
             cfg.twohot_max,
         )
         self.continue_head = nn.Sequential(
-            nn.Linear(feat_size, cfg.hidden_size),
-            nn.SiLU(),
+            *linear_block(feat_size, cfg.hidden_size),
             nn.Linear(cfg.hidden_size, 1),
         )
         self.ego_decoder = ConvDecoder(
@@ -340,19 +362,26 @@ class WorldModel(nn.Module):
         posts = []
         priors = []
         zero_action = torch.zeros_like(action[:, 0])
+        zero_robot = torch.zeros_like(joint_robot[:, 0])
+        zero_mask = torch.zeros_like(joint_mask[:, 0])
         for i in range(t):
             prev_action = zero_action if i == 0 else action[:, i - 1]
-            prev_robot = joint_robot[:, i]
-            prev_mask = joint_mask[:, i]
-            post, prior = self.rssm.obs_step(prev, prev_action, prev_robot, prev_mask, embed[:, i])
+            prev_robot = zero_robot if i == 0 else joint_robot[:, i - 1]
+            prev_mask = zero_mask if i == 0 else joint_mask[:, i - 1]
             reset = batch["is_first"][:, i].reshape(b, 1)
             if reset.any():
                 init = self.rssm.initial(b, joint_ego.device)
-                post = RSSMState(
-                    deter=post.deter * (1.0 - reset) + init.deter * reset,
-                    stoch=post.stoch * (1.0 - reset.reshape(b, 1, 1)) + init.stoch * reset.reshape(b, 1, 1),
-                    logits=post.logits * (1.0 - reset.reshape(b, 1, 1)) + init.logits * reset.reshape(b, 1, 1),
+                reset_stoch = reset.reshape(b, 1, 1)
+                reset_robot = reset.reshape(b, 1, 1)
+                prev = RSSMState(
+                    deter=prev.deter * (1.0 - reset) + init.deter * reset,
+                    stoch=prev.stoch * (1.0 - reset_stoch) + init.stoch * reset_stoch,
+                    logits=prev.logits * (1.0 - reset_stoch) + init.logits * reset_stoch,
                 )
+                prev_action = prev_action * (1.0 - reset.reshape(b, 1, 1))
+                prev_robot = prev_robot * (1.0 - reset_robot)
+                prev_mask = prev_mask * (1.0 - reset)
+            post, prior = self.rssm.obs_step(prev, prev_action, prev_robot, prev_mask, embed[:, i])
             posts.append(post)
             priors.append(prior)
             prev = post
@@ -367,13 +396,16 @@ class WorldModel(nn.Module):
         reward_pred = self.reward_head(flat).reshape(b, t)
         continue_logit = self.continue_head(flat).reshape(b, t)
         reward_loss = self.reward_head.loss(flat, batch["reward"].reshape(b * t))
-        continue_loss = F.binary_cross_entropy_with_logits(continue_logit, batch["continue"])
+        continue_target = batch["continue"] * self.cfg.discount
+        continue_loss = F.binary_cross_entropy_with_logits(continue_logit, continue_target)
 
         ego_pred = self.ego_decoder(flat).reshape(b, t, self.cfg.max_robots, *self.cfg.ego_shape)
         global_pred = self.global_decoder(flat).reshape(b, t, *self.cfg.global_shape)
         robot_pred = self.robot_decoder(flat).reshape(b, t, self.cfg.max_robots, self.cfg.robot_dim)
-        ego_loss = F.mse_loss(torch.sigmoid(ego_pred), batch["joint_ego"])
-        global_loss = F.mse_loss(torch.sigmoid(global_pred), batch["global_state"])
+        ego_loss_per = (torch.sigmoid(ego_pred) - batch["joint_ego"]).pow(2).sum(dim=(2, 3, 4, 5))
+        global_loss_per = (torch.sigmoid(global_pred) - batch["global_state"]).pow(2).sum(dim=(2, 3, 4))
+        ego_loss = ego_loss_per.mean()
+        global_loss = global_loss_per.mean()
         robot_target = symlog_vector_obs(batch["joint_robot"])
         robot_mask = batch["joint_mask"].unsqueeze(-1)
         robot_loss = ((robot_pred - robot_target).pow(2) * robot_mask).sum()
@@ -427,10 +459,8 @@ class Actor(nn.Module):
         self.cfg = cfg
         feat_size = cfg.deter_size + cfg.stoch_size * cfg.discrete_size
         self.net = nn.Sequential(
-            nn.Linear(feat_size, cfg.hidden_size),
-            nn.SiLU(),
-            nn.Linear(cfg.hidden_size, cfg.hidden_size),
-            nn.SiLU(),
+            *linear_block(feat_size, cfg.hidden_size),
+            *linear_block(cfg.hidden_size, cfg.hidden_size),
         )
         self.mean = nn.Linear(cfg.hidden_size, cfg.max_robots * cfg.action_dim)
         self.std = nn.Linear(cfg.hidden_size, cfg.max_robots * cfg.action_dim)

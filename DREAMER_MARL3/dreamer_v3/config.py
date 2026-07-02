@@ -13,7 +13,7 @@ class DreamerConfig:
 
     replay_capacity: int = 200_000
     batch_size: int = 16
-    sequence_length: int = 32
+    sequence_length: int = 64
 
     deter_size: int = 256
     stoch_size: int = 32
@@ -25,8 +25,8 @@ class DreamerConfig:
     twohot_min: float = -20.0
     twohot_max: float = 20.0
 
-    horizon: int = 20
-    discount: float = 0.997
+    horizon: int = 15
+    discount: float = 1.0 - 1.0 / 333.0
     lambda_: float = 0.95
     free_nats: float = 1.0
     unimix_ratio: float = 0.01
@@ -38,19 +38,23 @@ class DreamerConfig:
     actor_std_max: float = 1.0
     actor_entropy_clip: float = 20.0
 
-    model_lr: float = 1e-4
-    actor_lr: float = 8e-5
-    value_lr: float = 3e-5
+    model_lr: float = 4e-5
+    actor_lr: float = 4e-5
+    value_lr: float = 4e-5
+    lr_warmup_steps: int = 1000
+    agc_clip: float = 0.3
+    agc_eps: float = 1e-3
     grad_clip: float = 100.0
     actor_grad_clip: float = 10.0
     value_grad_clip: float = 10.0
-    target_value_tau: float = 0.01
+    target_value_tau: float = 0.02
     return_norm_decay: float = 0.99
     return_norm_low: float = 0.05
     return_norm_high: float = 0.95
     return_norm_min_scale: float = 1.0
     value_loss_scale: float = 1.0
     replay_value_loss_scale: float = 0.3
+    value_slowreg_scale: float = 1.0
 
     reward_loss_scale: float = 1.0
     continue_loss_scale: float = 1.0

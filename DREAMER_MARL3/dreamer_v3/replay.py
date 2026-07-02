@@ -40,6 +40,7 @@ class DreamerSequenceReplay:
         self.device = torch.device(device)
         self.state_dtype = state_dtype
         self.episodes: deque[list[DreamerStep]] = deque()
+        self.current_episode: list[DreamerStep] = []
         self.num_steps = 0
 
     def __len__(self) -> int:
@@ -59,17 +60,31 @@ class DreamerSequenceReplay:
             self.num_steps -= len(removed)
 
     def add_transition_msg(self, msg: Any, force_terminal: bool = False) -> None:
-        step = self.step_from_transition_msg(msg, force_terminal=force_terminal)
-        self.add_episode([step])
+        is_first = len(self.current_episode) == 0
+        step = self.step_from_transition_msg(
+            msg,
+            force_terminal=force_terminal,
+            is_first=is_first,
+        )
+        self.current_episode.append(step)
+        if step.is_terminal:
+            self.add_episode(self.current_episode)
+            self.current_episode = []
 
-    def step_from_transition_msg(self, msg: Any, force_terminal: bool = False) -> DreamerStep:
+    def step_from_transition_msg(
+        self,
+        msg: Any,
+        force_terminal: bool = False,
+        *,
+        is_first: bool = False,
+    ) -> DreamerStep:
         return DreamerStep(
             joint_ego=self._to_uint8(msg.joint_ego_state),
             global_state=self._to_uint8(msg.global_state),
             joint_robot=np.asarray(msg.joint_robot_state, dtype=np.float32),
             action=np.asarray(msg.joint_action, dtype=np.float32),
             reward=float(msg.reward),
-            is_first=False,
+            is_first=bool(is_first),
             is_terminal=bool(msg.done or force_terminal),
             joint_mask=np.asarray(msg.joint_mask, dtype=np.float32),
             delta_t=max(float(getattr(msg, "delta_t", 1.0)), 1.0),
@@ -127,8 +142,10 @@ class DreamerSequenceReplay:
             except OSError:
                 print(f"[DreamerReplay] invalid replay buffer ignored: {filepath}: {exc}")
             self.episodes = deque()
+            self.current_episode = []
             self.num_steps = 0
             return False
+        self.current_episode = []
         return True
 
     def _collate(self, chunks: list[list[DreamerStep]]) -> dict[str, torch.Tensor]:

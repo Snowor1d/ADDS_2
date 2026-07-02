@@ -212,11 +212,15 @@ def make_dreamer_config(device=None) -> DreamerConfig:
         action_dim=ACTION_DIM,
         device=str(device or DEVICE),
         replay_capacity=int(BUFFER_SIZE),
-        batch_size=max(8, min(int(BATCH_SIZE // 4), 32)),
-        sequence_length=32,
+        batch_size=int(DREAMER_BATCH_SIZE),
+        sequence_length=int(DREAMER_SEQUENCE_LENGTH),
         spd_min=float(SPD_MIN),
         spd_max=float(SPD_MAX),
         discount=float(GAMMA_START),
+        horizon=15,
+        lambda_=0.95,
+        target_value_tau=0.02,
+        return_norm_decay=0.99,
         train_ratio=float(UPDATES_PER_TRANSITION),
     )
 
