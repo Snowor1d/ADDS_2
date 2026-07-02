@@ -86,10 +86,10 @@ RANDOM_EXIT = False
 
 
 # -------------- PATH -------------------
-LOG_DIR = "Log_MARL_DREAMER3"
+LOG_DIR = "Log_MARL_DREAMER4"
 #LOG_DIR = "SOTA_MODELS"
 #LOG_DIR = "Log_test"
-PORT_NUM = 8222
+PORT_NUM = 8320
 
 # --------------- SAC ALGORITHM PARAMETER ---------------
 LOG_STD_MAX = 0.5
