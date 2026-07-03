@@ -54,7 +54,7 @@ MAP_NUM = -1 #if not used, -2, if random, -1
 
 
 #MAP_NUM_RANDOM = list(range(1000, 1300))
-MAP_NUM_RANDOM = list(range(1000, 1300))
+MAP_NUM_RANDOM = list(range(1000,1300))
 #MAP_NUM_RANDOM = list(range(1000, 1300))
 #MAP_NUM_RANDOM = [1506]
 
@@ -89,10 +89,10 @@ RANDOM_EXIT = False
 
 
 # -------------- PATH -------------------
-LOG_DIR = "Log_MARL_DREAMER4"
+LOG_DIR = "Log_MARL_DREAMER5"
 #LOG_DIR = "SOTA_MODELS"
 #LOG_DIR = "Log_test"
-PORT_NUM = 8323
+PORT_NUM = 8420
 
 # --------------- REWARD SHAPING -----------------
 
@@ -124,8 +124,11 @@ DOWNSAMPLE_MAP_SIZE = 50
 USE_MARL_BASELINE = False
 
 
-SPD_MIN = -2
+R_MIN = 2
+R_MAX = 15
+SPD_MIN = 1
 SPD_MAX = 2
+DIRECTION_N= 12
 FRAME_STEP = 4
 
 ZSG_MAP = []
