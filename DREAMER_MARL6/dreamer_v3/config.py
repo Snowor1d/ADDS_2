@@ -16,13 +16,14 @@ class DreamerConfig:
     sequence_length: int = 32
     replay_context: int = 4
 
-    deter_size: int = 128
-    stoch_size: int = 16
+    deter_size: int = 2048
+    stoch_size: int = 32
     discrete_size: int = 16
-    hidden_size: int = 128
+    hidden_size: int = 256
     embed_size: int = 256
-    action_embed_size: int = 64
+    action_embed_size: int = 256
     rssm_blocks: int = 8
+    imag_last: int = 0
     twohot_bins: int = 127
     twohot_min: float = -20.0
     twohot_max: float = 20.0

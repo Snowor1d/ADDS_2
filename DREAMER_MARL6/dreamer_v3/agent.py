@@ -179,7 +179,7 @@ class DreamerAgent:
         self.scaler.update()
 
         with torch.no_grad():
-            start, start_index = self._sample_start_state(posts, batch)
+            start, start_index, start_batch_index = self._sample_start_state(posts, batch)
             replay_posts = self._detach_posts(posts)
         del posts, model_loss
         self._set_requires_grad(self.world_model, False)
@@ -189,7 +189,8 @@ class DreamerAgent:
                     start,
                     batch,
                     start_index,
-                ) # posterior 중 하나를 start state로 골라서 상상 rollout하고 actor 업데이트
+                    start_batch_index,
+                ) # 선택된 posterior state들에서 상상 rollout하고 actor 업데이트
             self.actor_opt.zero_grad(set_to_none=True)
             self.scaler.scale(actor_loss).backward()
             self.scaler.unscale_(self.actor_opt)
@@ -213,6 +214,7 @@ class DreamerAgent:
                     replay_posts,
                     batch,
                     start_index,
+                    start_batch_index,
                     bootstrap,
                 )
                 value_loss = (
@@ -345,25 +347,39 @@ class DreamerAgent:
         self,
         posts: list[RSSMState],
         batch: dict[str, torch.Tensor] | None = None,
-    ) -> tuple[RSSMState, torch.Tensor]:
+    ) -> tuple[RSSMState, torch.Tensor, torch.Tensor]:
         stacked_deter = torch.stack([state.deter for state in posts], dim=1)
         stacked_stoch = torch.stack([state.stoch for state in posts], dim=1)
         stacked_logits = torch.stack([state.logits for state in posts], dim=1)
         b, t = stacked_deter.shape[:2]
-        if batch is not None and "loss_mask" in batch:
+        imag_last = int(getattr(self.cfg, "imag_last", -1))
+        if imag_last < 0 and batch is not None and "loss_mask" in batch:
             weights = batch["loss_mask"].float()
             row_sum = weights.sum(dim=1, keepdim=True)
             weights = torch.where(row_sum > 0, weights, torch.ones_like(weights))
             index = torch.multinomial(weights, 1).squeeze(1)
-        else:
+            batch_index = torch.arange(b, device=stacked_deter.device)
+        elif imag_last < 0:
             index = torch.randint(0, t, (b,), device=stacked_deter.device)
-        batch_index = torch.arange(b, device=stacked_deter.device)
+            batch_index = torch.arange(b, device=stacked_deter.device)
+        else:
+            k = min(imag_last or t, t)
+            index_grid = torch.arange(t - k, t, device=stacked_deter.device)
+            index_grid = index_grid.unsqueeze(0).expand(b, k)
+            batch_grid = torch.arange(b, device=stacked_deter.device).unsqueeze(1).expand(b, k)
+            index = index_grid.reshape(-1)
+            batch_index = batch_grid.reshape(-1)
+            if batch is not None and "loss_mask" in batch:
+                valid = batch["loss_mask"][batch_index, index] > 0
+                if valid.any():
+                    index = index[valid]
+                    batch_index = batch_index[valid]
         state = RSSMState(
             deter=stacked_deter[batch_index, index],
             stoch=stacked_stoch[batch_index, index],
             logits=stacked_logits[batch_index, index],
         )
-        return state, index
+        return state, index, batch_index
 
     def _detach_posts(self, posts: list[RSSMState]) -> list[RSSMState]:
         return [
@@ -438,9 +454,10 @@ class DreamerAgent:
         start: RSSMState,
         batch: dict[str, torch.Tensor],
         start_index: torch.Tensor,
+        start_batch_index: torch.Tensor,
     ) -> tuple[torch.Tensor, dict[str, float], torch.Tensor, torch.Tensor, torch.Tensor]:
         state = start
-        batch_index = torch.arange(start_index.shape[0], device=start_index.device)
+        batch_index = start_batch_index.to(device=start_index.device, dtype=torch.long)
         robot = batch["joint_robot"][batch_index, start_index]
         mask = batch["joint_mask"][batch_index, start_index]
         feats = [self.world_model.rssm.get_feat(state)]
@@ -499,6 +516,9 @@ class DreamerAgent:
             "return_abs_max": float(returns.abs().max().detach().cpu()),
             "target_value_mean": float(value_seq.mean().detach().cpu()),
             "target_value_abs_max": float(value_seq.abs().max().detach().cpu()),
+            "imag_start_count": float(start_index.numel()),
+            "imag_starts_per_sequence": float(start_index.numel() / max(1, batch["reward"].shape[0])),
+            "imag_start_index_mean": float(start_index.float().mean().detach().cpu()),
             **norm_metrics,
         }
         return actor_loss, metrics, actor_feat_seq, returns, weights
@@ -531,39 +551,30 @@ class DreamerAgent:
         posts: list[RSSMState],
         batch: dict[str, torch.Tensor],
         start_index: torch.Tensor,
+        start_batch_index: torch.Tensor,
         bootstrap: torch.Tensor,
     ) -> tuple[torch.Tensor, dict[str, float]]:
         with torch.no_grad():
             feat_seq = torch.stack([self.world_model.rssm.get_feat(state) for state in posts], dim=0)
-            reward_bt = batch["reward"]
-            continue_bt = batch["continue"] * self.cfg.discount
-            returns = []
-            feats = []
-            lengths = []
-            for batch_idx in range(reward_bt.shape[0]):
-                end = int(start_index[batch_idx].item()) + 1
-                prefix_feat = feat_seq[:end, batch_idx]
-                prefix_reward = reward_bt[batch_idx, :end]
-                prefix_continue = continue_bt[batch_idx, :end]
-                prefix_value = self.target_value(prefix_feat)
-                prefix_return = self._lambda_returns(
-                    prefix_reward,
-                    prefix_value,
-                    prefix_continue,
-                    bootstrap=bootstrap[batch_idx],
-                )
-                feats.append(prefix_feat)
-                returns.append(prefix_return)
-                lengths.append(end)
-            replay_feats = torch.cat(feats, dim=0)
-            replay_returns = torch.cat(returns, dim=0)
+            batch_index = start_batch_index.to(device=start_index.device, dtype=torch.long)
+            replay_feats = feat_seq[start_index, batch_index]
+            replay_returns = bootstrap
+            if "loss_mask" in batch:
+                replay_weights = batch["loss_mask"][batch_index, start_index].float()
+            else:
+                replay_weights = torch.ones_like(replay_returns)
             metrics = {
                 "replay_return_mean": float(replay_returns.mean().detach().cpu()),
                 "replay_return_abs_max": float(replay_returns.abs().max().detach().cpu()),
                 "replay_bootstrap_mean": float(bootstrap.mean().detach().cpu()),
-                "replay_prefix_length_mean": float(torch.tensor(lengths, dtype=torch.float32).mean()),
+                "replay_start_count": float(start_index.numel()),
+                "replay_start_index_mean": float(start_index.float().mean().detach().cpu()),
             }
-        replay_value_loss = self._value_loss(replay_feats.detach(), replay_returns.detach())
+        replay_value_loss = self._value_loss(
+            replay_feats.detach(),
+            replay_returns.detach(),
+            replay_weights.detach(),
+        )
         return replay_value_loss, metrics
 
     def _lambda_returns(

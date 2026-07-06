@@ -227,6 +227,7 @@ def make_dreamer_config(device=None) -> DreamerConfig:
         embed_size=int(DREAMER_EMBED_SIZE),
         action_embed_size=int(DREAMER_ACTION_EMBED_SIZE),
         rssm_blocks=int(DREAMER_RSSM_BLOCKS),
+        imag_last=int(DREAMER_IMAG_LAST),
         twohot_bins=int(DREAMER_TWOHOT_BINS),
         model_lr=float(DREAMER_MODEL_LR),
         actor_lr=float(DREAMER_ACTOR_LR),
@@ -1534,6 +1535,10 @@ if __name__ == "__main__":
 
     # update 비율 설정
     pending_updates = 0.0
+    train_transition_count = 0
+    update_attempt_count = 0
+    update_success_count = 0
+    update_skip_count = 0
     dreamer_episode_buffers = {}
     dreamer_pending_transitions = {}
 
@@ -1593,15 +1598,20 @@ if __name__ == "__main__":
                 dreamer_pending_transitions[msg.worker_id] = msg
 
             # 업데이트 스케줄: transition 수에 비례해서 update 횟수 누적
+            train_transition_count += 1
             if global_episode >= START_UPDATE_EPISODE:
                 pending_updates += UPDATES_PER_TRANSITION
                 while pending_updates >= 1.0:
+                    update_attempt_count += 1
                     learn_timer.start()
                     metrics = agent.update()
                     learn_timer.stop()
                     if metrics is not None:
+                        update_success_count += 1
                         for k, v in metrics.items():
                             step_writer.add_scalar(f"Dreamer/{k}", v, global_episode)
+                    else:
+                        update_skip_count += 1
                     pending_updates -= 1.0
        
         needs_switch_workers = False
@@ -1712,8 +1722,31 @@ if __name__ == "__main__":
                 )
 
             if ENABLE_TIMER:
-                print(f"Episode {global_episode} - Total Learning Time: {learn_timer.get_time():.6f} 초")
+                learning_time = learn_timer.get_time()
+                actual_update_ratio = (
+                    update_success_count / max(train_transition_count, 1)
+                )
+                attempted_update_ratio = (
+                    update_attempt_count / max(train_transition_count, 1)
+                )
+                update_success_rate = (
+                    update_success_count / max(update_attempt_count, 1)
+                )
+                step_writer.add_scalar("Timing/learning_time_sec", learning_time, global_episode)
+                step_writer.add_scalar("TrainRatio/transitions", train_transition_count, global_episode)
+                step_writer.add_scalar("TrainRatio/update_attempts", update_attempt_count, global_episode)
+                step_writer.add_scalar("TrainRatio/update_successes", update_success_count, global_episode)
+                step_writer.add_scalar("TrainRatio/update_skips", update_skip_count, global_episode)
+                step_writer.add_scalar("TrainRatio/pending_updates", pending_updates, global_episode)
+                step_writer.add_scalar("TrainRatio/config_updates_per_transition", UPDATES_PER_TRANSITION, global_episode)
+                step_writer.add_scalar("TrainRatio/actual_updates_per_transition", actual_update_ratio, global_episode)
+                step_writer.add_scalar("TrainRatio/attempted_updates_per_transition", attempted_update_ratio, global_episode)
+                step_writer.add_scalar("TrainRatio/update_success_rate", update_success_rate, global_episode)
                 learn_timer.reset()
+                train_transition_count = 0
+                update_attempt_count = 0
+                update_success_count = 0
+                update_skip_count = 0
        
         #5-3) Worker 전환 로직 (stats 루프 밖에서 안전하게 수행)
         if needs_switch_workers:
