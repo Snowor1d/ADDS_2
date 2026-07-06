@@ -48,9 +48,8 @@ class GroupedLinear(nn.Module):
         self.in_per_group = int(in_per_group)
         self.out_per_group = int(out_per_group)
         scale = 1.0 / math.sqrt(max(1, self.in_per_group))
-        self.weight = nn.Parameter(
-            torch.empty(self.groups, self.in_per_group, self.out_per_group).uniform_(-scale, scale)
-        )
+        self.weight = nn.Parameter(torch.empty(self.groups, self.in_per_group, self.out_per_group))
+        nn.init.trunc_normal_(self.weight, std=scale, a=-2.0 * scale, b=2.0 * scale)
         self.bias = nn.Parameter(torch.zeros(self.groups, self.out_per_group))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -58,7 +57,19 @@ class GroupedLinear(nn.Module):
 
 
 def linear_block(in_dim: int, out_dim: int) -> list[nn.Module]:
-    return [nn.Linear(in_dim, out_dim), RMSNorm(out_dim), nn.SiLU()]
+    linear = nn.Linear(in_dim, out_dim)
+    scale = 1.0 / math.sqrt(max(1, in_dim))
+    nn.init.trunc_normal_(linear.weight, std=scale, a=-2.0 * scale, b=2.0 * scale)
+    nn.init.zeros_(linear.bias)
+    return [linear, RMSNorm(out_dim), nn.SiLU()]
+
+
+def mlp_blocks(in_dim: int, hidden_dim: int, layers: int) -> list[nn.Module]:
+    layers = max(1, int(layers))
+    modules: list[nn.Module] = []
+    for i in range(layers):
+        modules.extend(linear_block(in_dim if i == 0 else hidden_dim, hidden_dim))
+    return modules
 
 
 def conv_block(
@@ -203,14 +214,23 @@ class JointObsEncoder(nn.Module):
         return self.out(torch.cat([ego_pooled, global_feat, robot_pooled], dim=-1))
 
 class TwoHotSymlogHead(nn.Module):
-    def __init__(self, in_dim: int, hidden_dim: int, bins: int, low: float, high: float) -> None:
+    def __init__(
+        self,
+        in_dim: int,
+        hidden_dim: int,
+        bins: int,
+        low: float,
+        high: float,
+        layers: int = 1,
+    ) -> None:
         super().__init__()
+        out = nn.Linear(hidden_dim, bins)
+        nn.init.zeros_(out.weight)
+        nn.init.zeros_(out.bias)
         self.net = nn.Sequential(
-            *linear_block(in_dim, hidden_dim),
-            nn.Linear(hidden_dim, bins),
+            *mlp_blocks(in_dim, hidden_dim, layers),
+            out,
         )
-        nn.init.zeros_(self.net[-1].weight)
-        nn.init.zeros_(self.net[-1].bias)
         self.bins = int(bins)
         self.low = float(low)
         self.high = float(high)
@@ -300,10 +320,7 @@ class RSSM(nn.Module):
     def initial(self, batch_size: int, device: torch.device) -> RSSMState:
         deter = torch.zeros(batch_size, self.cfg.deter_size, device=device)
         logits = torch.zeros(batch_size, self.cfg.stoch_size, self.cfg.discrete_size, device=device)
-        stoch = F.one_hot(
-            torch.zeros(batch_size, self.cfg.stoch_size, dtype=torch.long, device=device),
-            self.cfg.discrete_size,
-        ).float()
+        stoch = torch.zeros(batch_size, self.cfg.stoch_size, self.cfg.discrete_size, device=device)
         return RSSMState(deter=deter, stoch=stoch, logits=logits)
 
     def obs_step(
@@ -396,10 +413,15 @@ class WorldModel(nn.Module):
             cfg.twohot_bins,
             cfg.twohot_min,
             cfg.twohot_max,
+            cfg.reward_layers,
         )
+        continue_out = nn.Linear(cfg.hidden_size, 1)
+        scale = 1.0 / math.sqrt(max(1, cfg.hidden_size))
+        nn.init.trunc_normal_(continue_out.weight, std=scale, a=-2.0 * scale, b=2.0 * scale)
+        nn.init.zeros_(continue_out.bias)
         self.continue_head = nn.Sequential(
-            *linear_block(feat_size, cfg.hidden_size),
-            nn.Linear(cfg.hidden_size, 1),
+            *mlp_blocks(feat_size, cfg.hidden_size, cfg.continue_layers),
+            continue_out,
         )
         self.ego_decoder = ConvDecoder(
             feat_size,
@@ -469,7 +491,10 @@ class WorldModel(nn.Module):
         chunk_size = max(1, int(getattr(self.cfg, "decoder_chunk_size", 0) or (b * t)))
 
         reward_target = batch["reward"].reshape(b * t)
-        continue_target = (batch["continue"] * self.cfg.discount).reshape(b * t)
+        continue_target = batch["continue"]
+        if self.cfg.contdisc:
+            continue_target = continue_target * self.cfg.discount
+        continue_target = continue_target.reshape(b * t)
         ego_target = batch["joint_ego"].reshape(b * t, self.cfg.max_robots, *self.cfg.ego_shape)
         global_target = batch["global_state"].reshape(b * t, *self.cfg.global_shape)
         robot_target = symlog_vector_obs(batch["joint_robot"]).reshape(
@@ -588,11 +613,14 @@ class Actor(nn.Module):
         self.cfg = cfg
         feat_size = cfg.deter_size + cfg.stoch_size * cfg.discrete_size
         self.net = nn.Sequential(
-            *linear_block(feat_size, cfg.hidden_size),
-            *linear_block(cfg.hidden_size, cfg.hidden_size),
+            *mlp_blocks(feat_size, cfg.hidden_size, cfg.policy_layers),
         )
         self.mean = nn.Linear(cfg.hidden_size, cfg.max_robots * cfg.action_dim)
         self.std = nn.Linear(cfg.hidden_size, cfg.max_robots * cfg.action_dim)
+        nn.init.trunc_normal_(self.mean.weight, std=0.01, a=-0.02, b=0.02)
+        nn.init.zeros_(self.mean.bias)
+        nn.init.trunc_normal_(self.std.weight, std=0.01, a=-0.02, b=0.02)
+        nn.init.zeros_(self.std.bias)
 
     def forward(self, feat: torch.Tensor) -> Normal:
         h = self.net(feat)
@@ -621,6 +649,7 @@ class Value(nn.Module):
             cfg.twohot_bins,
             cfg.twohot_min,
             cfg.twohot_max,
+            cfg.value_layers,
         )
 
     def forward(self, feat: torch.Tensor) -> torch.Tensor:

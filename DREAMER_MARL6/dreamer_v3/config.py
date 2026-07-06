@@ -24,12 +24,17 @@ class DreamerConfig:
     action_embed_size: int = 256
     rssm_blocks: int = 8
     imag_last: int = 0
-    twohot_bins: int = 127
+    twohot_bins: int = 255
     twohot_min: float = -20.0
     twohot_max: float = 20.0
+    policy_layers: int = 3
+    value_layers: int = 3
+    reward_layers: int = 1
+    continue_layers: int = 1
 
     horizon: int = 8
     discount: float = 1.0 - 1.0 / 333.0
+    contdisc: bool = True
     lambda_: float = 0.95
     free_nats: float = 1.0
     unimix_ratio: float = 0.01
@@ -37,9 +42,10 @@ class DreamerConfig:
     dynamics_loss_scale: float = 1.0
     representation_loss_scale: float = 0.1
     entropy_scale: float = 3e-4
-    actor_std_min: float = 0.05
+    actor_std_min: float = 0.1
     actor_std_max: float = 1.0
     actor_entropy_clip: float = 20.0
+    slow_value_target: bool = False
 
     model_lr: float = 4e-5
     actor_lr: float = 4e-5
