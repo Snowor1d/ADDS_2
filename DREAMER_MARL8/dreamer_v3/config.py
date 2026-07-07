@@ -22,6 +22,7 @@ class DreamerConfig:
     hidden_size: int = 256
     embed_size: int = 256
     action_embed_size: int = 256
+    conv_depth: int = 16
     rssm_blocks: int = 8
     imag_last: int = 0
     twohot_bins: int = 255
