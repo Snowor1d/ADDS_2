@@ -106,7 +106,7 @@ RANDOM_EXIT = False
 
 
 # -------------- PATH -------------------
-LOG_DIR = "Log_MARL_DREAMER6"
+LOG_DIR = "Log_MARL_DREAMER7"
 #LOG_DIR = "SOTA_MODELS"
 #LOG_DIR = "Log_test"
 PORT_NUM = 8506
