@@ -106,10 +106,10 @@ RANDOM_EXIT = False
 
 
 # -------------- PATH -------------------
-LOG_DIR = "Log_MARL_DREAMER7"
+LOG_DIR = "Log_MARL_DREAMER8"
 #LOG_DIR = "SOTA_MODELS"
 #LOG_DIR = "Log_test"
-PORT_NUM = 8506
+PORT_NUM = 8507
 
 # --------------- REWARD SHAPING -----------------
 
