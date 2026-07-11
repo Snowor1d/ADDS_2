@@ -1537,6 +1537,7 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"[Main] initial policy broadcast failed: {e}")
     policy_dirty = False
+    last_policy_broadcast_episode = global_episode
 
 
 
@@ -1809,11 +1810,16 @@ if __name__ == "__main__":
                 except Exception as e:
                     print(f"[Main] initial policy broadcast failed: {e}")
             policy_dirty = False
+            last_policy_broadcast_episode = global_episode
 
             last_supervise_t = time.time()
             # 전환 직후 루프 처음으로 돌아가서 안정적으로 시작
             continue
-        if global_episode >= START_UPDATE_EPISODE and policy_dirty:
+        if (
+            global_episode >= START_UPDATE_EPISODE
+            and policy_dirty
+            and global_episode - last_policy_broadcast_episode >= POLICY_BROADCAST_INTERVAL
+        ):
             sd_cpu = agent.get_worker_state()
 
             for pq in param_queues:
@@ -1832,3 +1838,4 @@ if __name__ == "__main__":
                 except Exception as e:
                     print(f"[Main] policy broadcast failed: {e}")
             policy_dirty = False
+            last_policy_broadcast_episode = global_episode

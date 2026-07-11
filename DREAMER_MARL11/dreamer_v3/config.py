@@ -77,4 +77,5 @@ class DreamerConfig:
     min_replay_sequences: int = 8
 
     use_amp: bool = True
+    decoder_bspace: int = 8
     decoder_chunk_size: int = 128

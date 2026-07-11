@@ -148,33 +148,17 @@ class ConvDecoder(nn.Module):
         self.start_h = max(1, int(math.ceil(height / 16)))
         self.start_w = max(1, int(math.ceil(width / 16)))
         spatial_size = self.start_h * self.start_w * self.depths[-1]
-
         if self.bspace <= 0:
             raise ValueError("decoder_bspace must be positive")
         if self.deter_size % self.bspace != 0 or spatial_size % self.bspace != 0:
-            raise ValueError(
-                "deter_size and decoder spatial size must be divisible by decoder_bspace"
-            )
-
-        self.deter_to_space = GroupedLinear(
-            self.bspace,
-            self.deter_size // self.bspace,
-            spatial_size // self.bspace,
-        )
-        self.stoch_hidden = nn.Sequential(
-            *linear_block(self.stoch_size, cfg.hidden_size * 2),
-        )
+            raise ValueError("deter_size and decoder spatial size must be divisible by decoder_bspace")
+        self.deter_to_space = GroupedLinear(self.bspace, self.deter_size // self.bspace, spatial_size // self.bspace)
+        self.stoch_hidden = nn.Sequential(*linear_block(self.stoch_size, cfg.hidden_size * 2))
         self.stoch_to_space = nn.Linear(cfg.hidden_size * 2, spatial_size)
         scale = 1.0 / math.sqrt(max(1, cfg.hidden_size * 2))
-        nn.init.trunc_normal_(
-            self.stoch_to_space.weight,
-            std=scale,
-            a=-2.0 * scale,
-            b=2.0 * scale,
-        )
+        nn.init.trunc_normal_(self.stoch_to_space.weight, std=scale, a=-2.0 * scale, b=2.0 * scale)
         nn.init.zeros_(self.stoch_to_space.bias)
         self.space_norm = ChannelRMSNorm(self.depths[-1])
-
         self.net = nn.Sequential(
             nn.Upsample(scale_factor=2, mode="nearest"),
             *conv_block(self.depths[3], self.depths[2], 5, padding=2),
@@ -189,15 +173,10 @@ class ConvDecoder(nn.Module):
     def forward(self, feat: torch.Tensor) -> torch.Tensor:
         leading = feat.shape[:-1]
         flat = feat.reshape(-1, feat.shape[-1])
-        deter = flat[:, :self.deter_size]
+        deter = flat[:, :self.deter_size].reshape(-1, self.bspace, self.deter_size // self.bspace)
         stoch = flat[:, self.deter_size:self.deter_size + self.stoch_size]
-        deter = deter.reshape(-1, self.bspace, self.deter_size // self.bspace)
-        deter_space = self.deter_to_space(deter).reshape(
-            -1, self.depths[-1], self.start_h, self.start_w
-        )
-        stoch_space = self.stoch_to_space(self.stoch_hidden(stoch)).reshape(
-            -1, self.depths[-1], self.start_h, self.start_w
-        )
+        deter_space = self.deter_to_space(deter).reshape(-1, self.depths[-1], self.start_h, self.start_w)
+        stoch_space = self.stoch_to_space(self.stoch_hidden(stoch)).reshape(-1, self.depths[-1], self.start_h, self.start_w)
         x = F.silu(self.space_norm(deter_space + stoch_space))
         x = self.net(x)
         _, height, width = self.out_shape
@@ -577,13 +556,9 @@ class WorldModel(nn.Module):
                 self.cfg.max_robots,
                 *self.cfg.ego_shape,
             )
-            ego_loss_per_robot = (
-                torch.sigmoid(ego_pred) - ego_target[start:end]
-            ).pow(2).sum(dim=(2, 3, 4))
-            ego_mask_chunk = robot_mask[start:end].squeeze(-1)
             ego_loss_per = (
-                ego_loss_per_robot * ego_mask_chunk
-            ).sum(dim=1) / ego_mask_chunk.sum(dim=1).clamp_min(1.0)
+                torch.sigmoid(ego_pred) - ego_target[start:end]
+            ).pow(2).sum(dim=(1, 2, 3, 4))
             ego_loss_sum = ego_loss_sum + (ego_loss_per * mask_chunk).sum()
 
             global_pred = self.global_decoder(feat_chunk)

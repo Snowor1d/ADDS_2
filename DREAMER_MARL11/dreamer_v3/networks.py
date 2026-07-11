@@ -134,35 +134,50 @@ class ConvEncoder(nn.Module):
 
 
 class ConvDecoder(nn.Module):
-    def __init__(self, in_size: int, depth: int, out_shape: tuple[int, int, int]) -> None:
+    """DreamerV3-style image decoder with block-spatial projection."""
+
+    def __init__(self, cfg: DreamerConfig, out_shape: tuple[int, int, int]) -> None:
         super().__init__()
         self.out_shape = tuple(int(x) for x in out_shape)
         out_channels, height, width = self.out_shape
-        depth = max(1, int(depth))
-        self.base_channels = depth * 4
-        self.start_h = max(3, int(math.ceil(height / 8)))
-        self.start_w = max(3, int(math.ceil(width / 8)))
-        mid_channels = max(self.base_channels // 2, 1)
-        low_channels = max(self.base_channels // 4, 1)
-
-        self.fc = nn.Sequential(
-            *linear_block(in_size, self.base_channels * self.start_h * self.start_w),
-        )
+        depth = max(1, int(cfg.conv_depth))
+        self.deter_size = int(cfg.deter_size)
+        self.stoch_size = int(cfg.stoch_size * cfg.discrete_size)
+        self.bspace = int(cfg.decoder_bspace)
+        self.depths = (depth * 2, depth * 3, depth * 4, depth * 4)
+        self.start_h = max(1, int(math.ceil(height / 16)))
+        self.start_w = max(1, int(math.ceil(width / 16)))
+        spatial_size = self.start_h * self.start_w * self.depths[-1]
+        if self.bspace <= 0:
+            raise ValueError("decoder_bspace must be positive")
+        if self.deter_size % self.bspace != 0 or spatial_size % self.bspace != 0:
+            raise ValueError("deter_size and decoder spatial size must be divisible by decoder_bspace")
+        self.deter_to_space = GroupedLinear(self.bspace, self.deter_size // self.bspace, spatial_size // self.bspace)
+        self.stoch_hidden = nn.Sequential(*linear_block(self.stoch_size, cfg.hidden_size * 2))
+        self.stoch_to_space = nn.Linear(cfg.hidden_size * 2, spatial_size)
+        scale = 1.0 / math.sqrt(max(1, cfg.hidden_size * 2))
+        nn.init.trunc_normal_(self.stoch_to_space.weight, std=scale, a=-2.0 * scale, b=2.0 * scale)
+        nn.init.zeros_(self.stoch_to_space.bias)
+        self.space_norm = ChannelRMSNorm(self.depths[-1])
         self.net = nn.Sequential(
-            *conv_block(self.base_channels, self.base_channels, 3, padding=1),
             nn.Upsample(scale_factor=2, mode="nearest"),
-            *conv_block(self.base_channels, mid_channels, 3, padding=1),
+            *conv_block(self.depths[3], self.depths[2], 5, padding=2),
             nn.Upsample(scale_factor=2, mode="nearest"),
-            *conv_block(mid_channels, low_channels, 3, padding=1),
+            *conv_block(self.depths[2], self.depths[1], 5, padding=2),
             nn.Upsample(scale_factor=2, mode="nearest"),
-            *conv_block(low_channels, low_channels, 3, padding=1),
-            nn.Conv2d(low_channels, out_channels, 3, padding=1),
+            *conv_block(self.depths[1], self.depths[0], 5, padding=2),
+            nn.Upsample(scale_factor=2, mode="nearest"),
+            nn.Conv2d(self.depths[0], out_channels, 5, padding=2),
         )
 
     def forward(self, feat: torch.Tensor) -> torch.Tensor:
         leading = feat.shape[:-1]
-        x = feat.reshape(-1, feat.shape[-1])
-        x = self.fc(x).reshape(-1, self.base_channels, self.start_h, self.start_w)
+        flat = feat.reshape(-1, feat.shape[-1])
+        deter = flat[:, :self.deter_size].reshape(-1, self.bspace, self.deter_size // self.bspace)
+        stoch = flat[:, self.deter_size:self.deter_size + self.stoch_size]
+        deter_space = self.deter_to_space(deter).reshape(-1, self.depths[-1], self.start_h, self.start_w)
+        stoch_space = self.stoch_to_space(self.stoch_hidden(stoch)).reshape(-1, self.depths[-1], self.start_h, self.start_w)
+        x = F.silu(self.space_norm(deter_space + stoch_space))
         x = self.net(x)
         _, height, width = self.out_shape
         if x.shape[-2:] != (height, width):
@@ -432,13 +447,11 @@ class WorldModel(nn.Module):
             continue_out,
         )
         self.ego_decoder = ConvDecoder(
-            feat_size,
-            cfg.conv_depth,
+            cfg,
             (cfg.max_robots * cfg.ego_shape[0], cfg.ego_shape[1], cfg.ego_shape[2]),
         )
         self.global_decoder = ConvDecoder(
-            feat_size,
-            cfg.conv_depth,
+            cfg,
             cfg.global_shape,
         )
         self.robot_decoder = VectorDecoder(

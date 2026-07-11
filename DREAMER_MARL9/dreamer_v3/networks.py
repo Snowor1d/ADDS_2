@@ -577,13 +577,9 @@ class WorldModel(nn.Module):
                 self.cfg.max_robots,
                 *self.cfg.ego_shape,
             )
-            ego_loss_per_robot = (
-                torch.sigmoid(ego_pred) - ego_target[start:end]
-            ).pow(2).sum(dim=(2, 3, 4))
-            ego_mask_chunk = robot_mask[start:end].squeeze(-1)
             ego_loss_per = (
-                ego_loss_per_robot * ego_mask_chunk
-            ).sum(dim=1) / ego_mask_chunk.sum(dim=1).clamp_min(1.0)
+                torch.sigmoid(ego_pred) - ego_target[start:end]
+            ).pow(2).sum(dim=(1, 2, 3, 4))
             ego_loss_sum = ego_loss_sum + (ego_loss_per * mask_chunk).sum()
 
             global_pred = self.global_decoder(feat_chunk)

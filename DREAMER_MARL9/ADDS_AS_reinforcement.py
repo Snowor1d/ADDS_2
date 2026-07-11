@@ -1536,7 +1536,6 @@ if __name__ == "__main__":
             pq.put_nowait(initial_sd_cpu)
         except Exception as e:
             print(f"[Main] initial policy broadcast failed: {e}")
-    last_policy_broadcast_episode = global_episode
 
 
 
@@ -1807,15 +1806,11 @@ if __name__ == "__main__":
                     pq.put_nowait(sd_cpu)
                 except Exception as e:
                     print(f"[Main] initial policy broadcast failed: {e}")
-            last_policy_broadcast_episode = global_episode
 
             last_supervise_t = time.time()
             # 전환 직후 루프 처음으로 돌아가서 안정적으로 시작
             continue
-        if (
-            global_episode >= START_UPDATE_EPISODE
-            and global_episode - last_policy_broadcast_episode >= POLICY_BROADCAST_INTERVAL
-        ):
+        if (global_episode >= START_UPDATE_EPISODE) and (global_episode % POLICY_BROADCAST_INTERVAL == 0):
             sd_cpu = agent.get_worker_state()
 
             for pq in param_queues:
@@ -1833,4 +1828,3 @@ if __name__ == "__main__":
                     pass
                 except Exception as e:
                     print(f"[Main] policy broadcast failed: {e}")
-            last_policy_broadcast_episode = global_episode

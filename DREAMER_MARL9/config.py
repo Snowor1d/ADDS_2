@@ -1,4 +1,12 @@
 # DreamerV3 for multi-agent reinforcement learning.
+#
+# Experiment variant: DREAMER_MARL9
+# - Uses a DreamerV3-style block-spatial image decoder (decoder_bspace=8).
+# - Deterministic and stochastic latent states are projected separately and
+#   combined before convolutional upsampling.
+# - Keeps the original ego reconstruction loss over all MAX_ROBOTS slots,
+#   including padded robot slots.
+# - Policy broadcast behavior is defined in ADDS_AS_reinforcement.py.
 # ------------- DREAMER V3 ------------------
 DREAMER_REPLAY_CAPACITY = 1000000
 DREAMER_BATCH_SIZE = 16
@@ -111,7 +119,7 @@ RANDOM_EXIT = False
 LOG_DIR = "Log_MARL_DREAMER9"
 #LOG_DIR = "SOTA_MODELS"
 #LOG_DIR = "Log_test"
-PORT_NUM = 8510
+PORT_NUM = 8521
 
 # --------------- REWARD SHAPING -----------------
 

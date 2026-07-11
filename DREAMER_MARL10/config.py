@@ -1,4 +1,13 @@
 # DreamerV3 for multi-agent reinforcement learning.
+#
+# Experiment variant: DREAMER_MARL10
+# - Based on DREAMER_MARL9 and uses the same DreamerV3-style block-spatial
+#   image decoder (decoder_bspace=8).
+# - Improves policy broadcast: a new worker state is sent only when the policy
+#   was updated and POLICY_BROADCAST_INTERVAL episodes have elapsed since the
+#   previous broadcast.
+# - Keeps the MARL9 ego reconstruction loss over all MAX_ROBOTS slots,
+#   including padded robot slots.
 # ------------- DREAMER V3 ------------------
 DREAMER_REPLAY_CAPACITY = 1000000
 DREAMER_BATCH_SIZE = 16
@@ -111,7 +120,7 @@ RANDOM_EXIT = False
 LOG_DIR = "Log_MARL_DREAMER10"
 #LOG_DIR = "SOTA_MODELS"
 #LOG_DIR = "Log_test"
-PORT_NUM = 8511
+PORT_NUM = 8522
 
 # --------------- REWARD SHAPING -----------------
 
