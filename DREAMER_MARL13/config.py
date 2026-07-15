@@ -2,9 +2,10 @@
 #
 # Experiment variant: DREAMER_MARL13
 # - Based on DREAMER_MARL7.
-# - Replaces only the image decoder with DREAMER_MARL11's DreamerV3-style
-#   block-spatial decoder; actor, encoder, losses, and broadcast behavior stay
-#   identical to DREAMER_MARL7.
+# - Uses separate DreamerV3-style decoder branches: block-spatial CNNs for
+#   images and a symlog-MSE MLP head for continuous vector state.
+# - Actor, encoder, ego slot loss, and broadcast behavior stay identical to
+#   DREAMER_MARL7.
 # ------------- DREAMER V3 ------------------
 DREAMER_REPLAY_CAPACITY = 1000000
 DREAMER_BATCH_SIZE = 16
@@ -36,6 +37,7 @@ DREAMER_SLOW_VALUE_TARGET = False
 DREAMER_CONTDISC = True
 DREAMER_USE_AMP = True
 DREAMER_DECODER_BSPACE = 8
+DREAMER_VECTOR_DECODER_LAYERS = 3
 DREAMER_DECODER_CHUNK_SIZE = 128
 
 # ------------- BASIC PARAMETERS ------------------

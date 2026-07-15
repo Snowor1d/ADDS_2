@@ -127,7 +127,7 @@ class ConvEncoder(nn.Module):
 
 
 class ConvDecoder(nn.Module):
-    """DreamerV3-style image decoder with block-spatial projection."""
+    """DreamerV3-style image branch with block-spatial projection."""
 
     def __init__(self, cfg: DreamerConfig, out_shape: tuple[int, int, int]) -> None:
         super().__init__()
@@ -143,8 +143,15 @@ class ConvDecoder(nn.Module):
         spatial_size = self.start_h * self.start_w * self.depths[-1]
         if self.bspace <= 0:
             raise ValueError("decoder_bspace must be positive")
-        if self.deter_size % self.bspace != 0 or spatial_size % self.bspace != 0:
-            raise ValueError("deter_size and decoder spatial size must be divisible by decoder_bspace")
+        if (
+            self.deter_size % self.bspace != 0
+            or self.depths[-1] % self.bspace != 0
+            or spatial_size % self.bspace != 0
+        ):
+            raise ValueError(
+                "deter_size, decoder channels, and decoder spatial size "
+                "must be divisible by decoder_bspace"
+            )
         self.deter_to_space = GroupedLinear(self.bspace, self.deter_size // self.bspace, spatial_size // self.bspace)
         self.stoch_hidden = nn.Sequential(*linear_block(self.stoch_size, cfg.hidden_size * 2))
         self.stoch_to_space = nn.Linear(cfg.hidden_size * 2, spatial_size)
@@ -168,27 +175,65 @@ class ConvDecoder(nn.Module):
         flat = feat.reshape(-1, feat.shape[-1])
         deter = flat[:, :self.deter_size].reshape(-1, self.bspace, self.deter_size // self.bspace)
         stoch = flat[:, self.deter_size:self.deter_size + self.stoch_size]
-        deter_space = self.deter_to_space(deter).reshape(-1, self.depths[-1], self.start_h, self.start_w)
-        stoch_space = self.stoch_to_space(self.stoch_hidden(stoch)).reshape(-1, self.depths[-1], self.start_h, self.start_w)
+
+        # Official DreamerV3 arranges each deterministic block as
+        # (group, height, width, channels_per_group), then merges group and
+        # channel. Keep that layout explicit before converting NHWC to NCHW.
+        channels_per_group = self.depths[-1] // self.bspace
+        deter_space = self.deter_to_space(deter).reshape(
+            -1,
+            self.bspace,
+            self.start_h,
+            self.start_w,
+            channels_per_group,
+        )
+        deter_space = deter_space.permute(0, 1, 4, 2, 3).reshape(
+            -1,
+            self.depths[-1],
+            self.start_h,
+            self.start_w,
+        )
+        stoch_space = self.stoch_to_space(self.stoch_hidden(stoch)).reshape(
+            -1,
+            self.start_h,
+            self.start_w,
+            self.depths[-1],
+        ).permute(0, 3, 1, 2)
         x = F.silu(self.space_norm(deter_space + stoch_space))
         x = self.net(x)
         _, height, width = self.out_shape
         if x.shape[-2:] != (height, width):
             x = F.interpolate(x, size=(height, width), mode="bilinear", align_corners=False)
+        x = torch.sigmoid(x)
         return x.reshape(*leading, *self.out_shape)
 
 
 class VectorDecoder(nn.Module):
-    def __init__(self, in_size: int, hidden_size: int, out_size: int) -> None:
+    """DreamerV3 continuous-vector branch: MLP followed by symlog-MSE head."""
+
+    def __init__(self, cfg: DreamerConfig, out_size: int) -> None:
         super().__init__()
+        self.deter_size = int(cfg.deter_size)
+        self.stoch_size = int(cfg.stoch_size * cfg.discrete_size)
+        out = nn.Linear(cfg.hidden_size, out_size)
+        scale = 1.0 / math.sqrt(max(1, cfg.hidden_size))
+        nn.init.trunc_normal_(out.weight, std=scale, a=-2.0 * scale, b=2.0 * scale)
+        nn.init.zeros_(out.bias)
         self.net = nn.Sequential(
-            *linear_block(in_size, hidden_size),
-            *linear_block(hidden_size, hidden_size),
-            nn.Linear(hidden_size, out_size),
+            *mlp_blocks(
+                self.deter_size + self.stoch_size,
+                cfg.hidden_size,
+                cfg.vector_decoder_layers,
+            ),
+            out,
         )
 
     def forward(self, feat: torch.Tensor) -> torch.Tensor:
-        return self.net(feat)
+        deter = feat[..., :self.deter_size]
+        stoch = feat[..., self.deter_size:self.deter_size + self.stoch_size]
+        # Match DreamerV3's vector branch input order: stochastic then
+        # deterministic latent. The output lives in symlog space.
+        return self.net(torch.cat([stoch, deter], dim=-1))
 
 
 class JointObsEncoder(nn.Module):
@@ -448,8 +493,7 @@ class WorldModel(nn.Module):
             cfg.global_shape,
         )
         self.robot_decoder = VectorDecoder(
-            feat_size,
-            cfg.hidden_size,
+            cfg,
             cfg.max_robots * cfg.robot_dim,
         )
 
@@ -550,13 +594,13 @@ class WorldModel(nn.Module):
                 *self.cfg.ego_shape,
             )
             ego_loss_per = (
-                torch.sigmoid(ego_pred) - ego_target[start:end]
+                ego_pred - ego_target[start:end]
             ).pow(2).sum(dim=(1, 2, 3, 4))
             ego_loss_sum = ego_loss_sum + (ego_loss_per * mask_chunk).sum()
 
             global_pred = self.global_decoder(feat_chunk)
             global_loss_per = (
-                torch.sigmoid(global_pred) - global_target[start:end]
+                global_pred - global_target[start:end]
             ).pow(2).sum(dim=(1, 2, 3))
             global_loss_sum = global_loss_sum + (global_loss_per * mask_chunk).sum()
 
@@ -569,8 +613,6 @@ class WorldModel(nn.Module):
             robot_loss_per = (
                 (robot_pred - robot_target[start:end]).pow(2) * robot_mask_chunk
             ).sum(dim=(1, 2))
-            robot_denom = (robot_mask_chunk.sum(dim=(1, 2)) * self.cfg.robot_dim).clamp_min(1.0)
-            robot_loss_per = robot_loss_per / robot_denom
             robot_loss_sum = robot_loss_sum + (robot_loss_per * mask_chunk).sum()
 
         reward_loss = reward_loss_sum / loss_denom
