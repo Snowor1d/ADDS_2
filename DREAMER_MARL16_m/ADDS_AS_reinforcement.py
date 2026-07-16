@@ -808,10 +808,15 @@ def worker_process(
                         has_active_robot = True
 
                     dreamer_joint_action = None
-                    if has_active_robot:
-                        # Even when epsilon replaces every action, advance the
-                        # posterior with the current observation. Otherwise a
-                        # long random phase leaves the online RSSM state stale.
+                    needs_policy_action = any(
+                        action_i is None for _, _, action_i in pending_actions
+                    )
+                    track_rssm = eps < 1.0 - 1e-8
+                    if has_active_robot and (needs_policy_action or track_rssm):
+                        # Pure random warm-up does not use the policy, so avoid
+                        # its CPU encoder/RSSM inference. Once epsilon starts
+                        # decaying, advance the posterior at every boundary so
+                        # random actions cannot leave the recurrent state stale.
                         dreamer_joint_action = worker_agent.select_joint_action(
                             curr_joint_ego,
                             curr_glob_state,
@@ -837,7 +842,8 @@ def worker_process(
                         timeline.accum_reward = 0.0
                         timeline.delta_t = 0
                         timeline.active = True
-                        worker_agent.set_policy_prev_action(current_executing_actions)
+                        if dreamer_joint_action is not None:
+                            worker_agent.set_policy_prev_action(current_executing_actions)
 
                 # D. 환경 시뮬레이션
                 env_model.step()
