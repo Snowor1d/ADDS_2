@@ -19,7 +19,7 @@ from matplotlib import patheffects as pe  # legend/markers halo 효과용 (선�
 # =========================
 # 전역 파라미터
 # =========================
-ROOT_DIR = os.path.expanduser("~/Result_data_0201/exp")
+ROOT_DIR = os.path.expanduser("~/results")
 OUT_DIR  = ROOT_DIR
 
 SHOW_EPISODE_LEGEND = True  # episode 플롯 범례 표시 여부
@@ -61,7 +61,7 @@ EVAC_SHOW_POINTS = True       # 개별 실험 점
 EVAC_POINT_MODE  = "valid_only"  # "valid_only"(<MAX_TIMESTEP만) | "all"
 
 # --- evac100: 로봇 버전 필터 ---
-EVAC_ROBOT_ALLOW: Optional[List[str]] = ["Global+Ego_3maps", "Global+Ego_5maps", "Global+Ego_10maps"]    # None(전체) | ["R", "T"] 등
+EVAC_ROBOT_ALLOW: Optional[List[str]] = None#["Global+Ego_3maps", "Global+Ego_5maps", "Global+Ego_10maps"]    # None(전체) | ["R", "T"] 등
 
 # --- y축 범위 (None이면 자동) ---
 YLIM_EVAC: Optional[Tuple[float, float]]    = None

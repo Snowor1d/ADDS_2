@@ -47,7 +47,7 @@ LEGEND_ORDER = [
 HOME_DIR   = os.path.expanduser("~")
 ROOT_DIR   = os.path.join(HOME_DIR, "ablations3")
 OUT_DIR    = ROOT_DIR
-SAVE_NAME  = "evac100_multi"
+SAVE_NAME  = "evac100_multi2"
 SAVE_DPI   = 300
 SAVE_FORMAT= "png"
 

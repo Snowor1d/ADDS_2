@@ -11,6 +11,7 @@ Multi-series Evacuation & Reward Plotter
 - 그래프별(eva100s, rewards) Y축 가시 범위(ylim_min, ylim_max) 개별 조절 기능 추가
 """
 
+import csv
 import os
 import re
 from dataclasses import dataclass
@@ -41,8 +42,12 @@ MAX_EPISODE = 7000
 
 # 여러 개의 txt 파일이 있을 때 음영을 그리는 방식
 # "std" (표준편차), "minmax" (최소-최대), "se" (표준오차), None (음영 없음)
-SHADE_MODE  = "None" 
+SHADE_MODE  = "std"
 SHADE_ALPHA = 0.2
+
+# 각 episode의 seed 간 표준편차를 구한 뒤, episode 축으로 평균낸 값을 저장한다.
+STD_DDOF = 0  # 현재 그래프 음영 계산과 동일한 population std
+AVERAGE_STD_FILENAME = "average_std_by_model.csv"
 
 # Target별 특화 설정 (스케일, Y축 데이터 클리핑, Y축 뷰 범위 지정, Y축 라벨)
 TARGET_CONFIGS = {
@@ -51,8 +56,8 @@ TARGET_CONFIGS = {
         "scale": 0.5,           # 기존 코드의 yarr / 2 반영
         "clip_min": 250,        # 데이터를 이 값 이하로 내려가지 않게 자름
         "clip_max": 3500,       # 데이터를 이 값 이상으로 올라가지 않게 자름
-        "ylim_min": 270,          # ★ 그래프 y축 뷰의 최소값 (None이면 자동)
-        "ylim_max": 850,       # ★ 그래프 y축 뷰의 최대값 (None이면 자동)
+        "ylim_min": 300,          # ★ 그래프 y축 뷰의 최소값 (None이면 자동)
+        "ylim_max": 1250,       # ★ 그래프 y축 뷰의 최대값 (None이면 자동)
         "yticks_interval" : 200,
         "xticks_interval" : 2000
     },
@@ -130,6 +135,8 @@ class AggregatedSeries:
     upper_y: Optional[np.ndarray]
     lower_y: Optional[np.ndarray]
     raw_mean_y: np.ndarray # 스무딩 이전의 mean 값 (raw trace용)
+    average_std: float
+    num_seeds: int
 
 # =========================
 # Font utils
@@ -227,17 +234,24 @@ def load_ablation_data(map_dir: str, ablation: str, target: str) -> Optional[Agg
     # 스무딩된 데이터로 평균 및 음영(분산) 계산
     mean_y = np.mean(all_y_smoothed, axis=0)
     upper_y, lower_y = None, None
-    
+
+    # episode별 seed 간 표준편차와 그 표준편차의 episode 평균
+    if len(all_y_smoothed) > 1:
+        std_y = np.std(all_y_smoothed, axis=0, ddof=STD_DDOF)
+        average_std = float(np.mean(std_y))
+    else:
+        std_y = None
+        average_std = float("nan")
+
     if len(all_y_smoothed) > 1 and SHADE_MODE is not None:
         if SHADE_MODE == "std":
-            std_y = np.std(all_y_smoothed, axis=0)
             upper_y = mean_y + std_y
             lower_y = mean_y - std_y
         elif SHADE_MODE == "minmax":
             upper_y = np.max(all_y_smoothed, axis=0)
             lower_y = np.min(all_y_smoothed, axis=0)
         elif SHADE_MODE == "se":
-            se_y = np.std(all_y_smoothed, axis=0) / np.sqrt(len(all_y_smoothed))
+            se_y = std_y / np.sqrt(len(all_y_smoothed))
             upper_y = mean_y + se_y
             lower_y = mean_y - se_y
     
@@ -253,7 +267,8 @@ def load_ablation_data(map_dir: str, ablation: str, target: str) -> Optional[Agg
 
     return AggregatedSeries(
         name=ablation, x=x, raw_mean_y=clip_arr(raw_mean_y),
-        mean_y=clip_arr(mean_y), upper_y=clip_arr(upper_y), lower_y=clip_arr(lower_y)
+        mean_y=clip_arr(mean_y), upper_y=clip_arr(upper_y), lower_y=clip_arr(lower_y),
+        average_std=average_std, num_seeds=len(all_y_smoothed)
     )
 
 # =========================
@@ -364,12 +379,33 @@ def create_combined_plot(map_name: str, dict_series: Dict[str, List[AggregatedSe
     plt.close(fig)
     print(f"[Saved Combined] {out_path}")
 
+
+def save_average_std_csv(rows: List[Dict[str, object]]) -> str:
+    """모델별 평균 episode 표준편차를 CSV로 저장한다."""
+    path = os.path.join(OUT_DIR, AVERAGE_STD_FILENAME)
+    fieldnames = [
+        "map_set",
+        "target",
+        "model",
+        "num_seeds",
+        "num_episodes",
+        "average_std",
+        "unit",
+    ]
+    with open(path, "w", newline="", encoding="utf-8-sig") as file:
+        writer = csv.DictWriter(file, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+    print(f"[Saved Average STD] {path}")
+    return path
+
 # =========================
 # Main Execution
 # =========================
 def main():
     apply_font_settings()
     os.makedirs(OUT_DIR, exist_ok=True)
+    average_std_rows: List[Dict[str, object]] = []
     
     for map_name in MAP_NUMBERS:
         dict_series_for_map = {}
@@ -380,6 +416,26 @@ def main():
                 data = load_ablation_data(map_name, ablation, target)
                 if data is not None:
                     series_list.append(data)
+                    unit = "s" if target == "eva100s" else "reward"
+                    average_std_rows.append({
+                        "map_set": map_name,
+                        "target": target,
+                        "model": data.name,
+                        "num_seeds": data.num_seeds,
+                        "num_episodes": len(data.x),
+                        "average_std": data.average_std,
+                        "unit": unit,
+                    })
+                    value_text = (
+                        f"{data.average_std:.3f}"
+                        if np.isfinite(data.average_std)
+                        else "N/A (requires at least 2 seeds)"
+                    )
+                    print(
+                        f"[Average STD] {map_name}/{target}/{data.name}: "
+                        f"{value_text} {unit} "
+                        f"(seeds={data.num_seeds}, episodes={len(data.x)})"
+                    )
             
             if series_list:
                 dict_series_for_map[target] = series_list
@@ -391,6 +447,9 @@ def main():
         # 2. 합쳐진 그래프 생성 (subplots 1 x N)
         if dict_series_for_map:
             create_combined_plot(map_name, dict_series_for_map)
+
+    if average_std_rows:
+        save_average_std_csv(average_std_rows)
 
 if __name__ == "__main__":
     main()
