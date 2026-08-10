@@ -368,8 +368,11 @@ class ContinuousRenderer:
 
         self.fig.canvas.draw()
         w, h = self.fig.canvas.get_width_height()
-        buf = np.frombuffer(self.fig.canvas.tostring_rgb(), dtype=np.uint8)
-        return buf.reshape((h, w, 3))
+        # Matplotlib 3.10 removed FigureCanvas.tostring_rgb().  buffer_rgba()
+        # is supported by current GUI/Agg canvases; discard alpha because the
+        # callers expect an H x W x 3 RGB array.
+        rgba = np.asarray(self.fig.canvas.buffer_rgba())
+        return np.ascontiguousarray(rgba.reshape((h, w, 4))[..., :3])
 
     # ====================== Internals ======================
     def _setup_axes(self):

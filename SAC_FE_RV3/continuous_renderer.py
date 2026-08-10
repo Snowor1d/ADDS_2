@@ -77,7 +77,8 @@ class ContinuousRenderer:
         # ===== Robot path annotations =====
         annotate_robot_path: bool = False,            # 표기 켜기/끄기
         annotate_mode: str = "every_n",              # "every_n" | "all" | "endpoints"
-        annotate_every: int = 10,                    # 간격
+        annotate_every: int = 10,                    # 표시 시간 간격
+        annotate_time_per_sim_step: float = 1.0,     # simulation step 1회의 시간값
         annotate_style: str = "number",              # "number" | "subway" | "frame"
         annotate_fontsize: int = 9,
         annotate_offset: Tuple[float, float] = (0.0, 0.0),  # (x,y) 오프셋
@@ -242,6 +243,7 @@ class ContinuousRenderer:
         self.annotate_robot_path = annotate_robot_path
         self.annotate_mode = annotate_mode
         self.annotate_every = max(1, int(annotate_every))
+        self.annotate_time_per_sim_step = float(annotate_time_per_sim_step)
         self.annotate_style = annotate_style  # "number" | "subway" | "frame"
         self.annotate_fontsize = annotate_fontsize
         self.annotate_offset = annotate_offset
@@ -355,8 +357,15 @@ class ContinuousRenderer:
 
         self.fig.canvas.draw()
         w, h = self.fig.canvas.get_width_height()
+        # Matplotlib 3.10+에서는 FigureCanvasQTAgg.tostring_rgb()가 제거됐다.
+        # buffer_rgba()의 alpha 채널을 제외하여 기존 RGB 반환 형식을 유지한다.
+        if hasattr(self.fig.canvas, "buffer_rgba"):
+            rgba = np.asarray(self.fig.canvas.buffer_rgba())
+            return np.ascontiguousarray(rgba[..., :3])
+
+        # 구버전 Matplotlib 호환 경로
         buf = np.frombuffer(self.fig.canvas.tostring_rgb(), dtype=np.uint8)
-        return buf.reshape((h, w, 3))
+        return buf.reshape((h, w, 3)).copy()
 
     # ====================== Internals ======================
     def _setup_axes(self):
@@ -641,15 +650,26 @@ class ContinuousRenderer:
     def _annotate_robot_trail(self, trail_xyz: List[Tuple[float,float,int]], color: str):
         if not trail_xyz: return
 
-        # 어느 인덱스를 표시할지 결정
+        # 전달받은 simulation step을 시간값으로 변환하여 표시 지점을 결정한다.
         n = len(trail_xyz)
         if self.annotate_mode == "all":
             idxs = list(range(n))
         elif self.annotate_mode == "endpoints":
             idxs = [0, n-1] if n > 1 else [0]
         else:  # "every_n"
-            idxs = list(range(0, n, self.annotate_every))
-            if (n-1) not in idxs: idxs.append(n-1)
+            idxs = []
+            for idx, (_, _, sim_step) in enumerate(trail_xyz):
+                if sim_step is None:
+                    continue
+                time_value = sim_step * self.annotate_time_per_sim_step
+                multiple = round(time_value / self.annotate_every)
+                if multiple > 0 and math.isclose(
+                    time_value,
+                    multiple * self.annotate_every,
+                    rel_tol=1e-9,
+                    abs_tol=1e-9,
+                ):
+                    idxs.append(idx)
 
         # 간단한 중복 필터(너무 촘촘하면 건너뜀)
         idxs = [idx for k, idx in enumerate(idxs) if (k == 0 or idx - idxs[k-1] >= self.annotate_min_gap)]
@@ -658,8 +678,16 @@ class ContinuousRenderer:
         for idx in idxs:
             x, y, step = trail_xyz[idx]
             if step is None: continue
+            time_value = step * self.annotate_time_per_sim_step
+            if math.isclose(time_value, 0.0, rel_tol=0.0, abs_tol=1e-9):
+                continue
             sx, sy = x + self.annotate_offset[0], y + self.annotate_offset[1]
-            label = f"{step}"
+            label_value = (
+                f"{int(round(time_value))}"
+                if math.isclose(time_value, round(time_value), rel_tol=1e-9, abs_tol=1e-9)
+                else f"{time_value:g}"
+            )
+            label = f"{label_value} s"
 
             face = self.annotate_face_color or color
             edge = self.annotate_edge_color or color

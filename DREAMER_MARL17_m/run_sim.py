@@ -38,7 +38,7 @@ ADAPTIVE_SUBSTEP_INIT = 4
 
 ROBOT_CONTROL_MODE = "RL"   # "RL", "Human"
 ROBOT_VERSION_FOR_MODEL = "Q"
-MODEL_NAME = "MARL_10000ep_3maps.pth"
+MODEL_NAME = os.path.join(os.path.expanduser("~"), "SOTA_MODELS", "3maps1.pth")
 
 USE_CONTINUOUS_RENDERER = True
 def make_renderer(world_w, world_h):

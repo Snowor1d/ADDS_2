@@ -25,6 +25,7 @@ import os
 from collections import deque
 from typing import List, Tuple
 from visibility_atlas import VisibilityAtlas
+from map_augmentation import transform_map_geometry, transformed_size, validate_transforms
 from typing import Optional
 #import cv2
 
@@ -500,6 +501,19 @@ class FightingModel(Model):
 
         self.width = int(self.width)
         self.height = int(self.height)
+
+        # A worker constructs a new model for every episode, so sampling here
+        # gives each episode one stable map orientation.  Geometry is actually
+        # transformed immediately after the JSON is loaded in extract_map().
+        if MAP_DATA_AUGMENTATION:
+            augmentation_transforms = validate_transforms(MAP_AUGMENTATION_TRANSFORMS)
+            self.map_augmentation = random.choice(augmentation_transforms)
+            self.width, self.height = map(
+                int,
+                transformed_size(self.width, self.height, self.map_augmentation),
+            )
+        else:
+            self.map_augmentation = "identity"
 
         self.map_scale_x = self.width / DOWNSAMPLE_MAP_SIZE
         self.map_scale_y = self.height / DOWNSAMPLE_MAP_SIZE
@@ -1164,6 +1178,18 @@ class FightingModel(Model):
 
     def extract_map(self, map_num):
         self.load_map_from_file(map_num, base_dir="map_infos")
+        if self.map_augmentation != "identity":
+            obstacles, exits, width, height = transform_map_geometry(
+                self.obstacles,
+                self.exit_list,
+                self.width,
+                self.height,
+                self.map_augmentation,
+            )
+            self.obstacles = [[list(point) for point in poly] for poly in obstacles]
+            self.exit_list = [[tuple(point) for point in poly] for poly in exits]
+            self.width = int(width)
+            self.height = int(height)
 
     def make_random_exit_2(self, seed: Optional[int] = None, difficulty: int = 6):
         """

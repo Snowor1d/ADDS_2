@@ -23,6 +23,7 @@ import re
 import ast
 import shutil
 import traceback
+import gc
 import numpy as np
 import faulthandler
 faulthandler.enable()
@@ -49,23 +50,27 @@ import torch.nn.functional as F
 
 
 VIS_SAVE_EVERY = 5
+PROGRESS_EVERY = 100
+MAX_WORKERS = 10
+MAX_SLOT_RETRIES = 3
+MAX_SLOT_CRASH_RETRIES = 3
 
-visualization_mode  = 'off'   # 'off', 'cont_mp4', 'cont_png_every', 'cont_png'
+visualization_mode  = 'cont_mp4'   # 'off', 'cont_mp4', 'cont_png_every', 'cont_png'
 run_iteration       = 1
 number_of_agents    = 30
 max_step_num        = 3000
 robot_version       = 'Q'     # 'N','T','Q'
-robot_learned_model = 'FE_30maps.pth'
-test_num            =  12
+robot_learned_model = '3maps.pth'
+test_num            = 50
 #map_list = [1239]
-map_list = [1503] 
+map_list = [105] 
 # real test maps : 130, 131, 134, 300, 301, 303, 305, 306, 307
 #map_list            = [150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191, 192, 193, 194, 195, 196, 197, 198, 199]
 # 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191, 192, 193, 194, 195, 196, 197, 198, 199
 # 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191, 192, 193, 194, 195, 196, 197, 198, 199, \
 # 200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213, 214, 215, 216, 217, 218, 219, 220, 221, 222, 223, 224, 225, 226, 227, 228, 229, 230, 231, 232, 233, 234, 235, 236, 237, 238, 239, 240, 241, 242, 243, 244, 245, 246, 247, 248, 249
 # 130, 131, 132, 133, 134
-EXP_NAME = "0403/zeroshots"
+EXP_NAME = "0730/experiments3"
 CROWD_COLOR = "#0000FF"
 ROBOT_COLOR = "#FF0000"
 SINGLE_COLOR_EDGES = True
@@ -73,7 +78,7 @@ SHOW_AGENT_HEADING = False
 SHOW_ROBOT_HEADING = False
 ROBOT_HEADING_SCALE = 1.2   
 
-TRAIL_TARGET = "robot"  # robot / crowd / none
+TRAIL_TARGET = "none"  # robot / crowd / none
 TRAIL_STYLE  = "persist"
 MAX_TRAIL    = 2000
 ROBOT_STYLE  = "image"
@@ -85,6 +90,7 @@ SNAP_EXIT_TO_BOUNDARY = False
 ANNOTATE_ROBOT_PATH = False
 ANNOTATE_MODE       = "every_n"
 ANNOTATE_EVERY      = 50
+ANNOTATE_TIME_PER_SIM_STEP = 0.5
 ANNOTATE_STYLE      = "subway"
 ANNOTATE_FONTSIZE   = 20
 
@@ -229,6 +235,56 @@ def save_continuous_mp4(frames_rgb, out_path, fps=20):
             writer.grab_frame(facecolor="black")
     plt.close(fig)
 
+
+class StreamingMP4Writer:
+    """RGB 프레임을 RAM에 누적하지 않고 FFmpeg로 즉시 전달한다."""
+    def __init__(self, out_path, fps=20):
+        self.out_path = out_path
+        self.fps = fps
+        self.fig = None
+        self.ax = None
+        self.im = None
+        self.writer = None
+
+    def write(self, frame_rgb):
+        if self.writer is None:
+            h, w, _ = frame_rgb.shape
+            dpi = 100
+            self.fig = plt.figure(
+                figsize=(w / dpi, h / dpi),
+                dpi=dpi,
+                facecolor="black",
+                edgecolor="black",
+                frameon=True,
+            )
+            self.ax = self.fig.add_axes([0, 0, 1, 1], facecolor="black")
+            self.ax.set_axis_off()
+            self.im = self.ax.imshow(frame_rgb, interpolation="nearest")
+            self.writer = FFMpegWriter(
+                fps=self.fps,
+                bitrate=4000,
+                codec="libx264",
+                extra_args=[
+                    "-pix_fmt", "yuv420p",
+                    "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2:color=black",
+                ],
+            )
+            self.writer.setup(self.fig, self.out_path, dpi=dpi)
+        else:
+            self.im.set_data(frame_rgb)
+
+        self.fig.canvas.draw()
+        self.writer.grab_frame(facecolor="black")
+
+    def close(self):
+        try:
+            if self.writer is not None:
+                self.writer.finish()
+        finally:
+            if self.fig is not None:
+                plt.close(self.fig)
+            self.fig = self.ax = self.im = self.writer = None
+
 def upscale_gray(img01: np.ndarray, scale: int = 8) -> np.ndarray:
     img01 = np.asarray(img01)
     if img01.ndim == 3:
@@ -291,7 +347,7 @@ def build_ego_global_frames(env):
 # =========================
 # episode runner
 # =========================
-def run_one_episode(map_id: int):
+def run_one_episode(map_id: int, mp4_path: str | None = None):
     step_num = 0
     env = model.FightingModel(
         number_of_agents,
@@ -303,6 +359,17 @@ def run_one_episode(map_id: int):
 
     if robot_version == 'Q':
         env.use_model(robot_learned_model)
+        # 평가는 policy 추론만 사용한다. 학습 전용 대형 객체를 해제해 worker
+        # 하나당 수 GB에 달하는 불필요한 메모리 점유를 막는다.
+        for attr in (
+            "replay_buffer",
+            "q1", "q2", "q1_target", "q2_target",
+            "q1_optimizer", "q2_optimizer", "policy_optimizer",
+            "alpha_optimizer", "log_alpha",
+        ):
+            if hasattr(env.sac_agent, attr):
+                setattr(env.sac_agent, attr, None)
+        gc.collect()
 
     renderer = ContinuousRenderer(
         world_size=(float(MAP_W), float(MAP_H)),
@@ -323,6 +390,7 @@ def run_one_episode(map_id: int):
         annotate_robot_path=ANNOTATE_ROBOT_PATH,
         annotate_mode=ANNOTATE_MODE,
         annotate_every=ANNOTATE_EVERY,
+        annotate_time_per_sim_step=ANNOTATE_TIME_PER_SIM_STEP,
         annotate_style=ANNOTATE_STYLE,
         annotate_fontsize=ANNOTATE_FONTSIZE,
 
@@ -336,6 +404,7 @@ def run_one_episode(map_id: int):
     save_mp4         = (visualization_mode == 'cont_mp4')
     save_last_png    = (visualization_mode == 'cont_png')
     collected_frames = []
+    mp4_writer = StreamingMP4Writer(mp4_path, fps=20) if save_mp4 and mp4_path else None
 
     episode_log = []
     try:
@@ -348,7 +417,9 @@ def run_one_episode(map_id: int):
             if visualization_mode != 'off':
                 if save_mp4:
                     rgb = renderer.draw(env, step=step_num)
-                    collected_frames.append(rgb)
+                    if mp4_writer is None:
+                        raise RuntimeError("cont_mp4 mode requires an output path")
+                    mp4_writer.write(rgb)
 
                 elif save_rgb_every and (step_num % VIS_SAVE_EVERY == 0 or alive < 1):
                     rgb = renderer.draw(env, step=step_num)
@@ -359,6 +430,13 @@ def run_one_episode(map_id: int):
                     rgb = renderer.draw(env, step=step_num)
                     ego_f, glob_f = build_ego_global_frames(env)
                     collected_frames = [("LAST", step_num, rgb, ego_f, glob_f)]
+
+            if step_num % PROGRESS_EVERY == 0:
+                print(
+                    f"[PROGRESS][Map {map_id}] step={step_num}/{max_step_num} "
+                    f"alive={alive}",
+                    flush=True,
+                )
 
             if alive < 1:
                 evacuated_all = True
@@ -371,13 +449,21 @@ def run_one_episode(map_id: int):
                 return step_num, evacuated_all, all_life, episode_log, collected_frames
 
     finally:
+        if mp4_writer is not None:
+            mp4_writer.close()
         del env
+        gc.collect()
 
 
 # =========================
 # worker: "고정 슬롯" 하나를 성공할 때까지 재시도
 # =========================
-def worker_run_slot_until_success(map_id: int, slot: int, test_dir: str, max_retries: int = 10_000):
+def worker_run_slot_until_success(
+    map_id: int,
+    slot: int,
+    test_dir: str,
+    max_retries: int = MAX_SLOT_RETRIES,
+):
     """
     한 슬롯 디렉토리를 '성공' 상태로 만들 때까지 반복.
     - 실패하면 test_dir을 깨끗이 지운 뒤 재시도
@@ -393,7 +479,11 @@ def worker_run_slot_until_success(map_id: int, slot: int, test_dir: str, max_ret
                 shutil.rmtree(test_dir, ignore_errors=True)
             os.makedirs(test_dir, exist_ok=False)
 
-            steps, evacuated_all, all_life, ep_log, vis_frames = run_one_episode(map_id)
+            out_mp4 = os.path.join(test_dir, "continuous.mp4")
+            steps, evacuated_all, all_life, ep_log, vis_frames = run_one_episode(
+                map_id,
+                mp4_path=out_mp4 if visualization_mode == 'cont_mp4' else None,
+            )
 
             evacuation_100_time = steps if evacuated_all else max_step_num
             all_agents_life_time = all_life
@@ -407,8 +497,7 @@ def worker_run_slot_until_success(map_id: int, slot: int, test_dir: str, max_ret
 
             # visualization 저장
             if visualization_mode == 'cont_mp4':
-                out_mp4 = os.path.join(test_dir, "continuous.mp4")
-                save_continuous_mp4(vis_frames, out_mp4, fps=20)
+                pass  # run_one_episode에서 프레임별로 즉시 저장됨
 
             elif visualization_mode == 'cont_png_every':
                 png_dir  = os.path.join(test_dir, "continuous_pngs")
@@ -441,12 +530,20 @@ def worker_run_slot_until_success(map_id: int, slot: int, test_dir: str, max_ret
 
         except Exception as e:
             tb = traceback.format_exc()
+            persistent_error_log = test_dir + ".error.log"
             # 같은 슬롯 안에 error.txt 기록 후, 폴더를 지우고 재시도
             try:
                 os.makedirs(test_dir, exist_ok=True)
                 write_txt(os.path.join(test_dir, "error.txt"), f"[attempt={attempt}] {repr(e)}\n\n{tb}\n")
+                with open(persistent_error_log, "a", encoding="utf-8") as f:
+                    f.write(f"\n[attempt={attempt}] {repr(e)}\n{tb}\n")
             except Exception:
                 pass
+            print(
+                f"[ERROR][Map {map_id}][slot {slot}][attempt {attempt}/{max_retries}] "
+                f"{repr(e)} (log: {persistent_error_log})",
+                flush=True,
+            )
 
             if attempt >= max_retries:
                 return {"ok": False, "map_id": map_id, "slot": slot, "test_dir": test_dir,
@@ -467,11 +564,8 @@ def main():
     result_root = init_result_root(EXP_NAME)
     print(f"[INFO] Result root at: {result_root}")
 
-    # GPU(Q)면 안전하게 1 권장
-    if robot_version == 'Q':
-        max_workers =  min(6, os.cpu_count() or 1)
-    else:
-        max_workers = min(6, os.cpu_count() or 1)
+    # MP4 렌더링과 Q 추론은 메모리 사용량이 크므로 명시적으로 제한한다.
+    max_workers = max(1, min(MAX_WORKERS, os.cpu_count() or 1))
 
     for it in range(run_iteration):
         print(f"\n=== Iteration {it+1}/{run_iteration} ===")
@@ -495,6 +589,7 @@ def main():
         # 이미 성공한 슬롯은 건너뜀
         pending = [(mid, s, td) for (mid, s, td) in slots if not is_slot_success(td)]
         done = {(mid, s): is_slot_success(td) for (mid, s, td) in slots}
+        crash_attempts = {(mid, s): 0 for (mid, s, _) in slots}
 
         print(f"[INFO] total slots = {len(slots)}, pending = {len(pending)}")
 
@@ -518,9 +613,23 @@ def main():
                             res = fut.result()
                         except Exception as e:
                             # worker 프로세스가 죽었거나(pickle/환경 문제 포함)
-                            print(f"[CRASH][Map {mid}][slot {s}] -> {repr(e)}")
-                            # 같은 슬롯을 다시 pending에 넣음
-                            pending.append((mid, s, td))
+                            crash_attempts[(mid, s)] += 1
+                            crash_n = crash_attempts[(mid, s)]
+                            try:
+                                with open(td + ".error.log", "a", encoding="utf-8") as f:
+                                    f.write(
+                                        f"\n[worker crash {crash_n}/{MAX_SLOT_CRASH_RETRIES}] "
+                                        f"{repr(e)}\n"
+                                    )
+                            except Exception:
+                                pass
+                            print(
+                                f"[CRASH][Map {mid}][slot {s}] "
+                                f"{crash_n}/{MAX_SLOT_CRASH_RETRIES} -> {repr(e)}",
+                                flush=True,
+                            )
+                            if crash_n < MAX_SLOT_CRASH_RETRIES:
+                                pending.append((mid, s, td))
                             continue
 
                         if res.get("ok", False):
@@ -535,7 +644,10 @@ def main():
                 # 풀 깨짐: 아직 완료 안 된 슬롯들을 다시 pending에 넣고 계속
                 still = []
                 for (mid, s, td) in slots:
-                    if not is_slot_success(td):
+                    if (
+                        not is_slot_success(td)
+                        and crash_attempts[(mid, s)] < MAX_SLOT_CRASH_RETRIES
+                    ):
                         still.append((mid, s, td))
                 pending = still
                 continue

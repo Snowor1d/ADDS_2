@@ -96,9 +96,24 @@ MAP_NUM = -1 #if not used, -2, if random, -1
 
 
 #MAP_NUM_RANDOM = list(range(1000, 1300))
-MAP_NUM_RANDOM = list(range(1000, 1300))
 #MAP_NUM_RANDOM = list(range(1000, 1300))
-#MAP_NUM_RANDOM = [1506]
+#MAP_NUM_RANDOM = list(range(1000, 1300))
+MAP_NUM_RANDOM = [1502]
+
+# Apply one random geometric symmetry whenever a simulation map is loaded.
+# The default keeps the previous behavior.  Enable this for training and turn
+# it off for evaluation when results must use the map orientation from JSON.
+MAP_DATA_AUGMENTATION = True
+MAP_AUGMENTATION_TRANSFORMS = (
+    "identity",
+    "rotate_90",
+    "rotate_180",
+    "rotate_270",
+    "reflect",
+    "reflect_rotate_90",
+    "reflect_rotate_180",
+    "reflect_rotate_270",
+)
 
 SCALE_CHECK = 0 # want to check reward scale?
 ACTION_SCALE = 4
@@ -131,10 +146,10 @@ RANDOM_EXIT = False
 
 
 # -------------- PATH -------------------
-LOG_DIR = "Log_MARL_DREAMER17_m"
+LOG_DIR = "DREAMER_MARL17_m_aug"
 #LOG_DIR = "SOTA_MODELS"
 #LOG_DIR = "Log_test"
-PORT_NUM = 8532
+PORT_NUM = 8540
 
 # --------------- REWARD SHAPING -----------------
 
