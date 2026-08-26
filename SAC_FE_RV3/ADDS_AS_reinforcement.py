@@ -15,7 +15,7 @@ import threading
 from torch.utils.tensorboard import SummaryWriter
 import subprocess
 import webbrowser
-from typing import Tuple, Any, Union, Optional
+from typing import Tuple, Any, Union, Optional, Dict
 from config import *
 
 from dataclasses import dataclass
@@ -33,6 +33,24 @@ DEBUG_DIR_TEMP = os.path.join(home_dir, LOG_DIR)
 DEBUG_DIR = os.path.join(DEBUG_DIR_TEMP, "debug_frames")
 DEBUG_EVERY_EP = 1  
 DEBUG_STEPS = {100, 200, 300}  # 초반 3번 boundary만 저장
+
+
+REWARD_COMPONENT_NAMES = (
+    "reward_a",
+    "reward_b",
+    "reward_c",
+    "reward_d",
+    "reward_e",
+    "reward_f",
+    "reward_g",
+    "reward_h",
+    "reward_i",
+    "reward_j",
+    "reward_k",
+    "reward_l",
+    "reward_fixed",
+    "reward_finished_bonus",
+)
 
 
 
@@ -98,6 +116,7 @@ class EpisodeStatMsg:
     total_lifetime: float
     map_num: int
     abnormal: int
+    reward_components: Dict[str, float]
 
 
 STATE_SHAPE = (4, 50, 50)
@@ -231,7 +250,8 @@ def monitor_metric(metric_file, metric_name, tb_log_dir):
                     if line:
                         try:
                             value = float(line)
-                            writer.add_scalar(f"{metric_name}", value, episode)
+                            if np.isfinite(value):
+                                writer.add_scalar(f"{metric_name}", value, episode)
                             #print(f"Episode {episode} - {metric_name} = {value}")
                             episode += 1
                         except ValueError:
@@ -368,6 +388,9 @@ def worker_process(
 
         # 에피소드 통계 변수
         total_reward = 0.0
+        episode_reward_components = {
+            name: 0.0 for name in REWARD_COMPONENT_NAMES
+        }
         evacuation_time_80 = max_steps
         evacuation_time_100 = max_steps
         agent_total_lifetime = 0.0
@@ -471,9 +494,11 @@ def worker_process(
                 done = (step >= max_steps - 1) or (env_model.robot.is_game_finished)
                 reward = 0.0
                 r_k = 0.0
+                r_finished_bonus = 0.0
 
                 if env_model.robot.is_game_finished:
-                    reward += FINISHED_BONUS * (1 - step / max_steps)
+                    r_finished_bonus = FINISHED_BONUS * (1 - step / max_steps)
+                    reward += r_finished_bonus
 
                 if REWARD_K:
                     r_k += env_model.reward_penalty_collision() * REWARD_K
@@ -484,7 +509,7 @@ def worker_process(
 
                     r_a = r_b = r_c = r_d = r_e = 0.0
                     r_f = r_g = r_h = r_i = r_j = 0.0
-                    r_l = 0
+                    r_l = 0.0
 
                     if REWARD_A:
                         r_a = env_model.reward_based_alived() * REWARD_A
@@ -509,8 +534,10 @@ def worker_process(
                     if REWARD_L:
                         r_l = env_model.reward_based_farthest_agent_distance() * REWARD_L
 
-                    reward += (r_a + r_b + r_c + r_d + r_e + r_g + r_h + r_i + r_j + r_k + r_l + REWARD_FIXED)
-                    r_k = 0.0
+                    reward += (
+                        r_a + r_b + r_c + r_d + r_e + r_f + r_g +
+                        r_h + r_i + r_j + r_k + r_l + REWARD_FIXED
+                    )
                     if reward < -1e3:
                         raise RuntimeError(f"Reward collapsed: {reward}")
 
@@ -532,6 +559,24 @@ def worker_process(
                         )
                         transition_queue.put(msg)  # blocking
                         total_reward += reward
+                        component_values = {
+                            "reward_a": r_a,
+                            "reward_b": r_b,
+                            "reward_c": r_c,
+                            "reward_d": r_d,
+                            "reward_e": r_e,
+                            "reward_f": r_f,
+                            "reward_g": r_g,
+                            "reward_h": r_h,
+                            "reward_i": r_i,
+                            "reward_j": r_j,
+                            "reward_k": r_k,
+                            "reward_l": r_l,
+                            "reward_fixed": REWARD_FIXED,
+                            "reward_finished_bonus": r_finished_bonus,
+                        }
+                        for name, value in component_values.items():
+                            episode_reward_components[name] += float(value)
                     except Exception as e:
                         print(f"[Worker {worker_id}] transition_queue.put error: {e}")
                         abnormal_reward = 1
@@ -572,7 +617,8 @@ def worker_process(
             evac_time_100=int(evacuation_time_100),
             total_lifetime=float(agent_total_lifetime),
             map_num=int(env_model.map_num),
-            abnormal=int(abnormal_reward)
+            abnormal=int(abnormal_reward),
+            reward_components=episode_reward_components,
         )
         try:
             stats_queue.put(stat_msg)
@@ -1598,6 +1644,10 @@ if __name__ == "__main__":
     evacuation_time_80_file = os.path.join(log_dir, "evacuation_80.txt")
     evacuation_time_100_file = os.path.join(log_dir, "evacuation_100.txt")
     total_lifetime_file = os.path.join(log_dir, "total_lifetime.txt")
+    reward_component_files = {
+        name: os.path.join(log_dir, f"{name}.txt")
+        for name in REWARD_COMPONENT_NAMES
+    }
 
     #reward_vs_ls_file = os.path.join(log_dir, "reward_vs_learning_step.txt")
     #evac100_vs_ls_file = os.path.join(log_dir, "evac100_vs_learning_step.txt")
@@ -1608,9 +1658,22 @@ if __name__ == "__main__":
 
     # 파일 존재 보장
     for path in [total_reward_file, evacuation_time_80_file,
-                 evacuation_time_100_file, total_lifetime_file]:
+                 evacuation_time_100_file, total_lifetime_file,
+                 *reward_component_files.values()]:
         if not os.path.exists(path):
             open(path, "w").close()
+
+    # 기존 학습 로그에 reward component 파일만 새로 추가된 경우,
+    # 복원할 수 없는 과거 episode는 nan으로 채워 episode 축을 맞춘다.
+    with open(total_reward_file, "r") as f:
+        total_reward_line_count = sum(1 for _ in f)
+    for path in reward_component_files.values():
+        with open(path, "r") as f:
+            component_line_count = sum(1 for _ in f)
+        if component_line_count < total_reward_line_count:
+            with open(path, "a") as f:
+                for _ in range(total_reward_line_count - component_line_count):
+                    f.write("nan\n")
 
     # TensorBoard 관련 (원하면 기존 monitor thread 그대로 사용 가능)
     tb_process = launch_tensorboard(tb_log_dir, port=PORT_NUM)
@@ -1620,6 +1683,17 @@ if __name__ == "__main__":
         daemon=True
     )
     monitor_thread.start()
+
+    # episode별 reward component를 TensorBoard의 하나의 그룹으로 기록
+    reward_component_monitor_threads = []
+    for name, path in reward_component_files.items():
+        monitor_thread_component = threading.Thread(
+            target=monitor_metric,
+            args=(path, f"Reward Components/{name}", tb_log_dir),
+            daemon=True,
+        )
+        monitor_thread_component.start()
+        reward_component_monitor_threads.append(monitor_thread_component)
 
     # 추가: 새로운 지표(80%, 100% 대피시간) 모니터링 쓰레드
     monitor_thread_80 = threading.Thread(
@@ -1857,6 +1931,9 @@ if __name__ == "__main__":
                     f.write(f"{s_msg.evac_time_100}\n")
                 with open(total_lifetime_file, "a") as f:
                     f.write(f"{s_msg.total_lifetime}\n")
+                for name in REWARD_COMPONENT_NAMES:
+                    with open(reward_component_files[name], "a") as f:
+                        f.write(f"{s_msg.reward_components.get(name, 0.0)}\n")
 
             # alpha/gamma/epsilon 스케줄 업데이트 (episode 기준)
             agent.update_gamma(GAMMA_START, GAMMA_END, GAMMA_SCHEDULE_STEP, global_episode)

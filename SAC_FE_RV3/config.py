@@ -5,7 +5,7 @@ BATCH_SIZE = 128
 INTRINSIC_ETA = 0.1 #intrinsic reward
 START_BATCH_TIMES = 1
 START_UPDATE_EPISODE = 500
-DEVICE = "cpu"
+DEVICE = "cuda"
 
 GAMMA_START = 0.99
 GAMMA_END = 0.99
@@ -80,10 +80,10 @@ RANDOM_EXIT = False
 
 
 # -------------- PATH -------------------
-LOG_DIR = "SOTA_MODELS"
+LOG_DIR = "Log_SAC_FE_RV3_3maps"
 #LOG_DIR = "SOTA_MODELS"
 #LOG_DIR = "Log_test"
-PORT_NUM = 7500
+PORT_NUM = 7520
 
 # --------------- SAC ALGORITHM PARAMETER ---------------
 LOG_STD_MAX = 0.5
