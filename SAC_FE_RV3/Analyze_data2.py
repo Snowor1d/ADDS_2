@@ -23,13 +23,13 @@ from matplotlib import patheffects as pe  # legend/markers halo 효과용 (선�
 ROOT_DIR = os.path.expanduser("~/results")
 OUT_DIR  = ROOT_DIR
 
-SHOW_EPISODE_LEGEND = True  # episode 플롯 범례 표시 여부
+SHOW_EPISODE_LEGEND = False  # episode 플롯 범례 표시 여부
 
 # --- 그림/폰트 ---
 FIGSIZE_EVAC   = (15, 7)
 FIGSIZE_EPISOD = (10, 8)
-#FONT_SIZES = {"title": 38, "axes": 0, "ticks": 38, "legend": 41}
-FONT_SIZES = {"title": 25, "axes": 30, "ticks": 28, "legend": 28} 
+FONT_SIZES = {"title": 38, "axes": 0, "ticks": 38, "legend": 41}
+#FONT_SIZES = {"title": 25, "axes": 30, "ticks": 28, "legend": 28} 
 
 FONT_MODE = "serif"          # 논문용 로마자 느낌이면 "serif"
 FONT_FAMILY = "DejaVu Serif"  # MODE="custom"일 때만 사용 (정확한 폰트 이름)
@@ -45,15 +45,15 @@ TITLE_EPISODE_NAME = "Remained Agents per Step"
 XLABEL_EVAC        = ""
 YLABEL_EVAC        = "Time (s)"
 XLABEL_EPISODE     = "Time (s)"
-YLABEL_EPISODE     = "Unevacuated Agents"
+YLABEL_EPISODE     = "Remaining Crowd Agents"
 
 # --- 저장 ---
 SAVE_DPI    = 220
 SAVE_FORMAT = "png"
 
 # --- 밴드(음영) ---
-BAND_MODE: Optional[str] = None  # None | "minmax" | "std" | "p25_75"
-BAND_ALPHA = 0.18
+BAND_MODE: Optional[str] = "None"  # None | "minmax" | "std" | "p25_75"
+BAND_ALPHA = 0.3
 
 # --- evac100 표시 제어 ---
 EVAC_SHOW_MEAN   = True       # 평균선(hline)
@@ -92,8 +92,8 @@ H_CYAN   = 195/360.0  # Tol-ish Cyan / Sky-ish
 ROBOT_HSL: Dict[str, Tuple[float, float, float]] = {
     "Q": (H_BLUE,   1.00, 0.35),  # RL-Trained (Okabe–Ito Blue, #0072B2)
     "H": (H_ORANGE, 1.00, 0.45),  # Human Control (Okabe–Ito Orange, #E69F00)
-    "T": (0.00,     0.00, 0.65),  # Direct-to-Goal (중간 회색)
-    "N": (0.00,     0.00, 0.55),  # No Robot (진한 회색)
+    "T": (0.00,     0.00, 0.55),  # Direct-to-Goal (중간 회색)
+    "N": (0.00,     0.00, 0.85),  # No Robot (진한 회색)
 }
 
 # 컬러 사이클(미지정 로봇 대비)
@@ -114,7 +114,7 @@ ROBOT_LABELS = {
     "T": "Direct-to-Goal",
     "Q": "RL-Trained",
     "N": "No Robot",
-    "H": "Human Control",
+    "H": "Human-Control",
 }
 ROBOT_ORDER: List[str] = ["Q", "H", "T", "N"]
 
@@ -126,19 +126,19 @@ JITTER_WIDTH   = 0.55
 # evac100: 모델별 선 굵기 (없으면 DEFAULT 사용)
 DEFAULT_EVAC_LINEWIDTH = 2.0
 EVAC_LINEWIDTHS: Dict[str, float] = {
-    "Q": 7.0,   # 강조 라인 더 두껍게
-    "H": 7.0,
-    "T": 1.4,
-    "N": 1.4,
+    "Q": 4.0,   # 강조 라인 더 두껍게
+    "H": 4.0,
+    "T": 2,
+    "N": 2,
 }
 
 # episode 로그: “마커 OFF + 얇은 점/파선” 스타일
 DEFAULT_EPISODE_LINEWIDTH = 2.0
 EPISODE_LINEWIDTHS: Dict[str, float] = {
-    "Q": 7.0,
-    "H": 7.0,
-    "T": 7.0,
-    "N": 7.0,
+    "Q": 6.0,
+    "H": 6.0,
+    "T": 6.0,
+    "N": 6.0,
 }
 
 # --- episode: 마커 대신 라인스타일 기반 구분 ---
@@ -341,11 +341,11 @@ def plot_evacuation_single_axes_pairs(
         legend_handles.append(
             Line2D([], [], color=color, linewidth=lw_for_robot_evacu(rv), label=label)
         )
-    ax.legend(handles=legend_handles,
-              fontsize=FONT_SIZES["legend"],
-              title="",
-              frameon=False,
-              loc="upper left")
+    # ax.legend(handles=legend_handles,
+    #           fontsize=FONT_SIZES["legend"],
+    #           title="",
+    #           frameon=False,
+    #           loc="upper left")
 
     subset_str = _format_id_ranges(subset_disp_ids)
     # ax.set_title(f"Maps {subset_str} – {TITLE_EVAC_NAME}", fontsize=FONT_SIZES["title"])
@@ -719,7 +719,7 @@ def plot_evacuation_per_map(map_id: int, mdata: MapData, out_dir: str):
                     ax.scatter([x_pos] * len(point_vals), point_vals, color=color, alpha=0.45, s=18)
 
     ax.set_xticks(xs, [label_for_robot(rv) for rv in robot_versions])
-    ax.legend(fontsize=FONT_SIZES["legend"])
+    #ax.legend(fontsize=FONT_SIZES["legend"])
     apply_axes_style(ax, YLIM_EVAC)
     fig.tight_layout()
     os.makedirs(out_dir, exist_ok=True)

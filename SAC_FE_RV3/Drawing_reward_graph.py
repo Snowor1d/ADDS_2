@@ -12,8 +12,8 @@ from typing import List, Tuple, Optional
 # USER CONFIG
 # =========================
 RUN_DIR_NAME = "Drawing_reward_0"
-REWARD_FILE = "total_reward.txt"
-EVAC_FILE   = "evacuation_100.txt"
+REWARD_FILE = "total_reward_300s.txt"
+EVAC_FILE   = "evacuation_100_300s.txt"
 
 # =========================
 # FIGURE / SAVE OPTIONS
@@ -38,7 +38,7 @@ GRID_STYLE = dict(color="#AAAAAA", linestyle="--", linewidth=0.8, alpha=0.7)
 TITLE_COMBINED = ""
 XLABEL         = "Episode"
 YLABEL_LEFT    = "Total Reward"
-YLABEL_RIGHT   = "Timestep"
+YLABEL_RIGHT   = "Time (s)"
 
 LEGEND_A_SMO = ""
 LEGEND_B_SMO = ""
@@ -55,10 +55,10 @@ LINESTYLE_A = LINESTYLE_B = "-"  # 실선
 
 # 스무딩 및 밴드
 SMOOTH_MODE  = "ma"
-MA_WINDOW    = 100
-SHADE_MODE   = "stderr" # 'std' | 'stderr' | None
+MA_WINDOW    = 150
+SHADE_MODE   = "None" # 'std' | 'stderr' | None
 SHADE_ALPHA  = 0.1
-SMOOTH_LINEWIDTH = 4
+SMOOTH_LINEWIDTH = 6
 
 # =========================
 # UTILS
@@ -139,6 +139,7 @@ def _scaled_size(size: Tuple[float, float]) -> Tuple[float, float]:
 def plot_dual_curve(y_left, y_right, save_path):
     y_left  = np.asarray(y_left, dtype=float)
     y_right = np.asarray(y_right, dtype=float)
+    y_right *= 0.5
     L = min(len(y_left), len(y_right))
     if L == 0:
         print("[WARN] nothing to plot.")
@@ -208,8 +209,8 @@ def main():
 
     reward_path = os.path.join(run_dir, REWARD_FILE)
     evac_path   = os.path.join(run_dir, EVAC_FILE)
-    rewards = read_txt_series(reward_path)[:5900]
-    evacs   = read_txt_series(evac_path)[:5900]
+    rewards = read_txt_series(reward_path)[:5999]
+    evacs   = read_txt_series(evac_path)[:5999]
 
     if not rewards or not evacs:
         print("[STOP] need both files.")

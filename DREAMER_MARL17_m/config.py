@@ -97,8 +97,8 @@ MAP_NUM = -1 #if not used, -2, if random, -1
 
 #MAP_NUM_RANDOM = list(range(1000, 1300))
 #MAP_NUM_RANDOM = list(range(1000, 1300))
-#MAP_NUM_RANDOM = list(range(1000, 1300))
-MAP_NUM_RANDOM = [1502]
+MAP_NUM_RANDOM = list(range(1000, 1300))
+#MAP_NUM_RANDOM = [1502]
 
 # Apply one random geometric symmetry whenever a simulation map is loaded.
 # The default keeps the previous behavior.  Enable this for training and turn
@@ -185,7 +185,7 @@ SPD_MIN = -2
 SPD_MAX = 2
 FRAME_STEP = 4
 
-ZSG_MAP = []
+ZSG_MAP = [1500, 1501, 1502, 1503]
 ZSG_CYCLE_EPISODE = 500
 ZSG_ITERATION = 10
 ZSG_ROBOT_NUM = [1]

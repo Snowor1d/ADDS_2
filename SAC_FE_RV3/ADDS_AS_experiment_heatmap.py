@@ -35,11 +35,11 @@ run_iteration       = 1
 number_of_agents    = 30
 max_step_num        = 3000
 robot_version       = 'Q'     # 'N','T','Q'
-robot_learned_model = 'FE_105_108_128.pth'
-test_num            =  3
+robot_learned_model = '3maps.pth'
+test_num            =  10
 #map_list = [1239]
-map_list = [105]
-EXP_NAME = "0223/get_heatmap"
+map_list = [108, 128]
+EXP_NAME = "0824/get_heatmap"
 
 CROWD_COLOR = "#0000FF"
 ROBOT_COLOR = "#FF0000"
