@@ -20,11 +20,11 @@ from matplotlib.animation import FFMpegWriter
 ############################
 # 실험/기록 파라미터
 ############################
-MAP_NUM_FOR_RUN = 1503        # 원하는 맵 번호(-1은 내부 랜덤 로직) #6,7,8,24,25,26
+MAP_NUM_FOR_RUN = 128        # 원하는 맵 번호(-1은 내부 랜덤 로직) #6,7,8,24,25,26
 ROBOT_VERSION_FOR_MODEL = 'Q' # 모델에는 'Q'로 넘기되, 사람이 직접 action 전달
 ROBOT_VERSION_FOR_LOG   = 'H' # 결과 폴더명에는 'H'로 기록해 비교군 명확화
 #EXP_NAME   = "test_0917_2"        # 최상위 결과 폴더 접미사: Result_data_{EXP_NAME}
-EXP_NAME = "0201/seheon_play"
+EXP_NAME = "0829_getvideo"
 MAX_STEPS  = 3000             # 실패 시 스텝 상한
 MAX_EPISODES = 3
 
@@ -89,7 +89,7 @@ reward_log_file = os.path.join(log_dir, "total_reward_imitation.txt")
 # 연속 공간 렌더 옵션
 ############################
 USE_CONTINUOUS_RENDERER = True     # False면 격자 렌더(draw_environment)
-CONT_VIS_MODE = "live"             # "live" | "mp4" | "png_every" | "png_last"
+CONT_VIS_MODE = "mp4"             # "live" | "mp4" | "png_every" | "png_last"
 CONT_SAVE_EVERY = 1                # png_every/mp4 수집 간격(스텝)
 CONT_FPS = 20                      # mp4 저장 FPS(프레임 stride 보정과 함께 사용)
 CONT_OUT_DPI = 200                 # mp4/PNG 저장 해상도

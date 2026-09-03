@@ -26,7 +26,7 @@ MAP_NUM = -1 #if not used, -2, if random, -1
 # 70x70 : 50,53,54
 # 100x100 : 105, 108, 128
 # unseen maps : 500, 501, 502, 503
-#MAP_NUM_RANDOM = list(range(1000, 1300))
+MAP_NUM_RANDOM = list(range(1000, 1300))
 
 # MAP_NUM_RANDOM = [1001, 1004, 1007, 1010, 1013, 1016, 1019, 1022, 1025, 1028,
 #  1031, 1034, 1037, 1040, 1043, 1046, 1049, 1052, 1055, 1058,
@@ -47,8 +47,22 @@ MAP_NUM = -1 #if not used, -2, if random, -1
 
 
 
-MAP_NUM_RANDOM = list(range(1000, 1300))
+#MAP_NUM_RANDOM = [105, 108, 128]
 #MAP_NUM_RANDOM = [1506]
+
+# Apply one random geometric symmetry whenever a simulation map is created.
+# Disable this for evaluation when the original JSON/map orientation is needed.
+MAP_DATA_AUGMENTATION = True
+MAP_AUGMENTATION_TRANSFORMS = (
+    "identity",
+    "rotate_90",
+    "rotate_180",
+    "rotate_270",
+    "reflect",
+    "reflect_rotate_90",
+    "reflect_rotate_180",
+    "reflect_rotate_270",
+)
 
 SCALE_CHECK = 0 # want to check reward scale?
 ACTION_SCALE = 4
@@ -80,7 +94,7 @@ RANDOM_EXIT = False
 
 
 # -------------- PATH -------------------
-LOG_DIR = "Log_SAC_FE_RV3_3maps"
+LOG_DIR = "Log_SAC_FE_RV3_aug"
 #LOG_DIR = "SOTA_MODELS"
 #LOG_DIR = "Log_test"
 PORT_NUM = 7520

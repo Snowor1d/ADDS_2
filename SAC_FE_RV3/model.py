@@ -25,6 +25,7 @@ import os
 from collections import deque
 from typing import List, Tuple
 from visibility_atlas import VisibilityAtlas
+from map_augmentation import transform_map_geometry, transformed_size, validate_transforms
 from typing import Optional
 #import cv2
 
@@ -431,8 +432,37 @@ class FightingModel(Model):
         #print("model_num :", model_num)
         super().__init__()
         #print("height :", height)
-        self.width = width
-        self.height = height      
+        if model_num == -1:
+            if MAP_NUM not in (-2, -1):
+                self.map_num = int(MAP_NUM)
+            elif MAP_NUM == -1:
+                self.map_num = int(random.choice(MAP_NUM_RANDOM))
+            else:
+                self.map_num = -1
+        else:
+            self.map_num = int(model_num)
+
+        self._source_map_width = int(width)
+        self._source_map_height = int(height)
+
+        # Select one stable orientation per episode. The source dimensions are
+        # retained so extract_map() can transform geometry after it is loaded.
+        if MAP_DATA_AUGMENTATION:
+            augmentation_transforms = validate_transforms(MAP_AUGMENTATION_TRANSFORMS)
+            self.map_augmentation = random.choice(augmentation_transforms)
+            self.width, self.height = map(
+                int,
+                transformed_size(
+                    self._source_map_width,
+                    self._source_map_height,
+                    self.map_augmentation,
+                ),
+            )
+        else:
+            self.map_augmentation = "identity"
+            self.width = self._source_map_width
+            self.height = self._source_map_height
+
         self.space = ContinuousSpace(self.width, self.height, cell_size=10.0, torus=False)  
         self.frame_stack = FrameStack(stack_len=4)
         self._first_step = True
@@ -443,7 +473,6 @@ class FightingModel(Model):
 
         self.robot_type = robot
         self.spaces_of_map = []
-        self.map_num = model_num # 1 : 산학협력관 + 잔디밭 / 2 : 제2 공학관 + 정원 / 3 : 공학실습동 + 제2 연구동 / 4 : 벤젠고리관 / 5 : 경영관 + 퇴계 인문관
         self.running = (
             True  
         )
@@ -498,14 +527,7 @@ class FightingModel(Model):
             # deadend
             "deadend_bias_range": (0.25, 0.60),
         }
-        if (self.map_num == -1):
-            if(MAP_NUM != -2 and MAP_NUM != -1):
-                self.extract_map(self.map_num)
-            if (MAP_NUM == -1):
-                map_num_candidates = MAP_NUM_RANDOM
-                self.map_num = random.choice(map_num_candidates)
-                self.extract_map(self.map_num)    
-        else :
+        if self.map_num != -1:
             self.extract_map(self.map_num)
 
         self.distance = {}  
@@ -521,10 +543,9 @@ class FightingModel(Model):
         self.valid_space = {}
         self.blocked = np.zeros((self.height, self.width), dtype=bool)
         self.obstacles_grid_points = []
-        self.fill_outwalls(width, height)
+        self.fill_outwalls(self.width, self.height)
         self.mesh_map()
-        if(self.map_num != 0):
-            self.make_random_exit()
+        self._make_and_augment_configured_exits()
         self.construct_map()
         self.random_agent_distribute_outdoor(number_agents, 1)
         if (self.robot_version != 'N'):
@@ -1096,7 +1117,12 @@ class FightingModel(Model):
 
         #좌하단 #우하단 #우상단 #좌상단 순으로 입력해주기
         if map_num == 0:
+            transformed_width, transformed_height = self.width, self.height
+            self.width = self._source_map_width
+            self.height = self._source_map_height
             self.make_random_exit_2()
+            self.width, self.height = transformed_width, transformed_height
+            self._apply_map_augmentation()
             return
 
         if map_num == 6:
@@ -1606,6 +1632,53 @@ class FightingModel(Model):
             self.obstacles.append([[0, 20], [10, 20], [10, 72], [40, 72], [40, 87], [10, 87], [10, 80], [0, 80]])
         else:
             self.load_map_from_file(map_num, base_dir="map_infos")
+
+        self._apply_map_augmentation()
+
+    def _apply_map_augmentation(self):
+        if self.map_augmentation == "identity":
+            return
+
+        obstacles, exits, width, height = transform_map_geometry(
+            self.obstacles,
+            self.exit_list,
+            self._source_map_width,
+            self._source_map_height,
+            self.map_augmentation,
+        )
+        self.obstacles = [[list(point) for point in poly] for poly in obstacles]
+        self.exit_list = [[tuple(point) for point in poly] for poly in exits]
+        self.width = int(width)
+        self.height = int(height)
+
+    def _make_and_augment_configured_exits(self):
+        """Create legacy built-in exits in source space, then transform them."""
+        if self.map_num == 0:
+            return
+
+        first_new_exit = len(self.exit_list)
+        transformed_width, transformed_height = self.width, self.height
+        self.width = self._source_map_width
+        self.height = self._source_map_height
+        try:
+            self.make_random_exit()
+        finally:
+            self.width = transformed_width
+            self.height = transformed_height
+
+        if self.map_augmentation == "identity" or first_new_exit == len(self.exit_list):
+            return
+
+        _, transformed_exits, _, _ = transform_map_geometry(
+            [],
+            self.exit_list[first_new_exit:],
+            self._source_map_width,
+            self._source_map_height,
+            self.map_augmentation,
+        )
+        self.exit_list[first_new_exit:] = [
+            [tuple(point) for point in poly] for poly in transformed_exits
+        ]
 
     def make_random_exit_2(self, seed: Optional[int] = None, difficulty: int = 6):
         """

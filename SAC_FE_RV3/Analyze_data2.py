@@ -45,15 +45,30 @@ TITLE_EPISODE_NAME = "Remained Agents per Step"
 XLABEL_EVAC        = ""
 YLABEL_EVAC        = "Time (s)"
 XLABEL_EPISODE     = "Time (s)"
-YLABEL_EPISODE     = "Remaining Crowd Agents"
+YLABEL_EPISODE     = "Remaining Agents"
 
 # --- 저장 ---
 SAVE_DPI    = 220
 SAVE_FORMAT = "png"
 
 # --- 밴드(음영) ---
-BAND_MODE: Optional[str] = "None"  # None | "minmax" | "std" | "p25_75"
-BAND_ALPHA = 0.3
+BAND_MODE: Optional[str] = "std"  # None | "minmax" | "std" | "p25_75"
+BAND_ALPHA = 0.5  # BAND_ALPHAS에 없는 선의 기본값
+BAND_ALPHAS: Dict[str, float] = {
+    "Q": 0.2,
+    "H": 0.2,
+    "T": 0.1,
+    "N": 0.1,
+}
+BAND_ZORDER = 1
+POINT_ZORDER = 2
+DEFAULT_MEAN_ZORDER = 3
+MEAN_ZORDERS: Dict[str, int] = {
+    "Q": 6,  # RL-Trained: 항상 가장 앞
+    "H": 5,  # Human-Control: 두 번째
+    "T": 4,
+    "N": 3,
+}
 
 # --- evac100 표시 제어 ---
 EVAC_SHOW_MEAN   = True       # 평균선(hline)
@@ -92,8 +107,8 @@ H_CYAN   = 195/360.0  # Tol-ish Cyan / Sky-ish
 ROBOT_HSL: Dict[str, Tuple[float, float, float]] = {
     "Q": (H_BLUE,   1.00, 0.35),  # RL-Trained (Okabe–Ito Blue, #0072B2)
     "H": (H_ORANGE, 1.00, 0.45),  # Human Control (Okabe–Ito Orange, #E69F00)
-    "T": (0.00,     0.00, 0.55),  # Direct-to-Goal (중간 회색)
-    "N": (0.00,     0.00, 0.85),  # No Robot (진한 회색)
+    "T": (0,     0, 0.6),  # Direct-to-Goal (중간 회색)
+    "N": (0,     0, 0.4),  # No Robot (진한 회색)
 }
 
 # 컬러 사이클(미지정 로봇 대비)
@@ -175,6 +190,12 @@ def lw_for_robot_evacu(rv: str) -> float:
 
 def lw_for_robot_episode(rv: str) -> float:
     return EPISODE_LINEWIDTHS.get(rv, DEFAULT_EPISODE_LINEWIDTH)
+
+def band_alpha_for_robot(rv: str) -> float:
+    return BAND_ALPHAS.get(rv, BAND_ALPHA)
+
+def mean_zorder_for_robot(rv: str) -> int:
+    return MEAN_ZORDERS.get(rv, DEFAULT_MEAN_ZORDER)
 
 def ls_for_robot_episode(rv: str) -> str:
     # 고정 스타일이 지정되어 있으면 그것을 사용, 아니면 로봇별 스타일
@@ -286,16 +307,34 @@ def plot_evacuation_single_axes_pairs(
 
         if EVAC_SHOW_MEAN and vals:
             vmin, vmean, vmax = np.min(vals), np.mean(vals), np.max(vals)
-            ax.hlines(vmean, left, right, color=color, linewidth=lw_for_robot_evacu(rv))
             if EVAC_SHOW_BAND:
-                ax.fill_between([left, right], [vmin, vmin], [vmax, vmax], color=color, alpha=BAND_ALPHA)
+                ax.fill_between(
+                    [left, right], [vmin, vmin], [vmax, vmax],
+                    color=color,
+                    alpha=band_alpha_for_robot(rv),
+                    zorder=BAND_ZORDER,
+                )
+            ax.hlines(
+                vmean, left, right,
+                color=color,
+                linewidth=lw_for_robot_evacu(rv),
+                zorder=mean_zorder_for_robot(rv),
+            )
 
         if EVAC_SHOW_POINTS and vals:
             if JITTER_POINTS:
                 jitter = (np.random.rand(len(vals)) - 0.5) * (cat_width * JITTER_WIDTH)
-                ax.scatter(x_pos + jitter, vals, color=color, alpha=0.45, s=18)
+                ax.scatter(
+                    x_pos + jitter, vals,
+                    color=color, alpha=0.45, s=18,
+                    zorder=POINT_ZORDER,
+                )
             else:
-                ax.scatter([x_pos] * len(vals), vals, color=color, alpha=0.45, s=18)
+                ax.scatter(
+                    [x_pos] * len(vals), vals,
+                    color=color, alpha=0.45, s=18,
+                    zorder=POINT_ZORDER,
+                )
 
         if not vals:
             ax.text(x_pos, (y_min + y_max) / 2.0, "No data", ha="center", va="center",
@@ -699,14 +738,20 @@ def plot_evacuation_per_map(map_id: int, mdata: MapData, out_dir: str):
         # 평균선/밴드 (timeout이 하나라도 있으면 평균/밴드 생략)
         if EVAC_SHOW_MEAN and (not has_timeout) and vals_valid:
             vmin, vmean, vmax = np.min(vals_valid), np.mean(vals_valid), np.max(vals_valid)
+            if EVAC_SHOW_BAND:
+                ax.fill_between(
+                    [left, right], [vmin, vmin], [vmax, vmax],
+                    color=color,
+                    alpha=band_alpha_for_robot(rv),
+                    zorder=BAND_ZORDER,
+                )
             ax.hlines(
                 vmean, left, right,
                 color=color,
                 linewidth=lw_for_robot_evacu(rv),
-                label=f"{disp_label} (mean)"
+                label=f"{disp_label} (mean)",
+                zorder=mean_zorder_for_robot(rv),
             )
-            if EVAC_SHOW_BAND:
-                ax.fill_between([left, right], [vmin, vmin], [vmax, vmax], color=color, alpha=BAND_ALPHA)
 
         # 점(개별 실험)
         if EVAC_SHOW_POINTS:
@@ -714,9 +759,17 @@ def plot_evacuation_per_map(map_id: int, mdata: MapData, out_dir: str):
             if point_vals:
                 if JITTER_POINTS:
                     jitter = (np.random.rand(len(point_vals)) - 0.5) * (width * JITTER_WIDTH)
-                    ax.scatter(x_pos + jitter, point_vals, color=color, alpha=0.45, s=18)
+                    ax.scatter(
+                        x_pos + jitter, point_vals,
+                        color=color, alpha=0.45, s=18,
+                        zorder=POINT_ZORDER,
+                    )
                 else:
-                    ax.scatter([x_pos] * len(point_vals), point_vals, color=color, alpha=0.45, s=18)
+                    ax.scatter(
+                        [x_pos] * len(point_vals), point_vals,
+                        color=color, alpha=0.45, s=18,
+                        zorder=POINT_ZORDER,
+                    )
 
     ax.set_xticks(xs, [label_for_robot(rv) for rv in robot_versions])
     #ax.legend(fontsize=FONT_SIZES["legend"])
@@ -759,26 +812,26 @@ def plot_episode_log_padded(map_id: int, mdata: MapData, out_dir: str, band_mode
         x = np.arange(L)
         x = x/4
 
-        # 1) 평균 곡선: 얇은 점/파선
+        # 1) 밴드: 외곽선 제거(깔끔하게 채움만)
+        if lower is not None and upper is not None:
+            ax.fill_between(
+                x, lower, upper,
+                color=color,
+                alpha=band_alpha_for_robot(rv),
+                edgecolor=None,
+                linewidth=0.0,
+                zorder=BAND_ZORDER,
+            )
+
+        # 2) 평균 곡선: shaded band보다 항상 위에 표시
         ax.plot(
             x, mean_curve,
             label=disp_label,
             color=color,
             linewidth=lw_for_robot_episode(rv),
             linestyle=ls_for_robot_episode(rv),
-            zorder=2
+            zorder=mean_zorder_for_robot(rv),
         )
-
-        # 2) 밴드: 외곽선 제거(깔끔하게 채움만)
-        if lower is not None and upper is not None:
-            ax.fill_between(
-                x, lower, upper,
-                color=color,
-                alpha=BAND_ALPHA,
-                edgecolor=None,
-                linewidth=0.0,
-                zorder=1
-            )
 
         # 3) (마커는 사용하지 않음) — EPISODE_USE_MARKERS=False
 

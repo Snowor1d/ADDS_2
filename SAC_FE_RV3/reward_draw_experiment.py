@@ -11,9 +11,11 @@ The reward calculation follows ``ADDS_AS_reinforcement.worker_process``:
 * reward_f is logged, but is not included in total_reward because the current
   training code also omits it from the total.
 
-Each episode is written as a tab-separated TXT file.  Episodes of different
-lengths are aligned by reward-event index when the mean is calculated, so a
-finished episode is not treated as if it had zero rewards afterwards.
+Each episode is written as a tab-separated TXT file. Episodes of different
+lengths can either retain the original reward-event alignment or be divided
+into equal normalized-progress bins. In the normalized mode, every episode is
+averaged within a bin before the cross-episode mean is calculated, giving short
+and long episodes equal weight.
 """
 
 from __future__ import annotations
@@ -71,16 +73,30 @@ DEFAULT_OUTPUT_DIR = Path.home() / RESULT_FOLDER_NAME
 # "combined": total reward와 개별 reward를 하나의 축에 함께 표시
 # "separate": 기존처럼 위/아래의 두 축으로 분리
 GRAPH_LAYOUT = "separate"
+
+# Episode alignment for the x-axis:
+# - "absolute_time": keep the existing reward-event alignment and plot mean time.
+#   Episodes that have already finished no longer contribute to later points.
+# - "normalized_progress": divide every episode into equally sized 0--100%
+#   progress bins. Each episode is averaged within a bin first, so short and
+#   long episodes have equal weight throughout the graph.
+EPISODE_ALIGNMENT_MODE = "normalized_progress"
+NORMALIZED_PROGRESS_BINS = 20
+YLABEL_COMBINED = "Mean Weighted Reward"
+YLABEL_COMPONENT = "Mean Weighted Reward Component"
+YLABEL_STEP_REWARD = "Mean Reward per Decision Interval"
+
 FIGURE_SIZE = (14, 10)
 # 위쪽 개별 reward 패널과 아래쪽 total reward 패널의 상대 높이.
 COMPONENT_PANEL_HEIGHT = 2
 TOTAL_PANEL_HEIGHT = 1.15
 # separate 레이아웃의 위/아래 패널 간격. 0에 가까울수록 서로 붙습니다.
 SUBPLOT_VERTICAL_SPACE = 0.06
-# total reward의 표준편차 영역이 위/아래 경계에 붙지 않도록 주는 여백.
+# step reward의 표준편차 영역이 위/아래 경계에 붙지 않도록 주는 여백.
 TOTAL_PANEL_Y_MARGIN = 0.08
-# total reward의 평균 ± 1 표준편차 음영을 표시할지 여부.
-SHOW_TOTAL_STD = False
+# Episode 간 평균 ± 1 표준편차 음영을 표시할지 여부.
+SHOW_COMPONENT_STD = True
+SHOW_TOTAL_STD = True
 SAVE_DPI = 300
 
 # Times New Roman이 설치되어 있지 않으면 모양이 유사한 Nimbus Roman 사용.
@@ -117,7 +133,8 @@ LINE_MARKERS = (
 COLOR_MAP = "tab10"
 # "auto": 각 선의 색으로 채움, "white": 흰색 내부, "none": 투명 내부
 MARKER_FACE_COLOR = "auto"
-STD_BAND_ALPHA = 0.20
+COMPONENT_STD_BAND_ALPHA = 0.10
+STD_BAND_ALPHA = 0.4
 GRID_ALPHA = 0.30
 LEGEND_COLUMNS = 2
 
@@ -475,6 +492,100 @@ def aggregate_episode_rewards(
     return output
 
 
+def aggregate_episode_rewards_by_progress(
+    episode_logs: list[list[dict[str, float]]],
+    bin_count: int,
+) -> list[dict[str, float]]:
+    """Average progress bins with equal weight for every episode.
+
+    Values are first averaged within each episode/bin and only then averaged
+    across episodes. This prevents longer episodes, which contain more reward
+    events, from receiving more weight than shorter episodes.
+    """
+    if bin_count < 1:
+        raise ValueError("bin_count must be at least 1")
+
+    nonempty = [log for log in episode_logs if log]
+    if not nonempty:
+        return []
+
+    episode_bins: list[list[dict[str, float] | None]] = []
+    valid_logs: list[list[dict[str, float]]] = []
+    for log in nonempty:
+        final_time = float(log[-1]["sim_time_seconds"])
+        if final_time <= 0.0:
+            continue
+        valid_logs.append(log)
+
+        buckets: list[list[dict[str, float]]] = [[] for _ in range(bin_count)]
+        # Keep the exact terminal event separate. Otherwise the point nearest
+        # 100% represents the whole final bin rather than episode completion.
+        for item in log[:-1]:
+            progress = np.clip(
+                float(item["sim_time_seconds"]) / final_time, 0.0, 1.0
+            )
+            bin_index = min(int(progress * bin_count), bin_count - 1)
+            buckets[bin_index].append(item)
+
+        per_episode: list[dict[str, float] | None] = []
+        for bucket in buckets:
+            if not bucket:
+                per_episode.append(None)
+                continue
+            summary = {
+                "sim_time_seconds": float(
+                    np.mean([item["sim_time_seconds"] for item in bucket])
+                )
+            }
+            for key in SERIES_KEYS:
+                summary[key] = float(np.mean([item[key] for item in bucket]))
+            per_episode.append(summary)
+        episode_bins.append(per_episode)
+
+    output: list[dict[str, float]] = []
+    for bin_index in range(bin_count):
+        bucket = [
+            per_episode[bin_index]
+            for per_episode in episode_bins
+            if per_episode[bin_index] is not None
+        ]
+        if not bucket:
+            continue
+
+        row: dict[str, float] = {
+            "progress_bin": bin_index + 1,
+            "progress_percent": (bin_index + 0.5) * 100.0 / bin_count,
+            "sim_time_seconds_mean": float(
+                np.mean([item["sim_time_seconds"] for item in bucket])
+            ),
+            "count": len(bucket),
+        }
+        for key in SERIES_KEYS:
+            values = np.asarray([item[key] for item in bucket], dtype=np.float64)
+            row[f"{key}_mean"] = float(np.mean(values))
+            row[f"{key}_std"] = float(np.std(values, ddof=0))
+        output.append(row)
+
+    if valid_logs:
+        terminal_items = [log[-1] for log in valid_logs]
+        terminal_row: dict[str, float] = {
+            "progress_bin": bin_count + 1,
+            "progress_percent": 100.0,
+            "sim_time_seconds_mean": float(
+                np.mean([item["sim_time_seconds"] for item in terminal_items])
+            ),
+            "count": len(terminal_items),
+        }
+        for key in SERIES_KEYS:
+            values = np.asarray(
+                [item[key] for item in terminal_items], dtype=np.float64
+            )
+            terminal_row[f"{key}_mean"] = float(np.mean(values))
+            terminal_row[f"{key}_std"] = float(np.std(values, ddof=0))
+        output.append(terminal_row)
+    return output
+
+
 def mean_columns() -> list[str]:
     columns = [
         "reward_step",
@@ -487,8 +598,24 @@ def mean_columns() -> list[str]:
     return columns
 
 
+def progress_mean_columns() -> list[str]:
+    columns = [
+        "progress_bin",
+        "progress_percent",
+        "sim_time_seconds_mean",
+        "count",
+    ]
+    for key in SERIES_KEYS:
+        columns.extend((f"{key}_mean", f"{key}_std"))
+    return columns
+
+
 def write_mean_rewards(path: Path, rows: list[dict[str, float]]) -> None:
     _write_tsv_atomic(path, mean_columns(), rows)
+
+
+def write_progress_mean_rewards(path: Path, rows: list[dict[str, float]]) -> None:
+    _write_tsv_atomic(path, progress_mean_columns(), rows)
 
 
 def read_mean_rewards(path: Path) -> list[dict[str, float]]:
@@ -503,6 +630,25 @@ def read_mean_rewards(path: Path) -> list[dict[str, float]]:
                 return []
             for raw in reader:
                 rows.append({key: float(raw[key]) for key in mean_columns()})
+    except (OSError, TypeError, ValueError):
+        return []
+    return rows
+
+
+def read_progress_mean_rewards(path: Path) -> list[dict[str, float]]:
+    if not path.exists():
+        return []
+    rows: list[dict[str, float]] = []
+    try:
+        with path.open("r", encoding="utf-8", newline="") as handle:
+            reader = csv.DictReader(handle, delimiter="\t")
+            required = set(progress_mean_columns())
+            if not reader.fieldnames or not required.issubset(reader.fieldnames):
+                return []
+            for raw in reader:
+                rows.append(
+                    {key: float(raw[key]) for key in progress_mean_columns()}
+                )
     except (OSError, TypeError, ValueError):
         return []
     return rows
@@ -554,17 +700,33 @@ def apply_graph_style() -> str:
     return selected_font
 
 
-def draw_reward_graph(mean_txt: Path, output_png: Path, map_id: int) -> bool:
+def draw_reward_graph(
+    mean_txt: Path,
+    output_png: Path,
+    map_id: int,
+    alignment_mode: str = EPISODE_ALIGNMENT_MODE,
+) -> bool:
     """Draw the graph only when a valid mean TXT exists."""
-    rows = read_mean_rewards(mean_txt)
+    if alignment_mode == "normalized_progress":
+        rows = read_progress_mean_rewards(mean_txt)
+        x = np.asarray([row["progress_percent"] for row in rows], dtype=np.float64)
+        x_label = "Normalized episode progress (%)"
+        title_suffix = "over normalized episode progress"
+    elif alignment_mode == "absolute_time":
+        rows = read_mean_rewards(mean_txt)
+        x = np.asarray(
+            [row["sim_time_seconds_mean"] for row in rows], dtype=np.float64
+        )
+        x_label = "Mean simulation time (s)"
+        title_suffix = "during an episode"
+    else:
+        raise ValueError(f"Unsupported episode alignment mode: {alignment_mode}")
+
     if not rows:
         print(f"[WARN] 평균 TXT가 없거나 비어 있어 그래프를 건너뜁니다: {mean_txt}")
         return False
 
     apply_graph_style()
-    x = np.asarray(
-        [row["sim_time_seconds_mean"] for row in rows], dtype=np.float64
-    )
     if GRAPH_LAYOUT == "combined":
         fig, combined_ax = plt.subplots(figsize=FIGURE_SIZE)
         ax_components = combined_ax
@@ -588,11 +750,26 @@ def draw_reward_graph(mean_txt: Path, output_png: Path, map_id: int) -> bool:
     mark_every = max(1, len(x) // max(1, MAX_MARKERS_PER_LINE))
     for index, key in enumerate(enabled_component_keys()):
         y = np.asarray([row[f"{key}_mean"] for row in rows], dtype=np.float64)
+        y_std = np.asarray(
+            [row[f"{key}_std"] for row in rows], dtype=np.float64
+        )
+        color = colors(index % 10)
+        if SHOW_COMPONENT_STD:
+            ax_components.fill_between(
+                x,
+                y - y_std,
+                y + y_std,
+                color=color,
+                alpha=COMPONENT_STD_BAND_ALPHA,
+                linewidth=0,
+                label="±1 SD" if index == 0 else "_nolegend_",
+                zorder=STD_BAND_ZORDER,
+            )
         ax_components.plot(
             x,
             y,
             label=DISPLAY_NAMES[key],
-            color=colors(index % 10),
+            color=color,
             linewidth=COMPONENT_LINE_WIDTH,
             marker=LINE_MARKERS[index % len(LINE_MARKERS)],
             markersize=MARKER_SIZE,
@@ -618,7 +795,7 @@ def draw_reward_graph(mean_txt: Path, output_png: Path, map_id: int) -> bool:
         markerfacecolor=MARKER_FACE_COLOR,
         markeredgewidth=MARKER_EDGE_WIDTH,
         markevery=mark_every,
-        label="mean total",
+        label="mean step reward",
         zorder=LINE_ZORDER.get("total_reward", DEFAULT_LINE_ZORDER),
     )
     if SHOW_TOTAL_STD:
@@ -628,7 +805,7 @@ def draw_reward_graph(mean_txt: Path, output_png: Path, map_id: int) -> bool:
             total_mean + total_std,
             color="#777777",
             alpha=STD_BAND_ALPHA,
-            label="±1 std",
+            label="±1 SD",
             zorder=STD_BAND_ZORDER,
         )
 
@@ -640,10 +817,10 @@ def draw_reward_graph(mean_txt: Path, output_png: Path, map_id: int) -> bool:
             zorder=ZERO_LINE_ZORDER,
         )
         ax_components.set_title(
-            f"Reward components and total reward during an episode (map {map_id})"
+            f"Reward components and step reward {title_suffix} (map {map_id})"
         )
-        ax_components.set_ylabel("Weighted reward")
-        ax_components.set_xlabel("Mean simulation time (s)")
+        ax_components.set_ylabel(YLABEL_COMBINED)
+        ax_components.set_xlabel(x_label)
         ax_components.set_axisbelow(True)
         ax_components.grid(
             True, linestyle="--", linewidth=GRID_LINE_WIDTH, alpha=GRID_ALPHA
@@ -663,11 +840,11 @@ def draw_reward_graph(mean_txt: Path, output_png: Path, map_id: int) -> bool:
             zorder=ZERO_LINE_ZORDER,
         )
         ax_components.set_title(
-            f"Reward components during an episode (map {map_id})"
+            f"Reward components {title_suffix} (map {map_id})"
         )
-        ax_components.set_ylabel("Weighted reward component")
-        ax_total.set_ylabel("Total reward")
-        ax_total.set_xlabel("Mean simulation time (s)")
+        ax_components.set_ylabel(YLABEL_COMPONENT)
+        ax_total.set_ylabel(YLABEL_STEP_REWARD)
+        ax_total.set_xlabel(x_label)
         ax_total.margins(y=TOTAL_PANEL_Y_MARGIN)
         ax_components.set_axisbelow(True)
         ax_total.set_axisbelow(True)
@@ -704,11 +881,16 @@ def write_run_config(path: Path, args: argparse.Namespace, completed: int) -> No
         f"font_family={FONT_FAMILY}",
         f"font_fallback={FONT_FALLBACK}",
         f"graph_layout={GRAPH_LAYOUT}",
+        f"episode_alignment_mode={EPISODE_ALIGNMENT_MODE}",
+        f"normalized_progress_bins={NORMALIZED_PROGRESS_BINS}",
         f"subplot_vertical_space={SUBPLOT_VERTICAL_SPACE}",
         f"component_panel_height={COMPONENT_PANEL_HEIGHT}",
         f"total_panel_height={TOTAL_PANEL_HEIGHT}",
         f"total_panel_y_margin={TOTAL_PANEL_Y_MARGIN}",
+        f"show_component_std={SHOW_COMPONENT_STD}",
         f"show_total_std={SHOW_TOTAL_STD}",
+        f"component_std_band_alpha={COMPONENT_STD_BAND_ALPHA}",
+        f"total_std_band_alpha={STD_BAND_ALPHA}",
         f"component_line_width={COMPONENT_LINE_WIDTH}",
         f"total_line_width={TOTAL_LINE_WIDTH}",
         f"marker_size={MARKER_SIZE}",
@@ -803,11 +985,15 @@ def _print_episode_result(result: dict) -> None:
 
 def process_map(args: argparse.Namespace, map_id: int) -> None:
     map_dir = Path(args.output).resolve() / f"map_{map_id}_{args.robot_version}"
-    mean_txt = map_dir / "reward_components_mean.txt"
-    graph_png = map_dir / "reward_components_mean.png"
+    if EPISODE_ALIGNMENT_MODE == "normalized_progress":
+        mean_txt = map_dir / "reward_components_progress_mean.txt"
+        graph_png = map_dir / "reward_components_progress_mean.png"
+    else:
+        mean_txt = map_dir / "reward_components_mean.txt"
+        graph_png = map_dir / "reward_components_mean.png"
 
     if args.plot_only:
-        draw_reward_graph(mean_txt, graph_png, map_id)
+        draw_reward_graph(mean_txt, graph_png, map_id, EPISODE_ALIGNMENT_MODE)
         return
 
     map_dir.mkdir(parents=True, exist_ok=True)
@@ -830,16 +1016,24 @@ def process_map(args: argparse.Namespace, map_id: int) -> None:
             completed += 1
             episode_logs.append(read_episode_rewards(path))
 
-    mean_rows = aggregate_episode_rewards(episode_logs)
+    if EPISODE_ALIGNMENT_MODE == "normalized_progress":
+        mean_rows = aggregate_episode_rewards_by_progress(
+            episode_logs, NORMALIZED_PROGRESS_BINS
+        )
+    else:
+        mean_rows = aggregate_episode_rewards(episode_logs)
     if mean_rows:
-        write_mean_rewards(mean_txt, mean_rows)
+        if EPISODE_ALIGNMENT_MODE == "normalized_progress":
+            write_progress_mean_rewards(mean_txt, mean_rows)
+        else:
+            write_mean_rewards(mean_txt, mean_rows)
         print(f"[MEAN] {mean_txt} ({completed} episodes)")
     else:
         print(f"[WARN] map={map_id}: 평균을 계산할 유효한 reward event가 없습니다.")
 
     args.current_map_id = map_id
     write_run_config(map_dir / "reward_config.txt", args, completed)
-    draw_reward_graph(mean_txt, graph_png, map_id)
+    draw_reward_graph(mean_txt, graph_png, map_id, EPISODE_ALIGNMENT_MODE)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -879,6 +1073,13 @@ def validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> 
         parser.error("--agents는 1 이상이어야 합니다.")
     if args.workers < 1:
         parser.error("--workers는 1 이상이어야 합니다.")
+    if EPISODE_ALIGNMENT_MODE not in ("absolute_time", "normalized_progress"):
+        parser.error(
+            "EPISODE_ALIGNMENT_MODE은 'absolute_time' 또는 "
+            "'normalized_progress'여야 합니다."
+        )
+    if NORMALIZED_PROGRESS_BINS < 1:
+        parser.error("NORMALIZED_PROGRESS_BINS는 1 이상이어야 합니다.")
 
 
 def main() -> None:
