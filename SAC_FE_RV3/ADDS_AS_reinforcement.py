@@ -137,7 +137,9 @@ model_load = 3
 home_dir = os.path.expanduser("~")
 log_dir = os.path.join(home_dir, LOG_DIR)
 BY_MAP_DIR = os.path.join(log_dir, "by_map")
+ZSG_DIR = os.path.join(log_dir, "zero_shot")
 os.makedirs(BY_MAP_DIR, exist_ok = True)
+os.makedirs(ZSG_DIR, exist_ok=True)
 os.makedirs(log_dir, exist_ok=True)
 os.makedirs(log_dir, exist_ok=True)
 # heat_logger = HeatMapLogger(   #@for heat_map
@@ -271,6 +273,14 @@ def map_metric_path(metric_name: str, map_num: int) -> str:
     # metric_name: "reward" | "evacuation_100"
     fname = f"{metric_name}_map_{map_num}.txt"
     return os.path.join(BY_MAP_DIR, fname)
+
+def zsg_metric_path(map_num: int, robot_num: int) -> str:
+    fname = f"zsg_evacuation_100_map_{map_num}_robot_{robot_num}.txt"
+    return os.path.join(ZSG_DIR, fname)
+
+def zsg_all_maps_metric_path(robot_num: int) -> str:
+    fname = f"zsg_evacuation_100_all_maps_robot_{robot_num}.txt"
+    return os.path.join(ZSG_DIR, fname)
 
 def alpha_decay_schedule(parameter_start: float,
                    parameter_end: float,
@@ -1381,7 +1391,8 @@ class SACAgent:
     # ------------------------------------------------- #
     # Select action
     # ------------------------------------------------- #
-    def select_action(self, ego_state_np, global_state_np, robot_state_np=None, deterministic=False):
+    def select_action(self, ego_state_np, global_state_np, robot_state_np=None,
+                      deterministic=False, log_action=True):
         """
         state_np: shape (H, W) or (1, H, W)
         returns action_np shape (4,) = [dx, dy, mode0, mode1]
@@ -1413,7 +1424,8 @@ class SACAgent:
                 # 비결정적 선택: sample_action에서 샘플링 (자코비안 보정 포함)
                 action_t, log_prob = self.policy.sample_action(ego_t, global_t, robot_t)
         action_np = action_t.cpu().numpy()[0]
-        print(action_np)
+        if log_action:
+            print(action_np)
 
         return action_np, False
 
@@ -1568,6 +1580,189 @@ def monitor_total_reward(total_reward_file, tb_log_dir):
             print("Monitoring interrupted by user.")
         finally:
             writer.close()
+
+
+def _build_zero_shot_frames(env_model):
+    """Build the same ego/global observations used by SAC worker processes."""
+    full = env_model.return_current_image(MAP_H, MAP_W)
+    rx, ry = env_model.robot.xy
+    ix = int(np.clip(rx / env_model.width * MAP_W, 0, MAP_W - 1))
+    iy = int(np.clip(ry / env_model.height * MAP_H, 0, MAP_H - 1))
+
+    ego = ego_crop_from_full_map(
+        full,
+        (ix, iy),
+        EGO_MAP_SIZE,
+        pad_value=50,
+    )
+    glob = downsample_full_map(full, DOWNSAMPLE_MAP_SIZE)
+    return ego.astype(np.float32) / 255.0, glob.astype(np.float32) / 255.0
+
+
+def evaluate_zero_shot_once(
+    agent,
+    map_num: int,
+    robot_num: int = 1,
+    deterministic: bool = True,
+    seed: int = 0,
+):
+    """Run one SAC zero-shot episode and return evacuation_time_100."""
+    if robot_num != 1:
+        raise ValueError(
+            "SAC_FE_RV3 supports one robot; ZSG_ROBOT_NUM must contain only 1."
+        )
+
+    import model
+
+    np.random.seed(seed)
+    random.seed(seed)
+
+    if CROWD_NUMBER_MIN == CROWD_NUMBER_MAX:
+        number_of_agents = CROWD_NUMBER_MIN
+    else:
+        number_of_agents = random.randint(CROWD_NUMBER_MIN, CROWD_NUMBER_MAX)
+
+    env_model = model.FightingModel(
+        number_of_agents,
+        MAP_W,
+        MAP_H,
+        model_num=map_num,
+        robot='Q',
+    )
+
+    ego_f, glob_f = _build_zero_shot_frames(env_model)
+    ego_stack = FrameStack2(4)
+    glob_stack = FrameStack2(4)
+    ego_state = ego_stack.reset(ego_f)
+    global_state = glob_stack.reset(glob_f)
+
+    evacuation_time_100 = MAX_STEPS
+
+    for step in range(MAX_STEPS):
+        if env_model.alived_agents() < 1:
+            evacuation_time_100 = step
+            break
+
+        if env_model.robot.is_game_finished or step == MAX_STEPS - 1:
+            break
+
+        if step % ACTION_SCALE == 0:
+            if step > 0:
+                ego_f, glob_f = _build_zero_shot_frames(env_model)
+                ego_state = ego_stack.append(ego_f)
+                global_state = glob_stack.append(glob_f)
+
+            robot_state = np.asarray(
+                env_model.return_current_robot_state(),
+                dtype=np.float32,
+            )
+            action, _ = agent.select_action(
+                ego_state,
+                global_state,
+                robot_state,
+                deterministic=deterministic,
+                log_action=False,
+            )
+            env_model.robot.receive_action([
+                float(action[0]),
+                float(action[1]),
+            ])
+
+        env_model.step()
+
+    return int(evacuation_time_100)
+
+
+def run_zero_shot_evaluation(agent, episode: int, writer: SummaryWriter):
+    """Evaluate all configured unseen maps and persist txt/TensorBoard metrics."""
+    print(f"[ZeroShot] Start evaluation at episode {episode}")
+
+    if ZSG_ITERATION <= 0:
+        raise ValueError("ZSG_ITERATION must be greater than zero.")
+
+    old_epsilon = agent.epsilon
+    old_epsilon_long = agent.epsilon_long
+    policy_was_training = agent.policy.training
+    numpy_random_state = np.random.get_state()
+    python_random_state = random.getstate()
+    results = {}
+
+    try:
+        agent.epsilon = 0.0
+        agent.epsilon_long = 0.0
+        agent.policy.eval()
+
+        for robot_num in ZSG_ROBOT_NUM:
+            map_averages = []
+
+            for map_num in ZSG_MAP:
+                evacuation_times = []
+
+                for iteration in range(ZSG_ITERATION):
+                    seed = (
+                        episode * 100000
+                        + map_num * 100
+                        + robot_num * 10
+                        + iteration
+                    )
+                    evacuation_times.append(
+                        evaluate_zero_shot_once(
+                            agent=agent,
+                            map_num=map_num,
+                            robot_num=robot_num,
+                            deterministic=True,
+                            seed=seed,
+                        )
+                    )
+
+                average = float(np.mean(evacuation_times))
+                map_averages.append(average)
+                results[(map_num, robot_num)] = average
+
+                path = zsg_metric_path(map_num, robot_num)
+                ensure_file(path)
+                with open(path, "a") as f:
+                    f.write(f"{episode}\t{average:.6f}\n")
+
+                writer.add_scalar(
+                    f"ZeroShot/Evacuation100/map_{map_num}/robot_{robot_num}",
+                    average,
+                    episode,
+                )
+                print(
+                    f"[ZeroShot] episode={episode}, map={map_num}, "
+                    f"robot={robot_num}, avg_evac100={average:.2f}, "
+                    f"raw={evacuation_times}"
+                )
+
+            all_maps_average = float(np.mean(map_averages))
+            results[("all_maps", robot_num)] = all_maps_average
+
+            all_maps_path = zsg_all_maps_metric_path(robot_num)
+            ensure_file(all_maps_path)
+            with open(all_maps_path, "a") as f:
+                f.write(f"{episode}\t{all_maps_average:.6f}\n")
+
+            writer.add_scalar(
+                f"ZeroShot/Evacuation100/all_maps/robot_{robot_num}",
+                all_maps_average,
+                episode,
+            )
+            print(
+                f"[ZeroShot] episode={episode}, ALL_MAPS, robot={robot_num}, "
+                f"avg_evac100={all_maps_average:.2f}, "
+                f"map_avgs={map_averages}"
+            )
+
+        writer.flush()
+    finally:
+        agent.epsilon = old_epsilon
+        agent.epsilon_long = old_epsilon_long
+        agent.policy.train(policy_was_training)
+        np.random.set_state(numpy_random_state)
+        random.setstate(python_random_state)
+
+    return results
 
 ##########################################################################
 # Example usage in your training loop
@@ -1956,6 +2151,18 @@ if __name__ == "__main__":
                 model_filename = os.path.join(log_dir, f"sac_checkpoint_ep_{global_episode}.pth")
                 agent.save_model(model_filename)
                 agent.save_replay_buffer("replay_buffer.npz")
+
+            if (
+                ZSG_CYCLE_EPISODE > 0
+                and global_episode > 0
+                and global_episode >= START_UPDATE_EPISODE
+                and global_episode % ZSG_CYCLE_EPISODE == 0
+            ):
+                run_zero_shot_evaluation(
+                    agent=agent,
+                    episode=global_episode,
+                    writer=step_writer,
+                )
 
             if ENABLE_TIMER:
                 print(f"Episode {global_episode} - Total Learning Time: {learn_timer.get_time():.6f} 초")

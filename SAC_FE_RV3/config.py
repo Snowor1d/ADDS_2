@@ -97,7 +97,7 @@ RANDOM_EXIT = False
 LOG_DIR = "Log_SAC_FE_RV3_aug"
 #LOG_DIR = "SOTA_MODELS"
 #LOG_DIR = "Log_test"
-PORT_NUM = 7520
+PORT_NUM = 7753
 
 # --------------- SAC ALGORITHM PARAMETER ---------------
 LOG_STD_MAX = 0.5
@@ -137,6 +137,13 @@ EGO_MAP_SIZE = 25
 DOWNSAMPLE_MAP_SIZE = 50
 FiLM_USE = True
 EGO_USE = True
+
+# Zero-shot evaluation (kept identical to DREAMER_MARL17_m for comparison).
+# SAC_FE_RV3 is a single-robot policy, so only robot_num=1 is supported.
+ZSG_MAP = [1500, 1501, 1502, 1503]
+ZSG_CYCLE_EPISODE = 500
+ZSG_ITERATION = 10
+ZSG_ROBOT_NUM = [1]
 
 
 
