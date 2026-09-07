@@ -74,10 +74,10 @@ AGENT_TIME_STEP = 0.5
 ROBOT_TIME_STEP = 0.5
 
 # -------------- PATH -------------------
-LOG_DIR = "Log_PPO_FE_RV_aug"
+LOG_DIR = "Log_PPO_FE_RV"
 #LOG_DIR = "SOTA_MODELS"
 #LOG_DIR = "Log_test"
-PORT_NUM = 7755
+PORT_NUM = 7756
 
 # --------------- PPO ALGORITHM PARAMETERS ---------------
 # PPO uses its stochastic Gaussian policy for exploration.  There is no
