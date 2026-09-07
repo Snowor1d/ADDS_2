@@ -95,7 +95,12 @@ PPO_ENTROPY_COEF = 0.01
 PPO_MAX_GRAD_NORM = 0.5
 PPO_TARGET_KL = 0.02
 PPO_ADVANTAGE_NORMALIZATION = True
+# CPU rollout과 GPU learner의 convolution/reduction 순서 차이로 생기는 작은
+# float32 오차는 허용한다. Policy version 검사는 별도로 항상 수행된다.
+PPO_LOGPROB_WARN_TOL = 1e-3
+PPO_LOGPROB_FAIL_TOL = 1e-2
 PPO_CHECKPOINT_INTERVAL_EPISODES = 100
+PPO_CHECKPOINT_INTERVAL_UPDATES = 5
 PPO_MAX_EPISODES = 9999999
 PPO_BASE_SEED = 1234
 PPO_MODEL_LOAD = 3  # 1: fresh, 2: named checkpoint, 3: latest

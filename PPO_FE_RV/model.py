@@ -599,7 +599,11 @@ class FightingModel(Model):
                 "Step"           : lambda m: m.step_n,
                 "Evacuated"      : lambda m: m.evacuated_agents(),
                 "EvacWithRobot"  : lambda m: m.evacuated_agents_with_robot(),
-                "AvgDanger"      : lambda m: np.mean([ag.danger for ag in m.crowds if not ag.dead]),
+                "AvgDanger"      : lambda m: (
+                    np.mean([ag.danger for ag in m.crowds if not ag.dead])
+                    if any(not ag.dead for ag in m.crowds)
+                    else 0.0
+                ),
             },
             agent_reporters = {
                 "x"      : lambda a: a.xy[0],

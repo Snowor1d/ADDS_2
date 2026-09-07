@@ -52,6 +52,14 @@ def validate_config() -> None:
         raise ValueError("PPO_ROLLOUT_STEPS_PER_ENV must be positive")
     if PPO_MINIBATCH_SIZE <= 1:
         raise ValueError("PPO_MINIBATCH_SIZE must be greater than one")
+    if PPO_CHECKPOINT_INTERVAL_EPISODES <= 0:
+        raise ValueError("PPO_CHECKPOINT_INTERVAL_EPISODES must be positive")
+    if PPO_CHECKPOINT_INTERVAL_UPDATES <= 0:
+        raise ValueError("PPO_CHECKPOINT_INTERVAL_UPDATES must be positive")
+    if not 0 <= PPO_LOGPROB_WARN_TOL < PPO_LOGPROB_FAIL_TOL:
+        raise ValueError(
+            "PPO log-prob tolerances must satisfy 0 <= warn < fail"
+        )
     if FiLM_USE and not ROBOT_STATE_EMBEDDING:
         raise ValueError(
             "FiLM_USE=True requires ROBOT_STATE_EMBEDDING=True for PPO V(s); "
@@ -624,10 +632,17 @@ class PPOAgent:
             )
             preupdate_logratio = check_log_probs - old_log_probs
             max_preupdate_logratio = preupdate_logratio.abs().max().item()
-        if max_preupdate_logratio > 1e-4:
+        if max_preupdate_logratio > PPO_LOGPROB_FAIL_TOL:
             raise RuntimeError(
                 "PPO old/new log-prob mismatch before update: "
-                f"max |log ratio|={max_preupdate_logratio:.6g}"
+                f"max |log ratio|={max_preupdate_logratio:.6g}, "
+                f"fail tolerance={PPO_LOGPROB_FAIL_TOL:.6g}"
+            )
+        if max_preupdate_logratio > PPO_LOGPROB_WARN_TOL:
+            print(
+                "[Warning] Small PPO old/new log-prob numerical mismatch: "
+                f"max |log ratio|={max_preupdate_logratio:.6g}. "
+                "The policy version is identical; continuing."
             )
 
         sample_count = int(returns.shape[0])
@@ -1345,6 +1360,9 @@ def main():
     next_checkpoint_episode = (
         (global_episode // PPO_CHECKPOINT_INTERVAL_EPISODES) + 1
     ) * PPO_CHECKPOINT_INTERVAL_EPISODES
+    next_checkpoint_version = (
+        (policy_version // PPO_CHECKPOINT_INTERVAL_UPDATES) + 1
+    ) * PPO_CHECKPOINT_INTERVAL_UPDATES
     next_zsg_episode = (
         (global_episode // ZSG_CYCLE_EPISODE) + 1
     ) * ZSG_CYCLE_EPISODE if ZSG_CYCLE_EPISODE > 0 else None
@@ -1388,6 +1406,14 @@ def main():
             )
             write_heartbeat(global_episode)
 
+            if policy_version >= next_checkpoint_version:
+                agent.save_model(
+                    latest_path, global_episode, policy_version,
+                    env_steps, policy_steps,
+                )
+                while next_checkpoint_version <= policy_version:
+                    next_checkpoint_version += PPO_CHECKPOINT_INTERVAL_UPDATES
+
             if global_episode >= next_checkpoint_episode:
                 checkpoint_path = os.path.join(
                     log_dir, f"ppo_checkpoint_ep_{global_episode}.pth"
@@ -1396,6 +1422,7 @@ def main():
                     checkpoint_path, global_episode, policy_version,
                     env_steps, policy_steps,
                 )
+                # Also refresh latest when an episode-indexed archive is made.
                 agent.save_model(
                     latest_path, global_episode, policy_version,
                     env_steps, policy_steps,
