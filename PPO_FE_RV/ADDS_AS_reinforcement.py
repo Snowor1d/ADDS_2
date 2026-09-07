@@ -198,8 +198,8 @@ class PolicyNetwork(nn.Module):
         use_robot=True,
     ):
         super().__init__()
-        self.log_std_min = LOG_STD_MIN
-        self.log_std_max = LOG_STD_MAX
+        self.log_std_min = PPO_LOG_STD_MIN
+        self.log_std_max = PPO_LOG_STD_MAX
         self.use_robot_state = use_robot
         self.ego_enc = CNNEncoder(ego_shape, in_channels=4) if EGO_USE else None
         self.glob_enc = CNNEncoder(global_shape, in_channels=4)
@@ -254,13 +254,21 @@ class PolicyNetwork(nn.Module):
         log_jacobian = torch.log(4.0 * sigma * (1.0 - sigma) + 1e-8).sum(dim=-1)
         return base_log_prob - log_jacobian
 
+    @staticmethod
+    def _base_log_prob(distribution, raw_action):
+        return distribution.log_prob(raw_action).sum(dim=-1)
+
     def sample_action(self, ego_state, global_state, robot_state=None, temperature=1.0):
         mean, log_std = self.forward(ego_state, global_state, robot_state)
         std = log_std.exp() * temperature
         distribution = torch.distributions.Normal(mean, std)
         raw_action = distribution.sample()
         action = self.squash(raw_action)
-        log_prob = self._squashed_log_prob(distribution, raw_action)
+        # PPO only uses a likelihood ratio for the same stored raw action.
+        # The sigmoid-affine Jacobian is action-only and cancels exactly
+        # between old and new policies, so the base Gaussian density is both
+        # mathematically equivalent and substantially more stable.
+        log_prob = self._base_log_prob(distribution, raw_action)
         return action, log_prob, raw_action
 
     def evaluate_raw_actions(
@@ -268,7 +276,7 @@ class PolicyNetwork(nn.Module):
     ):
         mean, log_std = self.forward(ego_state, global_state, robot_state)
         distribution = torch.distributions.Normal(mean, log_std.exp())
-        log_prob = self._squashed_log_prob(distribution, raw_action)
+        log_prob = self._base_log_prob(distribution, raw_action)
         # The transformed distribution has no convenient analytic entropy.
         # Base Gaussian entropy is the conventional stable PPO proxy.
         entropy = distribution.entropy().sum(dim=-1)
@@ -630,6 +638,7 @@ class PPOAgent:
             check_log_probs, _ = self.actor.evaluate_raw_actions(
                 ego, glob, robot, raw_actions
             )
+            _, rollout_log_std = self.actor.forward(ego, glob, robot)
             preupdate_logratio = check_log_probs - old_log_probs
             max_preupdate_logratio = preupdate_logratio.abs().max().item()
         if max_preupdate_logratio > PPO_LOGPROB_FAIL_TOL:
@@ -740,6 +749,9 @@ class PPOAgent:
             "explained_variance": explained_variance,
             "epochs_completed": float(epochs_completed),
             "max_preupdate_logratio": float(max_preupdate_logratio),
+            "rollout_log_std_min": float(rollout_log_std.min().item()),
+            "rollout_log_std_mean": float(rollout_log_std.mean().item()),
+            "rollout_log_std_max": float(rollout_log_std.max().item()),
             "samples": float(sample_count),
         })
         return result

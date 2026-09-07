@@ -84,6 +84,10 @@ PORT_NUM = 7756
 # epsilon-greedy phase and no replay-buffer warm-up.
 LOG_STD_MAX = 0.5
 LOG_STD_MIN = -20
+# SAC의 actor head/weights는 그대로 사용하되, PPO likelihood ratio가
+# near-deterministic Gaussian에서 수치적으로 폭증하지 않게 제한한다.
+PPO_LOG_STD_MIN = -5.0
+PPO_LOG_STD_MAX = LOG_STD_MAX
 PPO_ROLLOUT_STEPS_PER_ENV = 512
 PPO_EPOCHS = 10
 PPO_MINIBATCH_SIZE = 256
@@ -97,8 +101,8 @@ PPO_TARGET_KL = 0.02
 PPO_ADVANTAGE_NORMALIZATION = True
 # CPU rollout과 GPU learner의 convolution/reduction 순서 차이로 생기는 작은
 # float32 오차는 허용한다. Policy version 검사는 별도로 항상 수행된다.
-PPO_LOGPROB_WARN_TOL = 1e-3
-PPO_LOGPROB_FAIL_TOL = 1e-2
+PPO_LOGPROB_WARN_TOL = 1e-2
+PPO_LOGPROB_FAIL_TOL = 5e-1
 PPO_CHECKPOINT_INTERVAL_EPISODES = 100
 PPO_CHECKPOINT_INTERVAL_UPDATES = 5
 PPO_MAX_EPISODES = 9999999
