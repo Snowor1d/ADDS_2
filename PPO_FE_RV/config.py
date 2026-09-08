@@ -149,7 +149,7 @@ ROBOT_STATE_DIM = 3
 
 # Zero-shot evaluation (kept identical to DREAMER_MARL17_m for comparison).
 # PPO_FE_RV is a single-robot policy, so only robot_num=1 is supported.
-ZSG_MAP = [1500, 1501, 1502, 1503]
+ZSG_MAP = []
 ZSG_CYCLE_EPISODE = 500
 ZSG_ITERATION = 10
 ZSG_ROBOT_NUM = [1]
