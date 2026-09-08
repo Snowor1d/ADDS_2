@@ -121,7 +121,7 @@ def test_mixed_policy_versions_are_rejected():
         agent.update([batch(0), batch(1)])
 
 
-def test_one_clipped_ppo_update_runs_with_matching_old_policy():
+def test_one_ppo_update_uses_eval_mode_batchnorm_and_unclipped_value_mse():
     torch.manual_seed(11)
     rng = np.random.default_rng(11)
     count = 4
@@ -145,6 +145,18 @@ def test_one_clipped_ppo_update_runs_with_matching_old_policy():
     with torch.no_grad():
         _, old_log_probs, raw_actions = agent.actor.sample_action(ego, glob, robot)
         values = agent.value(ego, glob, robot)
+    _, expected_returns = ppo.compute_gae(
+        rewards=np.ones(count, dtype=np.float32),
+        values=values.numpy(),
+        next_values=values.numpy(),
+        terminated=np.array([0, 0, 0, 1], dtype=np.float32),
+        truncated=np.zeros(count, dtype=np.float32),
+        gamma=agent.gamma,
+        gae_lambda=agent.gae_lambda,
+    )
+    expected_value_loss = np.mean((values.numpy() - expected_returns) ** 2)
+    ego_bn_mean = agent.value.ego_enc.bn1.running_mean.detach().clone()
+    global_bn_mean = agent.value.glob_enc.bn1.running_mean.detach().clone()
     rollout = ppo.RolloutBatch(
         worker_id=0,
         policy_version=5,
@@ -167,4 +179,7 @@ def test_one_clipped_ppo_update_runs_with_matching_old_policy():
     assert metrics["epochs_completed"] == 1
     assert metrics["max_preupdate_logratio"] < 1e-5
     assert np.isfinite(metrics["policy_loss"])
-    assert np.isfinite(metrics["value_loss"])
+    assert metrics["value_loss"] == pytest.approx(expected_value_loss, rel=1e-5)
+    assert agent.value.training is False
+    torch.testing.assert_close(agent.value.ego_enc.bn1.running_mean, ego_bn_mean)
+    torch.testing.assert_close(agent.value.glob_enc.bn1.running_mean, global_bn_mean)

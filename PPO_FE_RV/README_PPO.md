@@ -24,7 +24,8 @@ features를 condition한다.
 - 한 policy version 단위의 synchronous rollout
 - clipped policy objective
 - generalized advantage estimation (GAE)
-- clipped value loss
+- rollout/update 간 동일한 eval-mode BatchNorm 통계
+- environment reward scale에 맞춘 unclipped MSE value loss
 - advantage normalization
 - entropy bonus와 gradient clipping
 - approximate KL, clip fraction 및 target-KL early stopping
@@ -58,7 +59,7 @@ PPO_EPOCHS = 10
 PPO_MINIBATCH_SIZE = 256
 PPO_GAE_LAMBDA = 0.95
 PPO_CLIP_EPS = 0.2
-PPO_VALUE_CLIP_EPS = 0.2
+PPO_VALUE_CLIP_EPS = None
 PPO_ENTROPY_COEF = 0.01
 PPO_LOG_STD_MIN = -5.0
 PPO_LOGPROB_WARN_TOL = 1e-2

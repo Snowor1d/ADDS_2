@@ -93,7 +93,11 @@ PPO_EPOCHS = 10
 PPO_MINIBATCH_SIZE = 256
 PPO_GAE_LAMBDA = 0.95
 PPO_CLIP_EPS = 0.2
-PPO_VALUE_CLIP_EPS = 0.2
+# The environment's GAE returns are typically tens of reward units.  A fixed
+# 0.2 value clip, combined with BatchNorm train/eval differences, can select a
+# saturated clipped-loss branch and leave the critic with no useful gradient.
+# None uses an unclipped MSE value objective, matching the working past PPO.
+PPO_VALUE_CLIP_EPS = None
 PPO_VALUE_COEF = 0.5
 PPO_ENTROPY_COEF = 0.01
 PPO_MAX_GRAD_NORM = 0.5

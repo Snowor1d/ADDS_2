@@ -56,6 +56,8 @@ def validate_config() -> None:
         raise ValueError("PPO_CHECKPOINT_INTERVAL_EPISODES must be positive")
     if PPO_CHECKPOINT_INTERVAL_UPDATES <= 0:
         raise ValueError("PPO_CHECKPOINT_INTERVAL_UPDATES must be positive")
+    if PPO_VALUE_CLIP_EPS is not None and PPO_VALUE_CLIP_EPS <= 0:
+        raise ValueError("PPO_VALUE_CLIP_EPS must be positive or None")
     if not 0 <= PPO_LOGPROB_WARN_TOL < PPO_LOGPROB_FAIL_TOL:
         raise ValueError(
             "PPO log-prob tolerances must satisfy 0 <= warn < fail"
@@ -497,7 +499,9 @@ class PPOAgent:
         self.gamma = float(gamma)
         self.gae_lambda = float(gae_lambda)
         self.clip_eps = float(clip_eps)
-        self.value_clip_eps = float(value_clip_eps)
+        self.value_clip_eps = (
+            float(value_clip_eps) if value_clip_eps is not None else None
+        )
         self.ppo_epochs = int(ppo_epochs)
         self.mini_batch_size = int(mini_batch_size)
         self.value_coef = float(value_coef)
@@ -631,9 +635,11 @@ class PPOAgent:
                 advantages.std(unbiased=False) + 1e-8
             )
 
-        # BatchNorm running statistics in the policy stay frozen.  This makes
-        # rollout and update log probabilities use exactly the same statistics.
+        # Rollout workers evaluate both networks in eval mode. Keep the learner
+        # networks in the same mode so BatchNorm uses the same running
+        # statistics for old values/log-probs and update-time predictions.
         self.actor.eval()
+        self.value.eval()
         with torch.no_grad():
             check_log_probs, _ = self.actor.evaluate_raw_actions(
                 ego, glob, robot, raw_actions
@@ -694,18 +700,20 @@ class PPOAgent:
                 )
                 self.actor_optimizer.step()
 
-                self.value.train()
                 predicted_values = self.value(mb_ego, mb_glob, mb_robot)
-                value_unclipped_loss = (predicted_values - mb_returns).pow(2)
-                clipped_values = mb_old_values + torch.clamp(
-                    predicted_values - mb_old_values,
-                    -self.value_clip_eps,
-                    self.value_clip_eps,
-                )
-                value_clipped_loss = (clipped_values - mb_returns).pow(2)
-                value_loss = 0.5 * torch.maximum(
-                    value_unclipped_loss, value_clipped_loss
-                ).mean()
+                if self.value_clip_eps is None:
+                    value_loss = F.mse_loss(predicted_values, mb_returns)
+                else:
+                    value_unclipped_loss = (predicted_values - mb_returns).pow(2)
+                    clipped_values = mb_old_values + torch.clamp(
+                        predicted_values - mb_old_values,
+                        -self.value_clip_eps,
+                        self.value_clip_eps,
+                    )
+                    value_clipped_loss = (clipped_values - mb_returns).pow(2)
+                    value_loss = 0.5 * torch.maximum(
+                        value_unclipped_loss, value_clipped_loss
+                    ).mean()
                 self.value_optimizer.zero_grad(set_to_none=True)
                 (self.value_coef * value_loss).backward()
                 value_grad_norm = torch.nn.utils.clip_grad_norm_(
