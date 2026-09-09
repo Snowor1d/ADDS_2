@@ -4,7 +4,7 @@ BUFFER_SIZE = 1000000
 BATCH_SIZE = 128
 INTRINSIC_ETA = 0.1 #intrinsic reward
 START_BATCH_TIMES = 1
-START_UPDATE_EPISODE = 500
+START_UPDATE_EPISODE = 2
 DEVICE = "cuda"
 
 GAMMA_START = 0.99
@@ -52,7 +52,7 @@ MAP_NUM_RANDOM = list(range(1000, 1300))
 
 # Apply one random geometric symmetry whenever a simulation map is created.
 # Disable this for evaluation when the original JSON/map orientation is needed.
-MAP_DATA_AUGMENTATION = True
+MAP_DATA_AUGMENTATION = False
 MAP_AUGMENTATION_TRANSFORMS = (
     "identity",
     "rotate_90",
@@ -81,7 +81,7 @@ ROBOT_TIME_STEP = 0.5
 
 # --------------- EPSILON-EXPLORATION ------------------
 EPSILON_MIN = 0
-START_EPSILON = 1 
+START_EPSILON = 0 
 SCHEDULER_TYPE = "l"
 DECAY_VALUE = 0
 LINEARLY_DECAY_STEP = 3000
@@ -94,17 +94,22 @@ RANDOM_EXIT = False
 
 
 # -------------- PATH -------------------
-LOG_DIR = "Log_SAC_FE_RV3"
+LOG_DIR = "Log_TD3_FE_RV"
 #LOG_DIR = "SOTA_MODELS"
 #LOG_DIR = "Log_test"
-PORT_NUM = 7753
+PORT_NUM = 7755
 
-# --------------- SAC ALGORITHM PARAMETER ---------------
-LOG_STD_MAX = 0.5
-LOG_STD_MIN = -20
-ALPHA_START = 0.2 # in SAC
-ALPHA_END = 0.2
-ALPHA_DECAY_STEPS = 3000
+# --------------- TD3 ALGORITHM PARAMETERS ---------------
+# The action space is [-2, 2] in each dimension.  The noise values below are
+# the standard TD3 ratios (0.1/0.2/0.5) scaled by max_action=2.
+TD3_ACTION_LOW = -2.0
+TD3_ACTION_HIGH = 2.0
+TD3_EXPLORATION_NOISE = 0.2
+TD3_TARGET_POLICY_NOISE = 0.4
+TD3_TARGET_NOISE_CLIP = 1.0
+TD3_POLICY_DELAY = 2
+TD3_TARGET_POLYAK = 0.995
+TD3_TENSORBOARD_LOG_INTERVAL = 100
 
 # --------------- REWARD SHAPING -----------------
 
@@ -135,11 +140,11 @@ POLICY_BROADCAST_INTERVAL = 10
 
 EGO_MAP_SIZE = 25
 DOWNSAMPLE_MAP_SIZE = 50
-FiLM_USE = True
-EGO_USE = True
+FiLM_USE = False
+EGO_USE = False
 
 # Zero-shot evaluation (kept identical to DREAMER_MARL17_m for comparison).
-# SAC_FE_RV3 is a single-robot policy, so only robot_num=1 is supported.
+# TD3_FE_RV is a single-robot policy, so only robot_num=1 is supported.
 ZSG_MAP = []
 ZSG_CYCLE_EPISODE = 500
 ZSG_ITERATION = 10
