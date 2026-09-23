@@ -197,6 +197,8 @@ class SACAgent:
             "experiment_id": self.cfg.EXPERIMENT_ID,
             "config_fingerprint": self.cfg.fingerprint,
             "critic_privileged": bool(self.cfg.CRITIC_PRIVILEGED_CROWD),
+            "network": {"encoder": self.cfg.NET_ENCODER,
+                        "size": self.cfg.NET_SIZE},
             "policy": self.policy.state_dict(),
             "q1": self.q1.state_dict(), "q2": self.q2.state_dict(),
             "q1_target": self.q1_target.state_dict(),
@@ -232,6 +234,14 @@ class SACAgent:
                     if stored.get(k) != self.cfg.observation_schema().get(k))
                 raise SchemaMismatch(f"checkpoint {path} observation settings "
                                      f"differ: {diff}")
+        stored_net = ckpt.get("network")
+        here = {"encoder": self.cfg.NET_ENCODER, "size": self.cfg.NET_SIZE}
+        if stored_net is not None and stored_net != here:
+            raise SchemaMismatch(
+                f"checkpoint {path} holds a {stored_net['encoder']}/"
+                f"{stored_net['size']} network; this run builds "
+                f"{here['encoder']}/{here['size']}. Set NET_ENCODER and "
+                "NET_SIZE to match it.")
         self.policy.load_state_dict(ckpt["policy"])
         if not policy_only:
             self.q1.load_state_dict(ckpt["q1"])

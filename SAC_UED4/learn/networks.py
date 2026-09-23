@@ -7,14 +7,30 @@ every robot's input and action at once, plus, during training only, the true
 crowd map, and returns one value per robot; the team's value is their masked
 mean (docs/outdoor_madrl_redesign.md section 5.1).
 
+Two encoder families, three sizes each (NET_ENCODER, NET_SIZE):
+
+  cnn     three stride-2 convolutions, then the feature map flattened into a
+          linear embedding. Cheap convolutions, most parameters in the
+          position-specific linear layer. "m" is the original network.
+  impala  three stacks of convolution, max-pool and two residual blocks
+          (Espeholt et al. 2018; Cobbe et al. 2020 found it generalises to
+          unseen levels far better than a shallow CNN, and more so as it
+          widens). Coordinate channels are appended to the input and the
+          feature map is average-pooled to a 4 x 4 grid before the embedding,
+          so position survives while most parameters sit in convolutions.
+
+The same size has about the same parameter count in both families (see
+NETWORK_SIZES and tests/test_madrl.py), so a comparison between them is a
+comparison of structure rather than of capacity.
+
 The action layout (move 2, signalled heading 2, mode one-hot) and its
-squashing are unchanged from the previous networks, so sim/robot_action.py
-still owns what an action means.
+squashing are unchanged, so sim/robot_action.py still owns what an action
+means.
 """
 
 from __future__ import annotations
 
-from typing import Dict
+from typing import Dict, Sequence
 
 import numpy as np
 import torch
@@ -23,25 +39,64 @@ import torch.nn.functional as F
 
 from sim import observation as obsmod
 
+# Per family and size: conv channels per stage, embedding width per branch,
+# actor MLP widths, critic context width and critic head widths. Chosen so
+# that the actor is about 5.6 M parameters at "m", 12 M at "l" and 21 M at
+# "xl" in both families.
+NETWORK_SIZES = {
+    "cnn": {
+        "m":  dict(channels=(32, 64, 128), embed=256, mlp=(512, 256, 64),
+                   context=128, head=(256, 128)),
+        "l":  dict(channels=(48, 96, 192), embed=384, mlp=(768, 384, 128),
+                   context=192, head=(384, 192)),
+        "xl": dict(channels=(64, 128, 256), embed=512, mlp=(1024, 512, 128),
+                   context=256, head=(512, 256)),
+    },
+    # The first stage is kept narrow: it runs at the highest resolution, so it
+    # sets the activation memory and the update time, while the parameters
+    # live in the later, coarser stages.
+    "impala": {
+        "m":  dict(channels=(32, 80, 144), embed=256, mlp=(512, 256, 64),
+                   context=128, head=(256, 128)),
+        "l":  dict(channels=(48, 128, 208), embed=384, mlp=(768, 384, 128),
+                   context=192, head=(384, 192)),
+        "xl": dict(channels=(64, 192, 256), embed=512, mlp=(1024, 512, 128),
+                   context=256, head=(512, 256)),
+    },
+}
+
+# Side of the grid the IMPALA feature map is pooled to before embedding.
+IMPALA_POOL = 4
+
+
+def network_spec(cfg) -> dict:
+    fam = str(cfg.NET_ENCODER)
+    size = str(cfg.NET_SIZE)
+    if fam not in NETWORK_SIZES or size not in NETWORK_SIZES[fam]:
+        raise ValueError(f"no network {fam!r} size {size!r}")
+    return dict(NETWORK_SIZES[fam][size], family=fam, size=size)
+
 
 def _gn(ch: int) -> nn.GroupNorm:
     return nn.GroupNorm(num_groups=min(8, ch), num_channels=ch)
 
 
 class ConvEncoder(nn.Module):
-    """Three stride-2 convolutions, then a linear embedding.
+    """Three stride-2 convolutions, then a linear embedding (family "cnn").
 
     GroupNorm rather than BatchNorm: the workers run the actor one robot at
     a time in eval mode and the learner in batches in train mode, and batch
     statistics would make the two compute different functions.
     """
 
-    def __init__(self, in_ch: int, size: int, embed: int = 256):
+    def __init__(self, in_ch: int, size: int, embed: int = 256,
+                 channels: Sequence[int] = (32, 64, 128)):
         super().__init__()
+        c1, c2, c3 = channels
         self.conv = nn.Sequential(
-            nn.Conv2d(in_ch, 32, 5, stride=2, padding=2), _gn(32), nn.SiLU(),
-            nn.Conv2d(32, 64, 3, stride=2, padding=1), _gn(64), nn.SiLU(),
-            nn.Conv2d(64, 128, 3, stride=2, padding=1), _gn(128), nn.SiLU(),
+            nn.Conv2d(in_ch, c1, 5, stride=2, padding=2), _gn(c1), nn.SiLU(),
+            nn.Conv2d(c1, c2, 3, stride=2, padding=1), _gn(c2), nn.SiLU(),
+            nn.Conv2d(c2, c3, 3, stride=2, padding=1), _gn(c3), nn.SiLU(),
         )
         with torch.no_grad():
             o = self.conv(torch.zeros(1, in_ch, size, size))
@@ -50,11 +105,80 @@ class ConvEncoder(nn.Module):
         self.fc = nn.Sequential(nn.Linear(self.flat_dim, embed), nn.SiLU())
         self.embed = embed
 
-    def forward(self, x, return_2d: bool = False):
-        f = self.conv(x)
-        if return_2d:
-            return f
+    def features(self, x):
+        return self.conv(x)
+
+    def head(self, f):
         return self.fc(f.flatten(1))
+
+    def forward(self, x):
+        return self.head(self.features(x))
+
+
+class _Residual(nn.Module):
+    def __init__(self, ch: int):
+        super().__init__()
+        self.c1 = nn.Conv2d(ch, ch, 3, padding=1)
+        self.c2 = nn.Conv2d(ch, ch, 3, padding=1)
+
+    def forward(self, x):
+        return x + self.c2(F.relu(self.c1(F.relu(x))))
+
+
+class ImpalaEncoder(nn.Module):
+    """IMPALA stacks (conv, max-pool /2, two residual blocks) x 3, then an
+    average pool to IMPALA_POOL x IMPALA_POOL and a linear embedding.
+
+    Two coordinate channels are appended to the input, so the convolutions
+    themselves can tell where on the grid a feature is.
+    """
+
+    def __init__(self, in_ch: int, size: int, embed: int = 256,
+                 channels: Sequence[int] = (48, 96, 128)):
+        super().__init__()
+        ys = torch.linspace(-1.0, 1.0, size)
+        yy, xx = torch.meshgrid(ys, ys, indexing="ij")
+        self.register_buffer("coords", torch.stack([xx, yy])[None],
+                             persistent=False)
+        stages = []
+        prev = in_ch + 2
+        # A stride-2 stem on the 64 x 64 inputs, as the "cnn" family's first
+        # layer does: residual blocks at full resolution made an update four
+        # to six times slower than the CNN of the same size and did not fit
+        # batch 128 in 8 GB. The 25 x 25 local crop keeps its resolution.
+        if size >= 48:
+            stem = int(channels[0])
+            stages += [nn.Conv2d(prev, stem, 3, stride=2, padding=1), nn.ReLU()]
+            prev = stem
+        for ch in channels:
+            stages += [nn.Conv2d(prev, ch, 3, padding=1),
+                       nn.MaxPool2d(3, stride=2, padding=1),
+                       _Residual(ch), _Residual(ch)]
+            prev = ch
+        self.conv = nn.Sequential(*stages)
+        with torch.no_grad():
+            o = self.conv(torch.zeros(1, in_ch + 2, size, size))
+        self.out_ch, self.out_h, self.out_w = o.shape[1:]
+        self.pool = min(IMPALA_POOL, int(self.out_h))
+        self.flat_dim = int(self.out_ch) * self.pool * self.pool
+        self.fc = nn.Sequential(nn.Linear(self.flat_dim, embed), nn.SiLU())
+        self.embed = embed
+
+    def features(self, x):
+        c = self.coords.expand(x.shape[0], -1, -1, -1)
+        return F.relu(self.conv(torch.cat([x, c], dim=1)))
+
+    def head(self, f):
+        f = F.adaptive_avg_pool2d(f, self.pool)
+        return self.fc(f.flatten(1))
+
+    def forward(self, x):
+        return self.head(self.features(x))
+
+
+def make_encoder(spec: dict, in_ch: int, size: int) -> nn.Module:
+    cls = ImpalaEncoder if spec["family"] == "impala" else ConvEncoder
+    return cls(in_ch, size, embed=spec["embed"], channels=spec["channels"])
 
 
 def _shapes(cfg):
@@ -67,19 +191,22 @@ class PolicyNetwork(nn.Module):
     def __init__(self, cfg, action_cont: int = 4):
         super().__init__()
         s = _shapes(cfg)
+        spec = network_spec(cfg)
+        self.spec = spec
         self.log_std_min = float(cfg.LOG_STD_MIN)
         self.log_std_max = float(cfg.LOG_STD_MAX)
-        self.ego = ConvEncoder(s["ego"][0], s["ego"][1])
-        self.mid = ConvEncoder(s["mid"][0], s["mid"][1])
-        self.glob = ConvEncoder(s["glob"][0], s["glob"][1])
+        self.ego = make_encoder(spec, s["ego"][0], s["ego"][1])
+        self.mid = make_encoder(spec, s["mid"][0], s["mid"][1])
+        self.glob = make_encoder(spec, s["glob"][0], s["glob"][1])
         self.state = nn.Sequential(nn.Linear(s["state"][0], 64), nn.SiLU())
+        h1, h2, h3 = spec["mlp"]
         self.backbone = nn.Sequential(
-            nn.Linear(3 * 256 + 64, 512), nn.SiLU(),
-            nn.Linear(512, 256), nn.SiLU(),
-            nn.Linear(256, 64), nn.SiLU())
-        self.mean_head = nn.Linear(64, action_cont)
-        self.log_std_head = nn.Linear(64, action_cont)
-        self.mode_head = nn.Linear(64, len(cfg.ROBOT_MODES))
+            nn.Linear(3 * spec["embed"] + 64, h1), nn.SiLU(),
+            nn.Linear(h1, h2), nn.SiLU(),
+            nn.Linear(h2, h3), nn.SiLU())
+        self.mean_head = nn.Linear(h3, action_cont)
+        self.log_std_head = nn.Linear(h3, action_cont)
+        self.mode_head = nn.Linear(h3, len(cfg.ROBOT_MODES))
 
     def features(self, ego, mid, glob, state):
         return self.backbone(torch.cat([self.ego(ego), self.mid(mid),
@@ -138,35 +265,41 @@ class CentralizedCritic(nn.Module):
     Attention over robots, so the value does not depend on slot order and a
     shorter team is a mask rather than a different network. The privileged
     crowd map enters as one extra embedding shared by every robot's token.
+    The global branch is read through a per-robot spatial attention on its
+    feature map and then embedded by the same encoder's own head.
     """
 
-    def __init__(self, cfg, action_dim: int, embed: int = 256, heads: int = 4):
+    def __init__(self, cfg, action_dim: int, heads: int = 4):
         super().__init__()
         s = _shapes(cfg)
+        spec = network_spec(cfg)
+        self.spec = spec
+        embed = spec["embed"]
+        ctx_w = spec["context"]
         self.privileged = bool(cfg.CRITIC_PRIVILEGED_CROWD)
-        self.ego = ConvEncoder(s["ego"][0], s["ego"][1], embed)
-        self.mid = ConvEncoder(s["mid"][0], s["mid"][1], embed)
-        self.glob = ConvEncoder(s["glob"][0], s["glob"][1], embed)
-        self.priv = ConvEncoder(1, s["priv"][1], embed)
+        self.ego = make_encoder(spec, s["ego"][0], s["ego"][1])
+        self.mid = make_encoder(spec, s["mid"][0], s["mid"][1])
+        self.glob = make_encoder(spec, s["glob"][0], s["glob"][1])
+        self.priv = make_encoder(spec, 1, s["priv"][1])
         self.state = nn.Sequential(nn.Linear(s["state"][0], 64), nn.SiLU())
-        self.context = nn.Sequential(nn.Linear(2 * embed + 64, 128), nn.SiLU())
-        self.attend = SpatialAttention(self.glob.out_ch, 128)
-        self.glob_fc = nn.Sequential(nn.Linear(self.glob.flat_dim, embed),
+        self.context = nn.Sequential(nn.Linear(2 * embed + 64, ctx_w),
                                      nn.SiLU())
+        self.attend = SpatialAttention(self.glob.out_ch, ctx_w)
         vision = 4 * embed
         self.agent = nn.Sequential(
             nn.Linear(s["state"][0] + action_dim, embed), nn.SiLU(),
             nn.Linear(embed, embed))
-        self.film = nn.Sequential(nn.Linear(embed, 256), nn.SiLU(),
-                                  nn.Linear(256, 2 * vision))
+        self.film = nn.Sequential(nn.Linear(embed, embed), nn.SiLU(),
+                                  nn.Linear(embed, 2 * vision))
         nn.init.zeros_(self.film[-1].weight)
         nn.init.zeros_(self.film[-1].bias)
         self.film_out = nn.Linear(vision, embed)
         self.attn = nn.MultiheadAttention(embed, heads, batch_first=True)
         self.norm = nn.LayerNorm(embed)
-        self.head = nn.Sequential(nn.Linear(embed, 256), nn.SiLU(),
-                                  nn.Linear(256, 128), nn.SiLU(),
-                                  nn.Linear(128, 1))
+        h1, h2 = spec["head"]
+        self.head = nn.Sequential(nn.Linear(embed, h1), nn.SiLU(),
+                                  nn.Linear(h1, h2), nn.SiLU(),
+                                  nn.Linear(h2, 1))
 
     def forward(self, obs: Dict[str, torch.Tensor], action: torch.Tensor,
                 mask: torch.Tensor) -> torch.Tensor:
@@ -179,8 +312,8 @@ class CentralizedCritic(nn.Module):
         m = self.mid(flat(mid))
         st = self.state(flat(state))
         ctx = self.context(torch.cat([e, m, st], -1))
-        g2d = self.attend(self.glob(flat(glob), return_2d=True), ctx)
-        g = self.glob_fc(g2d.flatten(1))
+        g2d = self.attend(self.glob.features(flat(glob)), ctx)
+        g = self.glob.head(g2d)
         if self.privileged:
             p = self.priv(obs["priv"])                      # (B, embed)
         else:
@@ -200,3 +333,7 @@ class CentralizedCritic(nn.Module):
 def team_value(per_robot: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
     """Masked mean over real robots: the team's value, (B,)."""
     return (per_robot * mask).sum(1) / mask.sum(1).clamp(min=1.0)
+
+
+def parameter_count(module: nn.Module) -> int:
+    return sum(p.numel() for p in module.parameters())

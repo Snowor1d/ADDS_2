@@ -422,6 +422,12 @@ def validate_config(cfg: ResolvedConfig, check_data: bool = True) -> None:
     _check(cfg.RESUME_MODE in ("latest_compatible", "fresh"),
            f"RESUME_MODE={cfg.RESUME_MODE!r}", p)
 
+    # Network.
+    _check(cfg.NET_ENCODER in ("cnn", "impala"),
+           f"NET_ENCODER={cfg.NET_ENCODER!r}; expected 'cnn' or 'impala'", p)
+    _check(cfg.NET_SIZE in ("m", "l", "xl"),
+           f"NET_SIZE={cfg.NET_SIZE!r}; expected 'm', 'l' or 'xl'", p)
+
     # Episode videos.
     _check(int(cfg.VIDEO_EVERY_EPISODES) >= 0,
            "VIDEO_EVERY_EPISODES must be 0 (off) or positive", p)

@@ -414,3 +414,60 @@ class OsmTrainingMapsTest(unittest.TestCase):
         for _ in range(3):
             m.step()
         self.assertEqual(len(m.robots), lv.robot_num)
+
+
+class NetworkSizeTest(unittest.TestCase):
+    """NET_ENCODER x NET_SIZE: every combination builds, runs, and matches
+    the other family's parameter count at the same size."""
+
+    def test_sizes_are_matched_across_families_and_grow(self):
+        from learn.networks import (CentralizedCritic, PolicyNetwork,
+                                    parameter_count)
+        from sim.robot_action import ACTION_DIM
+        counts = {}
+        for fam in ("cnn", "impala"):
+            for size in ("m", "l", "xl"):
+                cfg = _cfg(NET_ENCODER=fam, NET_SIZE=size)
+                counts[fam, size] = (
+                    parameter_count(PolicyNetwork(cfg)),
+                    parameter_count(CentralizedCritic(cfg, ACTION_DIM)))
+        for size in ("m", "l", "xl"):
+            a_cnn, c_cnn = counts["cnn", size]
+            a_imp, c_imp = counts["impala", size]
+            self.assertLess(abs(a_imp / a_cnn - 1.0), 0.10, size)
+            self.assertLess(abs(c_imp / c_cnn - 1.0), 0.12, size)
+        for fam in ("cnn", "impala"):
+            actor = [counts[fam, s][0] for s in ("m", "l", "xl")]
+            self.assertEqual(actor, sorted(actor))
+            self.assertGreater(actor[2], 3 * actor[0])
+
+    def test_impala_runs_and_keeps_most_parameters_in_convolutions(self):
+        from learn.networks import PolicyNetwork, parameter_count
+        from sim.observation import obs_shapes
+        cfg = _cfg(NET_ENCODER="impala", NET_SIZE="m")
+        pol = PolicyNetwork(cfg)
+        conv = sum(parameter_count(getattr(pol, k).conv)
+                   for k in ("ego", "mid", "glob"))
+        fc = sum(parameter_count(getattr(pol, k).fc)
+                 for k in ("ego", "mid", "glob"))
+        self.assertGreater(conv, fc)
+        sh = obs_shapes(cfg)
+        x = {k: torch.randn(2, *sh[k]) for k in ("ego", "mid", "glob", "state")}
+        a, logp = pol.sample_action(x["ego"], x["mid"], x["glob"], x["state"])
+        self.assertEqual(tuple(a.shape), (2, 7))
+
+    def test_checkpoint_of_another_network_is_refused(self):
+        from learn.replay import SchemaMismatch
+        from learn.sac import SACAgent
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "ck.pth")
+            SACAgent(_cfg(NET_ENCODER="cnn", NET_SIZE="m")).save(path)
+            with self.assertRaises(SchemaMismatch):
+                SACAgent(_cfg(NET_ENCODER="impala", NET_SIZE="m")).load(path)
+
+    def test_unknown_network_is_refused_at_start(self):
+        from configs import ConfigError
+        with self.assertRaises(ConfigError):
+            _cfg(NET_SIZE="s")
+        with self.assertRaises(ConfigError):
+            _cfg(NET_ENCODER="resnet")

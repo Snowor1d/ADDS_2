@@ -58,6 +58,21 @@ DECAY_MODE = 'episode'
 LOG_DIR = "Log_SAC_UED4_madrl"
 PORT_NUM = 9000
 
+# --------------- NETWORK ---------------
+# Encoder family and size for the actor and the critic (learn/networks.py).
+#   "cnn"     three stride-2 convolutions, flattened into a linear layer; most
+#             parameters sit in that position-specific layer. "m" is the
+#             original network.
+#   "impala"  three residual stacks with coordinate channels, pooled to 4x4;
+#             most parameters sit in convolutions, which is what generalised
+#             to unseen levels in Procgen (Cobbe et al. 2020).
+# Sizes are matched across the two families; parameters (actor / one critic):
+#   m  ~5.6 M / ~8.6 M    l  ~12 M / ~18 M    xl ~21 M / ~31 M
+# docs/network_sizes.md has the exact counts and the update cost of each.
+# A checkpoint only loads into the family and size it was trained with.
+NET_ENCODER = "cnn"                 # "cnn" | "impala"
+NET_SIZE = "m"                      # "m" | "l" | "xl"
+
 # --------------- SAC ALGORITHM PARAMETER ---------------
 LOG_STD_MAX = 0.5
 LOG_STD_MIN = -20

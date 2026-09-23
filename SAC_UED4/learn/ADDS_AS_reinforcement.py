@@ -594,13 +594,13 @@ def main(overrides: Optional[dict] = None, max_episodes: Optional[int] = None):
                                          s.video_path, int(cfg.VIDEO_FPS),
                                          caption=f"{s.level_name}, episode "
                                                  f"{global_episode}")
+                else:
+                    logger.note("episode_failed", worker=s.worker_id,
+                                episode_uid=s.episode_uid)
                 if (int(cfg.VIDEO_EVERY_EPISODES) > 0 and global_episode
                         % int(cfg.VIDEO_EVERY_EPISODES) == 0):
                     with video_request.get_lock():
                         video_request.value = int(global_episode)
-                else:
-                    logger.note("episode_failed", worker=s.worker_id,
-                                episode_uid=s.episode_uid)
                 agent.epsilon = eps_sched.value(global_episode)
                 with epsilon_shared.get_lock():
                     epsilon_shared.value = float(agent.epsilon)
@@ -675,6 +675,15 @@ def main(overrides: Optional[dict] = None, max_episodes: Optional[int] = None):
         for p in workers:
             if p.is_alive():
                 p.terminate()
+        # Items the main process put and no worker will now read (a policy
+        # snapshot, a level) would otherwise keep each queue's feeder thread
+        # waiting on a dead reader, and the process would never exit.
+        for q in list(param_queues) + list(level_queues) + [
+                transition_queue, stats_queue, val_queue]:
+            try:
+                q.cancel_join_thread()
+            except Exception:
+                pass
         ued.stop()
         logger.close()
 
