@@ -1,0 +1,306 @@
+"""Task-specific zero-shot evaluation for outdoor hazard-zone evacuation.
+
+The held-out geometry, hazard and random seed are paired across policy and
+stationary-off comparisons. Scores describe clearing and defending a region,
+not reaching legacy boundary exits. See docs/zero_shot_evaluation.md.
+"""
+
+from __future__ import annotations
+
+import copy
+import json
+import os
+import random
+from dataclasses import asdict, dataclass
+from typing import Optional
+
+import numpy as np
+
+import config
+from sim import robot_action
+
+
+@dataclass
+class EpisodeMetrics:
+    first_empty_step: Optional[int] = None
+    held_clear_step: Optional[int] = None
+    reentries: int = 0
+    occupancy_step_sum: float = 0.0
+    outflows: int = 0
+    informed_departures: int = 0
+    evacuation_departures: int = 0
+    informed_trip_outflows: int = 0
+    background_departures: int = 0
+    stuck_releases: int = 0
+    inflows: int = 0
+    initial_population: int = 0
+    ever_acted: int = 0
+    hazard_person_steps: int = 0
+    active_occupancy_step_sum: float = 0.0
+    final_occupancy: float = 0.0
+    steps: int = 0
+
+    def observe(self, model, outside_before: set[int]) -> set[int]:
+        """Record one post-step state; outflow is not a re-entry."""
+        zone = model.danger_zone
+        active = {
+            person.unique_id: person for person in model.crowds
+            if person.type in (0, 1, 2) and not person.dead
+        }
+        active_ids = set(active)
+        departed = getattr(self, "_active_ids", active_ids) - active_ids
+        self.outflows += len(departed)
+        for person in model.crowds:
+            if person.unique_id not in departed:
+                continue
+            reason = getattr(person, "outflow_reason", None)
+            if reason == "evacuation_departure":
+                self.evacuation_departures += 1
+                self.informed_departures += 1
+            elif reason == "informed_trip":
+                self.informed_trip_outflows += 1
+                self.informed_departures += 1
+            elif reason == "background_trip":
+                self.background_departures += 1
+            elif reason == "stuck_release":
+                self.stuck_releases += 1
+        self._active_ids = active_ids
+        self.inflows = max(0, int(model.total_agents) - self.initial_population)
+        self.ever_acted = sum(bool(getattr(person, "ever_acted", False))
+                              for person in model.crowds)
+        outside = {
+            uid for uid, person in active.items()
+            if not zone.contains(float(person.xy[0]), float(person.xy[1]))
+        }
+        self.reentries += len((outside_before & active.keys()) - outside)
+        inside = model.agents_in_danger()
+        self.final_occupancy = inside / max(1, model.total_agents)
+        self.occupancy_step_sum += self.final_occupancy
+        self.active_occupancy_step_sum += inside / max(1, len(active_ids))
+        self.hazard_person_steps += inside
+        self.steps += 1
+        if inside == 0 and self.first_empty_step is None:
+            self.first_empty_step = int(model.step_count)
+        if model.is_cleared_and_held() and self.held_clear_step is None:
+            self.held_clear_step = int(model.cleared_at() or model.step_count)
+        return outside
+
+    def summary(self) -> dict:
+        result = asdict(self)
+        result["mean_occupancy"] = self.occupancy_step_sum / max(1, self.steps)
+        result["mean_active_occupancy"] = (
+            self.active_occupancy_step_sum / max(1, self.steps))
+        result["informed_departure_fraction"] = (
+            self.informed_departures / max(1, self.ever_acted))
+        result["held_clear_success"] = int(self.held_clear_step is not None)
+        return result
+
+
+def _outside_ids(model) -> set[int]:
+    zone = model.danger_zone
+    return {
+        person.unique_id for person in model.crowds
+        if person.type in (0, 1, 2) and not person.dead
+        and not zone.contains(float(person.xy[0]), float(person.xy[1]))
+    }
+
+
+def _frames(model, robot_index, crop_fn, downsample_fn):
+    full = model.return_current_image()
+    rb = model.robots[robot_index]
+    px = model.world_to_px(rb.xy[0], rb.xy[1])
+    ego = crop_fn(full, px, config.EGO_MAP_SIZE, pad_value=50)
+    glob = downsample_fn(full, config.DOWNSAMPLE_MAP_SIZE)
+    return ego.astype(np.float32) / 255.0, glob.astype(np.float32) / 255.0
+
+
+def evaluate_level(agent, level, seed: int, condition: str,
+                   frame_stack_cls, crop_fn, downsample_fn,
+                   max_steps: Optional[int] = None) -> dict:
+    """Evaluate one fixed outdoor level for a fixed duration."""
+    if condition not in ("policy", "off_zero_command"):
+        raise ValueError(condition)
+    if level.danger is None:
+        raise ValueError("zero-shot level has no hazard zone")
+    if not 1 <= int(level.robot_num) <= config.MAX_ROBOTS:
+        raise ValueError("invalid robot count")
+    import sim.model as model_module
+
+    random.seed(seed)
+    np.random.seed(seed % (2**32))
+    old_augmentation = model_module.MAP_DATA_AUGMENTATION
+    model_module.MAP_DATA_AUGMENTATION = False
+    try:
+        model = model_module.FightingModel(
+            int(level.crowd_size), int(level.width), int(level.height),
+            model_num=0, robot="Q", level=level)
+    finally:
+        model_module.MAP_DATA_AUGMENTATION = old_augmentation
+
+    ego_stacks = [frame_stack_cls(4) for _ in model.robots]
+    global_stack = frame_stack_cls(4)
+    for index, stack in enumerate(ego_stacks):
+        ego, glob = _frames(model, index, crop_fn, downsample_fn)
+        stack.reset(ego)
+    global_stack.reset(glob)
+    metrics = EpisodeMetrics(initial_population=int(model.total_agents))
+    outside = _outside_ids(model)
+    duration = config.MAX_STEPS if max_steps is None else int(max_steps)
+    metrics._active_ids = {person.unique_id for person in model.crowds
+                           if person.type in (0, 1, 2) and not person.dead}
+
+    for step in range(duration):
+        if step % config.ACTION_SCALE == 0:
+            if step:
+                for index, stack in enumerate(ego_stacks):
+                    ego, glob = _frames(model, index, crop_fn, downsample_fn)
+                    stack.append(ego)
+                global_stack.append(glob)
+            for index, rb in enumerate(model.robots):
+                if condition == "off_zero_command":
+                    action = robot_action.encode((0.0, 0.0), "off")
+                else:
+                    ego, glob = _frames(model, index, crop_fn, downsample_fn)
+                    state = np.asarray(
+                        model.return_current_robot_state(index), dtype=np.float32)
+                    action, _ = agent.select_action(
+                        ego_stacks[index].peek_with(ego),
+                        global_stack.peek_with(glob), state,
+                        deterministic=True, log_action=False)
+                robot_action.apply_to(rb, action)
+        model.step()
+        outside = metrics.observe(model, outside)
+
+    return metrics.summary()
+
+
+def _real_levels():
+    from osm_corpus.export import load_levels
+    from sim.scenario import attach_hazard
+
+    crops = {
+        (level.site_key, int(level.width)): level
+        for level in load_levels()
+    }
+    for index, site in enumerate(config.ZSG_REAL_SITES):
+        key = (site, int(config.ZSG_REAL_SIZE))
+        if key not in crops:
+            raise ValueError(f"missing OSM holdout crop {key}")
+        level = copy.deepcopy(crops[key])
+        level = attach_hazard(level, rng=random.Random(902_000 + index))
+        yield f"osm_{site}_{config.ZSG_REAL_SIZE}m", level
+
+
+def _holdout_levels():
+    from ued.holdout import holdout_levels
+    all_levels = holdout_levels()
+    # A fixed periodic subset spans every difficulty and all four size bands.
+    # Set the cap to zero for the full cached holdout.
+    cap = int(config.ZSG_HOLDOUT_MAX_LEVELS)
+    if cap > 0 and len(all_levels) > cap:
+        by_difficulty = {}
+        for level in all_levels:
+            by_difficulty.setdefault(level.difficulty, []).append(level)
+        difficulties = sorted(by_difficulty)
+        chosen = []
+        for index in range(cap):
+            difficulty = difficulties[index % len(difficulties)]
+            bucket = sorted(by_difficulty[difficulty],
+                            key=lambda lv: (lv.width, lv.source_seed))
+            size_band = ((index // len(difficulties))
+                         + index % len(difficulties)) % 4
+            candidates = [lv for lv in bucket
+                          if lv.width == sorted({x.width for x in bucket})[size_band]]
+            chosen.append(candidates[(index // (4 * len(difficulties)))
+                                     % len(candidates)])
+        all_levels = chosen
+    for level in all_levels:
+        name = (f"generated_{level.width}m_d{level.difficulty}"
+                f"_{level.source_seed}")
+        yield name, level
+
+
+def run_evaluation(agent, episode: int, writer, frame_stack_cls,
+                   crop_fn, downsample_fn, output_dir: str) -> dict:
+    """Write per-run JSONL and aggregate TensorBoard metrics."""
+    if config.ZSG_ITERATION < 1:
+        raise ValueError("ZSG_ITERATION must be positive")
+    os.makedirs(output_dir, exist_ok=True)
+    random_state, numpy_state = random.getstate(), np.random.get_state()
+    old_epsilon = agent.epsilon
+    old_long_epsilon = agent.epsilon_long
+    was_training = agent.policy.training
+    agent.epsilon = agent.epsilon_long = 0.0
+    agent.policy.eval()
+    records = []
+    try:
+        scenarios = list(_real_levels())
+        if config.ZSG_HOLDOUT_LEVELS:
+            scenarios.extend(_holdout_levels())
+        for name, original in scenarios:
+            if original.danger is None:
+                raise ValueError(f"{name} has no hazard zone")
+            for robot_num in config.ZSG_ROBOT_NUM:
+                if not 1 <= int(robot_num) <= config.MAX_ROBOTS:
+                    raise ValueError(f"invalid ZSG_ROBOT_NUM {robot_num}")
+                repeats = (config.ZSG_ITERATION if name.startswith("osm_")
+                           else config.ZSG_HOLDOUT_ITERATION)
+                for iteration in range(repeats):
+                    seed = (episode * 1_000_003 + iteration * 1009
+                            + sum(ord(ch) for ch in name) * 37)
+                    for condition in ("policy", "off_zero_command"):
+                        level = copy.deepcopy(original)
+                        level.robot_num = int(robot_num)
+                        result = evaluate_level(
+                            agent, level, seed, condition,
+                            frame_stack_cls, crop_fn, downsample_fn)
+                        record = {
+                            "episode": episode, "scenario": name,
+                            "source": "osm" if name.startswith("osm_") else "generated",
+                            "size_m": int(level.width),
+                            "morphology": getattr(level, "morphology", None),
+                            "actual_density": getattr(level, "crowd_density", None),
+                            "robot_num": int(robot_num), "seed": seed,
+                            "condition": condition, **result,
+                        }
+                        records.append(record)
+        output_path = os.path.join(output_dir, "task_metrics.jsonl")
+        with open(output_path, "a", encoding="utf-8") as handle:
+            for record in records:
+                handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+        summary = {}
+        for robot_num in config.ZSG_ROBOT_NUM:
+            for condition in ("policy", "off_zero_command"):
+                for source in ("osm", "generated"):
+                    subset = [
+                        row for row in records
+                        if row["robot_num"] == robot_num
+                        and row["condition"] == condition
+                        and row["source"] == source
+                    ]
+                    if not subset:
+                        continue
+                    prefix = f"ZeroShotTask/{source}/robots_{robot_num}/{condition}"
+                    for key in ("held_clear_success", "mean_occupancy",
+                                "mean_active_occupancy", "hazard_person_steps",
+                                "final_occupancy", "reentries", "outflows",
+                                "inflows", "informed_departures",
+                                "background_departures", "stuck_releases",
+                                "informed_departure_fraction"):
+                        value = float(np.mean([row[key] for row in subset]))
+                        writer.add_scalar(f"{prefix}/{key}", value, episode)
+                        summary[f"{prefix}/{key}"] = value
+                    # Failed clearances are censored at the fixed horizon.
+                    value = float(np.mean([
+                        row["held_clear_step"] if row["held_clear_step"] is not None
+                        else config.MAX_STEPS for row in subset
+                    ]))
+                    writer.add_scalar(f"{prefix}/clear_step_censored", value, episode)
+                    summary[f"{prefix}/clear_step_censored"] = value
+        writer.flush()
+        return summary
+    finally:
+        agent.epsilon, agent.epsilon_long = old_epsilon, old_long_epsilon
+        agent.policy.train(was_training)
+        random.setstate(random_state)
+        np.random.set_state(numpy_state)

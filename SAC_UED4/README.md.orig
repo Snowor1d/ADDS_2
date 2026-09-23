@@ -1,0 +1,50 @@
+# SAC_UED4
+
+도심 **실외** 위험 구역에서 군중을 대피시키고 재진입을 막는 다중 로봇 강화학습 프로젝트입니다. 학습 분포는 ACCEL 계열 무감독 환경 설계로 생성합니다. 건물 출구 대피는 현재 과제가 아닙니다.
+
+## 폴더
+
+| 폴더 | 내용 |
+| --- | --- |
+| `sim/` | 시뮬레이터. 모델, 보행자, 공간, 위험 구역, 통행 구조, 로봇 행동 정의 |
+| `learn/` | 학습기. 분산 비동기 SAC와 중앙집중 크리틱 |
+| `ued/` | 커리큘럼. 레벨 표현, 개체군, 변이, 홀드아웃 |
+| `citygen/` | 도시 레이아웃 생성기. 형태별 가로망과 블록 |
+| `osm_corpus/` | 실제 도심 크롭 추출 파이프라인 |
+| `validation/` | 군중 모델 검증. 기본도, 병목, 창발 현상 |
+| `viz/` | 뷰어, 렌더러, 사람 조작 |
+| `cli/` | 명령줄 도구 |
+| `tests/` | 시뮬레이터·학습·평가 회귀 테스트 |
+| `docs/` | 설계와 검증 문서 |
+
+`config.py`가 유일한 설정 파일이고 `paths.py`가 데이터 위치를 정의합니다.
+
+## 실행
+
+프로젝트 루트에서 모듈로 실행합니다.
+
+```
+python3 Start_training.py                      # 학습 (워치독 포함)
+python3 -m viz.run_sim                         # 시뮬레이션 보기
+python3 -m viz.ADDS_AS_HumanPlay               # 사람이 직접 조작
+python3 -m viz.ADDS_AS_view_ued difficulty     # 커리큘럼 레벨 그림
+python3 -m cli.ADDS_AS_osm_pipeline status     # OSM 코퍼스 상태
+python3 -m cli.ADDS_AS_validate_crowd all      # 군중 모델 검증
+python3 -m pytest tests/ -q                    # 테스트
+```
+
+무엇을 보고 무엇을 플레이할지는 `config.py`의 `SIM_SOURCE`와 `SIM_*`이 정하고, 뷰어와 사람 조작이 같은 정의를 씁니다.
+
+## 문서
+
+| 문서 | 내용 |
+| --- | --- |
+| `docs/crowd_awareness_design.md` | 군중의 위험 인지 모델 설계와 문헌 근거 |
+| `docs/crowd_awareness_implementation.md` | 그 구현 |
+| `docs/crowd_density.md` | 군중 규모를 밀도로 정의한 근거 |
+| `docs/crowd_od.md` | 위험을 모르는 보행자의 통행 구조 |
+| `docs/crowd_validation.md` | 표준 시험 대비 측정 결과와 보정 |
+| `docs/robot_action.md` | 로봇의 이동과 신호 모드 |
+| `docs/zero_shot_evaluation.md` | 실외 위험 구역 제로샷 지표와 대조군 |
+| `docs/outdoor_human_calibration.md` | 실외 사람 실험에 따른 행동 보정과 인용 |
+| `docs/known_issues.md` | 미해결 항목 |

@@ -1,0 +1,755 @@
+pygame 2.6.1 (SDL 2.28.4, Python 3.10.12)
+Hello from the pygame community. https://www.pygame.org/contribute.html
+TensorBoard launched at http://localhost:7757
+Start monitoring total_reward.txt for new rewards...
+Start monitoring /home/amrl_sunny/Log_SAC_UED3/reward_a.txt for new data...
+Start monitoring /home/amrl_sunny/Log_SAC_UED3/reward_b.txt for new data...
+Start monitoring /home/amrl_sunny/Log_SAC_UED3/reward_e.txt for new data...Start monitoring /home/amrl_sunny/Log_SAC_UED3/reward_c.txt for new data...
+
+Start monitoring /home/amrl_sunny/Log_SAC_UED3/reward_f.txt for new data...
+Start monitoring /home/amrl_sunny/Log_SAC_UED3/reward_d.txt for new data...
+Start monitoring /home/amrl_sunny/Log_SAC_UED3/reward_g.txt for new data...Start monitoring /home/amrl_sunny/Log_SAC_UED3/reward_h.txt for new data...
+
+Start monitoring /home/amrl_sunny/Log_SAC_UED3/reward_j.txt for new data...
+Start monitoring /home/amrl_sunny/Log_SAC_UED3/reward_i.txt for new data...
+Start monitoring /home/amrl_sunny/Log_SAC_UED3/reward_k.txt for new data...
+Start monitoring /home/amrl_sunny/Log_SAC_UED3/reward_l.txt for new data...
+Start monitoring /home/amrl_sunny/Log_SAC_UED3/reward_n.txt for new data...Start monitoring /home/amrl_sunny/Log_SAC_UED3/reward_fixed.txt for new data...
+
+Start monitoring /home/amrl_sunny/Log_SAC_UED3/reward_finished_bonus.txt for new data...
+Start monitoring /home/amrl_sunny/Log_SAC_UED3/evacuation_100.txt for new data...
+Start monitoring /home/amrl_sunny/Log_SAC_UED3/evacuation_80.txt for new data...Loaded start_epsilon: 0.0, start_epsilon_long: 0.0
+
+Start monitoring /home/amrl_sunny/Log_SAC_UED3/total_lifetime.txt for new data...
+/home/amrl_sunny/ADDS_2/SAC_UED3/ADDS_AS_reinforcement.py:1983: DeprecationWarning: __array_wrap__ must accept context and return_scalar arguments (positionally) in the future. (Deprecated NumPy 2.0)
+  self.log_alpha = torch.tensor(np.log(self.alpha), requires_grad=True, device=self.device)
+/home/amrl_sunny/ADDS_2/SAC_UED3/ADDS_AS_reinforcement.py:1983: UserWarning: To copy construct from a tensor, it is recommended to use sourceTensor.clone().detach() or sourceTensor.clone().detach().requires_grad_(True), rather than torch.tensor(sourceTensor).
+  self.log_alpha = torch.tensor(np.log(self.alpha), requires_grad=True, device=self.device)
+Agent initialized, lr=0.0001, alpha=0.20000000298023224, batch_size=128, replay_size=1000000
+Mode 3: Loading the latest model from log_dir.
+Loading latest model: sac_checkpoint_ep_4700.pth
+/home/amrl_sunny/ADDS_2/SAC_UED3/ADDS_AS_reinforcement.py:2245: FutureWarning: You are using `torch.load` with `weights_only=False` (the current default value), which uses the default pickle module implicitly. It is possible to construct malicious pickle data which will execute arbitrary code during unpickling (See https://github.com/pytorch/pytorch/blob/main/SECURITY.md#untrusted-models for more details). In a future release, the default value for `weights_only` will be flipped to `True`. This limits the functions that could be executed during unpickling. Arbitrary objects will no longer be allowed to be loaded via this mode unless they are explicitly allowlisted by the user via `torch.serialization.add_safe_globals`. We recommend you start setting `weights_only=True` for any use case where you don't have full control of the loaded file. Please open an issue on GitHub for any issues related to this experimental feature.
+  ckpt = torch.load(filepath, map_location=self.device)
+[Info] Model successfully loaded from /home/amrl_sunny/Log_SAC_UED3/sac_checkpoint_ep_4700.pth
+Loading replay buffer from /home/amrl_sunny/Log_SAC_UED3/replay_buffer.npz
+Replay buffer loaded.
+Replay buffer size: 1000000
+[UED] resumed curriculum: 200 levels, episode=4700, bred=0
+[Main] UED enabled: method=accel score=hybrid replay_only_updates=False
+[Main] Worker 0 started, pid=141997
+[Main] Worker 1 started, pid=141998
+[Main] Worker 2 started, pid=141999
+[Main] Worker 3 started, pid=142000
+[Main] Started 4 workers for warm-up.
+/home/amrl_sunny/.local/lib/python3.10/site-packages/matplotlib/projections/__init__.py:63: UserWarning: Unable to import Axes3D. This may be due to multiple versions of Matplotlib being installed (e.g. as a system package and as a pip package). As a result, the 3D projection is not available.
+  warnings.warn("Unable to import Axes3D. This may be due to multiple versions of "
+/home/amrl_sunny/.local/lib/python3.10/site-packages/matplotlib/projections/__init__.py:63: UserWarning: Unable to import Axes3D. This may be due to multiple versions of Matplotlib being installed (e.g. as a system package and as a pip package). As a result, the 3D projection is not available.
+  warnings.warn("Unable to import Axes3D. This may be due to multiple versions of "
+/home/amrl_sunny/.local/lib/python3.10/site-packages/matplotlib/projections/__init__.py:63: UserWarning: Unable to import Axes3D. This may be due to multiple versions of Matplotlib being installed (e.g. as a system package and as a pip package). As a result, the 3D projection is not available.
+  warnings.warn("Unable to import Axes3D. This may be due to multiple versions of "
+/home/amrl_sunny/.local/lib/python3.10/site-packages/matplotlib/projections/__init__.py:63: UserWarning: Unable to import Axes3D. This may be due to multiple versions of Matplotlib being installed (e.g. as a system package and as a pip package). As a result, the 3D projection is not available.
+  warnings.warn("Unable to import Axes3D. This may be due to multiple versions of "
+-----------------------------------------------
+[Main] Episode 4701 (from worker 1)
+Total reward: -1083.473280141065
+evacuation_time_80 : 88
+evacuation_time_100: 1522
+-----------------------------------------------
+Episode 4701 - Total Learning Time: 197.782762 초
+-----------------------------------------------
+[Main] Episode 4702 (from worker 0)
+Total reward: -1211.720693179284
+evacuation_time_80 : 131
+evacuation_time_100: 1021
+-----------------------------------------------
+Episode 4702 - Total Learning Time: 2.384326 초
+-----------------------------------------------
+[Main] Episode 4703 (from worker 2)
+Total reward: -870.1977470487188
+evacuation_time_80 : 78
+evacuation_time_100: 527
+-----------------------------------------------
+Episode 4703 - Total Learning Time: 0.186798 초
+-----------------------------------------------
+[Main] Episode 4704 (from worker 3)
+Total reward: -1310.638462792997
+evacuation_time_80 : 160
+evacuation_time_100: 954
+-----------------------------------------------
+Episode 4704 - Total Learning Time: 1.198978 초
+-----------------------------------------------
+[Main] Episode 4705 (from worker 1)
+Total reward: -1038.2899901508742
+evacuation_time_80 : 58
+evacuation_time_100: 180
+-----------------------------------------------
+Episode 4705 - Total Learning Time: 188.371257 초
+-----------------------------------------------
+[Main] Episode 4706 (from worker 0)
+Total reward: -913.3065727994223
+evacuation_time_80 : 94
+evacuation_time_100: 2000
+-----------------------------------------------
+Episode 4706 - Total Learning Time: 2.317489 초
+-----------------------------------------------
+[Main] Episode 4707 (from worker 2)
+Total reward: -828.3927761229077
+evacuation_time_80 : 95
+evacuation_time_100: 249
+-----------------------------------------------
+Episode 4707 - Total Learning Time: 0.570974 초
+-----------------------------------------------
+[Main] Episode 4708 (from worker 3)
+Total reward: -3905.8163219564112
+evacuation_time_80 : 132
+evacuation_time_100: 2000
+-----------------------------------------------
+Episode 4708 - Total Learning Time: 1.205182 초
+-----------------------------------------------
+[Main] Episode 4709 (from worker 1)
+Total reward: -2858.3937816611437
+evacuation_time_80 : 0
+evacuation_time_100: 338
+-----------------------------------------------
+Episode 4709 - Total Learning Time: 181.952720 초
+-----------------------------------------------
+[Main] Episode 4710 (from worker 0)
+Total reward: -1081.341128851231
+evacuation_time_80 : 49
+evacuation_time_100: 293
+-----------------------------------------------
+Episode 4710 - Total Learning Time: 2.223403 초
+-----------------------------------------------
+[Main] Episode 4711 (from worker 2)
+Total reward: -3481.3324811196926
+evacuation_time_80 : 49
+evacuation_time_100: 684
+-----------------------------------------------
+Episode 4711 - Total Learning Time: 0.840597 초
+-----------------------------------------------
+[Main] Episode 4712 (from worker 3)
+Total reward: -850.7805762728548
+evacuation_time_80 : 61
+evacuation_time_100: 591
+-----------------------------------------------
+Episode 4712 - Total Learning Time: 0.811126 초
+-----------------------------------------------
+[Main] Episode 4713 (from worker 1)
+Total reward: -945.7292167810658
+evacuation_time_80 : 73
+evacuation_time_100: 685
+-----------------------------------------------
+Episode 4713 - Total Learning Time: 178.926679 초
+-----------------------------------------------
+[Main] Episode 4714 (from worker 0)
+Total reward: -1289.1859219291975
+evacuation_time_80 : 65
+evacuation_time_100: 102
+-----------------------------------------------
+Episode 4714 - Total Learning Time: 2.121137 초
+-----------------------------------------------
+[Main] Episode 4715 (from worker 2)
+Total reward: -573.9467566588321
+evacuation_time_80 : 54
+evacuation_time_100: 166
+-----------------------------------------------
+Episode 4715 - Total Learning Time: 0.784077 초
+-----------------------------------------------
+[Main] Episode 4716 (from worker 3)
+Total reward: -940.9766655355359
+evacuation_time_80 : 0
+evacuation_time_100: 1
+-----------------------------------------------
+Episode 4716 - Total Learning Time: 0.996459 초
+-----------------------------------------------
+[Main] Episode 4717 (from worker 1)
+Total reward: -810.5078738647442
+evacuation_time_80 : 85
+evacuation_time_100: 532
+-----------------------------------------------
+Episode 4717 - Total Learning Time: 177.876659 초
+-----------------------------------------------
+[Main] Episode 4718 (from worker 0)
+Total reward: -885.3387969015647
+evacuation_time_80 : 0
+evacuation_time_100: 1
+-----------------------------------------------
+Episode 4718 - Total Learning Time: 1.824140 초
+-----------------------------------------------
+[Main] Episode 4719 (from worker 2)
+Total reward: -989.3110438077636
+evacuation_time_80 : 157
+evacuation_time_100: 1255
+-----------------------------------------------
+Episode 4719 - Total Learning Time: 0.816954 초
+-----------------------------------------------
+[Main] Episode 4720 (from worker 3)
+Total reward: -1055.615687257989
+evacuation_time_80 : 110
+evacuation_time_100: 746
+-----------------------------------------------
+Episode 4720 - Total Learning Time: 0.706670 초
+-----------------------------------------------
+[Main] Episode 4721 (from worker 1)
+Total reward: -843.716363733295
+evacuation_time_80 : 78
+evacuation_time_100: 974
+-----------------------------------------------
+Episode 4721 - Total Learning Time: 179.903937 초
+-----------------------------------------------
+[Main] Episode 4722 (from worker 0)
+Total reward: -1364.847497209817
+evacuation_time_80 : 131
+evacuation_time_100: 2000
+-----------------------------------------------
+Episode 4722 - Total Learning Time: 2.306458 초
+Traceback (most recent call last):
+  File "/home/amrl_sunny/ADDS_2/SAC_UED3/ADDS_AS_reinforcement.py", line 698, in worker_process
+    raise RuntimeError(f"Reward collapsed: {reward}")
+RuntimeError: Reward collapsed: -700105727.8627086
+-----------------------------------------------
+[Main] Episode 4723 (from worker 0)
+Total reward: 0.0
+evacuation_time_80 : 2000
+evacuation_time_100: 2000
+-----------------------------------------------
+Episode 4723 - Total Learning Time: 0.619880 초
+-----------------------------------------------
+[Main] Episode 4724 (from worker 2)
+Total reward: -899.8751684862933
+evacuation_time_80 : 0
+evacuation_time_100: 250
+-----------------------------------------------
+Episode 4724 - Total Learning Time: 0.327443 초
+-----------------------------------------------
+[Main] Episode 4725 (from worker 3)
+Total reward: -960.6830538069618
+evacuation_time_80 : 109
+evacuation_time_100: 1078
+-----------------------------------------------
+Episode 4725 - Total Learning Time: 0.548605 초
+-----------------------------------------------
+[Main] Episode 4726 (from worker 1)
+Total reward: -1038.5080407651615
+evacuation_time_80 : 88
+evacuation_time_100: 919
+-----------------------------------------------
+Episode 4726 - Total Learning Time: 175.640689 초
+-----------------------------------------------
+[Main] Episode 4727 (from worker 0)
+Total reward: -963.6830872361038
+evacuation_time_80 : 49
+evacuation_time_100: 290
+-----------------------------------------------
+Episode 4727 - Total Learning Time: 2.155204 초
+-----------------------------------------------
+[Main] Episode 4728 (from worker 2)
+Total reward: -946.1411759165682
+evacuation_time_80 : 73
+evacuation_time_100: 891
+-----------------------------------------------
+Episode 4728 - Total Learning Time: 0.923223 초
+-----------------------------------------------
+[Main] Episode 4729 (from worker 3)
+Total reward: -1092.433354579397
+evacuation_time_80 : 129
+evacuation_time_100: 1191
+-----------------------------------------------
+Episode 4729 - Total Learning Time: 8.683054 초
+-----------------------------------------------
+[Main] Episode 4730 (from worker 2)
+Total reward: -774.7126339146379
+evacuation_time_80 : 106
+evacuation_time_100: 145
+-----------------------------------------------
+Episode 4730 - Total Learning Time: 167.223722 초
+-----------------------------------------------
+[Main] Episode 4731 (from worker 3)
+Total reward: -944.2901146381133
+evacuation_time_80 : 0
+evacuation_time_100: 155
+-----------------------------------------------
+Episode 4731 - Total Learning Time: 7.981941 초
+-----------------------------------------------
+[Main] Episode 4732 (from worker 1)
+Total reward: -3830.975299191472
+evacuation_time_80 : 117
+evacuation_time_100: 2000
+-----------------------------------------------
+Episode 4732 - Total Learning Time: 0.629395 초
+-----------------------------------------------
+[Main] Episode 4733 (from worker 0)
+Total reward: -2278.902101117192
+evacuation_time_80 : 121
+evacuation_time_100: 2000
+-----------------------------------------------
+Episode 4733 - Total Learning Time: 2.162351 초
+-----------------------------------------------
+[Main] Episode 4734 (from worker 2)
+Total reward: -1793.2090322392253
+evacuation_time_80 : 205
+evacuation_time_100: 2000
+-----------------------------------------------
+Episode 4734 - Total Learning Time: 167.102677 초
+-----------------------------------------------
+[Main] Episode 4735 (from worker 3)
+Total reward: -900.2626666498566
+evacuation_time_80 : 36
+evacuation_time_100: 373
+-----------------------------------------------
+Episode 4735 - Total Learning Time: 6.895716 초
+-----------------------------------------------
+[Main] Episode 4736 (from worker 0)
+Total reward: -1064.1405215359898
+evacuation_time_80 : 50
+evacuation_time_100: 187
+-----------------------------------------------
+Episode 4736 - Total Learning Time: 2.986434 초
+-----------------------------------------------
+[Main] Episode 4737 (from worker 1)
+Total reward: -4192.013671132642
+evacuation_time_80 : 2000
+evacuation_time_100: 2000
+-----------------------------------------------
+Episode 4737 - Total Learning Time: 0.273790 초
+-----------------------------------------------
+[Main] Episode 4738 (from worker 2)
+Total reward: -1101.7166945033218
+evacuation_time_80 : 152
+evacuation_time_100: 1504
+-----------------------------------------------
+Episode 4738 - Total Learning Time: 165.166012 초
+-----------------------------------------------
+[Main] Episode 4739 (from worker 3)
+Total reward: -700.0483493040242
+evacuation_time_80 : 78
+evacuation_time_100: 519
+-----------------------------------------------
+Episode 4739 - Total Learning Time: 7.136276 초
+-----------------------------------------------
+[Main] Episode 4740 (from worker 0)
+Total reward: -970.0732819331428
+evacuation_time_80 : 42
+evacuation_time_100: 520
+-----------------------------------------------
+Episode 4740 - Total Learning Time: 3.219365 초
+-----------------------------------------------
+[Main] Episode 4741 (from worker 1)
+Total reward: -826.5507632239726
+evacuation_time_80 : 64
+evacuation_time_100: 454
+-----------------------------------------------
+Episode 4741 - Total Learning Time: 0.396331 초
+-----------------------------------------------
+[Main] Episode 4742 (from worker 2)
+Total reward: -1098.827091835598
+evacuation_time_80 : 62
+evacuation_time_100: 333
+-----------------------------------------------
+Episode 4742 - Total Learning Time: 166.303293 초
+-----------------------------------------------
+[Main] Episode 4743 (from worker 3)
+Total reward: -1100.2905130098864
+evacuation_time_80 : 73
+evacuation_time_100: 246
+-----------------------------------------------
+Episode 4743 - Total Learning Time: 7.762561 초
+-----------------------------------------------
+[Main] Episode 4744 (from worker 1)
+Total reward: -1461.8499598754138
+evacuation_time_80 : 68
+evacuation_time_100: 2000
+-----------------------------------------------
+Episode 4744 - Total Learning Time: 3.928950 초
+-----------------------------------------------
+[Main] Episode 4745 (from worker 0)
+Total reward: -1095.3458537062634
+evacuation_time_80 : 0
+evacuation_time_100: 892
+-----------------------------------------------
+Episode 4745 - Total Learning Time: 16.834474 초
+-----------------------------------------------
+[Main] Episode 4746 (from worker 2)
+Total reward: -1046.2928710143888
+evacuation_time_80 : 164
+evacuation_time_100: 2000
+-----------------------------------------------
+Episode 4746 - Total Learning Time: 154.476005 초
+-----------------------------------------------
+[Main] Episode 4747 (from worker 3)
+Total reward: -662.2245561594136
+evacuation_time_80 : 90
+evacuation_time_100: 134
+-----------------------------------------------
+Episode 4747 - Total Learning Time: 6.263592 초
+-----------------------------------------------
+[Main] Episode 4748 (from worker 1)
+Total reward: -953.6869204407016
+evacuation_time_80 : 171
+evacuation_time_100: 1448
+-----------------------------------------------
+Episode 4748 - Total Learning Time: 5.226939 초
+-----------------------------------------------
+[Main] Episode 4749 (from worker 0)
+Total reward: -1146.1057108077541
+evacuation_time_80 : 74
+evacuation_time_100: 1880
+-----------------------------------------------
+Episode 4749 - Total Learning Time: 16.104605 초
+-----------------------------------------------
+[Main] Episode 4750 (from worker 2)
+Total reward: -1479.4426147440815
+evacuation_time_80 : 92
+evacuation_time_100: 762
+-----------------------------------------------
+Episode 4750 - Total Learning Time: 149.550349 초
+-----------------------------------------------
+[Main] Episode 4751 (from worker 3)
+Total reward: -987.5172107996244
+evacuation_time_80 : 78
+evacuation_time_100: 318
+-----------------------------------------------
+Episode 4751 - Total Learning Time: 6.340903 초
+-----------------------------------------------
+[Main] Episode 4752 (from worker 1)
+Total reward: -963.5979484527473
+evacuation_time_80 : 59
+evacuation_time_100: 364
+-----------------------------------------------
+Episode 4752 - Total Learning Time: 13.172856 초
+-----------------------------------------------
+[Main] Episode 4753 (from worker 0)
+Total reward: -855.4021514736695
+evacuation_time_80 : 53
+evacuation_time_100: 2000
+-----------------------------------------------
+Episode 4753 - Total Learning Time: 15.324237 초
+-----------------------------------------------
+[Main] Episode 4754 (from worker 2)
+Total reward: -741.1947445911389
+evacuation_time_80 : 49
+evacuation_time_100: 388
+-----------------------------------------------
+Episode 4754 - Total Learning Time: 146.537583 초
+-----------------------------------------------
+[Main] Episode 4755 (from worker 3)
+Total reward: -3940.794129937963
+evacuation_time_80 : 122
+evacuation_time_100: 2000
+-----------------------------------------------
+Episode 4755 - Total Learning Time: 6.576146 초
+-----------------------------------------------
+[Main] Episode 4756 (from worker 1)
+Total reward: -860.2621784727579
+evacuation_time_80 : 77
+evacuation_time_100: 882
+-----------------------------------------------
+Episode 4756 - Total Learning Time: 12.388234 초
+-----------------------------------------------
+[Main] Episode 4757 (from worker 0)
+Total reward: -1282.9761691224694
+evacuation_time_80 : 0
+evacuation_time_100: 166
+-----------------------------------------------
+Episode 4757 - Total Learning Time: 13.988784 초
+-----------------------------------------------
+[Main] Episode 4758 (from worker 2)
+Total reward: -895.9514414359178
+evacuation_time_80 : 60
+evacuation_time_100: 214
+-----------------------------------------------
+Episode 4758 - Total Learning Time: 143.480850 초
+-----------------------------------------------
+[Main] Episode 4759 (from worker 3)
+Total reward: -920.2424371150738
+evacuation_time_80 : 93
+evacuation_time_100: 446
+-----------------------------------------------
+Episode 4759 - Total Learning Time: 5.611182 초
+-----------------------------------------------
+[Main] Episode 4760 (from worker 1)
+Total reward: -768.7503493124992
+evacuation_time_80 : 103
+evacuation_time_100: 250
+-----------------------------------------------
+Episode 4760 - Total Learning Time: 12.710939 초
+-----------------------------------------------
+[Main] Episode 4761 (from worker 0)
+Total reward: -967.7274783289076
+evacuation_time_80 : 91
+evacuation_time_100: 391
+-----------------------------------------------
+Episode 4761 - Total Learning Time: 14.036413 초
+-----------------------------------------------
+[Main] Episode 4762 (from worker 2)
+Total reward: -734.2513448578137
+evacuation_time_80 : 173
+evacuation_time_100: 514
+-----------------------------------------------
+Episode 4762 - Total Learning Time: 142.550360 초
+-----------------------------------------------
+[Main] Episode 4763 (from worker 3)
+Total reward: -990.0232599899094
+evacuation_time_80 : 65
+evacuation_time_100: 958
+-----------------------------------------------
+Episode 4763 - Total Learning Time: 5.527982 초
+-----------------------------------------------
+[Main] Episode 4764 (from worker 1)
+Total reward: -931.061808287273
+evacuation_time_80 : 156
+evacuation_time_100: 2000
+-----------------------------------------------
+Episode 4764 - Total Learning Time: 12.718976 초
+-----------------------------------------------
+[Main] Episode 4765 (from worker 0)
+Total reward: -5836.200270141559
+evacuation_time_80 : 2000
+evacuation_time_100: 2000
+-----------------------------------------------
+Episode 4765 - Total Learning Time: 23.522776 초
+-----------------------------------------------
+[Main] Episode 4766 (from worker 3)
+Total reward: -1467.3984448709768
+evacuation_time_80 : 101
+evacuation_time_100: 730
+-----------------------------------------------
+Episode 4766 - Total Learning Time: 133.695012 초
+-----------------------------------------------
+[Main] Episode 4767 (from worker 2)
+Total reward: -1027.3256066220695
+evacuation_time_80 : 47
+evacuation_time_100: 1175
+-----------------------------------------------
+Episode 4767 - Total Learning Time: 2.547942 초
+-----------------------------------------------
+[Main] Episode 4768 (from worker 1)
+Total reward: -1092.1978988435733
+evacuation_time_80 : 98
+evacuation_time_100: 1311
+-----------------------------------------------
+Episode 4768 - Total Learning Time: 20.524657 초
+-----------------------------------------------
+[Main] Episode 4769 (from worker 0)
+Total reward: -817.061046460994
+evacuation_time_80 : 70
+evacuation_time_100: 2000
+-----------------------------------------------
+Episode 4769 - Total Learning Time: 30.201666 초
+-----------------------------------------------
+[Main] Episode 4770 (from worker 3)
+Total reward: -2767.7765064691453
+evacuation_time_80 : 107
+evacuation_time_100: 2000
+-----------------------------------------------
+Episode 4770 - Total Learning Time: 128.858889 초
+-----------------------------------------------
+[Main] Episode 4771 (from worker 2)
+Total reward: -3732.9149818812293
+evacuation_time_80 : 127
+evacuation_time_100: 2000
+-----------------------------------------------
+Episode 4771 - Total Learning Time: 3.413363 초
+-----------------------------------------------
+[Main] Episode 4772 (from worker 1)
+Total reward: -899.2616440425289
+evacuation_time_80 : 0
+evacuation_time_100: 1
+-----------------------------------------------
+Episode 4772 - Total Learning Time: 17.808912 초
+-----------------------------------------------
+[Main] Episode 4773 (from worker 0)
+Total reward: -723.7042738202663
+evacuation_time_80 : 59
+evacuation_time_100: 313
+-----------------------------------------------
+Episode 4773 - Total Learning Time: 29.100760 초
+-----------------------------------------------
+[Main] Episode 4774 (from worker 3)
+Total reward: -2765.4483469244656
+evacuation_time_80 : 114
+evacuation_time_100: 2000
+-----------------------------------------------
+Episode 4774 - Total Learning Time: 126.784907 초
+-----------------------------------------------
+[Main] Episode 4775 (from worker 2)
+Total reward: -626.9629457123523
+evacuation_time_80 : 44
+evacuation_time_100: 254
+-----------------------------------------------
+Episode 4775 - Total Learning Time: 3.766214 초
+-----------------------------------------------
+[Main] Episode 4776 (from worker 1)
+Total reward: -803.0002304776121
+evacuation_time_80 : 0
+evacuation_time_100: 15
+-----------------------------------------------
+Episode 4776 - Total Learning Time: 17.615655 초
+-----------------------------------------------
+[Main] Episode 4777 (from worker 0)
+Total reward: -1066.47638351229
+evacuation_time_80 : 0
+evacuation_time_100: 386
+-----------------------------------------------
+Episode 4777 - Total Learning Time: 28.746931 초
+-----------------------------------------------
+[Main] Episode 4778 (from worker 3)
+Total reward: -708.7686041132811
+evacuation_time_80 : 0
+evacuation_time_100: 21
+-----------------------------------------------
+Episode 4778 - Total Learning Time: 125.244163 초
+-----------------------------------------------
+[Main] Episode 4779 (from worker 2)
+Total reward: -1562.314631589088
+evacuation_time_80 : 68
+evacuation_time_100: 2000
+-----------------------------------------------
+Episode 4779 - Total Learning Time: 3.421518 초
+-----------------------------------------------
+[Main] Episode 4780 (from worker 1)
+Total reward: -1178.5530033650516
+evacuation_time_80 : 96
+evacuation_time_100: 2000
+-----------------------------------------------
+Episode 4780 - Total Learning Time: 17.527481 초
+-----------------------------------------------
+[Main] Episode 4781 (from worker 0)
+Total reward: -832.5481257107091
+evacuation_time_80 : 100
+evacuation_time_100: 710
+-----------------------------------------------
+Episode 4781 - Total Learning Time: 29.864681 초
+-----------------------------------------------
+[Main] Episode 4782 (from worker 3)
+Total reward: -1222.8164951290364
+evacuation_time_80 : 52
+evacuation_time_100: 587
+-----------------------------------------------
+Episode 4782 - Total Learning Time: 127.705997 초
+-----------------------------------------------
+[Main] Episode 4783 (from worker 2)
+Total reward: -3802.6389052516497
+evacuation_time_80 : 123
+evacuation_time_100: 2000
+-----------------------------------------------
+Episode 4783 - Total Learning Time: 4.582435 초
+-----------------------------------------------
+[Main] Episode 4784 (from worker 1)
+Total reward: -844.0534615140068
+evacuation_time_80 : 0
+evacuation_time_100: 360
+-----------------------------------------------
+Episode 4784 - Total Learning Time: 16.430626 초
+-----------------------------------------------
+[Main] Episode 4785 (from worker 0)
+Total reward: -773.5993189165189
+evacuation_time_80 : 55
+evacuation_time_100: 144
+-----------------------------------------------
+Episode 4785 - Total Learning Time: 28.895570 초
+-----------------------------------------------
+[Main] Episode 4786 (from worker 3)
+Total reward: -1167.6854284311075
+evacuation_time_80 : 69
+evacuation_time_100: 505
+-----------------------------------------------
+Episode 4786 - Total Learning Time: 129.151399 초
+-----------------------------------------------
+[Main] Episode 4787 (from worker 2)
+Total reward: -3757.975614193021
+evacuation_time_80 : 105
+evacuation_time_100: 2000
+-----------------------------------------------
+Episode 4787 - Total Learning Time: 12.044510 초
+-----------------------------------------------
+[Main] Episode 4788 (from worker 1)
+Total reward: -858.7768159074081
+evacuation_time_80 : 84
+evacuation_time_100: 521
+-----------------------------------------------
+Episode 4788 - Total Learning Time: 14.241546 초
+-----------------------------------------------
+[Main] Episode 4789 (from worker 0)
+Total reward: -1033.6786876051056
+evacuation_time_80 : 154
+evacuation_time_100: 1236
+-----------------------------------------------
+Episode 4789 - Total Learning Time: 30.942750 초
+-----------------------------------------------
+[Main] Episode 4790 (from worker 3)
+Total reward: -1415.4647224810094
+evacuation_time_80 : 22
+evacuation_time_100: 632
+-----------------------------------------------
+Episode 4790 - Total Learning Time: 127.368928 초
+-----------------------------------------------
+[Main] Episode 4791 (from worker 2)
+Total reward: -777.1721787350638
+evacuation_time_80 : 115
+evacuation_time_100: 2000
+-----------------------------------------------
+Episode 4791 - Total Learning Time: 7.718812 초
+-----------------------------------------------
+[Main] Episode 4792 (from worker 1)
+Total reward: -724.497159838174
+evacuation_time_80 : 54
+evacuation_time_100: 129
+-----------------------------------------------
+Episode 4792 - Total Learning Time: 13.544030 초
+-----------------------------------------------
+[Main] Episode 4793 (from worker 0)
+Total reward: -804.583748442585
+evacuation_time_80 : 55
+evacuation_time_100: 88
+-----------------------------------------------
+Episode 4793 - Total Learning Time: 30.064748 초
+-----------------------------------------------
+[Main] Episode 4794 (from worker 3)
+Total reward: -3624.895702215899
+evacuation_time_80 : 196
+evacuation_time_100: 2000
+-----------------------------------------------
+Episode 4794 - Total Learning Time: 125.260353 초
+-----------------------------------------------
+[Main] Episode 4795 (from worker 2)
+Total reward: -725.1715295445756
+evacuation_time_80 : 62
+evacuation_time_100: 401
+-----------------------------------------------
+Episode 4795 - Total Learning Time: 6.855530 초
+-----------------------------------------------
+[Main] Episode 4796 (from worker 1)
+Total reward: -1546.2307816489931
+evacuation_time_80 : 93
+evacuation_time_100: 2000
+-----------------------------------------------
+Episode 4796 - Total Learning Time: 13.670715 초
+-----------------------------------------------
+[Main] Episode 4797 (from worker 0)
+Total reward: -935.5631627734502
+evacuation_time_80 : 49
+evacuation_time_100: 949
+-----------------------------------------------
+Episode 4797 - Total Learning Time: 30.209201 초
+-----------------------------------------------
+[Main] Episode 4798 (from worker 3)
+Total reward: -712.6107744862705
+evacuation_time_80 : 0
+evacuation_time_100: 341
+-----------------------------------------------
+Episode 4798 - Total Learning Time: 127.352058 초
+-----------------------------------------------
+[Main] Episode 4799 (from worker 2)
+Total reward: -924.8357991876857
+evacuation_time_80 : 0
+evacuation_time_100: 101
+-----------------------------------------------
+Episode 4799 - Total Learning Time: 2.976120 초
+-----------------------------------------------
+[Main] Episode 4800 (from worker 1)
+Total reward: -1369.7345866396558
+evacuation_time_80 : 63
+evacuation_time_100: 67
+-----------------------------------------------
+Model saved to /home/amrl_sunny/Log_SAC_UED3/sac_checkpoint_ep_4800.pth

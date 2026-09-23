@@ -1,0 +1,1885 @@
+#this source code requires Mesa==2.2.1
+#^__^
+from core import Agent
+import socket
+import time 
+import math
+import numpy as np
+import random
+import copy
+import sys 
+from collections import deque
+from heapq import heappush, heappop
+from shapely.geometry import Point
+from shapely.geometry import Polygon, MultiPolygon
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import torch.nn.functional as F
+from config import *
+
+# How far choice_safe_mesh will look for a walkable mesh, in grid cells.
+# Real building footprints need more than the original radius of two; see the
+# comment at the fallback.
+SAFE_MESH_SEARCH_RADIUS = 12
+
+
+ # goals의 가운데를 가져오는 함수
+ # 어디로 향하게 할 것인가? -> goals의 가운데 
+
+class WallAgent(Agent): ## wall .. 탈출구 범위 내에 agents를 채워넣어서 탈출구라는 것을 보여주고 싶었음.. 
+    def __init__(self, unique_id, model, pos, agent_type):
+        super().__init__(unique_id, model)
+        self.pos = pos
+        self.type = agent_type
+        self.buried = 0
+        self.dead = 0
+        self.xy =pos
+
+    
+    
+class CrowdAgent(Agent):
+    """An agent that fights."""
+
+    def __init__(self, unique_id, model, pos, type_agent): 
+        super().__init__(unique_id, model)
+        self.unique_id = unique_id
+        self.next_mesh = None
+        self.past_mesh = None
+        self.previous_mesh = None
+        self.pos = pos
+        self.behavior_probability = [random.gauss(0.9, 0.1), random.gauss(0.2, 0.1), random.gauss(0.1, 0.1)] #robot #동조 #myway
+        self.robot_step = 0
+        self.type = type_agent
+
+        self.dead = False
+
+        self.danger = 0
+        self.previous_danger = 0
+
+        self.drag = 0
+        self.dead_count = 0
+        self.buried = False
+        self.previous_stage = []
+        self.now_goal = [0,0]
+        self.now_pointing_mesh = None
+        self.robot_previous_goal = [0, 0]
+        self.robot_initialized = 0
+        self.direction = [0, 0]
+
+        # print(isinstance(pos, tuple))
+        self.xy = pos
+        self.vel = [0, 0]
+        self.acc = [0, 0]
+        # self.mass = 3
+        self.mass = np.random.normal(66, 4.16) # agent의 mass, 평균 66kg, 표준 편차 4.16kg
+        if self.type == 3: # robot mass는 3으로 고정
+            self.mass = 30
+
+        self.desired_speed_a = np.random.normal(AGENT_SPEED_MEAN, 0.2) # agent의 desired_speed, 평균 1.5m/s, 표준 편차 0.2m/s
+
+        self.is_effected_by_robot = 0
+        self.blocked = False
+
+        self.decision_flag = random.randint(1,5) # self.decision_flag == 0 -> 결정 다시 내림
+        self.decision_period = random.randint(15,35) #self.decision_period == 0 -> 결정 다시 내림, 군중 마다 얼마만큼의 시간동안 자신의 결정을 번복하지 않는가 모델링
+
+        # How readily this pedestrian follows a robot it can see. Drawn once,
+        # like mass and desired speed, because it is a disposition rather than
+        # a per-decision coin flip. It used to be 1.0 for everybody, which
+        # made the robots maximally effective by construction; see
+        # config.ROBOT_COMPLIANCE_RANGE.
+        self.compliance = random.uniform(*ROBOT_COMPLIANCE_RANGE)
+
+        # Where this pedestrian is going while it knows nothing about the
+        # hazard, and how long it stays when it gets there. See od.py.
+        self._dwell_until = 0
+        self._dwelling = False
+
+
+        # ---- hazard awareness ----------------------------------------
+        #
+        # Awareness is a process, not a fact. The Protective Action Decision
+        # Model has people move through receiving a cue, attending to it,
+        # understanding it, and only then deciding to act, and they can stop
+        # at any step. A boolean "knows about the hazard" collapses all of
+        # that, and the step it collapses hardest is the one the robots can
+        # actually act on.
+        #
+        #   unaware  -> cued -> milling -> acting
+        #
+        # `milling` is the interval of seeking confirmation before moving. It
+        # is where most of the delay lives in real evacuations, and where a
+        # robot's presence does its work: a robot cannot make somebody who is
+        # already running run faster, but it can stop somebody standing still
+        # from standing still.
+        self.awareness = "unaware"
+        self.cued_at = None            # step the first cue arrived
+        self.act_after = None          # steps of milling still to serve
+        self.cue_source = None         # "sensed" | "social" | "robot"
+
+        # Where this pedestrian has personally sensed the hazard. Not the
+        # zone: the zone is the simulator's knowledge, this is the
+        # pedestrian's. Evacuation studies find people navigate on local,
+        # route-level knowledge rather than a map of the place, and act on
+        # what they can see from where they stand. So a pedestrian avoids the
+        # spots it has sensed and can walk around a block straight into a face
+        # of the same hazard it has never seen. That is the situation the
+        # robots exist to prevent, and assuming global knowledge deletes it.
+        self.hazard_memory = []
+
+        # Which way out of the hazard this pedestrian believes in, either seen
+        # for itself or heard from a neighbour. A direction rather than a
+        # place, because the hazard boundary is continuous and no two
+        # pedestrians share a nearest point on it.
+        # {"dir": (ux, uy), "goal": (x, y), "score": float, "alpha": hops}
+        self.escape_belief = None
+        # Which robot this pedestrian is currently following, or None. With a
+        # team, "is being guided" is not enough: each robot's observation has
+        # to count its own followers, not everyone else's as well.
+        self.following_robot_id = None
+        self.exit_belief = None       # unused under the hazard task; kept for
+                                      # the numbered maps and the GUI editors
+        self.life_time = 0
+        self.body_radius = AGENT_BODY_RADIUS
+        self.vision_radius = AGENT_VISION
+        self.meeting_robot = 0
+
+
+    def step(self) -> None:
+
+        """Handles the step of the model dor each agent.
+        Sets the flags of each agent during the simulation.
+        """
+        if not self.dead:
+            self.life_time += 1
+            
+        # buried agents do not move (Do they???? :))
+        if self.buried:
+            return
+
+        # dead for too long it is buried not being displayed 
+        if self.dead_count > 4:
+            self.buried = True
+            return
+
+        # no health and not buried increment the count
+        if self.dead and not self.buried:
+            self.dead_count += 1
+            return
+
+        # Nobody is removed any more. Under the exit task a pedestrian that
+        # reached a door was marked dead and taken out of the simulation, so
+        # the crowd shrank and progress only ever went one way. There is no
+        # door now: a pedestrian is safe by standing outside the hazard, and
+        # nothing stops it drifting back in. Keeping everyone in the
+        # simulation for the whole episode is what makes that possible, and
+        # keeping them out is half of what the robots are being asked to do.
+        #
+        # `dead` survives as a field because the crowd-agent machinery and the
+        # renderer both read it, but under this task it is never set.
+        
+
+
+        self.move()
+
+
+    def choice_safe_mesh(self, point):
+        # The grid runs 0..width-1 by 0..height-1, so a query on the map edge
+        # has no cell of its own. The original code special-cased exactly the
+        # far corner; every other boundary point fell through and raised, which
+        # real footprints hit constantly because their triangulation leaves
+        # slivers along the edge whose centroids round onto it. Clamping is the
+        # same intent applied to all four edges.
+        x = min(max(int(round(point[0])), 0), self.model.width - 1)
+        y = min(max(int(round(point[1])), 0), self.model.height - 1)
+        point_grid = (x, y)
+        while_checking = 0
+
+        candidates = [(x+1,y+1), (x+1, y), (x, y+1), (x-1, y-1), (x-1, y), (x, y-1), (x+1, y-1), (x-1, y+1), (x-2, y), (x+2, y), (x, y-2), (x, y+2)]
+        
+        grid_to_mesh = self.model.match_grid_to_mesh
+        pure = self.model.pure_mesh
+
+        if (point_grid not in grid_to_mesh) or (grid_to_mesh[point_grid] not in pure):
+            #print("다른 후보 찾기")
+            #print("-")
+            for c in candidates:
+                if (c in grid_to_mesh) and (grid_to_mesh[c] in pure):
+                    return grid_to_mesh[c]
+
+            # The twelve fixed candidates above are enough on generated maps,
+            # where obstacles are few and blocky. They are not enough on real
+            # building footprints: those carry many more vertices, the
+            # constrained triangulation produces correspondingly larger and
+            # more irregular triangles, and a triangle's own centroid can land
+            # in a grid cell whose mapped triangle is classified as an obstacle
+            # mesh. Giving up there raises, the episode dies, and the worker
+            # retries the same map forever.
+            #
+            # So widen the search in rings instead of stopping at radius two.
+            # The result is the nearest walkable mesh, which is what every
+            # caller wanted; the old behaviour is unchanged wherever the close
+            # candidates already answered.
+            for radius in range(3, SAFE_MESH_SEARCH_RADIUS + 1):
+                best = None
+                best_d2 = None
+                for dx in range(-radius, radius + 1):
+                    for dy in range(-radius, radius + 1):
+                        # Only the new ring, not the interior already searched.
+                        if max(abs(dx), abs(dy)) != radius:
+                            continue
+                        c = (x + dx, y + dy)
+                        mesh = grid_to_mesh.get(c)
+                        if mesh is None or mesh not in pure:
+                            continue
+                        d2 = dx * dx + dy * dy
+                        if best_d2 is None or d2 < best_d2:
+                            best, best_d2 = mesh, d2
+                if best is not None:
+                    return best
+
+            # Nothing walkable anywhere near. Returning the mesh that actually
+            # contains the point keeps the caller working with a real triangle
+            # rather than aborting the episode; it is blocked ground, which the
+            # distance query will report as unreachable, and that is the
+            # truthful answer for a point sealed inside a building.
+            if point_grid in grid_to_mesh:
+                return grid_to_mesh[point_grid]
+
+            raise Exception(f"{x}, {y} 지점에서 오류 발생, safe mesh를 찾지 못했습니다")
+        return grid_to_mesh[point_grid]
+        
+
+
+
+    def mesh_to_mesh_distance(self, point1, point2):
+        point1_mesh = self.choice_safe_mesh(point1)
+        point2_mesh = self.choice_safe_mesh(point2)
+
+        return self.model.distance[point1_mesh][point2_mesh]
+
+    def point_to_point_distance(self, point1, point2):
+
+        point1_mesh = self.choice_safe_mesh(point1)
+        point2_mesh = self.choice_safe_mesh(point2)
+        if self.model.next_vertex_matrix[point1_mesh][point2_mesh] == None:
+            return 99999999999
+        
+        distance = 0
+        now_mesh = point1_mesh
+
+        if (self.model.next_vertex_matrix[now_mesh][point2_mesh] == point2_mesh):
+            return math.sqrt(pow(point1[0]-point2[0],2)+pow(point1[1]-point2[1],2))
+
+        now_mesh = self.model.next_vertex_matrix[now_mesh][point2_mesh]
+        now_mesh_middle = ((now_mesh[0][0]+now_mesh[1][0]+now_mesh[2][0])/3, (now_mesh[0][1]+now_mesh[1][1]+now_mesh[2][1])/3)
+        distance += math.sqrt(pow(now_mesh_middle[0]-point1[0],2)+pow(point1[1]-now_mesh_middle[1],2))
+
+        while(self.model.next_vertex_matrix[now_mesh][point2_mesh] != point2_mesh):
+            distance += self.model.distance[now_mesh][self.model.next_vertex_matrix[now_mesh][point2_mesh]]
+            now_mesh = self.model.next_vertex_matrix[now_mesh][point2_mesh]
+        
+        now_mesh_middle = ((now_mesh[0][0]+now_mesh[1][0]+now_mesh[2][0])/3, (now_mesh[0][1]+now_mesh[1][1]+now_mesh[2][1])/3)    
+
+        distance += math.sqrt(pow(now_mesh_middle[0]-point2[0],2)+pow(now_mesh_middle[1]-point2[1],2))
+        
+        return distance
+
+
+    def _neighbors(self, radius):
+        # 1) 기존처럼 반경 후보
+        candidates = self.model.space.query_radius(self.xy, radius, predicate=None)
+        if not candidates:
+            return []
+
+        # 2) 시야 폴리곤은 '사전계산된 것'을 조회만
+        poly = self.model.vision_atlas.polygon_at(
+            self.xy[0], self.xy[1], radius, self.model.obstacles_version
+        )
+
+        if poly.is_empty:
+            return []
+
+        # One vectorised containment test for the whole candidate set.
+        #
+        # This used to build a shapely Point per candidate and ask the polygon
+        # about each one separately. At a thousand pedestrians that was the
+        # single largest cost in the simulation: 274,818 Point constructions
+        # and 222,066 `covers` calls over 20 steps, and `_neighbors` alone
+        # accounted for 45 per cent of the step. The social force everyone
+        # assumes is the expensive part was 7 per cent.
+        #
+        # `intersects_xy` rather than `contains_xy`. For a point the two
+        # differ exactly on the boundary: `contains_xy` excludes it and
+        # `covers` includes it, so a pedestrian standing on the edge of
+        # somebody's field of view would appear or vanish depending on which
+        # was used. `intersects_xy` agrees with `covers` everywhere, checked
+        # against 7,200 tests on real vision polygons with real crowd
+        # positions and zero disagreements.
+        import numpy as np
+        from shapely import intersects_xy
+
+        refs = []
+        xs = []
+        ys = []
+        for b in candidates:
+            ref = b.ref
+            if (ref is None) or (ref is self) or getattr(ref, "dead", False):
+                continue
+            refs.append(ref)
+            xs.append(b.pos[0])
+            ys.append(b.pos[1])
+        if not refs:
+            return []
+
+        hit = intersects_xy(poly, np.asarray(xs, dtype=float),
+                            np.asarray(ys, dtype=float))
+        return [ref for ref, ok in zip(refs, hit) if ok]
+
+    def move(self) -> None:
+        """Handles the movement behavior.
+        Here the agent decides   if it moves,
+        drinks the heal potion,
+        or attacks other agent."""
+        if(self.model.robot_version != 'N'):
+            cells_with_agents = []
+            robot_xy = [self.model.robot.xy[0], self.model.robot.xy[1]]
+
+        if (self.type == 3):
+            self.robot_step += 1
+
+                   
+            if self.model.robot_type == "Q":
+                new_position_robot = self.robot_policy_Q()
+            
+            elif self.model.robot_type == "T":
+                new_position_robot = self.robot_policy_Q()
+            elif self.model.robot_type == "R":
+                new_position_robot = self.robot_policy_Q()
+            else:
+                raise ValueError(f"Unknown robot_type {self.model.robot_type}")
+            
+
+            self.model.space.move(self.unique_id, self.xy)
+            self.pos = new_position_robot
+            return
+        
+        if self.type in (0, 1, 2):               # (로봇이 아니면)
+            # (2) 힘 계산·충돌 예측·이동 ----------
+            self.pos = (round(self.xy[0]), round(self.xy[1]))
+            new_pos  = self.agent_modeling()      # ← 내부에서 predict_collision() 포함
+            self.pos = (self.xy[0], self.xy[1])
+    
+    def _wall_repulsion(self):
+        from shapely.geometry import Point, box
+        Fwx = Fwy = 0.0
+        KN = SF_WALL_KN
+        CN = SF_WALL_CN
+        MU_T = SF_WALL_MU_T
+        p = Point(self.xy[0], self.xy[1])
+        F_contact_x = 0.0
+        F_contact_y = 0.0
+        F_fric_x = 0.0
+        F_fric_y = 0.0
+        # Only walls near enough to matter, found through the spatial index.
+        # This used to copy the obstacle list, build a fresh boundary polygon
+        # and ask every polygon for its exterior on every call, for every
+        # agent, on every step: 92,400 distance queries over 200 steps with
+        # 40 agents, almost all of them against walls metres away.
+        # A pedestrian keeps its body clear of the wall plus a hand's breadth,
+        # not plus a metre. The old standoff made every doorway narrower than
+        # it is by three metres of clearance a real person does not keep.
+        r_sum = self.body_radius + SF_WALL_MARGIN_M
+        reach = max(1.0, r_sum * 2.0)
+        exteriors = self.model._wall_exteriors
+        # A box, not a buffered point. The buffer was building a polygon for
+        # every agent on every step purely to ask the index a range question,
+        # which is the one thing a box already answers; it became the largest
+        # single cost once the walls themselves were indexed.
+        near = self.model._wall_exterior_index.query(
+            box(self.xy[0] - reach, self.xy[1] - reach,
+                self.xy[0] + reach, self.xy[1] + reach))
+
+        for idx in near:
+            ring = exteriors[int(idx)]
+            d = ring.distance(p)
+            if d < r_sum:
+
+                q = ring.interpolate(ring.project(p))
+                dx = self.xy[0]-q.x
+                dy = self.xy[1]-q.y
+                dist = math.hypot(dx, dy) or 1e-9
+                ux, uy = dx/dist, dy/dist
+
+                # Standoff: a soft push while the body is merely close.
+                F_contact_x += SF_WALL_SOFT_K * (r_sum - d) * ux
+                F_contact_y += SF_WALL_SOFT_K * (r_sum - d) * uy
+                if d >= self.body_radius:
+                    # Not touching. No contact spring and, above all, no
+                    # tangential friction: braking everyone who walks near a
+                    # wall is what closed every doorway in the model.
+                    continue
+
+                penetration = self.body_radius - d
+                Fn_k = KN * penetration
+                # (b) 상대속도에 대한 법선 감쇠
+                v_jx = 0
+                v_jy = 0
+                rel_vx, rel_vy = (self.vel[0] - v_jx), (self.vel[1] - v_jy)
+                v_n = rel_vx*ux + rel_vy*uy        # 법선 성분
+                
+                if v_n < 0:
+                    restitution = 0.2
+                    drop = (1.0-restitution)*v_n
+                    self.vel[0] -= drop*ux
+                    self.vel[1] -= drop*uy
+
+                Fn_c = -CN * v_n                   # 접근할수록(음수) + 방향은 법선
+                Fn = max(Fn_k + Fn_c, 0.0)         # 법선 힘은 음수가 되지 않게
+
+                F_contact_x += Fn * ux
+                F_contact_y += Fn * uy
+
+                # (c) 접선 방향(미끄럼) 마찰: v_t = rel_v - v_n n
+                vt_x = rel_vx - v_n*ux
+                vt_y = rel_vy - v_n*uy
+                F_fric_x += -MU_T * vt_x
+                F_fric_y += -MU_T * vt_y
+
+            if d < reach:
+                q = ring.interpolate(ring.project(p))
+                dx = self.xy[0]-q.x
+                dy = self.xy[1]-q.y
+                dist = math.hypot(dx, dy) or 1e-9
+                nx, ny = dx/dist, dy/dist
+                mag = 200 * math.exp(-(d/0.2))
+                Fwx += mag * nx
+                Fwy += mag * ny
+        return Fwx, Fwy
+
+    def _wall_aware_heading(self, ux, uy):
+        """Slide along a nearby wall when the desired heading points into it.
+
+        A hazard belief or a followed pedestrian gives a *direction*, not an
+        obstacle-free route. A constant drive into a building otherwise forms
+        a stable equilibrium with wall repulsion, even though the pedestrian
+        has plenty of room to walk around the building.
+        """
+        from shapely.geometry import LineString, Point, box
+
+        x, y = self.xy
+        # Begin the turn before the acceleration-limited walker reaches the
+        # collision boundary, rather than after it has already stopped there.
+        reach = self.body_radius + SF_WALL_LOOKAHEAD_M
+        rings = self.model._wall_exteriors
+        nearby = self.model._wall_exterior_index.query(
+            box(x - reach, y - reach, x + reach, y + reach))
+        if len(nearby) == 0:
+            self._wall_follow_side = 0
+            return ux, uy
+
+        # Slide only when the way ahead is actually blocked.
+        #
+        # Without this the heading is deflected by any wall face the
+        # pedestrian is pointing at, and a doorway is exactly that: the wall
+        # beside the opening has its normal pointing straight back at
+        # somebody walking through, so everyone approaching a door was turned
+        # sideways and shuffled along the facade. Measured on a 3 m door, 90
+        # people took 253 s to get out against about 25 s in the published
+        # bottleneck experiments. The model had no way to notice that the wall
+        # in front of it has a gap in it.
+        step = max(0.4, self.body_radius)
+        samples = max(2, int(reach / step))
+
+        def clear(hx, hy):
+            return all(self.model.is_free_point(x + hx * step * k,
+                                                y + hy * step * k,
+                                                padding=self.body_radius)
+                       for k in range(1, samples + 1))
+
+        if clear(ux, uy):
+            self._wall_follow_side = 0
+            return ux, uy
+
+        # Blocked straight ahead: steer around it toward the goal before
+        # giving up and sliding along the wall.
+        #
+        # This is what makes a doorway usable. Sliding was the only response,
+        # so anybody approaching a door even slightly off the axis was turned
+        # along the facade instead of angling into the opening, and the door
+        # only passed the few who happened to be lined up with it. Turning by
+        # a few tens of degrees finds the gap, which is what a person walking
+        # into a doorway does.
+        for deg in (20.0, -20.0, 40.0, -40.0, 60.0, -60.0):
+            a = math.radians(deg)
+            ca, sa = math.cos(a), math.sin(a)
+            hx, hy = ux * ca - uy * sa, ux * sa + uy * ca
+            if clear(hx, hy):
+                self._wall_follow_side = 0
+                return hx, hy
+
+        p = Point(x, y)
+        candidates = []
+        for idx in nearby:
+            ring = rings[int(idx)]
+            dist = ring.distance(p)
+            if dist >= reach:
+                continue
+            q = ring.interpolate(ring.project(p))
+            nx, ny = x - q.x, y - q.y
+            norm = math.hypot(nx, ny)
+            if norm < 1e-8:
+                continue
+            nx, ny = nx / norm, ny / norm
+            candidates.append((dist, ring, nx, ny))
+        if not candidates:
+            self._wall_follow_side = 0
+            return ux, uy
+        candidates.sort(key=lambda item: item[0])
+        nearest_dist, _, nx, ny = candidates[0]
+        if ux * nx + uy * ny >= -0.15:
+            # In a narrow passage the closest wall can be behind the goal.
+            # Only then inspect similarly close walls in the travel corridor;
+            # a more distant wall must not hijack ordinary local movement.
+            corridor = LineString(
+                ((x, y), (x + ux * reach, y + uy * reach))
+            ).buffer(self.body_radius, quad_segs=4)
+            blocking = next((item for item in candidates[1:]
+                             if item[0] <= nearest_dist + 0.25
+                             and ux * item[2] + uy * item[3] < -0.15
+                             and item[1].intersects(corridor)), None)
+            if blocking is None:
+                self._wall_follow_side = 0
+                return ux, uy
+            _, _, nx, ny = blocking
+
+        tx, ty = -ny, nx
+        alignment = ux * tx + uy * ty
+        side = getattr(self, "_wall_follow_side", 0)
+        if side == 0:
+            side = 1 if alignment >= 0 else -1
+        # Keep the chosen side until the wall clears or the wedge recovery
+        # deliberately reverses it. Re-evaluating a slightly changing belief
+        # each step made pedestrians shuffle back and forth along a façade.
+        self._wall_follow_side = side
+
+        # A little outward bias keeps the body clear of the wall while the
+        # tangential component carries it toward an end or a doorway.
+        hx, hy = side * tx + 0.3 * nx, side * ty + 0.3 * ny
+        scale = math.hypot(hx, hy)
+        return hx / scale, hy / scale
+
+    # ---- 스윕 이동(터널링 방지) ----
+    def swept_move(self, xy, vel, dt):
+        nx, ny = xy[0], xy[1]
+        max_disp = max(abs(vel[0]*dt), abs(vel[1]*dt))
+        steps = max(1, int(math.ceil(max_disp / 0.5)))
+        sdt = dt / steps
+        # A body, not a point.
+        #
+        # `is_free` asks whether a coordinate is outside the obstacles, so a
+        # half-metre-wide pedestrian was free to walk into a half-metre gap
+        # where its body does not fit. It then cannot get out: the wall
+        # repulsion cancels the drive in every direction, and the release
+        # slides it along the wall only for it to come back, because the only
+        # way out is the same gap it came in by. Measured in a Soho crop, one
+        # pedestrian walked 58 m over six hundred steps without ever getting
+        # 0.9 m from where it started, pressed against a building edge the
+        # whole time, in a spot whose largest free circle is exactly its own
+        # body radius.
+        fits = lambda px, py: self.model.is_free_point(px, py,
+                                                       padding=self.body_radius)
+        for _ in range(steps):
+            tx = nx + vel[0]*sdt
+            ty = ny + vel[1]*sdt
+            if fits(tx, ty):
+                nx, ny = tx, ty
+            else:
+                # 축 분리
+                if fits(nx + vel[0]*sdt, ny):
+                    nx += vel[0]*sdt
+                if fits(nx, ny + vel[1]*sdt):
+                    ny += vel[1]*sdt
+        # Wedging is measured as a lack of progress, not as a lack of motion.
+        #
+        # A pedestrian pressed into a corner does not stand still: it shuffles
+        # back and forth against the wall, a few tenths of a metre a step, and
+        # gets nowhere. Comparing one step's displacement to a threshold calls
+        # that movement and resets the counter every step, so the release
+        # never fired: the one pedestrian still stuck in a Soho crop moved
+        # 0.003 m a step with a wedged counter of 0 while staying inside a
+        # 0.4 m circle for four hundred steps.
+        #
+        # So progress is measured from an anchor that only moves when the
+        # pedestrian actually gets somewhere.
+        if getattr(self, "_dwelling", False):
+            self._progress_anchor = (nx, ny)
+            self._wedged_for = 0
+            return [nx, ny]
+
+        anchor = getattr(self, "_progress_anchor", None)
+        if anchor is None:
+            self._progress_anchor = (nx, ny)
+            self._wedged_for = 0
+            return [nx, ny]
+        if math.hypot(nx - anchor[0], ny - anchor[1]) >= self.WEDGE_PROGRESS_M:
+            self._progress_anchor = (nx, ny)
+            self._wedged_for = 0
+            return [nx, ny]
+
+        self._wedged_for = getattr(self, "_wedged_for", 0) + 1
+        if self._wedged_for < self.WEDGE_PATIENCE:
+            return [nx, ny]
+        freed = self._unwedge([nx, ny])
+        self._progress_anchor = (freed[0], freed[1])
+        self._wedged_for = 0
+        return freed
+
+    # Steps of not getting anywhere before a pedestrian is treated as wedged.
+    WEDGE_PATIENCE = 12
+
+    # How far a pedestrian must get from its anchor to count as making
+    # progress. Larger than the shuffle a wedged pedestrian manages against a
+    # wall, smaller than a walking pedestrian covers in the patience window:
+    # at 1.35 m/s and a 0.25 s step that is several metres.
+    WEDGE_PROGRESS_M = 1.0
+
+    def _unwedge(self, xy):
+        """Free a pedestrian whose forces have cancelled against a wall.
+
+        Some pedestrians end up in a recess where the wall repulsion points
+        exactly opposite the way they want to go. Measured in a medina: a
+        pedestrian 0.21 m from a wall, well inside the 1.5 m contact
+        threshold, with a goal 2.95 m ahead, a drive direction of
+        (0.76, 0.65) and a wall force of (-62.8, -53.8). Anti-parallel, so the
+        net force is zero, the velocity is zero, and the swept move has
+        nothing to attempt. It stood still for the rest of the episode.
+
+        The social force model has no way out of this on its own: it is a
+        stable equilibrium, not a transient. So after a few steps of not
+        moving, step along the wall instead of into it. Sliding rather than
+        pushing is also what a person does in a doorway.
+
+        Patience matters. A pedestrian legitimately stands still while
+        milling, or when the crowd around it is packed, and shoving those
+        would change the dynamics being modelled rather than fix a defect.
+        """
+        fx, fy = self._wall_repulsion()
+        norm = math.hypot(fx, fy)
+        if norm < 1e-6:
+            # Not wedged against a wall at all; something else is holding it.
+            return [xy[0], xy[1]]
+
+        ux, uy = fx / norm, fy / norm
+        # A wall-following side that reached a dead end must try the other end.
+        side = getattr(self, "_wall_follow_side", 0)
+        if side:
+            side = -side
+            self._wall_follow_side = side
+        else:
+            side = 1
+
+        def clear_segment(cx, cy):
+            # Testing only the destination used to teleport pedestrians across
+            # thin walls and into gaps too narrow for their bodies.
+            length = math.hypot(cx - xy[0], cy - xy[1])
+            samples = max(2, int(math.ceil(length / 0.2)))
+            for i in range(1, samples + 1):
+                t = i / samples
+                if not self.model.is_free_point(
+                    xy[0] + t * (cx - xy[0]),
+                    xy[1] + t * (cy - xy[1]),
+                    padding=self.body_radius,
+                ):
+                    return False
+            return True
+
+        for step in (0.5, 1.0):
+            for tx, ty in ((side * -uy, side * ux),
+                           (side * uy, side * -ux)):
+                cx, cy = xy[0] + tx * step, xy[1] + ty * step
+                if clear_segment(cx, cy):
+                    self.vel = [0.0, 0.0]
+                    return [cx, cy]
+            cx, cy = xy[0] + ux * step, xy[1] + uy * step
+            if clear_segment(cx, cy):
+                self.vel = [0.0, 0.0]
+                return [cx, cy]
+        return [xy[0], xy[1]]
+
+        
+
+    def agent_modeling(self):
+        """
+        Helbing + Contact (penalty) model
+        - 비관통(원-원) 접촉: 탄성(스프링) + 점성 감쇠 + 접선 마찰
+        - 공기저항 형태 속도 감쇠로 관성 억제
+        """
+        import math
+
+
+
+        # ====== 기본 파라미터 (필요하면 수치만 조정) ======
+        dt   = AGENT_TIME_STEP
+        tau  = 1                  
+        A_MAX = 1.5                    # 가속 클립 ↑ 약간 강화
+        V_MAX_MULT = 1.00              # 목표속도보다 과속 안하게
+        # One definition of the body, from config. It used to be written here
+        # as well as in config, so the radius the forces used and the radius
+        # the collision test used could drift apart.
+        BODY_RADIUS = AGENT_BODY_RADIUS
+        WALL_RADIUS = AGENT_BODY_RADIUS + SF_WALL_MARGIN_M
+        KN = SF_KN
+        CN = SF_CN
+        MU_T = SF_MU_T
+        K_AGENT = SF_K_AGENT
+        K_WALL  = 500 # modified 참고
+        LAMBDA_A = SF_LAMBDA_A
+        # 공기저항(속도 감쇠) → 둥둥 뜨는 느낌 제거
+        BETA = 0                     # F_drag = -BETA * v
+
+        # ---- 유틸 ----
+        def get_radius(agent):
+            if getattr(agent, "type", None) == 3:
+                return ROBOT_BODY_RADIUS
+            elif getattr(agent, "type", None) in (9, 11):  # 벽/장애물
+                return WALL_RADIUS
+            else:
+                return BODY_RADIUS
+
+        def soft_clip_vec(x, y, lim):
+            n = math.hypot(x, y)
+            if n <= lim: return x, y
+            s = math.tanh(n/lim) / (n/lim)
+            return x*s, y*s
+        
+        # How far this pedestrian still has to walk to be clear of the
+        # hazard, geodesically. Zero once it is out by the safety margin.
+        #
+        # It used to be the distance to the nearest exit, and an unreachable
+        # exit reported a huge number, which was taken as a signal to remove
+        # the pedestrian. That cannot happen here: being far from safety is
+        # the normal state at the start of an episode, not a failure to route,
+        # and a level where somebody genuinely cannot get out is rejected by
+        # the generator's validator before it is ever run.
+        self.danger = self.model.escape_distance(self.xy)
+
+        # 이웃 상호작용 (사람/로봇)
+        sensor_R = self.vision_radius
+        near_agents = self._neighbors(sensor_R)
+
+        # Awareness first: what this pedestrian knows decides what it wants.
+        #
+        # A robot only counts as a cue while it is signalling and can be seen
+        # signalling. Before, any robot within range cued everybody whatever
+        # it was doing and through walls, which made the control mode
+        # impossible: a robot told the crowd about the hazard even when it was
+        # deliberately saying nothing.
+        self._signal_robot = self._signalling_robot(near_agents)
+        self.update_awareness(near_agents, self._signal_robot is not None)
+
+        self.which_goal_agent_want(near_agents)
+
+        # ---- 목표 방향 ----
+        gx = self.now_goal[0] - self.xy[0]
+        gy = self.now_goal[1] - self.xy[1]
+        gd = math.hypot(gx, gy)
+        if gd > 0:
+            dir_x, dir_y = gx/gd, gy/gd
+            dir_x, dir_y = self._wall_aware_heading(dir_x, dir_y)
+        else:
+            dir_x, dir_y = 0.0, 0.0
+
+        # ---- 원하는 속도 → Helbing desired force ----
+        v_des_x = self.desired_speed_a * dir_x
+        v_des_y = self.desired_speed_a * dir_y
+        F_des_x = self.mass * (v_des_x - self.vel[0]) / tau
+        F_des_y = self.mass * (v_des_y - self.vel[1]) / tau
+
+        # ---- 기존의 약한(원거리) 반발력 (지수) ----
+        F_rep_x = 0.0
+        F_rep_y = 0.0
+
+        # ---- 접촉(비관통) + 마찰 모델(핵심 추가) ----
+        F_contact_x = 0.0
+        F_contact_y = 0.0
+        F_fric_x    = 0.0
+        F_fric_y    = 0.0
+
+        r_i = BODY_RADIUS
+        # 자기 상태 (속도)
+        v_ix, v_iy = self.vel[0], self.vel[1]
+        self.meeting_robot = 0
+        for nb in near_agents:
+            if nb is self or getattr(nb, "dead", False):
+                continue
+            if nb.type == 3:
+                self.meeting_robot = 1
+
+            dx = self.xy[0] - nb.xy[0]
+            dy = self.xy[1] - nb.xy[1]
+            d  = math.hypot(dx, dy)
+            if d < 1e-9:
+                # 완전 겹침 초기 해소(랜덤 툭 치기)
+                jx, jy = (1.0, -1.0) if random.random() < 0.5 else (-1.0, 1.0)
+                F_contact_x += jx * KN * 0.01
+                F_contact_y += jy * KN * 0.01
+                continue
+
+            ux, uy = dx/d, dy/d  # (nb -> self) 법선 방향
+            nb_R = getattr(nb, "radius", BODY_RADIUS)
+            r_sum = self.body_radius + nb_R
+
+            # 원거리 지수 반발, 앞쪽 가중
+            #
+            # The weight runs from 1 for a neighbour directly ahead to
+            # SF_ANISOTROPY for one directly behind. Without it a uniform
+            # queue is symmetric and the model has no fundamental diagram at
+            # all: whoever is in front pushes back exactly as hard as whoever
+            # is behind pushes forward, so walking speed does not depend on
+            # density. See docs/crowd_validation.md.
+            mag = K_AGENT * math.exp((r_sum-d) / max(LAMBDA_A, 1e-6))
+            if SF_ANISOTROPY < 1.0:
+                sp = math.hypot(v_ix, v_iy)
+                if sp > 1e-6:
+                    # cos of the angle between where this pedestrian is going
+                    # and where the neighbour is. -ux is the direction to it.
+                    cos_phi = (-ux * v_ix - uy * v_iy) / sp
+                    mag *= (SF_ANISOTROPY
+                            + (1.0 - SF_ANISOTROPY) * (1.0 + cos_phi) / 2.0)
+            F_rep_x += mag * ux
+            F_rep_y += mag * uy
+
+            # # # 1) 원거리 지수 반발(부드러운 회피)
+            # if getattr(nb, "type", None) in (11, 9):
+            #     mag = K_WALL * math.exp((r_sum - d) / LAMBDA_A)
+            #     F_rep_x += mag * ux
+            #     F_rep_y += mag * uy
+            # else:
+            #     mag = K_AGENT * math.exp((r_sum - d) / LAMBDA_A)
+            #     F_rep_x += mag * ux
+            #     F_rep_y += mag * uy
+
+            # 2) 근거리 접촉(비관통) + 점성 감쇠 + 접선 마찰
+            if d < r_sum:
+                # 침투량(양수면 겹침)
+                penetration = (r_sum - d)
+                # (a) 법선 스프링
+                Fn_k = KN * penetration
+                # (b) 상대속도에 대한 법선 감쇠
+                v_jx = getattr(nb, "vel", [0,0])[0] if hasattr(nb, "vel") else 0.0
+                v_jy = getattr(nb, "vel", [0,0])[1] if hasattr(nb, "vel") else 0.0
+                rel_vx, rel_vy = (v_ix - v_jx), (v_iy - v_jy)
+                v_n = rel_vx*ux + rel_vy*uy        # 법선 성분
+                
+                if v_n < 0:
+                    restitution = 0
+                    drop = (1.0-restitution)*v_n
+                    self.vel[0] -= drop*ux
+                    self.vel[1] -= drop*uy
+
+                Fn_c = -CN * v_n                   # 접근할수록(음수) + 방향은 법선
+                Fn = max(Fn_k + Fn_c, 0.0)         # 법선 힘은 음수가 되지 않게
+
+                F_contact_x += Fn * ux
+                F_contact_y += Fn * uy
+
+                # (c) 접선 방향(미끄럼) 마찰: v_t = rel_v - v_n n
+                vt_x = rel_vx - v_n*ux
+                vt_y = rel_vy - v_n*uy
+                F_fric_x += -MU_T * vt_x
+                F_fric_y += -MU_T * vt_y
+        
+        BETA=0
+        decay = 1
+        self.vel[0] *= decay
+        self.vel[1] *= decay
+        # ---- 공기저항(속도 감쇠) ----
+        F_drag_x = -BETA * self.vel[0]
+        F_drag_y = -BETA * self.vel[1]
+
+
+        # ---- 외곽 지대 나가지 않게 ----
+
+        # 🔹 (추가) 맵 outer wall 반발력
+        W = self.model.width
+        H = self.model.height
+        MARGIN = 2.0         # 이 거리 안으로 들어오면 힘 발생
+        K_BORDER = 200.0     # 경계 힘 세기 (필요하면 조절)
+        F_wx = 0
+        F_wy = 0
+
+        W_x, W_y = self._wall_repulsion()
+        F_wx += W_x
+        F_wy += W_y
+
+        # left 벽 (x = 0 부근)
+        dx = max(0.0, MARGIN - self.xy[0])
+        if dx > 0.0:
+            # 왼쪽 벽에 가까우면 +x 방향으로 민다
+            F_wx += K_BORDER * dx
+
+        # right 벽 (x = W 부근)
+        dx = max(0.0, self.xy[0] - (W - MARGIN))
+        if dx > 0.0:
+            # 오른쪽 벽에 가까우면 -x 방향으로 민다
+            F_wx -= K_BORDER * dx
+
+        # bottom 벽 (y = 0 부근)
+        dy = max(0.0, MARGIN - self.xy[1])
+        if dy > 0.0:
+            # 아래쪽 벽에 가까우면 +y 방향
+            F_wy += K_BORDER * dy
+
+        # top 벽 (y = H 부근)
+        dy = max(0.0, self.xy[1] - (H - MARGIN))
+        if dy > 0.0:
+            # 위쪽 벽에 가까우면 -y 방향
+            F_wy -= K_BORDER * dy
+
+
+        # ---- 스윕 이동(터널링 방지) ----
+        def swept_move(xy, vel, dt):
+            nx, ny = xy[0], xy[1]
+            max_disp = max(abs(vel[0]*dt), abs(vel[1]*dt))
+            steps = max(1, int(math.ceil(max_disp / 0.5)))
+            sdt = dt / steps
+            for _ in range(steps):
+                tx = nx + vel[0]*sdt
+                ty = ny + vel[1]*sdt
+                ix, iy = int(round(tx)), int(round(ty))
+                if self.model.valid_space.get((ix, iy), False):
+                    nx, ny = tx, ty
+                    continue
+                # 축 분리 시도
+                ix_only = int(round(nx + vel[0]*sdt))
+                if self.model.valid_space.get((ix_only, int(round(ny))), False):
+                    nx = nx + vel[0]*sdt
+                iy_only = int(round(ny + vel[1]*sdt))
+                if self.model.valid_space.get((int(round(nx)), iy_only), False):
+                    ny = ny + vel[1]*sdt
+            return [nx, ny]
+
+        #self.xy = swept_move(self.xy, self.vel, dt)
+        # self.xy[0] = self.xy[0] + self.vel[0] * dt
+        # self.xy[1] = self.xy[1] + self.vel[1] * dt
+
+
+
+        # ---- 총합 힘 ----
+        F_x = F_des_x + F_rep_x + F_contact_x + F_fric_x + F_drag_x + F_wx
+        F_y = F_des_y + F_rep_y + F_contact_y + F_fric_y + F_drag_y + F_wy
+
+        # ---- 가속도 계산 + 클립 ----
+        a_x = F_x / self.mass
+        a_y = F_y / self.mass
+        a_x, a_y = soft_clip_vec(a_x, a_y, A_MAX)
+
+        self.acc[0], self.acc[1] = a_x, a_y
+
+        # ---- 속도 업데이트 ----
+        self.vel[0] += a_x * dt
+        self.vel[1] += a_y * dt
+
+        # 속도 클립 (벡터 노름)
+        v_des_scalar = max(self.desired_speed_a, 1e-6)
+        V_MAX = V_MAX_MULT * v_des_scalar
+        spd = math.hypot(self.vel[0], self.vel[1])
+        if spd > V_MAX:
+            s = V_MAX / spd
+            self.vel[0] *= s; self.vel[1] *= s
+        #print("agent desired speed : ", v_des_scalar)
+        #print("agent speed : ", self.vel[0], self.vel[1])
+        self.xy = self.swept_move(self.xy, self.vel, dt)
+        #self.model.space.clamp(self.xy)
+        self.model.space.move(self.unique_id, self.xy)
+
+        self.direction = [self.vel[0], self.vel[1]]
+
+        return tuple(self.xy)
+
+    
+    # ------------------------------------------------------------------
+    # hazard awareness
+    # ------------------------------------------------------------------
+
+    def _signalling_robot(self, neighbors):
+        """The nearest robot whose signal this pedestrian can actually read.
+
+        Three conditions, and each was wrong before in a different way. The
+        robot has to be signalling at all: a robot in "off" mode is a body in
+        the way and nothing else, which is the whole point of having that
+        mode. It has to be within the signal's range, which is a property of
+        the signal and not of the pedestrian's eyesight. And it has to be
+        visible, which the field-of-view test in `_neighbors` already
+        established, so a robot behind a block cannot instruct anybody.
+
+        The awareness cue and the compliance decision both read this, so they
+        can no longer disagree about whether a robot is present.
+        """
+        best = None
+        best_d = float("inf")
+        radius = float(ROBOT_SIGNAL_RADIUS_M)
+        if ROBOT_SIGNAL_REQUIRES_SIGHT:
+            pool = [nb for nb in neighbors if getattr(nb, "type", None) == 3]
+        else:
+            pool = list(getattr(self.model, "robots", []) or [])
+        for rb in pool:
+            if getattr(rb, "mode", "off") == "off":
+                continue
+            d = math.hypot(self.xy[0] - rb.xy[0], self.xy[1] - rb.xy[1])
+            if d <= radius and d < best_d:
+                best, best_d = rb, d
+        return best
+
+    def _sense_hazard(self) -> bool:
+        """Direct perception. Returns True if the hazard was sensed this step.
+
+        Two ranges, because standing in smoke is not the same as seeing it
+        across a street. Inside the zone the per-step chance is high; outside
+        it needs line of sight, which the visibility atlas already answers, so
+        a hazard behind a block is not sensed at all.
+
+        Both scale with the hazard's perceptibility. A fire announces itself;
+        a gas leak does not, and for it this channel is effectively closed and
+        only word of mouth and the robots remain.
+        """
+        zone = getattr(self.model, "danger_zone", None)
+        if zone is None:
+            return False
+        perceptibility = float(getattr(self.model, "danger_perceptibility",
+                                       0.5))
+        if perceptibility < PERCEPTIBILITY_SENSORY_FLOOR:
+            # No sensory cue at all. See config.PERCEPTIBILITY_SENSORY_FLOOR:
+            # an unodorised leak is not faintly smellable, it is not smellable,
+            # and treating it as a small per-step chance made every hazard
+            # perceptible given a long enough episode.
+            return False
+        # How far above the floor, so the channel opens gradually.
+        salience = ((perceptibility - PERCEPTIBILITY_SENSORY_FLOOR)
+                    / max(1e-6, 1.0 - PERCEPTIBILITY_SENSORY_FLOOR))
+
+        x, y = float(self.xy[0]), float(self.xy[1])
+        if zone.contains(x, y):
+            p = AWARENESS_P_INSIDE * salience
+            spot = (x, y)
+        else:
+            d = zone.signed_distance(x, y)
+            if d > self.vision_radius:
+                return False
+            if not self.model.hazard_in_sight(self):
+                return False
+            p = AWARENESS_P_VISIBLE * salience
+            spot = zone.nearest_safe_point(x, y, margin=0.0)
+
+        if random.random() >= p:
+            return False
+        self._remember_hazard(spot, perceptibility)
+        return True
+
+    def _remember_hazard(self, spot, perceptibility: float) -> None:
+        """Record a sensed hazard location in this pedestrian's own memory.
+
+        Above PERCEPTIBILITY_GLOBAL_CUE the sighting also conveys a coarse
+        sense of the hazard as a whole, the way a smoke plume seen from a
+        distance does: you cannot trace its outline but you know roughly where
+        it is and that it is big. Below it, only the spot touched is known.
+        """
+        pts = [(float(spot[0]), float(spot[1]))]
+        if perceptibility >= PERCEPTIBILITY_GLOBAL_CUE:
+            zone = getattr(self.model, "danger_zone", None)
+            if zone is not None:
+                pts.append((float(zone.cx), float(zone.cy)))
+        for p in pts:
+            if all(math.hypot(p[0] - q[0], p[1] - q[1]) > 4.0
+                   for q in self.hazard_memory):
+                self.hazard_memory.append(p)
+        if len(self.hazard_memory) > HAZARD_MEMORY_MAX_POINTS:
+            del self.hazard_memory[:-HAZARD_MEMORY_MAX_POINTS]
+
+    def _social_cue(self, neighbors) -> int:
+        """How many visible neighbours are already acting.
+
+        The dominant channel. Warning research finds informal contact is how
+        most people actually learn of an emergency, and that an individual who
+        sees nobody else responding tends not to respond either.
+        """
+        n = 0
+        for nb in neighbors:
+            if nb is self or getattr(nb, "dead", False):
+                continue
+            if getattr(nb, "awareness", None) == "acting":
+                n += 1
+        return n
+
+    def _draw_premovement(self) -> float:
+        """Steps of milling before acting, drawn lognormally.
+
+        Fire-safety engineering treats evacuation as pre-movement plus travel
+        and reports pre-movement as a broad, right-skewed distribution rather
+        than a constant. The tail is the part that matters: the last occupants
+        to move are the ones who set the evacuation time, so a model that uses
+        a mean loses the thing being designed against.
+        """
+        return max(1.0, random.lognormvariate(
+            math.log(max(1.0, PREMOVEMENT_MEDIAN_STEPS)), PREMOVEMENT_SIGMA))
+
+    def update_awareness(self, neighbors, robot_near: bool) -> None:
+        """Advance the awareness state machine by one step."""
+        if self.type == 3 or self.dead:
+            return
+        zone = getattr(self.model, "danger_zone", None)
+        if zone is None:
+            return
+
+        acting_neighbours = self._social_cue(neighbors)
+
+        if self.awareness == "unaware":
+            source = None
+            if robot_near:
+                source = "robot"
+            elif self._sense_hazard():
+                source = "sensed"
+            elif acting_neighbours:
+                # Saturating in the number of neighbours: one person running
+                # past is a weaker cue than ten.
+                p = AWARENESS_P_SOCIAL * min(
+                    1.0, acting_neighbours / AWARENESS_SOCIAL_SATURATION)
+                if random.random() < p:
+                    source = "social"
+            if source is None:
+                return
+            self.awareness = "cued"
+            self.cue_source = source
+            self.cued_at = int(self.model.step_count)
+            self.act_after = self._draw_premovement()
+            if source == "robot":
+                # An authoritative, specific instruction is the strongest cue
+                # there is, and it is the one channel the policy controls.
+                self.act_after *= MILLING_ROBOT_SPEEDUP
+            self.awareness = "milling"
+            return
+
+        if self.awareness == "milling":
+            # Still perceiving while milling: a pedestrian who walks into the
+            # hazard during its delay learns where it is.
+            self._sense_hazard()
+            step = 1.0
+            if acting_neighbours:
+                step += MILLING_SOCIAL_SPEEDUP * min(
+                    1.0, acting_neighbours / AWARENESS_SOCIAL_SATURATION) * 4.0
+            if robot_near:
+                step += 4.0
+            self.act_after -= step
+            if self.act_after <= 0.0:
+                self.awareness = "acting"
+            return
+
+        if self.awareness == "acting":
+            self._sense_hazard()
+
+    def hazard_repulsion(self):
+        """A push away from the hazard spots this pedestrian remembers.
+
+        From memory, not from the zone. A pedestrian that has sensed one face
+        of the hazard avoids that face and nothing else, so it can round a
+        block and walk into another face it has never seen.
+        """
+        if self.awareness != "acting" or not self.hazard_memory:
+            return 0.0, 0.0
+        fx = fy = 0.0
+        for mx, my in self.hazard_memory:
+            dx, dy = self.xy[0] - mx, self.xy[1] - my
+            d = math.hypot(dx, dy)
+            if d < 1e-6 or d > HAZARD_MEMORY_RADIUS_M:
+                continue
+            w = (HAZARD_MEMORY_RADIUS_M - d) / HAZARD_MEMORY_RADIUS_M
+            fx += (dx / d) * w
+            fy += (dy / d) * w
+        return fx, fy
+
+    def which_goal_agent_want(self, neighbors, find_another: bool = False) -> None:
+        """
+        Modified Social-Force 기반 목표 결정:
+            · self.escape_belief = {"dir": 탈출 방향, "goal": [x,y], "alpha": hop}
+            · self.now_goal    = [x, y]  (다음 time-step 까지 유효한 가상 목표)
+        """
+        # ────────── 파라미터 ──────────
+        ROBOT_R = ROBOT_BODY_RADIUS
+        VISION_R = AGENT_VISION
+        AGENT_R = AGENT_VISION
+        ROBOT_R = ROBOT_VISION
+        EXIT_CONFIRM_R = EXIT_CONFIRM_RADIUS
+        P_robot_following = self.compliance #로봇을 따라갈 확률
+        P_neighbor_following = 0.7 #군중을 따라갈 확률
+
+        # A fixed goal set from outside, used by the validation scenarios in
+        # validation/ to drive a corridor or a bottleneck. Never set during
+        # training; it is here so the verification suite can exercise the real
+        # movement code rather than a copy of it.
+        scripted = getattr(self, "scripted_goal", None)
+        if scripted is not None:
+            self.now_goal = [float(scripted[0]), float(scripted[1])]
+            self._dwelling = False
+            return
+
+        # The same hook, but routed through the navmesh instead of straight at
+        # a point. A bottleneck measured with a straight-line goal is not
+        # measuring what the model does in a level: there the pedestrian
+        # follows waypoints through the triangulation, and the wall-aware
+        # heading slides it along a facade rather than into it, which is very
+        # different from aiming it at a doorway from across a room.
+        target = getattr(self, "scripted_mesh", None)
+        if target is not None:
+            self.type = 1
+            self._dwelling = False
+            self.now_pointing_mesh = target
+            self.now_goal = self._explore_randomly(self.choice_safe_mesh(self.xy))
+            return
+
+        # `escape_belief` carries a heading so neighbours can read it. It is
+        # cleared here and set by whichever branch below decides where this
+        # pedestrian is going.
+        self.escape_belief = None
+
+        # ─ 4단계: 행동 타입 결정 (로봇/이웃/마이웨이) ─
+        #
+        # The robot that matters is the nearest one whose signal this
+        # pedestrian can read, which is not the same as the nearest robot.
+        # A robot in "off" mode is a body in the way; one behind a block
+        # cannot be read at all.
+        lead = getattr(self, "_signal_robot", None)
+        if lead is None:
+            lead = self._signalling_robot(neighbors)
+        if lead is None:
+            robot_d = 9999999999
+        else:
+            robot_d = math.hypot(self.xy[0] - lead.xy[0],
+                                 self.xy[1] - lead.xy[1])
+        if(robot_d >= ROBOT_R and self.type==0 ): ### 로봇을 따라가던 애가 반경을 벗어나면 flag = 0
+            self.decision_flag = 0
+            self.following_robot_id = None
+            self.robot_lead_mode = None
+        if(self.decision_flag == 0 or robot_d < ROBOT_R): 
+            #print(f"Agent{self.unique_id} 는 새로운 결정을 내리기로 했습니다.")
+
+            if lead is not None:
+                # Compliance is a disposition times how the instruction was
+                # given. Following somebody and reading a sign are different
+                # acts, so the two modes do not share a probability.
+                mode = getattr(lead, "mode", "off")
+                scale = (ROBOT_GUIDE_COMPLIANCE if mode == "guide"
+                         else ROBOT_DIRECT_COMPLIANCE)
+                if random.random() < P_robot_following * scale:
+                    self.type = 0
+                    self.is_effected_by_robot = 1
+                    # Which robot and in what mode, so each robot's
+                    # observation counts only the pedestrians it is actually
+                    # influencing and the goal is set the right way below.
+                    self.following_robot_id = lead.unique_id
+                    self.robot_lead_mode = mode
+                    self.now_goal = self._robot_led_goal(lead, mode)
+                else:
+                    self.type = 1
+                    self.robot_lead_mode = None
+                    #print(f"Agent{self.unique_id} 가 이웃을 외면했습니다!")
+
+            else :
+                followable_neighbors = []
+                for n in neighbors:
+                    if (n.type != 2): #서로가 서로를 따라갈 수는 없음
+                        followable_neighbors.append(n)
+                if(len(followable_neighbors) == 0): ########## 이 경우는 마지막 agent에만 해당되는 거?
+                    #print(f"Agent{self.unique_id} 는 주위에 아무것도 없습니다. - My Way")
+                    self.type = 1 #따라갈 군중이 없으니 my-way
+                else: # 따라갈 군중이 있음
+                    if random.random() < (1-P_neighbor_following): #따라갈 군중이 있어도 제 갈길 가는 Agent
+                        #print(f"Agent{self.unique_id} 가 이웃을 외면했습니다!")
+                        self.type = 1
+                    else: # 이웃 군중 따라가는 Agent
+                        self.type = 2
+                        self.follow_agent_id = followable_neighbors[0].unique_id # 이제 가장 믿을만한 이웃을 고를거임, 일단 초기화
+                        # Pick the most credible neighbour: one that is
+                        # acting on a hazard it has sensed beats one that is
+                        # merely nearby, and among equals the closer wins.
+                        #
+                        # `max_score` used not to be assigned inside this
+                        # loop, so every neighbour passed `score > -99999` and
+                        # the choice was always whichever happened to be last
+                        # in the list. The credibility ordering had never once
+                        # taken effect.
+                        max_score = -99999
+                        for n in followable_neighbors:
+                            dist = self.point_to_point_distance(self.xy, n.xy)
+                            if (getattr(n, "escape_belief", None)):
+                                score = n.escape_belief["score"] - 0.01 * dist
+                            else: # 이웃한테 탈출 방향 정보가 없으면 일단 후순위
+                                score = -1000 - dist # 후순위 이웃 중 자기한테 가까울수록 신뢰함
+                            if score > max_score:
+                                max_score = score
+                                self.follow_agent_id = n.unique_id 
+                        #print(f"Agent{self.unique_id} 가 Agent{self.follow_agent_id} 를 따라갑니다!")
+            self.decision_flag = self.decision_period
+            
+        else:
+            self.decision_flag -= 1
+
+        # ── 로봇 지시가 자기 판단보다 앞선다 ──
+        #
+        # Order matters here and it used to be the other way round. A
+        # pedestrian that had sensed the hazard fled from its own memory and
+        # never reached the robot branch, so a robot could only influence
+        # people who knew nothing, which is the opposite of what a responder
+        # is for. An instruction from someone visibly handling the emergency
+        # is exactly what redirects people who are already reacting, and the
+        # protective-action literature has them comply readily when the
+        # instruction agrees with what they can see. It is still a decision:
+        # compliance was drawn above, and anyone who declined falls through to
+        # their own judgement.
+        if self.type==0:
+            self.decision_flag = 5
+            # The robot this pedestrian is actually following, in the mode it
+            # was following it in. This used to read `self.model.robot`, the
+            # team's first member, so with a team everyone walked toward robot
+            # zero however far away it was while `following_robot_id`
+            # recorded the nearest one. The observation and the behaviour
+            # disagreed: of 42 robot-followers in a three-robot level, 26 were
+            # counted against one robot and walking to another.
+            if lead is not None:
+                mode = getattr(self, "robot_lead_mode", None) or getattr(
+                    lead, "mode", "guide")
+                self.now_goal = self._robot_led_goal(lead, mode)
+                self.following_robot_id = lead.unique_id
+                # Somebody visibly following an instruction is a cue to the
+                # people around them, and a credible one: this is how a
+                # responder's guidance spreads past the handful of people who
+                # can actually see the signal.
+                gx = self.now_goal[0] - self.xy[0]
+                gy = self.now_goal[1] - self.xy[1]
+                gn = math.hypot(gx, gy)
+                if gn > 1e-6:
+                    self.escape_belief = {
+                        "dir": (gx / gn, gy / gn),
+                        "score": 2.0,
+                        "alpha": 0,
+                    }
+                return
+            else:
+                # The robot stopped signalling or went out of range. Fall back
+                # to deciding for itself rather than walking to where a robot
+                # used to be.
+                self.type = 1
+                self.following_robot_id = None
+                self.robot_lead_mode = None
+
+        # ── 로봇이 없으면 자기가 아는 것에서 도망친다 ──
+        #
+        # Three ways of knowing, and none of them uses the geodesic escape
+        # field: that is the simulator's knowledge of the whole layout, and
+        # handing it to the crowd made the zone empty itself with no robot
+        # present, six runs out of six.
+        #
+        #   sensed  it knows where it saw danger, so it heads away from those
+        #           remembered spots. A bearing, not a route, and drawn from
+        #           its own memory rather than from the true zone.
+        #   social  it was told, so it knows there is danger but not where.
+        #           It goes with the people who are moving, which is what
+        #           affiliation research finds people actually do.
+        #   robot   handled above.
+        if self.awareness == "acting":
+            fx, fy = self.hazard_repulsion()
+            norm = math.hypot(fx, fy)
+            if norm > 1e-6:
+                ux, uy = fx / norm, fy / norm
+                step = max(self.vision_radius, 4.0)
+                self.escape_belief = {
+                    "dir": (ux, uy),
+                    "score": 1.0,
+                    "alpha": 0,
+                }
+                # Kept inside the crop. Projecting a heading a vision radius
+                # ahead put the goal outside the world for anyone fleeing near
+                # an edge, and a goal at x = -3.7 on a 140 m map is a
+                # permanent push into the boundary: the drive force never
+                # points anywhere reachable, so the pedestrian hugs the wall
+                # and shuffles along it for the rest of the episode.
+                m = 1.0
+                self.now_goal = [
+                    min(max(self.xy[0] + ux * step, m), self.model.width - m),
+                    min(max(self.xy[1] + uy * step, m), self.model.height - m),
+                ]
+                return
+            # Acting but with nothing remembered: told rather than sensed. It
+            # knows to move and not where, so it falls through to the social
+            # and exploratory branches below.
+
+        elif self.type==1:
+            # Not wandering: on a trip. The destination is a street mouth or
+            # an interior errand rather than a uniformly random triangle; see
+            # od.py for why that distinction matters to the task.
+            import od
+
+            now_mesh = self.choice_safe_mesh(self.xy)
+            step = int(getattr(self.model, "step_count", 0))
+
+            if self.now_pointing_mesh is not None:
+                cx = sum(p[0] for p in self.now_pointing_mesh) / 3.0
+                cy = sum(p[1] for p in self.now_pointing_mesh) / 3.0
+                if math.hypot(self.xy[0] - cx, self.xy[1] - cy) < 2.0:
+                    arrived = self.now_pointing_mesh
+                    self.now_pointing_mesh = None
+                    if self.model.arrive_at_destination(self, arrived):
+                        return          # walked out of the crop
+                    lo, hi = CROWD_DWELL_STEPS
+                    self._dwell_until = step + random.randint(int(lo), int(hi))
+
+            if step < self._dwell_until:
+                # Standing at a destination. Exempt from the wedge release,
+                # which exists for pedestrians that cannot move rather than
+                # for ones that are not trying to.
+                self._dwelling = True
+                self.now_goal = [self.xy[0], self.xy[1]]
+                return
+            self._dwelling = False
+
+            if self.now_pointing_mesh is None:
+                self.now_pointing_mesh = od.choose_destination(self.model, self.xy)
+
+            self.now_goal = self._explore_randomly(now_mesh)
+            
+        elif self.type==2:
+            self.now_goal = self.model.return_agent_id(self.follow_agent_id).xy
+
+
+        # type==2 일 때 추종 대상의 실시간 위치로 업데이트
+        if self.type == 2:
+            self.now_goal = self.model.return_agent_id(
+                                self.follow_agent_id).xy
+
+
+    def _robot_led_goal(self, lead, mode: str):
+        """Where a pedestrian influenced by `lead` is trying to get to.
+
+        "guide" is the robot's own position: the robot leads and its path is
+        the instruction. "direct" is a heading, so the goal sits ahead of the
+        pedestrian along the signalled direction rather than on the robot,
+        which is what lets one robot turn a flow without standing in it.
+
+        The directed goal is clamped inside the crop for the same reason the
+        hazard-avoidance goal is: a goal outside the world is a permanent push
+        into the boundary, and a pedestrian given one hugs the wall for the
+        rest of the episode.
+        """
+        if mode != "direct":
+            return [lead.xy[0], lead.xy[1]]
+        sx, sy = getattr(lead, "signal_dir", (0.0, 0.0))
+        norm = math.hypot(sx, sy)
+        if norm < 1e-6:
+            # Signalling a direction of nothing. Treat it as no instruction
+            # rather than as a goal at the pedestrian's feet, which would
+            # leave it with no drive force at all.
+            return [lead.xy[0], lead.xy[1]]
+        ux, uy = sx / norm, sy / norm
+        step = float(ROBOT_DIRECT_GOAL_M)
+        m = 1.0
+        return [
+            min(max(self.xy[0] + ux * step, m), self.model.width - m),
+            min(max(self.xy[1] + uy * step, m), self.model.height - m),
+        ]
+
+    def _explore_randomly(self, now_mesh):
+        """The next waypoint toward whichever triangle this agent is exploring.
+
+        Retries with a different target when the current one is unreachable,
+        rather than returning the agent's own position.
+
+        Returning its own position was a permanent stall: the drive force is
+        proportional to the offset from the goal, so a goal at the agent's
+        feet produces no force and the goal is not reconsidered while the
+        agent has not arrived anywhere. Measured on a 140 m grid with sixty
+        pedestrians, five of them stood still for the last two hundred steps
+        of a six hundred step run, one to four metres clear of any wall with
+        their goal reading exactly their own coordinates.
+
+        Unreachable targets are normal, not exceptional. `now_pointing_mesh`
+        is drawn uniformly from every walkable triangle, and a level can have
+        pockets that no path connects, so any given draw may be unroutable.
+        """
+        for _ in range(8):
+            goal_mesh = self.now_pointing_mesh
+            if goal_mesh is not None and goal_mesh is not now_mesh:
+                nxt = self.model.next_mesh_from_to(now_mesh, goal_mesh)
+                if nxt is not None:
+                    return [(nxt[0][0]+nxt[1][0]+nxt[2][0])/3.0,
+                            (nxt[0][1]+nxt[1][1]+nxt[2][1])/3.0]
+            # Unreachable, or we are already on it: pick another destination
+            # from the same trip model, not a uniform triangle.
+            if self.model.pure_mesh:
+                import od
+                self.now_pointing_mesh = od.choose_destination(self.model, self.xy)
+                if self.now_pointing_mesh is None:
+                    break
+            else:
+                break
+
+        # Nothing routable anywhere. Step toward a neighbouring triangle so
+        # the agent still moves and can be pushed out of wherever it is,
+        # instead of freezing where it stands.
+        neighbours = self.model.adjacent_mesh.get(now_mesh) if now_mesh else None
+        if neighbours:
+            nb = random.choice(neighbours)
+            return [(nb[0][0]+nb[1][0]+nb[2][0])/3.0,
+                    (nb[0][1]+nb[1][1]+nb[2][1])/3.0]
+        return [self.xy[0], self.xy[1]]
+
+
+  
+class RobotAgent(CrowdAgent):
+    
+
+    def __init__(self, unique_id, model, pos, type1, robot_index: int = 0):
+        super().__init__(unique_id, model, pos, type1)
+        # Position in the team. The joint observation, the joint action and
+        # the centralised critic are all indexed by it, so it has to be stable
+        # for the whole episode and unique within the team.
+        self.robot_index = int(robot_index)
+        self.action = [0, 0, "GUIDE"]
+        self.past_xy = deque(maxlen=20)
+        self.collision_check = 0
+        self.detect_abnormal_order = 0
+        self.is_game_finished = 0
+
+        self.robot_waypoint = [0, 0]
+        self.now_exploration = 0
+
+        self.acc = [0, 0]
+        self.vel = [0, 0]
+        self.body_radius = ROBOT_BODY_RADIUS
+
+        # What this robot is signalling, and in which direction when the
+        # signal is a heading. Set by the policy through `set_signal`; "off"
+        # until then, so a robot that has not acted yet influences nobody.
+        self.mode = "off"
+        self.signal_dir = (0.0, 0.0)
+        self.vision_radius = ROBOT_VISION
+
+        #self.model.space.add(self.unique_id, self.xy, self.radius, ref=self, vel=(0,0,0,0))
+
+        self.desired_speed_a = 2
+        self.target_agent = None
+    
+    # ------------------------------------------------------------
+    # 외부에서 호출되는 단일 정책 함수
+    # ------------------------------------------------------------
+
+    # def robot_policy_go_and_back(self):
+    #     if (self.target_agent == None):
+    #         max_d = -1 
+    #         max_d_ag = None
+    #         for ag in self.model.crowds:
+    #             if not ag.dead:
+    #                 d = self.point_to_point_distance(self.xy, ag.xy)
+    #                 if d > max_d:
+    #                     max_d = d
+    #                     max_d_ag = ag
+    #         if max_d_ag is not None:
+    #             self.target_agent = max_d_ag
+
+    #     if (self.target_agent == None):
+    #         return
+        
+    #     if (self.target_agent.dead):
+    #         self.target_agent = None
+    #         return
+
+    #     goal = [0, 0]
+    #     if (self.point_to_point_distance(self.xy, self.target_agent.xy) < 5):
+    #         goal = self.model.exit_point[0]
+    #     else :
+    #         goal = self.target_agent.xy
+
+    #     goal_mesh = self.model.match_grid_to_mesh[int(round(goal[0])), int(round(goal[1]))]
+    #     now_mesh = self.model.match_grid_to_mesh[int(round(self.xy[0])), int(round(self.xy[1]))]
+    #     next_mesh = self.model.next_vertex_matrix[now_mesh][goal_mesh]
+    #     if(now_mesh == next_mesh):
+    #         goal_x = goal[0] - self.xy[0]
+    #         goal_y = goal[1] - self.xy[1]
+            
+    #     else:
+    #         next_mesh_middle = ((next_mesh[0][0]+next_mesh[1][0]+next_mesh[2][0])/3, (next_mesh[0][1]+next_mesh[1][1]+next_mesh[2][1])/3)
+    #         goal_x = next_mesh_middle[0] - self.xy[0]
+    #         goal_y = next_mesh_middle[1] - self.xy[1]
+
+    #     goal_x = ROBOT_SPEED_MAX * goal_x / math.sqrt(pow(goal_x, 2) + pow(goal_y, 2))
+    #     goal_y = ROBOT_SPEED_MAX * goal_y / math.sqrt(pow(goal_x, 2) + pow(goal_y, 2))
+    #     self.receive_action([goal_x, goal_y])
+
+
+    def robot_policy_going_exit(self):
+        ed_idx, q, d = self.model.nearest_exit(self.xy)
+        goal = q
+        if self.point_to_point_distance(self.xy, goal) < 2:
+            self.receive_action([0, 0])  # stop
+        
+        else :
+            goal_mesh = self.model.match_grid_to_mesh[int(round(goal[0])), int(round(goal[1]))]
+            now_mesh = self.model.match_grid_to_mesh[int(round(self.xy[0])), int(round(self.xy[1]))]
+            next_mesh = self.model.next_vertex_matrix[now_mesh][goal_mesh]
+            if(now_mesh == next_mesh):
+                goal_x = goal[0] - self.xy[0]
+                goal_y = goal[1] - self.xy[1]
+                
+            else:
+                next_mesh_middle = ((next_mesh[0][0]+next_mesh[1][0]+next_mesh[2][0])/3, (next_mesh[0][1]+next_mesh[1][1]+next_mesh[2][1])/3)
+                goal_x = next_mesh_middle[0] - self.xy[0]
+                goal_y = next_mesh_middle[1] - self.xy[1]
+
+            goal_x = 1* goal_x / math.sqrt(pow(goal_x, 2) + pow(goal_y, 2))
+            goal_y = 1* goal_y / math.sqrt(pow(goal_x, 2) + pow(goal_y, 2))
+            self.receive_action([goal_x, goal_y])
+    
+
+    def set_signal(self, mode, sx: float = 0.0, sy: float = 0.0) -> None:
+        """Set what this robot is signalling.
+
+        Separate from `receive_action`, which is about where the robot moves.
+        The two halves of the action are independent: a robot can reposition
+        silently, lead while moving, or stand still and point.
+        """
+        mode = str(mode)
+        if mode not in ROBOT_MODES:
+            raise ValueError(f"unknown robot mode {mode!r}; "
+                             f"expected one of {ROBOT_MODES}")
+        self.mode = mode
+        norm = math.hypot(float(sx), float(sy))
+        if mode == "direct" and norm > 1e-6:
+            self.signal_dir = (float(sx) / norm, float(sy) / norm)
+        else:
+            self.signal_dir = (0.0, 0.0)
+
+    def receive_action(self, action):
+                
+        
+        direction_probs = action[0]
+        
+
+        self.action[0] = action[0]
+        self.action[1] = action[1]
+
+        
+        if(self.now_exploration == 1):
+            print("exploration 중")
+            if(self.robot_waypoint == [0, 0]):
+                self.robot_waypoint = self.model.choice_random_waypoint()
+            now_mesh = self.model.match_grid_to_mesh[int(round(self.xy[0])), int(round(self.xy[1]))]
+            goal_mesh = self.model.match_grid_to_mesh[int(round(self.xy[0])), int(round(self.xy[1]))]
+            next_mesh = self.model.next_vertex_matrix[now_mesh][goal_mesh]
+            if(now_mesh == next_mesh):
+                goal_x = self.robot_waypoint[0] - self.xy[0]
+                goal_y = self.robot_waypoint[1] - self.xy[1]
+
+            else:
+                next_mesh_middle = ((next_mesh[0][0]+next_mesh[1][0]+next_mesh[2][0])/3, (next_mesh[0][1]+next_mesh[1][1]+next_mesh[2][1])/3)
+                goal_x = next_mesh_middle[0] - self.xy[0]
+                goal_y = next_mesh_middle[1] - self.xy[1]
+
+            goal_d = math.sqrt(pow(goal_x,2) + pow(goal_y,2))
+            goal_x = goal_x/goal_d
+            goal_y = goal_y/goal_d
+            self.action[0] = goal_x
+            self.action[1] = goal_y
+        
+
+        return np.array(self.action)
+    
+    def robot_policy_Q(self):
+
+        K_AGENT = 200
+        K_WALL = 1500
+        LAMBDA_A = 0.35
+
+        if(math.sqrt(pow(self.xy[0]-self.robot_waypoint[0], 2)+pow(self.xy[1]-self.robot_waypoint[1], 2))<2):
+            self.now_exploration = 0
+            self.robot_waypoint = [0, 0]
+
+        self.previous_danger = getattr(self, "danger", 1e9)
+        self.danger = self.model.escape_distance(self.xy)
+        
+        # Whether clearing the hazard ends the episode is a config choice, and
+        # the model owns it. The robot used to end the episode the instant the
+        # count hit zero, which disagreed with the trainer's hold rule: every
+        # episode stopped before the hold completed, so no run ever recorded a
+        # clearing time and the curriculum saw a success rate of zero on every
+        # level.
+        if self.model.should_finish():
+            self.is_game_finished = 1
+
+        if(self.robot_initialized == 0 ):
+            self.robot_initialized = 1
+            return (self.model.robot.xy[0], self.model.robot.xy[1]) ## 오호라... 처음에 리스폰 되는 거 피하려고 
+        self.past_xy.append(self.xy)
+
+        time_step = ROBOT_TIME_STEP
+
+
+        goal_x = 0
+        goal_y = 0
+        
+        goal_x += self.action[0]
+        goal_y += self.action[1]
+        
+        #print(f"robot desired go to {goal_x}, {goal_y}")
+        intend_force = 15
+        desired_speed = ROBOT_SPEED_MAX
+
+            
+
+        desired_force = [intend_force*(desired_speed*(goal_x)), intend_force*(desired_speed*(goal_y))]; #desired_force : 사람이 탈출구쪽으로 향하려는 힘
+        
+
+        sense_R = self.vision_radius
+        bodies = self.model.space.query_radius(self.xy, sense_R)
+        neighbors = []
+
+        for b in bodies:
+            ref = b.ref
+            if (ref is None) or (ref is self) or getattr(ref, "dead", False):
+                continue
+            neighbors.append(ref)
+        # 현재 로봇은 군중한테 물리적 영향을 받지 않음 -> 아래 코드 주석처리
+
+        F_rep_x = 0
+        F_rep_y = 0
+
+        # for nb in neighbors:
+        #     dx = self.xy[0] - nb.xy[0]
+        #     dy = self.xy[1] - nb.xy[1]
+        #     d  = math.hypot(dx, dy)
+        #     if d < 1e-9:
+        #         # 완전 중첩 초기 해소
+        #         jx, jy = ((1.0,-1.0) if random.random()<0.5 else (-1.0,1.0))
+        #         F_c_x += jx * KN * 0.01
+        #         F_c_y += jy * KN * 0.01
+        #         continue
+
+        #     ux, uy = dx/d, dy/d
+        #     nb_r = getattr(nb, "radius", 0.5)
+        #     r_sum = self.body_radius + nb_r
+
+        #     # 원거리 지수 반발
+        #     mag = K_AGENT * math.exp((r_sum - d) / max(LAMBDA_A, 1e-6))
+        #     F_rep_x += mag * ux
+        #     F_rep_y += mag * uy
+
+        #     # 근거리 접촉/마찰
+        #     if d < r_sum:
+        #         penetration = (r_sum - d)
+        #         Fn_k = KN * penetration
+
+        #         v_jx, v_jy = getattr(nb, "vel", [0.0, 0.0])
+        #         rel_vx, rel_vy = (v_ix - v_jx), (v_iy - v_jy)
+        #         v_n = rel_vx*ux + rel_vy*uy
+
+        #         if v_n < 0:
+        #             restitution = 0.2
+        #             drop = (1.0 - restitution) * v_n
+        #             self.vel[0] -= drop * ux
+        #             self.vel[1] -= drop * uy
+
+        #         Fn_c = -CN * v_n
+        #         Fn = max(Fn_k + Fn_c, 0.0)
+        #         F_c_x += Fn * ux
+        #         F_c_y += Fn * uy
+
+        #         vt_x = rel_vx - v_n*ux
+        #         vt_y = rel_vy - v_n*uy
+        #         F_t_x += -MU_T * vt_x
+        #         F_t_y += -MU_T * vt_y
+        
+        F_wx = F_wy = 0
+        p = Point(self.xy[0], self.xy[1])
+        self.collision_check = 0
+        obstacle_polys = self.model._obstacle_polys.copy()
+        obstacle_polys.append(Polygon([(0,0), (self.model.width-1,0), (self.model.width-1,self.model.height-1), (0,self.model.height-1)]))  # 맵 외곽 벽 추가
+
+        for poly in obstacle_polys:
+            # 경계선까지 최소거리
+            d = poly.exterior.distance(p)
+            if d <= self.body_radius * 1:   # 매우 근접 → 충돌 경보
+                self.collision_check = 1
+                #print("충돌함", d)
+            if d > 2 * self.body_radius:    # 멀면 무시
+                continue
+            q = poly.exterior.interpolate(poly.exterior.project(p))
+            dx = self.xy[0] - q.x
+            dy = self.xy[1] - q.y
+            dist = math.hypot(dx, dy) or 1e-9
+            nx, ny = dx/dist, dy/dist
+            # 사람이랑 같은 톤으로 지수 반발(상수는 좀 더 세게 하고 싶으면 K_WALL 따로 둬도 됨)
+            mag = K_WALL * math.exp(-(d / max(LAMBDA_A, 1e-6)))
+            F_wx += mag * nx
+            F_wy += mag * ny
+
+
+        F_x = 0
+        F_y = 0
+        F_x += desired_force[0]
+        F_y += desired_force[1]
+        
+
+        F_x += F_wx
+        F_y += F_wy
+
+        # ---- 외곽지대 나가지 않게 ----
+        # left 벽 (x = 0 부근)
+        W = self.model.width
+        H = self.model.height
+        MARGIN = 1.0         # 이 거리 안으로 들어오면 힘 발생
+        K_BORDER = 50     # 경계 힘 세기 (필요하면 조절)
+        F_wx = 0
+        F_wy = 0
+        
+        # dx = max(0.0, MARGIN - self.xy[0])
+        # if dx > 0.0:
+        #     # 왼쪽 벽에 가까우면 +x 방향으로 민다
+        #     F_wx += K_BORDER * dx
+
+        # # right 벽 (x = W 부근)
+        # dx = max(0.0, self.xy[0] - (W - MARGIN))
+        # if dx > 0.0:
+        #     # 오른쪽 벽에 가까우면 -x 방향으로 민다
+        #     F_wx -= K_BORDER * dx
+
+        # # bottom 벽 (y = 0 부근)
+        # dy = max(0.0, MARGIN - self.xy[1])
+        # if dy > 0.0:
+        #     # 아래쪽 벽에 가까우면 +y 방향
+        #     F_wy += K_BORDER * dy
+
+        # # top 벽 (y = H 부근)
+        # dy = max(0.0, self.xy[1] - (H - MARGIN))
+        # if dy > 0.0:
+        #     # 위쪽 벽에 가까우면 -y 방향
+        #     F_wy -= K_BORDER * dy
+        # F_x += F_wx
+        # F_y += F_wy
+ 
+
+
+
+
+        vel = [0,0]
+        vel[0] = F_x/self.mass
+        vel[1] = F_y/self.mass
+        #print("robot speed : ", vel[0], vel[1])
+        #future_xy = self.xy.copy()
+        # future_xy[0] += vel[0] * time_step
+        # future_xy[1] += vel[1] * time_step
+        future_xy = self.swept_move(self.xy, vel, time_step)
+
+        self.xy = future_xy
+        self.model.space.clamp(self.xy)
+        #self.model.space.move(self.unique_id, self.xy)
+
+        return tuple(self.xy)

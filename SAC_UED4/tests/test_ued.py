@@ -1,0 +1,4372 @@
+import os
+import random
+import time
+import unittest
+
+from sim.random_map import RandomMapSpec, generate_map
+from ued.level import generate_random_level, level_from_map_data
+from ued.mutate import MutationFailed, is_playable, mutate_level
+from ued.population import LevelPopulation
+
+
+class RngIsolationTest(unittest.TestCase):
+    """The separation between designer-controlled and aleatoric parameters.
+
+    generate_map seeds the global RNG so a seed reproduces a map. If that
+    reseeding leaks, everything the caller draws afterwards - crowd spawn
+    positions, per-pedestrian mass and speed, the augmentation choice - becomes
+    a deterministic function of the map seed, and the curriculum ends up
+    selecting the crowd as well as the map.
+    """
+
+    def test_map_is_reproducible_from_its_seed(self):
+        a = generate_map(RandomMapSpec(100, 100, difficulty=2, seed=4242))
+        b = generate_map(RandomMapSpec(100, 100, difficulty=2, seed=4242))
+        self.assertEqual(a.obstacles, b.obstacles)
+        self.assertEqual(a.exits, b.exits)
+
+    def test_generation_does_not_disturb_the_caller_stream(self):
+        random.seed(777)
+        reference = [random.random() for _ in range(5)]
+
+        random.seed(777)
+        generate_map(RandomMapSpec(100, 100, difficulty=2, seed=4242))
+        after = [random.random() for _ in range(5)]
+
+        self.assertEqual(reference, after)
+
+    def test_different_map_seeds_leave_the_same_caller_stream(self):
+        random.seed(777)
+        generate_map(RandomMapSpec(100, 100, difficulty=2, seed=1))
+        first = [random.random() for _ in range(5)]
+
+        random.seed(777)
+        generate_map(RandomMapSpec(100, 100, difficulty=2, seed=999999))
+        second = [random.random() for _ in range(5)]
+
+        self.assertEqual(first, second)
+
+
+class MutationTest(unittest.TestCase):
+    """Edits must stay playable and stay cheap."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.rng = random.Random(20260911)
+        cls.parent = generate_random_level(cls.rng)
+
+    def test_generated_level_passes_its_own_validator(self):
+        self.assertTrue(is_playable(self.parent))
+
+    def test_children_are_always_playable(self):
+        rng = random.Random(5)
+        parent = self.parent
+        produced = 0
+        for _ in range(30):
+            try:
+                child = mutate_level(parent, rng=rng)
+            except MutationFailed:
+                continue
+            produced += 1
+            # Revalidating independently catches an operator that edits state
+            # the validator happened not to look at.
+            self.assertTrue(is_playable(child), child.summary())
+            # The hazard, not exits: safety is a region now, and the zone has
+            # to survive every edit or the child is a map with no task on it.
+            self.assertIsNotNone(child.danger)
+            self.assertEqual(child.exits, [])
+            # No lower bound on obstacles: difficulty 0 is an empty room, and a
+            # lineage that starts there legitimately has none until editing
+            # adds some.
+            self.assertGreaterEqual(len(child.obstacles), 0)
+            parent = child
+        self.assertGreater(produced, 20, "mutation success rate collapsed")
+
+    def test_child_cost_stays_far_below_generation_cost(self):
+        # Breeding runs on the producer thread alongside generation, so it only
+        # has to stay well under the costs that already dominate an episode:
+        # generating a map averages 0.8-2.1 s and building the environment
+        # around it takes several seconds more. The ceiling is deliberately
+        # loose because this timing moves with machine load; it is here to
+        # catch an operator that becomes pathologically slow, not to track
+        # small regressions.
+        rng = random.Random(6)
+        n = 20
+        start = time.time()
+        for _ in range(n):
+            try:
+                mutate_level(self.parent, rng=rng)
+            except MutationFailed:
+                pass
+        per_child = (time.time() - start) / n
+        self.assertLess(per_child, 0.5, f"{per_child:.3f}s per child")
+
+    def test_lineage_is_recorded(self):
+        rng = random.Random(7)
+        child = mutate_level(self.parent, rng=rng)
+        self.assertEqual(child.parent_id, self.parent.level_id)
+        self.assertEqual(child.generation, self.parent.generation + 1)
+        self.assertTrue(child.mutation_ops)
+
+    def test_editing_does_not_drive_the_population_to_empty_maps(self):
+        # Deleting and shrinking always validate while adding and growing often
+        # do not, so an unbalanced operator set collapses every lineage to a
+        # bare map regardless of what the score function prefers.
+        rng = random.Random(8)
+        cur = self.parent
+        counts = [len(cur.obstacles)]
+        for _ in range(40):
+            try:
+                cur = mutate_level(cur, rng=rng)
+            except MutationFailed:
+                continue
+            counts.append(len(cur.obstacles))
+        self.assertGreaterEqual(max(counts[-10:]), 3, f"obstacle counts: {counts}")
+
+
+class LevelInjectionTest(unittest.TestCase):
+    """A level must reach the simulator as exactly the geometry it stores."""
+
+    def test_model_uses_the_level_geometry_verbatim(self):
+        import sim.model as model
+        rng = random.Random(31)
+        level = generate_random_level(rng)
+        level.augmentation = "identity"
+
+        env = model.FightingModel(level.crowd_size, level.width, level.height, robot="Q", level=level)
+        self.assertEqual(env.map_num, 0)
+        self.assertEqual(env.map_augmentation, "identity")
+
+        # Exits survive verbatim. Obstacles do not: mesh_map() unions touching
+        # obstacles and rewrites the list for every map, UED or not, so the
+        # invariant that matters is that the blocked area is the level's.
+        self.assertEqual(
+            [[tuple(p) for p in poly] for poly in env.exit_list],
+            [[tuple(p) for p in poly] for poly in level.exits],
+        )
+
+        from shapely.geometry import Polygon
+        from shapely.ops import unary_union
+
+        want = unary_union([Polygon(poly) for poly in level.obstacles])
+        got = unary_union([Polygon(poly) for poly in env.obstacles])
+        self.assertAlmostEqual(want.area, got.area, delta=max(1.0, 0.01 * want.area))
+        self.assertLess(want.symmetric_difference(got).area, 0.01 * want.area + 1.0)
+
+    def test_two_builds_of_one_level_are_identical(self):
+        # The population replays a level many times, so its geometry must not
+        # drift between episodes.
+        import sim.model as model
+        rng = random.Random(33)
+        level = generate_random_level(rng)
+        a = model.FightingModel(level.crowd_size, level.width, level.height, robot="Q", level=level)
+        b = model.FightingModel(level.crowd_size, level.width, level.height, robot="Q", level=level)
+        self.assertEqual(a.obstacles, b.obstacles)
+        self.assertEqual(a.exit_list, b.exit_list)
+
+    def test_augmentation_is_pinned_per_level(self):
+        import sim.model as model
+        rng = random.Random(32)
+        level = generate_random_level(rng)
+        level.augmentation = "rotate_90"
+        for _ in range(3):
+            env = model.FightingModel(level.crowd_size, level.width, level.height, robot="Q", level=level)
+            self.assertEqual(env.map_augmentation, "rotate_90")
+
+
+class PopulationTest(unittest.TestCase):
+    def _level(self, seed):
+        data = generate_map(RandomMapSpec(100, 100, difficulty=2, seed=seed))
+        return level_from_map_data(data, crowd_size=30, difficulty=2)
+
+    def test_learnability_peaks_at_a_balanced_success_rate(self):
+        pop = LevelPopulation(capacity=10, score_fn="learnability")
+        always = self._level(101)
+        never = self._level(102)
+        mixed = self._level(103)
+        for lv in (always, never, mixed):
+            pop.add(lv)
+
+        # 100 steps of free-flow, so with K=3 the threshold is 300 steps.
+        for i in range(8):
+            pop.update(always.level_id, evac_time=100.0, freeflow_steps=100.0)
+            pop.update(never.level_id, evac_time=5000.0, freeflow_steps=100.0)
+            pop.update(mixed.level_id, evac_time=(100.0 if i % 2 == 0 else 5000.0),
+                       freeflow_steps=100.0)
+
+        scores = {lv.level_id: pop._raw_score(pop._records[lv.level_id])
+                  for lv in (always, never, mixed)}
+        self.assertGreater(scores[mixed.level_id], scores[always.level_id])
+        self.assertGreater(scores[mixed.level_id], scores[never.level_id])
+
+    def test_eviction_protects_levels_that_have_never_run(self):
+        pop = LevelPopulation(capacity=2, score_fn="learnability")
+        scored = self._level(201)
+        pop.add(scored)
+        pop.update(scored.level_id, evac_time=100.0, freeflow_steps=100.0)  # learnability near zero
+
+        fresh_a = self._level(202)
+        fresh_b = self._level(203)
+        pop.add(fresh_a)
+        pop.add(fresh_b)
+
+        self.assertEqual(len(pop), 2)
+        self.assertNotIn(scored.level_id, pop._records)
+
+    def test_sampling_returns_a_member(self):
+        pop = LevelPopulation(capacity=5)
+        levels = [self._level(300 + i) for i in range(3)]
+        for lv in levels:
+            pop.add(lv)
+        ids = {lv.level_id for lv in levels}
+        for _ in range(20):
+            self.assertIn(pop.sample().level_id, ids)
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+class _FakeMsg:
+    def __init__(self, worker_id, episode_idx, level_id, reward, done=False):
+        self.worker_id = worker_id
+        self.episode_key = (worker_id, episode_idx)
+        self.level_id = level_id
+        self.reward = reward
+        self.done = done
+        self.is_replay = False
+        # The curriculum treats the value-function input as opaque; the
+        # trainer passes (static layers, record window) pairs.
+        self.value_sample = ("static", [worker_id])
+
+class _FakeStat:
+    def __init__(self, worker_id, episode_idx, level_id, evac_time_100):
+        self.worker_id = worker_id
+        self.episode_idx = episode_idx
+        self.level_id = level_id
+        self.evac_time_100 = evac_time_100
+        self.abnormal = 0
+        self.is_replay = False
+
+
+class MaxMCTest(unittest.TestCase):
+    """MaxMC is what makes a regret-style score available off-policy at all.
+
+    The GAE-based proxy the original methods use needs on-policy rollouts;
+    MaxMC only needs a value estimate, which SAC's critic supplies.
+    """
+
+    def _runner(self, value=0.0):
+        from ued.runner import UEDRunner
+        import numpy as np
+
+        def value_fn(samples):
+            # One value per sampled instant, already reduced over the team,
+            # which is what the real critic's wrapper returns.
+            return np.full((len(samples),), value, dtype=np.float32)
+
+        runner = UEDRunner(value_fn=value_fn, rng=random.Random(1))
+        # The curriculum's own logic is under test, whatever TRAIN_MAP_SOURCE says
+        # for training runs.
+        runner.enabled = True
+        return runner
+
+    def test_interleaved_workers_do_not_share_a_trajectory(self):
+        # Workers put transitions on one shared queue, so an episode key that
+        # ignored the worker id would merge two different levels' trajectories.
+        runner = self._runner()
+        for i in range(5):
+            runner.on_transition(_FakeMsg(worker_id=0, episode_idx=3, level_id=11, reward=1.0))
+            runner.on_transition(_FakeMsg(worker_id=1, episode_idx=3, level_id=22, reward=2.0))
+
+        self.assertEqual(len(runner._traces), 2)
+        self.assertEqual(runner._traces[(0, 3)].level_id, 11)
+        self.assertEqual(runner._traces[(1, 3)].level_id, 22)
+        self.assertEqual(runner._traces[(0, 3)].ret, 5.0)
+        self.assertEqual(runner._traces[(1, 3)].ret, 10.0)
+
+    def test_maxmc_is_the_mean_positive_gap_to_the_best_return(self):
+        runner = self._runner(value=2.0)
+        for _ in range(4):
+            runner.on_transition(_FakeMsg(0, 0, level_id=7, reward=3.0))
+        trace = runner._consume_trace(0, 0)
+        # Return is 12, the only episode on this level so it is also the best;
+        # value is 2 everywhere, so every gap is 10.
+        self.assertAlmostEqual(runner._maxmc(trace), 10.0, places=5)
+
+    def test_maxmc_is_zero_when_value_already_exceeds_the_best_return(self):
+        runner = self._runner(value=100.0)
+        for _ in range(3):
+            runner.on_transition(_FakeMsg(0, 0, level_id=8, reward=1.0))
+        trace = runner._consume_trace(0, 0)
+        self.assertAlmostEqual(runner._maxmc(trace), 0.0, places=5)
+
+    def test_maxmc_reference_is_shared_across_levels(self):
+        # A level scored on its first episode must be measured against the best
+        # return seen anywhere, otherwise its reference is its own return and
+        # the score is not comparable with any other level's.
+        runner = self._runner(value=0.0)
+
+        for _ in range(3):
+            runner.on_transition(_FakeMsg(0, 0, level_id=1, reward=10.0))
+        good = runner._consume_trace(0, 0)
+        self.assertAlmostEqual(runner._maxmc(good), 30.0, places=5)
+
+        for _ in range(3):
+            runner.on_transition(_FakeMsg(0, 1, level_id=2, reward=1.0))
+        poor = runner._consume_trace(0, 1)
+        # Return 3 against a best of 30: the gap survives instead of collapsing
+        # to zero the way a per-level reference would make it.
+        self.assertAlmostEqual(runner._maxmc(poor), 30.0, places=5)
+        self.assertAlmostEqual(runner._global_best_return, 30.0, places=5)
+
+    def test_trace_is_released_when_the_episode_reports(self):
+        runner = self._runner()
+        lv_id = 99
+        for _ in range(3):
+            runner.on_transition(_FakeMsg(0, 1, level_id=lv_id, reward=1.0))
+        self.assertIn((0, 1), runner._traces)
+        runner.on_episode(_FakeStat(0, 1, lv_id, evac_time_100=10))
+        self.assertNotIn((0, 1), runner._traces)
+
+    def test_abandoned_traces_are_bounded(self):
+        # A worker killed mid-episode never reports, so traces must not grow
+        # without limit.
+        from ued.runner import MAX_TRACKED_EPISODES
+
+        runner = self._runner()
+        for ep in range(MAX_TRACKED_EPISODES * 3):
+            runner.on_transition(_FakeMsg(0, ep, level_id=ep, reward=1.0))
+        self.assertLessEqual(len(runner._traces), MAX_TRACKED_EPISODES)
+
+
+class ReplayOnlyRuleTest(unittest.TestCase):
+    def test_flag_controls_whether_fresh_level_transitions_are_stored(self):
+        import config
+        from ued.runner import UEDRunner
+
+        runner = UEDRunner(value_fn=None, rng=random.Random(2))
+        runner.enabled = True
+        fresh = _FakeMsg(0, 0, level_id=5, reward=1.0)
+        replayed = _FakeMsg(0, 1, level_id=6, reward=1.0)
+        replayed.is_replay = True
+
+        original = config.UED_REPLAY_ONLY_UPDATES
+        try:
+            import ued.runner as runner_mod
+
+            runner_mod.UED_REPLAY_ONLY_UPDATES = False
+            self.assertTrue(runner.should_store(fresh))
+            self.assertTrue(runner.should_store(replayed))
+
+            runner_mod.UED_REPLAY_ONLY_UPDATES = True
+            self.assertFalse(runner.should_store(fresh))
+            self.assertTrue(runner.should_store(replayed))
+        finally:
+            import ued.runner as runner_mod
+
+            runner_mod.UED_REPLAY_ONLY_UPDATES = original
+
+
+
+class DifficultyZeroTest(unittest.TestCase):
+    """The tier ACCEL is meant to start from: an empty room with two exits."""
+
+    def test_difficulty_zero_has_no_obstacles(self):
+        for seed in (1, 7, 99, 12345):
+            data = generate_map(RandomMapSpec(100, 100, difficulty=0, seed=seed))
+            self.assertEqual(len(data.obstacles), 0, f"seed {seed}")
+            self.assertEqual(len(data.exits), 2, f"seed {seed}")
+
+    def test_an_obstacle_free_level_is_playable(self):
+        # An open room is trivially reachable everywhere. The validator used to
+        # reject it, which would have made difficulty 0 unmutatable.
+        lv = generate_random_level(random.Random(3), difficulty=0)
+        self.assertEqual(len(lv.obstacles), 0)
+        self.assertTrue(is_playable(lv))
+
+    def test_editing_adds_complexity_to_an_empty_room(self):
+        # This is the whole point of starting at zero: complexity has to be
+        # earned by editing rather than handed over by the generator.
+        rng = random.Random(77)
+        cur = generate_random_level(rng, difficulty=0)
+        self.assertEqual(len(cur.obstacles), 0)
+        for _ in range(12):
+            try:
+                cur = mutate_level(cur, rng=rng)
+            except MutationFailed:
+                continue
+        self.assertGreater(len(cur.obstacles), 0)
+        self.assertTrue(is_playable(cur))
+
+    def test_higher_difficulty_is_denser(self):
+        # Per family, not across the mixture. Two generator families now share
+        # the difficulty scale and street_map is denser than random_map at the
+        # same tier, so a handful of samples drawn across both is not monotonic
+        # in difficulty even when each family is. The property being asserted
+        # is the family's own difficulty ordering.
+        from shapely.geometry import Polygon
+        from shapely.ops import unary_union
+
+        from sim.random_map import RandomMapSpec, generate_map
+        from sim.street_map import generate_street_map, spec_from_difficulty
+
+        def coverage(rings, size):
+            polys = [Polygon(r) for r in rings if len(r) >= 3]
+            if not polys:
+                return 0.0
+            return unary_union(polys).area / float(size * size)
+
+        rng = random.Random(4)
+        for family in ("random_map", "street_map"):
+            means = []
+            for difficulty in (0, 1, 3, 6):
+                shots = []
+                for k in range(4):
+                    seed = rng.randrange(1 << 30)
+                    if family == "random_map":
+                        data = generate_map(RandomMapSpec(200, 200,
+                                                          difficulty=difficulty,
+                                                          seed=seed))
+                    else:
+                        spec = spec_from_difficulty(200, 200, difficulty, rng)
+                        spec.seed = seed
+                        data = generate_street_map(spec)
+                    shots.append(coverage(data.obstacles, 200))
+                means.append(sum(shots) / len(shots))
+            self.assertEqual(means, sorted(means),
+                             f"{family} densities not monotonic: {means}")
+
+
+class PersistenceTest(unittest.TestCase):
+    """The curriculum has to survive the watchdog restarting the trainer."""
+
+    def _level(self, seed):
+        data = generate_map(RandomMapSpec(100, 100, difficulty=2, seed=seed))
+        return level_from_map_data(data, crowd_size=30, difficulty=2)
+
+    def test_round_trip_preserves_scores_and_counters(self):
+        import tempfile
+
+        from ued.runner import UEDRunner
+
+        saved = UEDRunner(value_fn=None, rng=random.Random(1))
+        saved.enabled = True   # the curriculum's own logic is under test
+
+        levels = [self._level(400 + i) for i in range(4)]
+        for lv in levels:
+            saved.population.add(lv)
+        saved.population.episode = 1234
+        for i, lv in enumerate(levels):
+            saved.population.update(
+                lv.level_id,
+                evac_time=(100.0 if i % 2 == 0 else 5000.0),
+                freeflow_steps=100.0,
+                maxmc=float(i),
+            )
+
+        path = os.path.join(tempfile.mkdtemp(), "curriculum.pkl")
+        self.assertTrue(saved.save(path))
+
+        loaded = UEDRunner(value_fn=None, rng=random.Random(2))
+
+        loaded.enabled = True
+        self.assertTrue(loaded.load(path))
+        self.assertEqual(len(loaded.population), len(levels))
+        self.assertEqual(loaded.population.episode, 1234)
+        for lv in levels:
+            before = saved.population._records[lv.level_id]
+            after = loaded.population._records[lv.level_id]
+            self.assertEqual(list(before.evac_times), list(after.evac_times))
+            self.assertAlmostEqual(before.freeflow_steps, after.freeflow_steps)
+            self.assertEqual(before.trials, after.trials)
+            self.assertAlmostEqual(before.maxmc, after.maxmc)
+            self.assertEqual(len(before.level.obstacles), len(after.level.obstacles))
+
+    def test_new_ids_do_not_collide_with_restored_ones(self):
+        # Ids travel to the workers and back inside every transition, so a
+        # collision would credit one level's episodes to another.
+        import tempfile
+
+        from ued.level import Level
+        from ued.runner import UEDRunner
+
+        saved = UEDRunner(value_fn=None, rng=random.Random(1))
+        saved.enabled = True   # the curriculum's own logic is under test
+        levels = [self._level(500 + i) for i in range(3)]
+        for lv in levels:
+            saved.population.add(lv)
+        restored_ids = {lv.level_id for lv in levels}
+
+        path = os.path.join(tempfile.mkdtemp(), "curriculum.pkl")
+        saved.save(path)
+
+        loaded = UEDRunner(value_fn=None, rng=random.Random(2))
+        loaded.load(path)
+
+        fresh_ids = {Level(obstacles=[], exits=[], crowd_size=30).level_id for _ in range(5)}
+        self.assertFalse(restored_ids & fresh_ids, "new level ids collided with restored ids")
+
+    def test_a_corrupt_state_file_does_not_stop_training(self):
+        import tempfile
+
+        from ued.runner import UEDRunner
+
+        path = os.path.join(tempfile.mkdtemp(), "curriculum.pkl")
+        with open(path, "wb") as f:
+            f.write(b"not a pickle")
+
+        runner = UEDRunner(value_fn=None, rng=random.Random(1))
+        runner.enabled = True   # the curriculum's own logic is under test
+        self.assertFalse(runner.load(path))
+        self.assertEqual(len(runner.population), 0)
+
+    def test_missing_state_file_is_not_an_error(self):
+        from ued.runner import UEDRunner
+
+        runner = UEDRunner(value_fn=None, rng=random.Random(1))
+        self.assertFalse(runner.load("/nonexistent/path/curriculum.pkl"))
+
+
+class RenderTest(unittest.TestCase):
+    def test_grid_renders_levels_including_an_empty_one(self):
+        from ued import render
+
+        rng = random.Random(9)
+        levels = [
+            generate_random_level(rng, difficulty=0),
+            generate_random_level(rng, difficulty=3),
+        ]
+        img = render.render_grid(levels, cols=2)
+        self.assertIsNotNone(img)
+        self.assertEqual(img.ndim, 3)
+        self.assertEqual(img.shape[2], 3)
+        self.assertEqual(img.dtype.name, "uint8")
+
+    def test_empty_input_returns_none(self):
+        from ued import render
+
+        self.assertIsNone(render.render_grid([]))
+
+    def test_lineage_walks_surviving_ancestors(self):
+        from ued import render
+        from ued.population import LevelPopulation
+
+        rng = random.Random(10)
+        pop = LevelPopulation(capacity=50)
+        parent = generate_random_level(rng, difficulty=1)
+        pop.add(parent)
+        child = mutate_level(parent, rng=rng)
+        pop.add(child)
+        grandchild = mutate_level(child, rng=rng)
+        pop.add(grandchild)
+
+        chain, titles = render.lineage(pop, grandchild.level_id)
+        self.assertEqual([lv.level_id for lv in chain],
+                         [parent.level_id, child.level_id, grandchild.level_id])
+        self.assertEqual(titles[0].split()[-1], "[origin]")
+
+
+class SnapshotTest(unittest.TestCase):
+    """Snapshots are diagnostics and must never be able to stop a run."""
+
+    def _runner_with_lineage(self):
+        from ued.runner import UEDRunner
+
+        runner = UEDRunner(value_fn=None, rng=random.Random(1))
+        runner.enabled = True   # the curriculum's own logic is under test
+        rng = random.Random(1)
+        base = generate_random_level(rng, difficulty=1)
+        runner.population.add(base)
+        runner.population.update(base.level_id, evac_time=100.0, freeflow_steps=100.0, maxmc=1.0)
+        child = mutate_level(base, rng=rng)
+        runner.population.add(child)
+        runner.population.update(child.level_id, evac_time=9000.0, freeflow_steps=100.0, maxmc=2.0)
+        return runner
+
+    def test_snapshot_writes_images_and_pngs(self):
+        import glob
+        import tempfile
+
+        from tensorboard.backend.event_processing import event_accumulator
+        from torch.utils.tensorboard import SummaryWriter
+
+        runner = self._runner_with_lineage()
+        tb_dir, png_dir = tempfile.mkdtemp(), tempfile.mkdtemp()
+        writer = SummaryWriter(log_dir=tb_dir)
+        self.assertTrue(runner.snapshot(writer, 20, save_dir=png_dir))
+        writer.flush()
+
+        self.assertTrue(sorted(os.listdir(png_dir)))
+        event_file = glob.glob(os.path.join(tb_dir, "events.out.tfevents.*"))[0]
+        ea = event_accumulator.EventAccumulator(event_file, size_guidance={"images": 0})
+        ea.Reload()
+        self.assertIn("UED/population_top", ea.Tags().get("images", []))
+
+    def test_a_broken_writer_does_not_raise(self):
+        # torch's add_image needs Pillow >= 9.1 for a resize this image never
+        # needs, and on an older Pillow it raises. A snapshot that cannot be
+        # written has to be reported and swallowed, not propagated into the
+        # training loop.
+        class ExplodingWriter:
+            def _get_file_writer(self):
+                raise RuntimeError("boom")
+
+            def add_image(self, *a, **k):
+                raise RuntimeError("boom")
+
+            def flush(self):
+                pass
+
+        runner = self._runner_with_lineage()
+        self.assertFalse(runner.snapshot(ExplodingWriter(), 20))
+
+    def test_snapshot_on_an_unscored_population_is_a_noop(self):
+        from ued.runner import UEDRunner
+
+        runner = UEDRunner(value_fn=None, rng=random.Random(1))
+        runner.enabled = True   # the curriculum's own logic is under test
+        runner.population.add(generate_random_level(random.Random(2), difficulty=1))
+
+        class CountingWriter:
+            def __init__(self):
+                self.calls = 0
+
+            def _get_file_writer(self):
+                self.calls += 1
+                raise AssertionError("should not write without scored levels")
+
+            def flush(self):
+                pass
+
+        writer = CountingWriter()
+        self.assertFalse(runner.snapshot(writer, 20))
+        self.assertEqual(writer.calls, 0)
+
+
+class NormalisedSuccessTest(unittest.TestCase):
+    """Success is measured against the level, not against MAX_STEPS.
+
+    A hand-set global cap makes the success rate saturate at 0 or 1 depending
+    on how generously it was chosen, and learnability goes to zero with it.
+    The reference here is the level's own free-flow evacuation estimate.
+    """
+
+    def _level(self, seed=601):
+        data = generate_map(RandomMapSpec(100, 100, difficulty=2, seed=seed))
+        return level_from_map_data(data, crowd_size=30, difficulty=2)
+
+    def test_free_flow_estimate_is_positive_and_below_the_cap(self):
+        import sim.model as model
+        from config import MAX_STEPS
+
+        rng = random.Random(12)
+        for difficulty in (0, 3, 6):
+            level = generate_random_level(rng, difficulty=difficulty)
+            env = model.FightingModel(level.crowd_size, level.width, level.height, robot="Q", level=level)
+            estimate = env.free_flow_evacuation_steps()
+            self.assertGreater(estimate, 0.0, f"difficulty {difficulty}")
+            self.assertLess(estimate, MAX_STEPS, f"difficulty {difficulty}")
+
+    def test_free_flow_grows_with_crowd_size(self):
+        # The queueing term is what makes crowd size a real difficulty axis
+        # rather than something the reference ignores.
+        import sim.model as model
+        level = generate_random_level(random.Random(13), difficulty=2)
+        estimates = []
+        for crowd in (20, 40):
+            level.crowd_size = crowd
+            env = model.FightingModel(crowd, level.width, level.height, robot="Q", level=level)
+            estimates.append(env.free_flow_evacuation_steps())
+        self.assertLess(estimates[0], estimates[1])
+
+    def test_threshold_is_a_multiple_of_free_flow(self):
+        from config import UED_SUCCESS_K
+        from ued.population import LevelPopulation
+
+        pop = LevelPopulation(capacity=5)
+        level = self._level()
+        pop.add(level)
+        pop.update(level.level_id, evac_time=100.0, freeflow_steps=200.0)
+        rec = pop._records[level.level_id]
+        self.assertAlmostEqual(rec.threshold(), UED_SUCCESS_K * 200.0)
+
+    def test_the_same_time_can_pass_on_one_level_and_fail_on_another(self):
+        # The whole point: an absolute threshold cannot distinguish these.
+        from ued.population import LevelPopulation
+
+        pop = LevelPopulation(capacity=5)
+        roomy, tight = self._level(602), self._level(603)
+        pop.add(roomy)
+        pop.add(tight)
+        pop.update(roomy.level_id, evac_time=500.0, freeflow_steps=400.0)
+        pop.update(tight.level_id, evac_time=500.0, freeflow_steps=50.0)
+
+        self.assertEqual(pop._records[roomy.level_id].successes(), 1)
+        self.assertEqual(pop._records[tight.level_id].successes(), 0)
+
+    def test_a_timeout_fails_however_loose_the_threshold(self):
+        from config import MAX_STEPS
+        from ued.population import LevelPopulation
+
+        pop = LevelPopulation(capacity=5)
+        level = self._level(604)
+        pop.add(level)
+        # Free-flow so large that K times it would exceed the cap.
+        pop.update(level.level_id, evac_time=float(MAX_STEPS), freeflow_steps=float(MAX_STEPS))
+        self.assertEqual(pop._records[level.level_id].successes(), 0)
+
+    def test_threshold_can_be_changed_after_the_fact(self):
+        # Raw times are stored, so K is a read-time decision and the history
+        # does not have to be thrown away to revisit it.
+        from ued.population import LevelPopulation
+
+        pop = LevelPopulation(capacity=5)
+        level = self._level(605)
+        pop.add(level)
+        for t in (150.0, 250.0, 350.0):
+            pop.update(level.level_id, evac_time=t, freeflow_steps=100.0)
+
+        rec = pop._records[level.level_id]
+        self.assertEqual(rec.successes(k=2.0), 1)
+        self.assertEqual(rec.successes(k=3.0), 2)
+        self.assertEqual(rec.successes(k=4.0), 3)
+
+    def test_evac_ratio_is_reported_for_calibrating_k(self):
+        from ued.population import LevelPopulation
+
+        pop = LevelPopulation(capacity=5)
+        level = self._level(606)
+        pop.add(level)
+        pop.update(level.level_id, evac_time=250.0, freeflow_steps=100.0)
+        self.assertAlmostEqual(pop._records[level.level_id].evac_ratio, 2.5)
+        self.assertIn("mean_evac_ratio", pop.stats())
+
+    def test_learnability_still_peaks_at_balanced_outcomes(self):
+        from ued.population import LevelPopulation
+
+        pop = LevelPopulation(capacity=10, score_fn="learnability")
+        always, never, mixed = self._level(607), self._level(608), self._level(609)
+        for lv in (always, never, mixed):
+            pop.add(lv)
+        for i in range(8):
+            pop.update(always.level_id, evac_time=120.0, freeflow_steps=100.0)
+            pop.update(never.level_id, evac_time=5000.0, freeflow_steps=100.0)
+            pop.update(mixed.level_id,
+                       evac_time=(120.0 if i % 2 == 0 else 5000.0),
+                       freeflow_steps=100.0)
+
+        score = {lv.level_id: pop._raw_score(pop._records[lv.level_id])
+                 for lv in (always, never, mixed)}
+        self.assertGreater(score[mixed.level_id], score[always.level_id])
+        self.assertGreater(score[mixed.level_id], score[never.level_id])
+
+    def test_old_curriculum_state_is_rejected_rather_than_misread(self):
+        import pickle
+        import tempfile
+
+        from ued.runner import UEDRunner
+
+        path = os.path.join(tempfile.mkdtemp(), "old.pkl")
+        with open(path, "wb") as f:
+            pickle.dump({"version": 1, "population": {"version": 1, "records": []}}, f)
+
+        runner = UEDRunner(value_fn=None, rng=random.Random(1))
+        runner.enabled = True   # the curriculum's own logic is under test
+        self.assertFalse(runner.load(path))
+
+
+class SizeGeneralisationTest(unittest.TestCase):
+    """Everything map size touches: raster, observation, generation, editing."""
+
+    def test_raster_is_one_pixel_per_metre_at_any_size(self):
+        import sim.model as model
+        rng = random.Random(41)
+        for size in (60, 100, 170):
+            level = generate_random_level(rng, difficulty=2, width=size, height=size)
+            env = model.FightingModel(level.crowd_size, size, size, robot="Q", level=level)
+            img = env.return_current_image()
+            self.assertEqual(img.shape, (size, size), f"size {size}")
+
+    def test_small_map_does_not_raise(self):
+        # return_current_image used to rasterise against the MAP_W/MAP_H
+        # constants while the grid was world-sized, so a 60-wide map wrote
+        # index 82 into a 60-long axis and raised IndexError.
+        import sim.model as model
+        level = generate_random_level(random.Random(42), difficulty=2, width=60, height=60)
+        env = model.FightingModel(level.crowd_size, 60, 60, robot="Q", level=level)
+        img = env.return_current_image()
+        self.assertEqual(img.shape, (60, 60))
+        self.assertGreater(int(img.max()), 0)
+
+    def test_legacy_fixed_size_callers_still_get_that_size(self):
+        import sim.model as model
+        level = generate_random_level(random.Random(43), difficulty=2, width=140, height=140)
+        env = model.FightingModel(level.crowd_size, 140, 140, robot="Q", level=level)
+        self.assertEqual(env.return_current_image(100, 100).shape, (100, 100))
+
+    def test_robot_state_carries_a_symmetric_scale(self):
+        import math
+
+        import sim.model as model
+        from configs import resolve_config
+        from sim.observation import (ObservationHistory, build_static_layers,
+                                     state_dim)
+
+        cfg = resolve_config(check_data=False)
+        rng = random.Random(44)
+        for size in (60, 100, 160):
+            level = generate_random_level(rng, difficulty=2, width=size, height=size)
+            env = model.FightingModel(level.crowd_size, size, size, robot="Q", level=level)
+            hist = ObservationHistory(cfg, build_static_layers(env, cfg),
+                                      len(env.robots))
+            hist.record(env)
+            state = hist.team_observations()["state"][0]
+            self.assertEqual(len(state), state_dim(cfg), f"size {size}")
+            ref = cfg.MAP_SIZE_REFERENCE
+            self.assertAlmostEqual(state[2], math.log(size / ref), places=5)
+            self.assertAlmostEqual(state[3], math.log(size / ref), places=5)
+            self.assertGreaterEqual(state[0], 0.0)
+            self.assertLessEqual(state[0], 1.0)
+            self.assertLessEqual(state[1], 1.0)
+
+    def test_observation_tensor_shape_is_size_independent(self):
+        # The networks take fixed shapes, so every branch must keep its shape
+        # whatever the world size.
+        import sim.model as model
+        from configs import resolve_config
+        from sim.observation import (ObservationHistory, build_static_layers,
+                                     obs_shapes)
+
+        cfg = resolve_config(check_data=False)
+        shapes = obs_shapes(cfg)
+        rng = random.Random(45)
+        for size in (60, 100, 170):
+            level = generate_random_level(rng, difficulty=2, width=size, height=size)
+            env = model.FightingModel(level.crowd_size, size, size, robot="Q", level=level)
+            hist = ObservationHistory(cfg, build_static_layers(env, cfg),
+                                      len(env.robots))
+            hist.record(env)
+            obs = hist.team_observations()
+            for key in ("ego", "mid", "glob", "state"):
+                self.assertEqual(obs[key].shape[1:], shapes[key],
+                                 f"{key} at size {size}")
+
+    def test_generator_spacing_scales_with_the_world(self):
+        from sim.random_map import _params_from_difficulty
+
+        gaps = [_params_from_difficulty(s, s, 3)["min_obstacle_gap"] for s in (70, 100, 140, 200)]
+        self.assertEqual(gaps, sorted(gaps))
+        # Never below what the robot needs to pass, whatever the map size.
+        self.assertGreaterEqual(_params_from_difficulty(40, 40, 3)["min_obstacle_gap"], 4.0)
+
+    def test_generation_works_across_the_size_range(self):
+        from sim.random_map import RandomMapSpec, generate_map
+
+        for size in (60, 100, 140, 200):
+            data = generate_map(RandomMapSpec(size, size, difficulty=3, seed=31))
+            self.assertEqual(data.width, size)
+            self.assertGreater(len(data.obstacles), 0, f"size {size}")
+
+    def test_sampled_levels_use_the_training_crop_sizes(self):
+        from config import UED_MAP_SIZES_M
+        from ued.level import sample_map_size
+
+        rng = random.Random(46)
+        sizes = {sample_map_size(rng) for _ in range(200)}
+        self.assertEqual({w for w, _ in sizes}, set(UED_MAP_SIZES_M))
+        self.assertTrue(all(w == h for w, h in sizes))
+
+    def test_canvas_operator_moves_a_wall_and_keeps_obstacles(self):
+        """Resizing moves the crop edge; it does not scale the city.
+
+        Scaling the geometry is the obvious way to resize a level and it is
+        wrong here. Street widths and block sizes are absolute metres tied to
+        the robot's body and to what real blocks measure, so scaling a level
+        down gives corridors the robot cannot enter and scaling one up gives
+        blocks no city has. Moving the crop edge instead reveals or hides
+        fabric exactly as moving a window over a real city would.
+        """
+        from citygen.mutate import op_resize_canvas
+        from ued.level import generate_city_level
+
+        level = generate_city_level(random.Random(60), difficulty=4,
+                                    crowd_size=30, width=100, height=100,
+                                    morphology="grid")
+        plan = level.plan
+        widths_before = sorted(round(st.width_m, 4) for st in plan.streets)
+
+        changed = 0
+        for i in range(40):
+            work = plan.copy()
+            if op_resize_canvas(work, random.Random(i)) is None:
+                continue
+            changed += 1
+            self.assertNotEqual((work.width, work.height),
+                                (plan.width, plan.height))
+            # The fabric itself is untouched: same streets, same widths.
+            self.assertEqual(sorted(round(st.width_m, 4) for st in work.streets),
+                             widths_before)
+            # And it stays inside the sizes the curriculum trains on.
+            from config import UED_MAP_SIZE_RANGE
+            lo, hi = UED_MAP_SIZE_RANGE
+            self.assertGreaterEqual(work.width, lo)
+            self.assertLessEqual(work.width, hi)
+        self.assertGreater(changed, 0, "resize never fired")
+
+    def test_free_flow_estimate_grows_with_the_world(self):
+        # The family is pinned and several layouts are averaged per size. Free
+        # flow is set by the worst-case distance to an exit, which depends on
+        # the layout at least as much as on the world: a medina at 120 m can
+        # have a longer worst path than a superblock at 180 m, so a single
+        # sample per size crossing morphologies is not monotonic even though
+        # the criterion does scale with the world. Pin the morphology and take
+        # a median.
+        import statistics
+
+        import sim.model as model
+        from ued.level import generate_city_level
+
+        rng = random.Random(48)
+        estimates = []
+        for size in (70, 120, 180):
+            shots = []
+            for _ in range(5):
+                # The hazard's area fraction is pinned, along with the
+                # morphology. The reference scales with the hazard now rather
+                # than with the world, because the travel term is the worst
+                # walk out of the zone and a zone is drawn per level; at a
+                # loose area range a 70 m map with a large zone genuinely
+                # takes longer to clear than a 180 m map with a small one, and
+                # that is the criterion working rather than failing. At a
+                # fixed fraction a bigger map does mean a bigger hazard in
+                # metres, and the estimate has to follow.
+                level = generate_city_level(rng, difficulty=3,
+                                            crowd_size=30, width=size,
+                                            height=size, morphology="grid",
+                                            danger_area=0.12,
+                                            danger_shape="circle")
+                level.crowd_size = 30
+                env = model.FightingModel(30, size, size, robot="Q", level=level)
+                shots.append(env.free_flow_evacuation_steps())
+            estimates.append(statistics.median(shots))
+        self.assertEqual(estimates, sorted(estimates), f"{estimates}")
+
+    def test_holdout_spans_sizes_inside_and_outside_training(self):
+        from config import UED_MAP_SIZE_RANGE
+        from ued.holdout import holdout_levels
+
+        lo, hi = UED_MAP_SIZE_RANGE
+        bands = {getattr(lv, "size_band", "inside") for lv in holdout_levels()}
+        self.assertIn("inside", bands)
+        self.assertTrue({"below", "above"} & bands,
+                        "holdout has no sizes outside the training range")
+        sizes = {lv.width for lv in holdout_levels()}
+        self.assertTrue(any(s < lo for s in sizes) or any(s > hi for s in sizes))
+
+
+class AccelTuningTest(unittest.TestCase):
+    """The breeding rule, which had to be rethought for this task."""
+
+    def _pop(self):
+        from ued.population import LevelPopulation
+
+        return LevelPopulation(capacity=200)
+
+    def _add_scored(self, pop, seed, evac_time, trials, freeflow=100.0):
+        # City levels, because breeding needs a street plan to edit. A level
+        # built through level_from_map_data has none, which is what
+        # test_a_level_without_a_plan_is_never_bred checks for separately.
+        from ued.level import generate_city_level
+
+        level = generate_city_level(random.Random(seed), difficulty=4,
+                                    crowd_size=30, width=100, height=100,
+                                    morphology="grid")
+        pop.add(level)
+        for _ in range(trials):
+            pop.update(level.level_id, evac_time=evac_time, freeflow_steps=freeflow)
+        return pop._records[level.level_id]
+
+    def test_an_unmeasured_level_does_not_breed(self):
+        # Children inherit their parent's score, so breeding from a level whose
+        # score was itself inherited compounds a guess.
+        from config import UED_MIN_TRIALS
+
+        pop = self._pop()
+        for i in range(12):
+            self._add_scored(pop, 700 + i, 150.0 + 40 * (i % 4), UED_MIN_TRIALS)
+        fresh = self._add_scored(pop, 799, 200.0, 1)
+        self.assertFalse(pop.should_breed(fresh))
+
+    def test_maxmc_units_do_not_outrank_learnability(self):
+        # should_breed used to compare raw scores: learnability is bounded by
+        # 0.25 while MaxMC is an unbounded return gap, so every barely-tried
+        # level beat every measured one.
+        from config import UED_MIN_TRIALS
+
+        pop = self._pop()
+        frontier = None
+        for i in range(12):
+            # Alternating outcomes give a success rate near a half, the highest
+            # learnability there is.
+            from ued.level import generate_city_level
+
+            level = generate_city_level(random.Random(800 + i), difficulty=4,
+                                        crowd_size=30, width=100, height=100,
+                                        morphology="grid")
+            pop.add(level)
+            for k in range(UED_MIN_TRIALS + 1):
+                pop.update(level.level_id,
+                           evac_time=(150.0 if k % 2 == 0 else 5000.0),
+                           freeflow_steps=100.0)
+            if i == 0:
+                frontier = pop._records[level.level_id]
+
+        # A level with a huge MaxMC but too few trials must not displace it.
+        loud = self._add_scored(pop, 850, 200.0, 1)
+        loud.maxmc = 10_000.0
+        self.assertTrue(pop.should_breed(frontier))
+        self.assertFalse(pop.should_breed(loud))
+
+    def test_children_per_level_is_capped(self):
+        from config import UED_MAX_CHILDREN_PER_LEVEL, UED_MIN_TRIALS
+
+        pop = self._pop()
+        for i in range(12):
+            self._add_scored(pop, 900 + i, 5000.0, UED_MIN_TRIALS)
+        from ued.level import generate_city_level
+
+        star = None
+        level = generate_city_level(random.Random(950), difficulty=4,
+                                    crowd_size=30, width=100, height=100,
+                                    morphology="grid")
+        pop.add(level)
+        for k in range(UED_MIN_TRIALS + 1):
+            pop.update(level.level_id,
+                       evac_time=(150.0 if k % 2 == 0 else 5000.0),
+                       freeflow_steps=100.0)
+        star = pop._records[level.level_id]
+
+        bred = 0
+        for _ in range(UED_MAX_CHILDREN_PER_LEVEL + 4):
+            if not pop.should_breed(star):
+                break
+            if pop.breed(star) is not None:
+                bred += 1
+        self.assertLessEqual(bred, UED_MAX_CHILDREN_PER_LEVEL)
+        self.assertEqual(bred, UED_MAX_CHILDREN_PER_LEVEL)
+        self.assertFalse(pop.should_breed(star))
+
+    def test_a_level_without_a_plan_is_never_bred(self):
+        """Real-map crops and numbered maps have nothing to edit.
+
+        Letting breed() raise instead would be worse than it looks: a failed
+        breed leaves the child count untouched, so the level qualifies again
+        on every future visit and burns an attempt each time for as long as it
+        stays in the population.
+        """
+        from config import UED_MIN_TRIALS
+
+        pop = self._pop()
+        for i in range(12):
+            self._add_scored(pop, 700 + i, 5000.0, UED_MIN_TRIALS)
+        data = generate_map(RandomMapSpec(100, 100, difficulty=2, seed=951))
+        level = level_from_map_data(data, crowd_size=30, difficulty=2)
+        self.assertIsNone(level.plan)
+        pop.add(level)
+        for k in range(UED_MIN_TRIALS + 1):
+            pop.update(level.level_id,
+                       evac_time=(150.0 if k % 2 == 0 else 5000.0),
+                       freeflow_steps=100.0)
+        self.assertFalse(pop.should_breed(pop._records[level.level_id]))
+
+
+class MutationReproducibilityTest(unittest.TestCase):
+    def test_a_child_depends_only_on_the_generator_passed_in(self):
+        # The shape samplers reused from random_map draw from the global
+        # `random` module, so a mutation used to depend on wherever that stream
+        # happened to be, and the same seed gave different children in
+        # different contexts.
+        level = generate_random_level(random.Random(5), difficulty=2, width=100, height=100)
+
+        random.seed(1)
+        first = mutate_level(level, rng=random.Random(77))
+        random.seed(999999)
+        second = mutate_level(level, rng=random.Random(77))
+
+        self.assertEqual(first.obstacles, second.obstacles)
+        self.assertEqual(first.exits, second.exits)
+        self.assertEqual((first.width, first.height), (second.width, second.height))
+        self.assertEqual(first.crowd_size, second.crowd_size)
+
+    def test_mutating_leaves_the_caller_stream_alone(self):
+        level = generate_random_level(random.Random(6), difficulty=2, width=100, height=100)
+
+        random.seed(4242)
+        reference = [random.random() for _ in range(5)]
+        random.seed(4242)
+        mutate_level(level, rng=random.Random(77))
+        after = [random.random() for _ in range(5)]
+
+        self.assertEqual(reference, after)
+
+
+class ConstructionCostTest(unittest.TestCase):
+    """The build has to stay cheap enough for size to be a design axis.
+
+    A 200x200 world took 39 s to construct before the navmesh containment
+    test, the visibility atlas and the all-pairs distances were vectorised,
+    which made large maps unusable as training levels regardless of anything
+    else. These bounds are loose because the numbers move with machine load;
+    they exist to catch a return to per-grid-point Python loops.
+    """
+
+    def _build_seconds(self, size):
+        import time
+
+        import sim.model as model
+        from sim.random_map import RandomMapSpec, generate_map
+
+        data = generate_map(RandomMapSpec(size, size, difficulty=3, seed=7))
+        level = level_from_map_data(data, crowd_size=30, difficulty=3)
+        start = time.time()
+        model.FightingModel(30, size, size, robot="Q", level=level)
+        return time.time() - start
+
+    def test_a_large_world_builds_quickly(self):
+        self.assertLess(self._build_seconds(200), 5.0)
+
+    def test_cost_does_not_explode_with_area(self):
+        small = self._build_seconds(100)
+        large = self._build_seconds(200)
+        # Four times the area. The original scaled far worse than that.
+        self.assertLess(large, max(0.5, small * 12.0), f"{small:.2f}s -> {large:.2f}s")
+
+
+class NetworkRobotDimTest(unittest.TestCase):
+    """The networks must take exactly the observation the environment builds.
+
+    Both networks once accepted a width argument and built their first layer
+    at a hardcoded one, which only surfaced when the state grew.
+    """
+
+    def _cfg(self):
+        from configs import resolve_config
+        return resolve_config(check_data=False)
+
+    def test_networks_match_the_configured_robot_state_width(self):
+        from learn.sac import SACAgent
+        from sim.observation import state_dim
+        from sim.robot_action import ACTION_DIM
+
+        cfg = self._cfg()
+        agent = SACAgent(cfg)
+        self.assertEqual(agent.policy.state[0].in_features, state_dim(cfg))
+        for net in (agent.q1, agent.q2):
+            self.assertEqual(net.agent[0].in_features, state_dim(cfg) + ACTION_DIM)
+
+    def test_value_fn_runs_on_a_real_observation_width(self):
+        import sim.model as model
+        from learn.sac import SACAgent, make_value_fn
+        from sim.observation import ObservationHistory, build_static_layers
+
+        cfg = self._cfg()
+        level = generate_random_level(random.Random(71), difficulty=2,
+                                      width=80, height=80)
+        level.robot_num = 2
+        env = model.FightingModel(level.crowd_size, 80, 80, robot="Q", level=level)
+        st = build_static_layers(env, cfg)
+        hist = ObservationHistory(cfg, st, len(env.robots))
+        samples = []
+        for _ in range(3):
+            hist.record(env)
+            samples.append((st, hist.window()))
+        values = make_value_fn(SACAgent(cfg))(samples)
+        # One value per instant, averaged over the real robots.
+        self.assertEqual(values.shape, (3,))
+
+    def test_environment_state_width_matches_the_networks(self):
+        import sim.model as model
+        from sim.observation import (ObservationHistory, build_static_layers,
+                                     state_dim)
+
+        cfg = self._cfg()
+        level = generate_random_level(random.Random(70), difficulty=2, width=90, height=90)
+        env = model.FightingModel(level.crowd_size, 90, 90, robot="Q", level=level)
+        hist = ObservationHistory(cfg, build_static_layers(env, cfg), len(env.robots))
+        hist.record(env)
+        self.assertEqual(hist.team_observations()["state"].shape[1], state_dim(cfg))
+
+
+class ExplorationGateTest(unittest.TestCase):
+    """Scores must describe the policy, not the exploration noise.
+
+    START_EPSILON is 1.0 and decays to 0 over thousands of episodes, so for a
+    long stretch nearly every action is random. A success rate measured then
+    says which levels a random walker happens to solve, which has nothing to
+    do with where the policy's ability ends, and breeding from it picks parents
+    for the wrong reason.
+    """
+
+    def _runner(self):
+        from ued.runner import UEDRunner
+
+        runner = UEDRunner(value_fn=None, rng=random.Random(1))
+        runner.enabled = True   # the curriculum's own logic is under test
+        return runner
+
+    def _level(self, seed=1300):
+        data = generate_map(RandomMapSpec(100, 100, difficulty=2, seed=seed))
+        return level_from_map_data(data, crowd_size=30, difficulty=2)
+
+    def test_exploratory_episodes_do_not_score_levels(self):
+        from config import UED_SCORE_MAX_EPSILON
+
+        runner = self._runner()
+        level = self._level()
+        runner.population.add(level)
+
+        runner.epsilon = min(1.0, UED_SCORE_MAX_EPSILON + 0.5)
+        runner.on_episode(_FakeStat(0, 0, level.level_id, evac_time_100=150))
+        self.assertEqual(runner.population._records[level.level_id].trials, 0)
+        self.assertEqual(runner.n_unscored_episodes, 1)
+
+    def test_scores_are_recorded_once_exploration_has_decayed(self):
+        from config import UED_SCORE_MAX_EPSILON
+
+        runner = self._runner()
+        level = self._level(1301)
+        runner.population.add(level)
+
+        runner.epsilon = UED_SCORE_MAX_EPSILON
+        runner.on_episode(_FakeStat(0, 0, level.level_id, evac_time_100=150))
+        self.assertEqual(runner.population._records[level.level_id].trials, 1)
+
+
+class TrialAgeWindowTest(unittest.TestCase):
+    """A level's history must stay attached to a recognisable policy.
+
+    The window used to be a fixed number of trials. At a few hundred live
+    levels those trials span more episodes than the entire epsilon decay, so a
+    success rate averaged over policies that no longer existed.
+    """
+
+    def _pop(self):
+        from ued.population import LevelPopulation
+
+        return LevelPopulation(capacity=50)
+
+    def _level(self, seed=1400):
+        # A city level, because breeding needs a street plan to edit and one
+        # of these tests asks whether a level is breedable.
+        from ued.level import generate_city_level
+
+        return generate_city_level(random.Random(seed), difficulty=4,
+                                   crowd_size=30, width=100, height=100,
+                                   morphology="grid")
+
+    def test_outcomes_older_than_the_window_stop_counting(self):
+        from config import UED_TRIAL_MAX_AGE
+
+        pop = self._pop()
+        level = self._level()
+        pop.add(level)
+
+        # Two failures long ago, then two successes recently.
+        pop.episode = 100
+        for _ in range(2):
+            pop.update(level.level_id, evac_time=5000.0, freeflow_steps=100.0, episode=100)
+        pop.episode = 100 + UED_TRIAL_MAX_AGE + 500
+        for _ in range(2):
+            pop.update(level.level_id, evac_time=150.0, freeflow_steps=100.0,
+                       episode=pop.episode)
+
+        rec = pop._records[level.level_id]
+        self.assertEqual(rec.fresh_trials(pop.episode), 2)
+        # Only the recent successes count, so the rate is high.
+        self.assertGreater(rec.success_rate_at(pop.episode), 0.5)
+        # Ignoring age would mix in the old failures and halve it.
+        self.assertLess(rec.success_rate_at(None), rec.success_rate_at(pop.episode))
+
+    def test_breeding_needs_recent_trials_not_just_old_ones(self):
+        from config import UED_MIN_TRIALS, UED_TRIAL_MAX_AGE
+
+        pop = self._pop()
+        levels = []
+        for i in range(12):
+            lv = self._level(1410 + i)
+            pop.add(lv)
+            levels.append(lv)
+            for k in range(UED_MIN_TRIALS + 1):
+                pop.update(lv.level_id,
+                           evac_time=(150.0 if k % 2 == 0 else 5000.0),
+                           freeflow_steps=100.0, episode=50)
+        pop.episode = 50
+        rec = pop._records[levels[0].level_id]
+        self.assertTrue(pop.should_breed(rec))
+
+        # Move far past the window: the same history is now too old to breed on.
+        pop.episode = 50 + UED_TRIAL_MAX_AGE + 1000
+        self.assertEqual(rec.fresh_trials(pop.episode), 0)
+        self.assertFalse(pop.should_breed(rec))
+
+    def test_age_window_survives_a_checkpoint(self):
+        import tempfile
+
+        from ued.runner import UEDRunner
+
+        saved = UEDRunner(value_fn=None, rng=random.Random(1))
+        saved.enabled = True   # the curriculum's own logic is under test
+        level = self._level(1450)
+        saved.population.add(level)
+        saved.population.episode = 900
+        saved.population.update(level.level_id, evac_time=150.0,
+                                freeflow_steps=100.0, episode=900)
+
+        path = os.path.join(tempfile.mkdtemp(), "curriculum.pkl")
+        self.assertTrue(saved.save(path))
+
+        loaded = UEDRunner(value_fn=None, rng=random.Random(2))
+
+        loaded.enabled = True
+        self.assertTrue(loaded.load(path))
+        rec = loaded.population._records[level.level_id]
+        self.assertEqual(list(rec.evac_episodes), [900])
+        self.assertEqual(rec.fresh_trials(900), 1)
+
+
+class CurriculumTimingTest(unittest.TestCase):
+    """The schedules have to be consistent with each other.
+
+    Three independent knobs decide whether the curriculum ever gets a usable
+    score: how long exploration dominates, how many live levels the replay
+    budget is spread across, and how long an outcome stays valid. Set them
+    without reference to each other and the curriculum quietly never engages,
+    which no single-value assertion would catch.
+    """
+
+    @staticmethod
+    def _epsilon(episode):
+        from config import (EPSILON_MIN, LINEARLY_DECAY_STEP, START_DECAY_STEP,
+                            START_EPSILON)
+
+        if episode < START_DECAY_STEP:
+            return START_EPSILON
+        decayed = START_EPSILON - (episode - START_DECAY_STEP) / LINEARLY_DECAY_STEP
+        return max(EPSILON_MIN, decayed)
+
+    def test_a_level_can_reach_the_breeding_bar_before_its_history_expires(self):
+        # Replays are spread over the live population, so a level collects
+        # roughly (window * replay_rate / population) trials before the oldest
+        # ones stop counting. If that is below UED_MIN_TRIALS the window
+        # expires faster than a level can earn a score and nothing ever breeds.
+        from config import (UED_MIN_TRIALS, UED_POP_SIZE, UED_P_NEW_END,
+                            UED_TRIAL_MAX_AGE)
+
+        if UED_TRIAL_MAX_AGE <= 0:
+            self.skipTest("age window disabled")
+        trials_per_window = UED_TRIAL_MAX_AGE * (1.0 - UED_P_NEW_END) / UED_POP_SIZE
+        self.assertGreater(
+            trials_per_window, 1.5 * UED_MIN_TRIALS,
+            f"{trials_per_window:.1f} trials per window vs a bar of {UED_MIN_TRIALS}",
+        )
+
+    def test_the_count_window_is_the_binding_one_for_active_levels(self):
+        # The deque cap should bite before the age filter for a level that is
+        # sampled at the average rate, leaving the age filter as the safety net
+        # for rarely sampled levels whose scores would otherwise never refresh.
+        from config import (UED_POP_SIZE, UED_P_NEW_END, UED_TRIAL_HISTORY,
+                            UED_TRIAL_MAX_AGE)
+
+        if UED_TRIAL_MAX_AGE <= 0:
+            self.skipTest("age window disabled")
+        rate = (1.0 - UED_P_NEW_END) / UED_POP_SIZE     # trials per episode
+        episodes_for_full_history = UED_TRIAL_HISTORY / rate
+        self.assertLess(episodes_for_full_history, UED_TRIAL_MAX_AGE)
+
+    def test_scoring_waits_for_exploration_to_decay(self):
+        # Scoring must not begin while most actions are still random.
+        from config import UED_SCORE_MAX_EPSILON, UED_WARMUP_EPISODES
+
+        self.assertLessEqual(UED_SCORE_MAX_EPSILON, 0.5)
+        start = next(ep for ep in range(200000)
+                     if self._epsilon(ep) <= UED_SCORE_MAX_EPSILON)
+        # The gate, not UED_WARMUP_EPISODES, is what actually holds scoring
+        # back; warm-up alone ends far too early to be the protection.
+        self.assertGreater(start, UED_WARMUP_EPISODES)
+
+    def test_breeding_becomes_reachable_within_a_sane_horizon(self):
+        from config import (UED_MIN_TRIALS, UED_POP_SIZE, UED_P_NEW_END,
+                            UED_SCORE_MAX_EPSILON)
+
+        start = next(ep for ep in range(200000)
+                     if self._epsilon(ep) <= UED_SCORE_MAX_EPSILON)
+        rate = (1.0 - UED_P_NEW_END)
+        # Eight levels must each reach the trial bar before breeding unlocks.
+        episodes_needed = UED_MIN_TRIALS * 8 / rate
+        self.assertLess(start + episodes_needed, 20000)
+
+
+class CityGeneratorTest(unittest.TestCase):
+    """The generator produces street networks at real densities.
+
+    Measured against road-derived real crops, which is the only comparison
+    that means anything now that both sides define traversable space the same
+    way: buffer the street centrelines, and the obstacles are the complement.
+    """
+
+    def _stats(self, polys, size):
+        from osm_corpus.stats import layout_stats
+
+        return layout_stats(polys, float(size))
+
+    def test_every_morphology_hits_its_measured_street_share(self):
+        """The one number the whole generator is pinned to.
+
+        Street share decides how much room the crowd has, so a generator that
+        misses it produces maps that look like a city and do not behave like
+        one. An early version picked widths from street-class bands and
+        derived the spacing from them; for a colonial grid that demanded a
+        spacing wider than the crop, the calibration pushed it until no street
+        survived, and the pattern rendered as one solid block covering the
+        whole map. This is the test that would have caught it.
+        """
+        import random
+        import statistics
+
+        from citygen.generate import _street_share, calibrated_network
+        from citygen.morphology import MORPHOLOGIES, STREET_SHARE
+        from citygen.plan import CityPlan
+
+        for morph in sorted(MORPHOLOGIES):
+            shares = []
+            for seed in range(6):
+                streets = calibrated_network(morph, 200, 200,
+                                             random.Random(seed), 1.0)
+                self.assertTrue(streets, f"{morph} produced no streets")
+                plan = CityPlan(width=200, height=200, morphology=morph,
+                                development=1.0, streets=streets)
+                shares.append(_street_share(plan))
+            got = statistics.median(shares)
+            self.assertAlmostEqual(got, STREET_SHARE[morph], delta=0.04,
+                                   msg=f"{morph}: {got:.3f}")
+
+    def test_difficulty_zero_is_an_empty_field(self):
+        """Not a special case, but built fraction zero."""
+        import random
+
+        from citygen.generate import generate_city_plan
+        from citygen.morphology import MORPHOLOGIES
+
+        for morph in sorted(MORPHOLOGIES):
+            plan = generate_city_plan(random.Random(4), morph, difficulty=0,
+                                      width=140, height=140)
+            rings, trav = plan.render()
+            self.assertEqual(rings, [], f"{morph} at difficulty 0")
+            self.assertIsNotNone(trav)
+            self.assertAlmostEqual(trav.area, 140 * 140, delta=1.0)
+
+    def test_coverage_rises_with_difficulty(self):
+        """The axis the curriculum walks, from open field to downtown."""
+        import random
+        import statistics
+
+        from citygen.generate import generate_city_plan
+        from citygen.morphology import MORPHOLOGIES
+
+        morphs = sorted(MORPHOLOGIES)
+        by_difficulty = []
+        for d in range(7):
+            covs = []
+            for seed in range(14):
+                rng = random.Random(1000 + seed)
+                morph = morphs[seed % len(morphs)]
+                plan = generate_city_plan(rng, morph, difficulty=d,
+                                          width=140, height=140)
+                covs.append(plan.summary()["coverage"])
+            by_difficulty.append(statistics.median(covs))
+        self.assertEqual(by_difficulty, sorted(by_difficulty), by_difficulty)
+        self.assertEqual(by_difficulty[0], 0.0)
+        # The top of the axis has to reach real density or the curriculum
+        # cannot present the thing it is meant to transfer to. Road-derived
+        # real crops run from about 0.56 to 0.85 built.
+        self.assertGreater(by_difficulty[-1], 0.40)
+
+    def test_blocks_are_solid(self):
+        """No free space inside a block, which is the extraction's own rule.
+
+        A road-derived real block is one polygon however many buildings stand
+        on it, because nothing inside it is mapped carriageway. The earlier
+        street generator split each block into separate footprints with
+        setbacks between them, and those gaps were free space: it reproduced
+        inside blocks exactly the overstatement of navigable space that
+        road-based extraction was introduced to remove from between them.
+        """
+        import random
+
+        from shapely.geometry import Polygon
+
+        from citygen.generate import generate_city_plan
+        from citygen.morphology import MORPHOLOGIES
+
+        for morph in sorted(MORPHOLOGIES):
+            plan = generate_city_plan(random.Random(9), morph, difficulty=6,
+                                      width=200, height=200)
+            rings, _ = plan.render()
+            for ring in rings:
+                poly = Polygon(ring)
+                # An exterior ring only: a hole would be ground enclosed by
+                # the block, which nothing can reach from the street.
+                self.assertEqual(len(poly.interiors), 0, morph)
+
+    def test_corridors_admit_the_robot(self):
+        """Generated streets are passable by the robot's body, not just a point."""
+        import random
+
+        from config import ROBOT_BODY_RADIUS
+        from citygen.generate import _place_exits, generate_city_plan
+        from citygen.morphology import MIN_CORRIDOR_M, MORPHOLOGIES
+        from citygen.validate import check
+
+        self.assertGreater(MIN_CORRIDOR_M, 2.0 * ROBOT_BODY_RADIUS)
+        failures = []
+        for morph in sorted(MORPHOLOGIES):
+            for seed in range(4):
+                rng = random.Random(300 + seed)
+                plan = generate_city_plan(rng, morph, difficulty=6,
+                                          width=160, height=160)
+                exits = _place_exits(plan, 2, rng)
+                ok, why = check(plan, exits)
+                if not ok:
+                    failures.append(f"{morph}/{seed}: {why}")
+        # Generation retries, so the entry point is allowed the occasional
+        # unplayable draw; a pattern that fails most of the time is not.
+        self.assertLess(len(failures), 4, failures)
+
+    def test_developed_layouts_match_the_corpus_density(self):
+        """Difficulty 6 against the real crops the tables were fitted to.
+
+        Compared at difficulty 6 only. The generator spans an empty field to a
+        full downtown while the corpus holds developed fabric exclusively, so
+        pooling difficulties compares two different populations: at difficulty
+        4 the median free-space width is 40 m, which is not a defect, it is an
+        open field.
+
+        Built coverage matches almost exactly, 0.670 generated against 0.672
+        real. Two gaps remain and are asserted loosely on purpose rather than
+        tuned away. The generator subdivides more finely, about 27 blocks in a
+        200 m crop against 12 real, because each morphology adds crossings on
+        top of its grid (alleys, medina dead ends, boulevard radials) and the
+        calibration then narrows every street to hold the street share. So its
+        corridors are narrower too, 5.7 m against 8.0 m. Finer grain at the
+        same density is a harder level, not a wrong one.
+        """
+        import statistics
+
+        from osm_corpus.collect import load_corpus
+        from osm_corpus.report import corpus_rows, generator_sample
+
+        corpus = load_corpus()
+        if corpus.get("traversability") != "roads":
+            self.skipTest("corpus is not road-derived")
+        real = corpus_rows(corpus, 200)
+        if len(real) < 10:
+            self.skipTest("not enough real crops at 200 m")
+
+        gen = generator_sample(n=21, size_m=200, difficulties=(6,))
+        self.assertTrue(gen)
+
+        real_cov = statistics.median(r["coverage"] for r in real)
+        gen_cov = statistics.median(r["coverage"] for r in gen)
+        self.assertAlmostEqual(gen_cov, real_cov, delta=0.10,
+                               msg=f"coverage {gen_cov:.3f} vs {real_cov:.3f}")
+
+        real_w = statistics.median(r["width_p50"] for r in real)
+        gen_w = statistics.median(r["width_p50"] for r in gen)
+        self.assertLess(gen_w, real_w * 2.0, (gen_w, real_w))
+        self.assertGreater(gen_w, real_w * 0.5, (gen_w, real_w))
+
+
+class MorphologyLineageTest(unittest.TestCase):
+    """A child of a city is a city.
+
+    This is the property the whole representation exists for. ACCEL builds
+    complexity entirely through offspring, so whatever mutation preserves is
+    what a lineage converges on, and the previous polygon operators preserved
+    nothing structural.
+    """
+
+    def _lineage(self, morph, difficulty, generations, seed):
+        from ued.level import generate_city_level
+        from ued.mutate import MutationFailed, mutate_level
+
+        rng = random.Random(seed)
+        level = generate_city_level(rng, difficulty=difficulty, crowd_size=30,
+                                    width=140, height=140, morphology=morph)
+        out, failures = [level], 0
+        for g in range(generations):
+            try:
+                level = mutate_level(level, rng=random.Random(seed * 97 + g))
+            except MutationFailed:
+                failures += 1
+                continue
+            out.append(level)
+        return out, failures
+
+    def test_lineage_stays_a_street_network(self):
+        from citygen.morphology import MORPHOLOGIES
+
+        for morph in sorted(MORPHOLOGIES):
+            lineage, failures = self._lineage(morph, 4, 12, seed=11)
+            self.assertLess(failures, 6, f"{morph}: {failures} failed breeds")
+            last = lineage[-1]
+            self.assertIsNotNone(last.plan)
+            self.assertEqual(last.plan.morphology, morph)
+            self.assertTrue(last.plan.streets,
+                            f"{morph} lost its street network")
+            self.assertGreater(last.generation, 0)
+
+    def test_mutation_is_reproducible_from_its_generator_alone(self):
+        """No hidden dependency on the global random stream.
+
+        The previous operators borrowed shape samplers from `random_map` that
+        drew from the `random` module directly, so the same seed gave
+        different children depending on where the global stream happened to
+        be, and the fix was to seed and restore it around every call. The plan
+        operators take their generator as an argument, so this now follows
+        from the signature rather than from a guard.
+        """
+        from ued.level import generate_city_level
+        from ued.mutate import mutate_level
+
+        level = generate_city_level(random.Random(5), difficulty=4,
+                                    crowd_size=30, width=140, height=140,
+                                    morphology="grid")
+        random.seed(1234)
+        first = mutate_level(level, rng=random.Random(77))
+        random.seed(999)
+        [random.random() for _ in range(50)]
+        second = mutate_level(level, rng=random.Random(77))
+        self.assertEqual(first.obstacles, second.obstacles)
+        self.assertEqual(first.mutation_ops, second.mutation_ops)
+
+    def test_operators_come_in_inverse_pairs(self):
+        """Every add has a remove, or the walk drifts without selection.
+
+        Mutation on the scatter generator collapsed complexity because the
+        removing operators always validated and the adding ones often failed.
+        The pairing is the structural answer, and it breaks loudly here if an
+        operator is added without its inverse.
+        """
+        from citygen.mutate import INVERSE_PAIRS, OPERATORS
+
+        paired = {name for pair in INVERSE_PAIRS for name in pair}
+        unpaired = set(OPERATORS) - paired
+        # Two operators are their own inverse, because each draws its
+        # displacement symmetrically about zero: resize_canvas steps the crop
+        # edge either way, and bend_street offsets a street either way. They
+        # need no partner to keep the walk unbiased.
+        self.assertEqual(unpaired, {"resize_canvas", "bend_street"}, unpaired)
+        for a, b in INVERSE_PAIRS:
+            self.assertIn(a, OPERATORS)
+            self.assertIn(b, OPERATORS)
+
+    def test_a_developed_parent_never_breeds_an_empty_child(self):
+        """The complexity collapse the pairing exists to prevent.
+
+        An empty field passes validation, because an empty field is playable.
+        It is still not an acceptable child of a developed parent: the
+        curriculum would watch a difficulty-4 lineage quietly become a blank
+        map while every check reported success.
+        """
+        from ued.level import generate_city_level
+        from ued.mutate import MutationFailed, mutate_level
+
+        level = generate_city_level(random.Random(31), difficulty=4,
+                                    crowd_size=30, width=120, height=120,
+                                    morphology="organic")
+        for g in range(25):
+            try:
+                level = mutate_level(level, rng=random.Random(g))
+            except MutationFailed:
+                continue
+            self.assertTrue(level.obstacles,
+                            f"generation {level.generation} came out empty")
+
+
+class RoadTraversabilityTest(unittest.TestCase):
+    """The road-network reading of where a robot may drive.
+
+    Deriving free space from buildings answers "is anything built here", which
+    is not the question. Between two buildings in a real downtown there is
+    usually a private plot, a walled yard, a car park, planting, water or rail,
+    and a guidance robot cannot cross any of it. These tests pin the inversion:
+    free space is the mapped carriageway and footway, and everything else is
+    obstacle until proven otherwise.
+    """
+
+    def test_width_table_covers_the_classes_we_keep(self):
+        from osm_corpus.roads import (EXCLUDED_CLASSES, ROAD_WIDTHS,
+                                      DEFAULT_WIDTH_M, width_for)
+        # Every kept class has an explicit width; the default exists for
+        # classes OSM adds later, not as the common case.
+        for cls in ROAD_WIDTHS:
+            self.assertNotIn(cls, EXCLUDED_CLASSES)
+            self.assertGreater(width_for({"highway": cls}), 0.0)
+        self.assertEqual(width_for({"highway": "no_such_class"}),
+                         DEFAULT_WIDTH_M)
+        # An excluded class is not traversable at any width.
+        for cls in EXCLUDED_CLASSES:
+            self.assertIsNone(width_for({"highway": cls}))
+
+    def test_lane_count_beats_the_class_default(self):
+        from osm_corpus.roads import METRES_PER_LANE, width_for
+        tagged = width_for({"highway": "residential", "lanes": "4"})
+        self.assertGreaterEqual(tagged, 4 * METRES_PER_LANE)
+        self.assertGreater(tagged, width_for({"highway": "residential"}))
+
+    def test_explicit_width_tag_wins(self):
+        from osm_corpus.roads import width_for
+        self.assertAlmostEqual(width_for({"highway": "residential",
+                                          "width": "22"}), 22.0, places=3)
+
+    def test_traversable_is_far_smaller_than_the_unbuilt_area(self):
+        """The whole point, stated as a number.
+
+        Measured at six downtowns, the gaps between buildings claim two to six
+        times the space the street network actually offers. Palermo Soho is the
+        extreme: 92 per cent of the crop is unbuilt and 15 per cent is street.
+        """
+        from shapely.geometry import LineString
+        from osm_corpus.roads import RoadNetwork, traversable_polygon
+
+        size = 200.0
+        # A single cross of residential streets: two 9 m corridors.
+        net = RoadNetwork(
+            lines=[(LineString([(0, 100), (200, 100)]), 9.0),
+                   (LineString([(100, 0), (100, 200)]), 9.0)],
+            areas=[], source="synthetic", n_excluded=0)
+        trav = traversable_polygon(net, size)
+        # Two 200x9 strips less the shared square, as a fraction of the crop.
+        expected = (2 * 200 * 9 - 81) / (size ** 2)
+        self.assertAlmostEqual(trav.area / size ** 2, expected, places=2)
+        # A building-complement reading of the same place would call almost
+        # all of it free.
+        self.assertLess(trav.area / size ** 2, 0.2)
+
+    def test_obstacles_are_the_complement(self):
+        from shapely.geometry import LineString, Polygon
+        from osm_corpus.roads import (RoadNetwork, obstacles_from_traversable,
+                                      traversable_polygon)
+
+        size = 100.0
+        net = RoadNetwork(lines=[(LineString([(0, 50), (100, 50)]), 10.0)],
+                          areas=[], source="synthetic", n_excluded=0)
+        trav = traversable_polygon(net, size)
+        rings = obstacles_from_traversable(trav, size, simplify_m=0.0)
+        blocked = sum(Polygon(r).area for r in rings)
+        self.assertAlmostEqual(blocked + trav.area, size ** 2, delta=size)
+        # One strip across the middle leaves a block above and below it.
+        self.assertEqual(len(rings), 2)
+
+    def test_simplification_keeps_corridors_passable(self):
+        """Tolerance is bounded by what a robot needs, not by looks.
+
+        Simplification moves walls, and a wall moved far enough closes a
+        corridor that was passable, which changes what the level means without
+        changing how it looks. The criterion is the robot's own criterion:
+        shrink the free space by the robot's radius and the network must still
+        cross the crop in both directions.
+
+        Note what is NOT used here. The tenth percentile of twice the distance
+        to the nearest obstacle saturates at one raster cell, so on a one-metre
+        grid it reads 2.00 at every site and every tolerance, and a test
+        resting on it would pass whatever simplification did.
+        """
+        import numpy as np
+        from scipy.ndimage import binary_erosion
+        from shapely.geometry import LineString, Polygon
+
+        from config import OSM_SIMPLIFY_M, ROBOT_BODY_RADIUS
+        from osm_corpus.roads import RoadNetwork, road_layout
+        from osm_corpus.stats import rasterise
+
+        self.assertLessEqual(OSM_SIMPLIFY_M, 2.0 * ROBOT_BODY_RADIUS,
+                             "tolerance may not exceed the robot's width")
+
+        size = 200.0
+        step = 0.5
+        # A ladder of narrow cross-streets: the structure simplification is
+        # most likely to erase.
+        lines = [(LineString([(0, y), (200, y)]), 6.0) for y in (40, 100, 160)]
+        lines += [(LineString([(x, 0), (x, 200)]), 6.0) for x in (40, 100, 160)]
+        net = RoadNetwork(lines=lines, areas=[], source="synthetic",
+                          n_excluded=0)
+
+        def passable(tol):
+            rings, trav = road_layout(net, size, simplify_m=tol)
+            polys = [Polygon(r) for r in rings if len(r) >= 3]
+            free = ~rasterise(polys, size, step=step)
+            # What the robot's body can occupy, rather than what a point can.
+            r_cells = int(round(ROBOT_BODY_RADIUS / step))
+            n = 2 * r_cells + 1
+            body = np.ones((n, n), dtype=bool)
+            fits = binary_erosion(free, structure=body)
+            # The robot's centre cannot sit within its own radius of the crop
+            # wall, so "reaches the edge" means reaching that band, not the
+            # outermost cell.
+            edge = r_cells + 1
+            spans_x = bool(fits[:, :edge].any() and fits[:, -edge:].any())
+            spans_y = bool(fits[:edge, :].any() and fits[-edge:, :].any())
+            return fits, spans_x, spans_y, trav.area / size ** 2
+
+        exact_fits, ex, ey, exact_f = passable(0.0)
+        simple_fits, sx, sy, simple_f = passable(OSM_SIMPLIFY_M)
+
+        self.assertTrue(ex and ey, "the unsimplified ladder must be crossable")
+        self.assertTrue(sx and sy,
+                        "simplification closed a corridor the robot needs")
+        # And the room to manoeuvre must survive, not merely a thread of it.
+        self.assertGreater(simple_fits.sum(), 0.9 * exact_fits.sum())
+        self.assertAlmostEqual(simple_f, exact_f, delta=0.03)
+
+    def test_road_crop_is_cheaper_to_simulate(self):
+        """Vertex count is the simulation-cost statistic.
+
+        The navmesh triangulation, the visibility atlas and the all-pairs path
+        table all scale with obstacle vertices. Real building footprints put
+        over a thousand of them in a 400 m crop; blocks bounded by road edges
+        put about a hundred, because a block is one polygon however many
+        buildings stand on it.
+        """
+        from shapely.geometry import LineString
+        from osm_corpus.roads import RoadNetwork, road_layout
+        from osm_corpus.stats import layout_stats
+
+        size = 200.0
+        lines = [(LineString([(0, y), (200, y)]), 9.0) for y in (50, 100, 150)]
+        lines += [(LineString([(x, 0), (x, 200)]), 9.0) for x in (50, 100, 150)]
+        net = RoadNetwork(lines=lines, areas=[], source="synthetic",
+                          n_excluded=0)
+        rings, _ = road_layout(net, size)
+        from shapely.geometry import Polygon
+        st = layout_stats([Polygon(r) for r in rings], size)
+        self.assertIsNotNone(st)
+        # Sixteen rectangular blocks; a per-block outline is a handful of
+        # vertices, not a traced facade.
+        self.assertLess(st["n_vertices"] / max(1.0, st["n_obstacles"]), 12.0)
+
+    def test_config_switch_is_honoured(self):
+        import config
+        self.assertIn(config.OSM_TRAVERSABILITY, ("roads", "buildings"))
+
+    def test_collect_rejects_an_unknown_mode(self):
+        from osm_corpus.collect import collect
+        with self.assertRaises(ValueError):
+            collect(keys=["covent_garden"], crop_sizes=[100], mode="magic")
+
+
+class DangerZoneTest(unittest.TestCase):
+    """Safety is a region now, not a door.
+
+    The task changed shape, not just parameters. Under the exit formulation
+    safety was a handful of polygons the crowd converged on and a pedestrian
+    that reached one was removed from the simulation, so progress only ever
+    went one way. Here safety is everywhere except one region, the crowd
+    disperses rather than queues, nobody is removed, and a pedestrian that got
+    out can walk back in.
+    """
+
+    def _level(self, difficulty=5, size=120, morph="grid", **kw):
+        from ued.level import generate_city_level
+
+        return generate_city_level(random.Random(kw.pop("seed", 7)),
+                                   difficulty=difficulty, crowd_size=30,
+                                   width=size, height=size, morphology=morph,
+                                   **kw)
+
+    def test_signed_distance_agrees_with_containment(self):
+        from sim.danger import DangerZone
+
+        circle = DangerZone("circle", 50.0, 50.0, radius=20.0)
+        rect = DangerZone("rect", 50.0, 50.0, half_w=20.0, half_h=8.0)
+        for z in (circle, rect):
+            for x in range(0, 100, 3):
+                for y in range(0, 100, 3):
+                    inside = z.contains(float(x), float(y))
+                    self.assertEqual(inside, z.signed_distance(x, y) <= 0.0,
+                                     f"{z.shape} at ({x},{y})")
+
+    def test_nearest_safe_point_is_actually_safe(self):
+        """Aiming at the boundary is not enough.
+
+        A pedestrian standing exactly on the edge is inside by `contains` and
+        one social-force jostle puts it back in, so an episode can hover at
+        99 per cent cleared indefinitely for a reason the policy cannot fix.
+        """
+        from sim.danger import DangerZone
+
+        for z in (DangerZone("circle", 60.0, 40.0, radius=15.0),
+                  DangerZone("rect", 60.0, 40.0, half_w=18.0, half_h=6.0)):
+            for x in range(45, 76, 5):
+                for y in range(25, 56, 5):
+                    if not z.contains(x, y):
+                        continue
+                    px, py = z.nearest_safe_point(float(x), float(y),
+                                                  margin=2.0)
+                    self.assertFalse(z.contains(px, py))
+                    self.assertGreaterEqual(z.signed_distance(px, py), 1.9)
+
+    def test_zone_size_is_area_not_radius(self):
+        """A hazard must mean the same thing at both ends of the size range.
+
+        A 20 m circle is most of a 70 m crop and a detail of a 200 m one, so
+        drawing a radius would make the curriculum's difficulty axis mean
+        something different at each map size.
+        """
+        from sim.danger import sample_zone
+
+        for size in (70, 140, 200):
+            for frac in (0.05, 0.2):
+                z = sample_zone(random.Random(3), size, size, frac)
+                self.assertAlmostEqual(z.area() / (size * size), frac,
+                                       delta=0.02, msg=f"{size} {frac}")
+
+    def test_difficulty_grows_the_hazard(self):
+        from ued.level import generate_random_level
+
+        areas = []
+        for d in range(7):
+            fr = []
+            for s in range(10):
+                lv = generate_random_level(random.Random(400 + s), difficulty=d,
+                                           width=140, height=140)
+                fr.append(lv.danger.area() / (140 * 140))
+            areas.append(sum(fr) / len(fr))
+        self.assertEqual(areas, sorted(areas), areas)
+
+    def test_closed_flow_keeps_everyone_for_reentry(self):
+        """Without edge flow, leaving the hazard does not remove a person."""
+        import sim.model as M
+        old_in, old_out = M.CROWD_ALLOW_INFLOW, M.CROWD_ALLOW_OUTFLOW
+        M.CROWD_ALLOW_INFLOW = M.CROWD_ALLOW_OUTFLOW = False
+        try:
+            lv = self._level()
+            fm = M.FightingModel(number_agents=int(lv.crowd_size), width=120,
+                                 height=120, robot='N', level=lv)
+            n0 = len(fm.crowds)
+            for _ in range(300):
+                fm.step()
+            self.assertEqual(len(fm.crowds), n0)
+            self.assertEqual(sum(1 for a in fm.crowds if a.dead), 0)
+        finally:
+            M.CROWD_ALLOW_INFLOW, M.CROWD_ALLOW_OUTFLOW = old_in, old_out
+
+    def test_occupancy_is_a_live_count(self):
+        """Inside plus safe is the whole crowd, at every instant.
+
+        A cumulative count would report the episode finished while people were
+        standing in the danger, which is the failure the whole task is about.
+        """
+        import sim.model as M
+        lv = self._level(difficulty=4)
+        fm = M.FightingModel(number_agents=int(lv.crowd_size), width=120,
+                             height=120, robot='N', level=lv)
+        for step in range(200):
+            fm.step()
+            if step % 50:
+                continue
+            total = fm.total_agents
+            active = sum(not a.dead for a in fm.crowds)
+            inside = fm.alived_agents()
+            safe = fm.evacuated_agents()
+            # The margin band belongs to neither; departures are not active.
+            self.assertLessEqual(inside + safe, active)
+            self.assertAlmostEqual(fm.danger_occupancy(), inside / total,
+                                   places=6)
+
+    def test_escape_routing_follows_the_navmesh(self):
+        """Not the straight line, which walks into blocks.
+
+        A medina pedestrian five metres from the boundary with a block between
+        was handed a goal seven metres away through a wall while the real way
+        out was forty-two metres around. It walked into the wall and stood
+        there for the rest of the episode, so dense morphologies never cleared
+        and the curriculum would have learned they were impossible.
+        """
+        import sim.model as M
+        # Pin the hazard's shape and size. The level generator draws its
+        # parameters from the same stream, so adding perceptibility and prior
+        # awareness to the design space shifted every unpinned level and this
+        # test found four usable triangles where it had found dozens.
+        lv = self._level(difficulty=6, morph="medina", seed=61,
+                         danger_shape="circle", danger_area=0.2)
+        fm = M.FightingModel(number_agents=int(lv.crowd_size), width=120,
+                             height=120, robot='N', level=lv)
+        zone = fm.danger_zone
+        checked = 0
+        for mesh, cost in fm.mesh_danger.items():
+            if cost >= 1e5 or cost <= 0.0:
+                continue
+            cx = (mesh[0][0] + mesh[1][0] + mesh[2][0]) / 3.0
+            cy = (mesh[0][1] + mesh[1][1] + mesh[2][1]) / 3.0
+            # A geodesic distance can never be shorter than the straight line.
+            self.assertGreaterEqual(cost + 1e-6,
+                                    zone.escape_distance(cx, cy) - 2.0,
+                                    f"at ({cx:.1f},{cy:.1f})")
+            checked += 1
+        self.assertGreater(checked, 10)
+
+
+class MultiRobotTest(unittest.TestCase):
+    """A team, sized by the curriculum and carried by a mask."""
+
+    def test_team_size_comes_from_the_level(self):
+        import sim.model as M
+        from config import MAX_ROBOTS
+        from ued.level import generate_city_level
+
+        for n in range(1, MAX_ROBOTS + 1):
+            lv = generate_city_level(random.Random(60 + n), difficulty=5,
+                                     crowd_size=30, width=120, height=120,
+                                     morphology="grid", robot_num=n)
+            self.assertEqual(lv.robot_num, n)
+            fm = M.FightingModel(number_agents=30, width=120, height=120,
+                                 level=lv)
+            self.assertEqual(len(fm.robots), n)
+            # Indices are what the joint tensors and the critic address by.
+            self.assertEqual([rb.robot_index for rb in fm.robots],
+                             list(range(n)))
+            # `self.robot` still names the first, which a great deal of older
+            # code reads.
+            self.assertIs(fm.robot, fm.robots[0])
+
+    def test_robots_start_clear_of_the_hazard(self):
+        import sim.model as M
+        from ued.level import generate_city_level
+
+        for seed in range(6):
+            lv = generate_city_level(random.Random(800 + seed), difficulty=6,
+                                     crowd_size=30, width=140, height=140,
+                                     morphology="grid", robot_num=3)
+            fm = M.FightingModel(number_agents=30, width=140, height=140,
+                                 level=lv)
+            for i, rb in enumerate(fm.robots):
+                self.assertTrue(fm.is_safe(rb.xy),
+                                f"robot {i} started inside the hazard")
+
+    def test_observation_carries_the_hazard(self):
+        """Without these terms the robot cannot see what it is being asked to do."""
+        import sim.model as M
+        from configs import resolve_config
+        from sim.observation import ObservationHistory, build_static_layers
+        from ued.level import generate_city_level
+
+        cfg = resolve_config(check_data=False)
+        lv = generate_city_level(random.Random(12), difficulty=5,
+                                 crowd_size=30, width=120, height=120,
+                                 morphology="grid", robot_num=2)
+        fm = M.FightingModel(number_agents=30, width=120, height=120, level=lv)
+        st = build_static_layers(fm, cfg)
+        hist = ObservationHistory(cfg, st, len(fm.robots))
+        hist.record(fm)
+        obs = hist.team_observations()
+        self.assertGreater(st.hazard.sum(), 0.0)
+        for i in range(len(fm.robots)):
+            signed = obs["state"][i, 4]
+            self.assertGreaterEqual(signed, -2.0)
+            self.assertLessEqual(signed, 2.0)
+            # The hazard layer is static knowledge on every branch.
+            self.assertGreater(obs["glob"][i, 1].sum(), 0.0)
+        if len(fm.robots) > 1:
+            self.assertFalse((obs["state"][0, :2] == obs["state"][1, :2]).all())
+
+    def test_the_hazard_is_visible_in_the_raster(self):
+        import sim.model as M
+        import numpy as np
+
+        from config import DANGER_PIXEL_VALUE
+        from ued.level import generate_city_level
+
+        lv = generate_city_level(random.Random(5), difficulty=4, crowd_size=25,
+                                 width=100, height=100, morphology="grid",
+                                 danger_shape="circle", danger_area=0.15)
+        fm = M.FightingModel(number_agents=25, width=100, height=100,
+                             robot='N', level=lv)
+        img = fm.return_current_image()
+        painted = int((img == DANGER_PIXEL_VALUE).sum())
+
+        # Against the part of the hazard that lies inside the crop, which is
+        # all of it for a zone that fits. A street-aligned hazard once ran
+        # from y = 0 to y = 141.7 on a 100 m map, and only 1118 of its 1581
+        # square metres were in the world; this comparison is what caught it.
+        from shapely.geometry import box
+
+        shape = lv.danger.polygon()
+        inside = shape.intersection(box(0, 0, 100, 100)).area
+        # Against the polygon, not against `area()`: a circle's area is exact
+        # while its polygon is a twelve-sided approximation, and the few
+        # square metres between them are not the question being asked.
+        self.assertAlmostEqual(inside, shape.area, delta=0.01 * shape.area,
+                               msg="the hazard sticks out of the crop")
+        self.assertAlmostEqual(painted, inside, delta=0.15 * inside)
+
+    def test_pedestrians_follow_the_nearest_robot(self):
+        """Not robot zero.
+
+        Every pedestrian used to measure its distance against `model.robot`,
+        so with a team a robot standing right beside somebody was invisible to
+        them unless it happened to be the first one.
+        """
+        import sim.model as M
+        from ued.level import generate_city_level
+
+        lv = generate_city_level(random.Random(91), difficulty=4,
+                                 crowd_size=30, width=120, height=120,
+                                 morphology="grid", robot_num=3)
+        fm = M.FightingModel(number_agents=30, width=120, height=120, level=lv)
+        for _ in range(120):
+            fm.step()
+        followed = {getattr(a, "following_robot_id", None) for a in fm.crowds}
+        followed.discard(None)
+        ids = {rb.unique_id for rb in fm.robots}
+        self.assertTrue(followed <= ids, (followed, ids))
+
+    # The critic's order equivariance and the joint update moved to
+    # tests/test_madrl.py with the new observation.
+
+
+class TerminationModeTest(unittest.TestCase):
+    """Recording the clearing time and stopping the episode are separate."""
+
+    def setUp(self):
+        # The simulation draws crowd spawn positions and pedestrian masses and
+        # speeds from the global `random`, not from any seed the level carries,
+        # so a test that seeds only the level generator still sees a different
+        # crowd every run. That is why these passed alone and failed inside
+        # the full suite, where earlier tests leave the global stream
+        # somewhere else.
+        import numpy as np
+
+        random.seed(20260913)
+        np.random.seed(20260913)
+
+    # They were the same thing under the exit task, because a pedestrian that
+    # reached a door was removed and could not come back, so the moment the
+    # last one left was unambiguously the end. Nobody is removed now, and
+    # holding an emptied zone against re-entry is half of what the robots are
+    # for, so the default is to keep going.
+
+    def _model(self, **kw):
+        import sim.model as M
+        from ued.level import generate_city_level
+
+        lv = generate_city_level(random.Random(kw.pop("seed", 3)),
+                                 difficulty=4, crowd_size=25, width=110,
+                                 height=110, morphology="grid")
+        return M.FightingModel(number_agents=25, width=110, height=110,
+                               robot='N', level=lv)
+
+    def _empty_the_zone(self, fm):
+        """Take everyone inside the hazard out of the simulation.
+
+        These tests are about when an episode stops, not about whether a crowd
+        can get itself out. It cannot: the crowd does not know the hazard
+        exists, which is what makes the robots' job real, so waiting for it to
+        clear on its own would hang every one of these.
+
+        Everyone is removed, not only those inside, and removed rather than
+        relocated. Both were needed. Relocating was not enough because the
+        crowd wanders and somebody always drifted back in before the sixty
+        step hold completed. Removing only those inside was not enough either:
+        the pedestrians who started outside know nothing about the hazard, so
+        they walk straight into it, and eight of fifteen had done so by step
+        60. That is the task working exactly as intended and the reason the
+        robots exist; it just means a blind crowd with no robot can never
+        satisfy a hold, so a test of the hold rule cannot wait for one.
+
+        This is the same mechanism CROWD_ALLOW_OUTFLOW uses, and everything
+        that counts occupancy already skips the dead.
+        """
+        for a in fm.crowds:
+            if not a.dead:
+                a.dead = True
+                try:
+                    fm.space.remove(a.unique_id)
+                except Exception:
+                    pass
+
+    def test_default_never_finishes_early(self):
+        import config
+
+        self.assertEqual(config.DANGER_TERMINATION, "none")
+        fm = self._model()
+        cleared_seen = False
+        for step in range(700):
+            if step == 20:
+                self._empty_the_zone(fm)
+            fm.step()
+            if fm.is_cleared():
+                cleared_seen = True
+                # The zone emptied, and the episode still does not stop: the
+                # robots go on holding it.
+                self.assertFalse(fm.should_finish())
+        self.assertTrue(cleared_seen, "the zone never emptied at all")
+
+    def test_cleared_mode_finishes_after_the_hold(self):
+        import config
+        import sim.model as M
+        from config import DANGER_CLEAR_HOLD_STEPS
+
+        original = M.DANGER_TERMINATION
+        M.DANGER_TERMINATION = "cleared"
+        try:
+            fm = self._model()
+            first_empty = None
+            finished_at = None
+            for step in range(900):
+                if step == 20:
+                    self._empty_the_zone(fm)
+                fm.step()
+                if fm.is_cleared() and first_empty is None:
+                    first_empty = step
+                if fm.should_finish():
+                    finished_at = step
+                    break
+            self.assertIsNotNone(first_empty, "the zone never emptied")
+            self.assertIsNotNone(finished_at, "cleared mode never finished")
+            # It waits out the hold rather than stopping on the instant.
+            self.assertGreaterEqual(finished_at - first_empty,
+                                    DANGER_CLEAR_HOLD_STEPS - 2)
+        finally:
+            M.DANGER_TERMINATION = original
+
+    def test_the_clearing_time_is_when_it_first_emptied(self):
+        """Not when the hold completed.
+
+        The free-flow reference counts the walk out, not the wait afterwards,
+        so recording the end of the hold would make every level look slower
+        than its own reference by a constant.
+        """
+        fm = self._model(seed=11)
+        for step in range(700):
+            if step == 20:
+                self._empty_the_zone(fm)
+            fm.step()
+            if fm.is_cleared_and_held():
+                self.assertIsNotNone(fm.cleared_at())
+                self.assertLess(fm.cleared_at(), step)
+                return
+        self.skipTest("the zone did not clear and hold within the budget")
+
+    def test_episode_budget_is_the_configured_one(self):
+        from config import MAX_STEPS
+
+        self.assertEqual(MAX_STEPS, 2000)
+
+
+    def test_defend_mode_bounds_the_tail(self):
+        """Both halves trained, without spending the whole budget on the tail.
+
+        Under "none" clearing takes on the order of a hundred steps and the
+        remaining 1900 are spent holding an empty zone, so an episode costs
+        roughly ten to twenty times what the dispersal alone needs. "defend"
+        keeps the inflow half in scope and bounds the tail.
+        """
+        import sim.model as M
+        from config import DANGER_DEFEND_STEPS
+
+        original = M.DANGER_TERMINATION
+        M.DANGER_TERMINATION = "defend"
+        try:
+            fm = self._model(seed=21)
+            first_empty = None
+            finished_at = None
+            for step in range(1500):
+                if step == 20:
+                    self._empty_the_zone(fm)
+                fm.step()
+                if first_empty is None and fm.is_cleared():
+                    first_empty = step
+                if fm.should_finish():
+                    finished_at = step
+                    break
+            self.assertIsNotNone(first_empty, "the zone never emptied")
+            self.assertIsNotNone(finished_at, "defend mode never finished")
+            span = finished_at - first_empty
+            self.assertGreaterEqual(span, DANGER_DEFEND_STEPS - 5)
+            self.assertLessEqual(span, DANGER_DEFEND_STEPS + 5)
+        finally:
+            M.DANGER_TERMINATION = original
+
+    def test_defend_window_cannot_be_extended_by_letting_people_back_in(self):
+        """The window opens once and never reopens.
+
+        Restarting it on re-entry would let a policy lengthen its own episode
+        by failing at the very thing the window exists to score.
+        """
+        import sim.model as M
+        from config import DANGER_DEFEND_STEPS
+
+        original = M.DANGER_TERMINATION
+        M.DANGER_TERMINATION = "defend"
+        try:
+            fm = self._model(seed=33)
+            for step in range(1500):
+                if step == 20:
+                    self._empty_the_zone(fm)
+                fm.step()
+                if fm.should_finish():
+                    opened = getattr(fm, "_first_cleared_at", None)
+                    self.assertIsNotNone(opened)
+                    # Measured on the model's own clock, not the loop index:
+                    # the two differ by a constant offset.
+                    self.assertEqual(int(fm.step_count) - int(opened),
+                                     DANGER_DEFEND_STEPS)
+                    return
+            self.skipTest("the zone did not clear within the budget")
+        finally:
+            M.DANGER_TERMINATION = original
+
+
+class HazardRenderingTest(unittest.TestCase):
+    def test_snapshot_draws_the_hazard(self):
+        """A contact sheet without the zone shows maps, not problems."""
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        from ued.level import generate_random_level
+        from ued.render import draw_level
+
+        lv = generate_random_level(random.Random(5), difficulty=4,
+                                   width=120, height=120)
+        self.assertIsNotNone(lv.danger)
+        fig, ax = plt.subplots()
+        try:
+            draw_level(ax, lv)
+            # Two patches for the zone: a translucent wash and a solid edge.
+            from config import DANGER_FILL_ALPHA
+
+            washes = [p for p in ax.patches
+                      if abs((p.get_alpha() or 1.0) - DANGER_FILL_ALPHA) < 1e-9]
+            self.assertTrue(washes, "no translucent hazard wash drawn")
+        finally:
+            plt.close(fig)
+
+    def test_viewer_draws_the_hazard_translucently(self):
+        import matplotlib
+
+        matplotlib.use("Agg")
+
+        import sim.model as M
+        from config import DANGER_FILL_ALPHA
+        from viz.continuous_renderer import ContinuousRenderer
+        from ued.level import generate_city_level
+
+        lv = generate_city_level(random.Random(8), difficulty=4, crowd_size=20,
+                                 width=110, height=110, morphology="grid")
+        fm = M.FightingModel(number_agents=20, width=110, height=110,
+                             robot='N', level=lv)
+        r = ContinuousRenderer(world_size=(110.0, 110.0))
+        try:
+            r.draw(fm)
+            washes = [p for p in r.ax.patches
+                      if abs((p.get_alpha() or 1.0) - DANGER_FILL_ALPHA) < 1e-9]
+            self.assertTrue(washes, "viewer drew no hazard wash")
+        finally:
+            import matplotlib.pyplot as plt
+
+            plt.close(r.fig)
+
+
+class CrowdKnowledgeTest(unittest.TestCase):
+    """The crowd does not know the hazard exists.
+
+    It does not perceive the boundary, does not know which way is out, and
+    does not hear it from a neighbour. It wanders, follows the people around
+    it, or follows a robot, exactly as it would on a map with no hazard.
+
+    That is what makes the robots' job real. A crowd that could route itself
+    out would empty the zone on its own, and the policy would be scored on
+    something it did not cause: measured before this change, six runs out of
+    six cleared with no robot present at all.
+    """
+
+    def _model(self, seed=4, robot='N', perceptibility=None):
+        import sim.model as M
+        from ued.level import generate_city_level
+
+        lv = generate_city_level(random.Random(seed), difficulty=5,
+                                 crowd_size=30, width=140, height=140,
+                                 morphology="grid", robot_num=1,
+                                 perceptibility=perceptibility)
+        return M.FightingModel(number_agents=30, width=140, height=140,
+                               robot=robot, level=lv)
+
+    def test_only_those_who_sensed_it_hold_a_heading(self):
+        """A heading comes from having sensed the hazard, not from existing.
+
+        This test used to assert nobody ever formed one, from when the crowd
+        was wholly blind to the hazard. That was replaced: a blind crowd
+        cannot be cued at all, so the awareness model, the three channels and
+        the robot's effect on milling would all have had nothing to act on.
+
+        What still has to hold is the local-knowledge rule. A pedestrian
+        heading away from danger must be one that personally sensed danger and
+        remembers where; being told by a neighbour conveys that something is
+        wrong, not where it is.
+        """
+        fm = self._model(perceptibility=0.9)
+        for _ in range(250):
+            fm.step()
+        for a in fm.crowds:
+            if a.dead:
+                continue
+            if getattr(a, "escape_belief", None):
+                self.assertEqual(a.awareness, "acting")
+                self.assertTrue(a.hazard_memory,
+                                "a heading without having sensed anything")
+
+    def test_an_imperceptible_hazard_does_not_clear_itself(self):
+        """If it did, the robots would be scored for work they did not do.
+
+        Stated for a hazard nobody can sense, which is where the claim has to
+        hold. A perceptible one is different by design: people in smoke do
+        notice and do leave, and a model in which they did not would be the
+        wrong model. What must never happen is the zone emptying itself when
+        the only way to learn of the danger is from a robot that is not there.
+        """
+        from config import PERCEPTIBILITY_SENSORY_FLOOR
+
+        fm = self._model(perceptibility=PERCEPTIBILITY_SENSORY_FLOOR - 0.05)
+        start = fm.alived_agents()
+        self.assertGreater(start, 5, "nobody started inside the hazard")
+        for _ in range(500):
+            fm.step()
+        self.assertGreater(fm.alived_agents(), 0,
+                           "the crowd cleared a hazard it could not perceive")
+
+    def test_outside_pedestrians_are_not_pinned_to_a_ring(self):
+        """The defect that made the crowd look blocked from approaching.
+
+        An outside pedestrian used to inherit an escape belief from a
+        neighbour, and its goal became the nearest point a safety margin
+        outside the boundary. That point attracts anyone further out and
+        repels anyone closer in, so the whole outside crowd settled onto a
+        shell at exactly the margin: every one of them sat at a signed
+        distance between 2.0 and 3.2 metres with a goal about a metre away
+        pointing at the zone.
+        """
+        from config import DANGER_SAFE_MARGIN_M
+
+        fm = self._model()
+        for _ in range(250):
+            fm.step()
+        zone = fm.danger_zone
+        outside = [zone.signed_distance(a.xy[0], a.xy[1]) for a in fm.crowds
+                   if not a.dead and fm.is_safe(a.xy)]
+        self.assertGreater(len(outside), 3, "nobody outside to measure")
+        # A ring shows up as almost every outside pedestrian sitting within a
+        # metre of the margin. Scattered pedestrians do not.
+        on_shell = sum(1 for d in outside
+                       if abs(d - DANGER_SAFE_MARGIN_M) < 1.5)
+        self.assertLess(on_shell / len(outside), 0.6,
+                        f"{on_shell} of {len(outside)} pinned at the margin")
+
+
+class CrowdFlowTest(unittest.TestCase):
+    """The crop as a piece of a larger city rather than a closed box."""
+
+    def _model(self, seed=4, perceptibility=None, prior_informed=None):
+        import sim.model as M
+        from ued.level import generate_city_level
+
+        lv = generate_city_level(random.Random(seed), difficulty=5,
+                                 crowd_size=30, width=140, height=140,
+                                 morphology="grid", robot_num=1,
+                                 perceptibility=perceptibility,
+                                 prior_informed=prior_informed)
+        return M.FightingModel(number_agents=30, width=140, height=140,
+                               robot='N', level=lv)
+
+    def _alive(self, fm):
+        return sum(1 for a in fm.crowds if not a.dead)
+
+    def test_inflow_and_outflow_are_on_for_open_city_crop(self):
+        """Both directions of ordinary street travel are enabled by default."""
+        import config
+
+        self.assertTrue(config.CROWD_ALLOW_INFLOW)
+        self.assertTrue(config.CROWD_ALLOW_OUTFLOW)
+
+    def test_nothing_changes_while_they_are_off(self):
+        import sim.model as M
+        original_out = M.CROWD_ALLOW_OUTFLOW
+        original_in = M.CROWD_ALLOW_INFLOW
+        M.CROWD_ALLOW_OUTFLOW = False
+        M.CROWD_ALLOW_INFLOW = False
+        try:
+            fm = self._model()
+            n0 = self._alive(fm)
+            for _ in range(300):
+                fm.step()
+            self.assertEqual(self._alive(fm), n0)
+        finally:
+            M.CROWD_ALLOW_OUTFLOW = original_out
+            M.CROWD_ALLOW_INFLOW = original_in
+
+    def test_inflow_adds_at_the_configured_rate(self):
+        import sim.model as M
+        from config import CROWD_INFLOW_PER_100_STEPS
+
+        original = M.CROWD_ALLOW_INFLOW
+        M.CROWD_ALLOW_INFLOW = True
+        try:
+            fm = self._model(seed=6)
+            created0, t0 = len(fm.crowds), fm.total_agents
+            steps = 400
+            for _ in range(steps):
+                fm.step()
+            expected = int(steps * CROWD_INFLOW_PER_100_STEPS / 100.0)
+            # Counted as agents created, not as agents alive. Outflow is on by
+            # default, so somebody stuck at the edge leaves during the run and
+            # the living headcount no longer equals what inflow added; that is
+            # two mechanisms being measured with one number.
+            self.assertEqual(len(fm.crowds) - created0, expected)
+            # The denominator every share-of-crowd figure uses has to follow
+            # the headcount, or the occupancy fraction drifts.
+            self.assertEqual(fm.total_agents - t0, expected)
+        finally:
+            M.CROWD_ALLOW_INFLOW = original
+
+    def test_outflow_removes_a_pedestrian_stuck_at_the_edge(self):
+        """Stuck, not merely close.
+
+        A plain distance test was the first version and it almost never fired:
+        wall repulsion pushes pedestrians away from the edge, so one placed
+        0.3 m from it walks back to about 30 m within a minute. What actually
+        happens is a robot holding somebody against the wall, so that is what
+        the condition describes.
+        """
+        import sim.model as M
+        from config import CROWD_OUTFLOW_STUCK_STEPS
+
+        original = M.CROWD_ALLOW_OUTFLOW
+        M.CROWD_ALLOW_OUTFLOW = True
+        try:
+            fm = self._model()
+            held = fm.crowds[:3]
+            n0 = self._alive(fm)
+            fm.step()
+            # One step at the edge is not enough; it has to stay there.
+            for a in held:
+                a.xy = [2.0, 70.0 + a.unique_id % 5]
+            fm.step()
+            self.assertEqual(self._alive(fm), n0)
+
+            for _ in range(CROWD_OUTFLOW_STUCK_STEPS * 2):
+                for a in held:
+                    if not a.dead:
+                        a.xy = [2.0, 70.0 + a.unique_id % 5]
+                        a.vel = [0.0, 0.0]
+                fm.step()
+            self.assertTrue(all(a.dead for a in held))
+            self.assertTrue(all(a.outflow_reason == "stuck_release"
+                                for a in held))
+        finally:
+            M.CROWD_ALLOW_OUTFLOW = original
+
+    def test_a_newcomer_arrives_knowing_nothing(self):
+        """Which is the inflow half of the task, made literal.
+
+        A newcomer walks in from streets beyond the crop having heard no
+        alarm, so it starts unaware and has to learn the same way everyone
+        else does: by sensing the hazard, by meeting someone who is already
+        running, or by being told by a robot.
+
+        The earlier form of this asserted a newcomer never forms a heading at
+        all, from when the crowd was wholly blind. That is now wrong: a
+        newcomer that walks into a perceptible hazard will sense it like
+        anybody else. What has to hold is that it arrives with nothing.
+        """
+        import sim.model as M
+        original = M.CROWD_ALLOW_INFLOW
+        M.CROWD_ALLOW_INFLOW = True
+        try:
+            # A hazard nobody can sense, so the claim under test is isolated:
+            # a newcomer arrives with nothing. With a perceptible hazard a
+            # newcomer that spawns in it senses it within its first step,
+            # which is correct behaviour and would fail this assertion for the
+            # wrong reason.
+            # Nobody told beforehand either, so no one is ever acting and the
+            # social channel has nothing to transmit. Both have to be closed:
+            # with anyone acting nearby a newcomer is cued within its first
+            # step, which is the model working and would fail this assertion
+            # for the wrong reason.
+            fm = self._model(seed=8, perceptibility=0.05, prior_informed=0.0)
+            before = {a.unique_id for a in fm.crowds}
+            seen = []
+            known = set()
+            for _ in range(200):
+                fm.step()
+                for a in fm.crowds:
+                    if a.unique_id in before or a.unique_id in known:
+                        continue
+                    known.add(a.unique_id)
+                    seen.append((a.unique_id, a.awareness,
+                                 list(a.hazard_memory)))
+            self.assertTrue(seen, "inflow produced nobody")
+            for uid, awareness, memory in seen:
+                self.assertEqual(awareness, "unaware",
+                                 f"newcomer {uid} arrived already cued")
+                self.assertEqual(memory, [],
+                                 f"newcomer {uid} arrived remembering danger")
+        finally:
+            M.CROWD_ALLOW_INFLOW = original
+
+
+    def test_departure_is_independent_of_inflow_and_requires_the_edge(self):
+        import sim.model as M
+        from sim import od
+
+        old_in, old_out = M.CROWD_ALLOW_INFLOW, M.CROWD_ALLOW_OUTFLOW
+        M.CROWD_ALLOW_INFLOW, M.CROWD_ALLOW_OUTFLOW = False, True
+        try:
+            fm = self._model(seed=9)
+            person = fm.crowds[0]
+            gate_mesh = od.gates(fm)[0].meshes[0]
+            person.xy = [fm.width / 2.0, fm.height / 2.0]
+            self.assertFalse(fm.arrive_at_destination(person, gate_mesh))
+            self.assertFalse(person.dead)
+            person.xy = list(od.gate_edge_goal(fm, gate_mesh, person.xy))
+            self.assertTrue(fm.arrive_at_destination(person, gate_mesh))
+            self.assertEqual(person.outflow_reason, "background_trip")
+            informed = fm.crowds[1]
+            informed.ever_acted = True
+            informed.post_safe_intent = "continue"
+            informed.xy = list(od.gate_edge_goal(
+                fm, gate_mesh, informed.xy))
+            self.assertTrue(fm.arrive_at_destination(informed, gate_mesh))
+            self.assertEqual(informed.outflow_reason, "informed_trip")
+        finally:
+            M.CROWD_ALLOW_INFLOW, M.CROWD_ALLOW_OUTFLOW = old_in, old_out
+
+    def test_informed_departure_intent_targets_a_reachable_gate(self):
+        import sim.agent as A
+        from sim import od
+
+        old_weights = A.CROWD_POSTSAFE_INTENT_WEIGHTS
+        A.CROWD_POSTSAFE_INTENT_WEIGHTS = (1.0, 0.0, 0.0)
+        try:
+            fm = self._model(seed=10)
+            person = fm.crowds[0]
+            person.awareness = "acting"
+            person.ever_acted = True
+            self.assertTrue(person._post_safe_goal())
+            self.assertEqual(person.post_safe_intent, "depart")
+            self.assertTrue(od.is_gate_mesh(fm, person.now_pointing_mesh))
+            self.assertFalse(person.dead)
+        finally:
+            A.CROWD_POSTSAFE_INTENT_WEIGHTS = old_weights
+    def test_safe_pause_is_finite_and_becomes_onward_travel(self):
+        import sim.agent as A
+
+        old_weights = A.CROWD_POSTSAFE_INTENT_WEIGHTS
+        old_pause = A.CROWD_SAFE_PAUSE_STEPS
+        A.CROWD_POSTSAFE_INTENT_WEIGHTS = (0.0, 1.0, 0.0)
+        A.CROWD_SAFE_PAUSE_STEPS = (1, 1)
+        try:
+            fm = self._model(seed=11)
+            person = fm.crowds[0]
+            person.awareness = "acting"
+            self.assertTrue(person._post_safe_goal())
+            self.assertEqual(person.post_safe_intent, "pause")
+            self.assertTrue(person._dwelling)
+            fm.step_count += 1
+            self.assertFalse(person._post_safe_goal())
+            self.assertEqual(person.post_safe_intent, "continue")
+            self.assertFalse(person._dwelling)
+        finally:
+            A.CROWD_POSTSAFE_INTENT_WEIGHTS = old_weights
+            A.CROWD_SAFE_PAUSE_STEPS = old_pause
+class ZoneClippingTest(unittest.TestCase):
+    def test_the_wash_does_not_cover_blocks(self):
+        """Red over masonry hides which red is ground somebody can stand on."""
+        import matplotlib
+
+        matplotlib.use("Agg")
+        from shapely.geometry import Polygon as ShPoly
+        from shapely.ops import unary_union
+
+        from ued.level import generate_random_level
+        from ued.render import _zone_over_free_space
+
+        lv = generate_random_level(random.Random(70), difficulty=6,
+                                   width=140, height=140)
+        parts = _zone_over_free_space(lv, lv.danger)
+        self.assertTrue(parts, "nothing drawn for the hazard")
+
+        # (exterior, holes) pairs: the holes matter, because a block sitting
+        # entirely inside the hazard cuts one, and filling it back in puts the
+        # wash on masonry again.
+        washed = unary_union([ShPoly(ext, holes) for ext, holes in parts
+                              if len(ext) >= 3])
+        self.assertGreater(washed.area, 0.0)
+        blocks = unary_union([ShPoly([(float(p[0]), float(p[1])) for p in r])
+                              for r in lv.obstacles if len(r) >= 3])
+        overlap = washed.intersection(blocks).area
+        self.assertLess(overlap, 0.02 * washed.area,
+                        "the hazard wash sits on top of blocks")
+        # And it is a real subset of the raw shape, not the raw shape itself.
+        self.assertLessEqual(washed.area, lv.danger.area() + 1.0)
+
+
+class RotatedZoneTest(unittest.TestCase):
+    """A hazard that runs along a street, at that street's angle.
+
+    Most real hazards in a city run along something: a gas main follows the
+    street it was laid under, a crash closes a carriageway, a fire spreads
+    down a terrace. An axis-aligned box can only express that where the street
+    happens to run north or east, and the generator rotates its whole street
+    grid by a random angle, so on most levels it could not express it at all.
+    """
+
+    def _zone(self, deg, **kw):
+        import math
+
+        from sim.danger import DangerZone
+
+        return DangerZone("rect", 50.0, 50.0, half_w=kw.get("half_w", 30.0),
+                          half_h=kw.get("half_h", 6.0),
+                          angle=math.radians(deg))
+
+    def test_containment_follows_the_rotation(self):
+        import math
+
+        z = self._zone(30)
+        for d in (10, 20, 25):
+            along = (50 + math.cos(z.angle) * d, 50 + math.sin(z.angle) * d)
+            across = (50 + math.cos(z.angle + math.pi / 2) * d,
+                      50 + math.sin(z.angle + math.pi / 2) * d)
+            self.assertTrue(z.contains(*along), f"along at {d} m")
+            self.assertFalse(z.contains(*across), f"across at {d} m")
+
+    def test_area_and_bounds_account_for_the_rotation(self):
+        for deg in (0, 15, 45, 80):
+            z = self._zone(deg)
+            self.assertAlmostEqual(z.polygon().area, 4 * 30.0 * 6.0, delta=1.0)
+            x0, y0, x1, y1 = z.bounds()
+            px0, py0, px1, py1 = z.polygon().bounds
+            self.assertAlmostEqual(x0, px0, delta=0.5)
+            self.assertAlmostEqual(y1, py1, delta=0.5)
+
+    def test_escape_is_across_the_corridor_not_along_it(self):
+        """The whole reason the shape matters.
+
+        Escaping a circle is uniform in every direction. Escaping a corridor
+        is quick across and slow along, so where the crowd is inside decides
+        how hard the episode is.
+        """
+        z = self._zone(35)
+        px, py = z.nearest_safe_point(50.0, 50.0, margin=2.0)
+        self.assertFalse(z.contains(px, py))
+        # From the centre, the way out is the short way: half_h plus margin,
+        # not half_w plus margin.
+        import math
+
+        self.assertAlmostEqual(math.hypot(px - 50.0, py - 50.0),
+                               6.0 + 2.0, delta=0.2)
+
+    def test_a_street_hazard_takes_the_street_s_angle_and_width(self):
+        import math
+        import random
+
+        from citygen.generate import generate_city_plan
+        from sim.danger import sample_along_street
+
+        rng = random.Random(7)
+        plan = generate_city_plan(rng, "grid", difficulty=5, width=140,
+                                  height=140)
+        zone = sample_along_street(rng, 140.0, 140.0, 0.15, plan.streets)
+        self.assertIsNotNone(zone)
+        self.assertEqual(zone.shape, "rect")
+        # Long along, narrow across: a corridor, not a blob.
+        self.assertGreater(zone.half_w, zone.half_h)
+
+        # Its angle matches some street in the plan, to within a right angle's
+        # ambiguity about which way along the line you measure.
+        angles = []
+        for st in plan.streets:
+            pts = list(st.points)
+            for i in range(len(pts) - 1):
+                (x0, y0), (x1, y1) = pts[i], pts[i + 1]
+                angles.append(math.atan2(y1 - y0, x1 - x0) % math.pi)
+        self.assertTrue(
+            any(abs((zone.angle % math.pi) - a) < 0.05 for a in angles),
+            "hazard angle matches no street")
+
+    def test_width_follows_the_street_not_the_area(self):
+        """The first version derived it from the area and got it wrong.
+
+        At a 0.15 area fraction on a 140 m map that produced a corridor 27 m
+        across, wider than any street in the plan, so the hazard spilled onto
+        the blocks either side.
+        """
+        import random
+
+        from citygen.generate import generate_city_plan
+        from sim.danger import sample_along_street
+
+        rng = random.Random(11)
+        plan = generate_city_plan(rng, "grid", difficulty=5, width=140,
+                                  height=140)
+        widest = max(st.width_m for st in plan.streets)
+        zone = sample_along_street(rng, 140.0, 140.0, 0.25, plan.streets)
+        self.assertIsNotNone(zone)
+        # Across the corridor, at the street's own scale plus a small margin.
+        self.assertLess(2 * zone.half_h, widest + 12.0)
+
+    def test_the_outline_is_drawn_from_the_same_polygon_as_the_fill(self):
+        """They used to be built separately, and the outline ignored the angle.
+
+        The fill is clipped out of zone.polygon(), which is rotated; the
+        outline was rebuilt from the centre and half-extents as an unrotated
+        rectangle, so the dashed line sat at a different angle from the red it
+        was supposed to bound.
+        """
+        import math
+
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        from ued.level import generate_city_level
+        from ued.render import draw_level
+
+        lv = generate_city_level(random.Random(102), difficulty=5,
+                                 crowd_size=30, width=140, height=140,
+                                 morphology="grid", danger_shape="street")
+        self.assertNotAlmostEqual(lv.danger.angle % math.pi, 0.0, places=3,
+                                  msg="pick a seed whose street is not axis aligned")
+        fig, ax = plt.subplots()
+        try:
+            draw_level(ax, lv)
+            dashed = [p for p in ax.patches
+                      if p.get_linestyle() in ("--", (0, (6.4, 1.6)))]
+            self.assertTrue(dashed, "no dashed hazard outline drawn")
+            from shapely.geometry import Polygon as ShPoly
+
+            drawn = ShPoly(dashed[0].get_xy())
+            want = lv.danger.polygon()
+            self.assertAlmostEqual(drawn.area, want.area, delta=2.0)
+            self.assertGreater(
+                drawn.intersection(want).area / want.area, 0.98,
+                "the outline does not sit on the hazard it bounds")
+        finally:
+            plt.close(fig)
+
+
+class StuckOutflowTest(unittest.TestCase):
+    """Leaving the crop is for pedestrians with nowhere left to go."""
+
+    def _model(self, seed=11):
+        import sim.model as M
+        from ued.level import generate_city_level
+
+        random.seed(seed)
+        lv = generate_city_level(random.Random(seed), difficulty=5,
+                                 crowd_size=20, width=120, height=120,
+                                 morphology="grid", robot_num=1)
+        return M.FightingModel(number_agents=20, width=120, height=120,
+                               robot='Q', level=lv)
+
+    def test_distance_alone_would_almost_never_fire(self):
+        """Which is why the condition is being stuck, not being close.
+
+        Wall repulsion pushes pedestrians away from the edge: one placed 0.3 m
+        from it walks back to about 30 m within a minute, so a narrow band
+        catches nobody.
+        """
+        import sim.model as M
+        original = M.CROWD_ALLOW_OUTFLOW
+        M.CROWD_ALLOW_OUTFLOW = False
+        try:
+            fm = self._model()
+            a = [x for x in fm.crowds if not x.dead][0]
+
+            # Find walkable ground next to the edge rather than assuming a
+            # coordinate is free. A fixed spot stopped being free when the
+            # level generator gained two more parameters to draw: the same
+            # seed then produced different fabric, and the pedestrian was
+            # placed inside a block where it could not move at all, which
+            # looks exactly like the wall failing to push it.
+            spot = None
+            for y in range(5, int(fm.height) - 5, 3):
+                if fm.is_free_point(0.6, float(y), padding=0.5):
+                    spot = (0.6, float(y))
+                    break
+            self.assertIsNotNone(spot, "no free ground along the left edge")
+            a.xy = [spot[0], spot[1]]
+            a.vel = [0.0, 0.0]
+            for _ in range(60):
+                fm.step()
+            self.assertGreater(a.xy[0], 5.0,
+                               "wall repulsion no longer pushes inward; the "
+                               "stuck condition may be unnecessary")
+        finally:
+            M.CROWD_ALLOW_OUTFLOW = original
+
+    def test_a_pedestrian_held_at_the_wall_leaves(self):
+        import sim.model as M
+        from config import CROWD_OUTFLOW_STUCK_STEPS
+
+        original = M.CROWD_ALLOW_OUTFLOW
+        M.CROWD_ALLOW_OUTFLOW = True
+        try:
+            fm = self._model()
+            held = [a for a in fm.crowds if not a.dead][:3]
+            held_y = {a.unique_id: float(a.xy[1]) for a in held}
+            for _ in range(CROWD_OUTFLOW_STUCK_STEPS * 3):
+                for a in held:
+                    if not a.dead:
+                        a.xy = [2.0, held_y[a.unique_id]]
+                        a.vel = [0.0, 0.0]
+                        a._dwelling = False
+                # Test the outflow rule itself: normal movement can wander
+                # along the wall or intentionally dwell at a trip endpoint.
+                fm.step_count += 1
+                fm._apply_outflow()
+            self.assertEqual(sum(1 for a in held if a.dead), 3)
+        finally:
+            M.CROWD_ALLOW_OUTFLOW = original
+
+    def test_walking_along_the_edge_is_not_leaving(self):
+        """Moving resets the anchor, so a passer-by is never removed."""
+        import sim.model as M
+        from config import CROWD_OUTFLOW_STUCK_STEPS
+
+        original = M.CROWD_ALLOW_OUTFLOW
+        M.CROWD_ALLOW_OUTFLOW = True
+        try:
+            fm = self._model(seed=12)
+            walker = [a for a in fm.crowds if not a.dead][0]
+            # Pace up and down the edge rather than walking into a clamp. An
+            # earlier version capped y at 100, so the walker stopped moving
+            # partway through and was removed, correctly, for standing still.
+            y, direction = 20.0, 1.0
+            for _ in range(CROWD_OUTFLOW_STUCK_STEPS * 3):
+                y += direction
+                if y > 100.0 or y < 20.0:
+                    direction = -direction
+                    y += 2 * direction
+                walker.xy = [2.0, y]
+                fm.step()
+            self.assertNotEqual(
+                walker.outflow_reason, "stuck_release",
+                "a moving pedestrian was mistaken for edge-trapped")
+        finally:
+            M.CROWD_ALLOW_OUTFLOW = original
+
+
+class SurveyCompletenessTest(unittest.TestCase):
+    """Crops OpenStreetMap does not record well enough to describe."""
+
+    def test_the_corpus_dropped_the_sparsely_mapped_sites(self):
+        from osm_corpus.collect import load_corpus
+
+        corpus = load_corpus()
+        rejected = {r["site"] for r in corpus["rows"]
+                    if r.get("rejected") and "holds no building" in r["rejected"]}
+        # Measured at 400 m: palermo_soho 0.915, chandni_chowk 0.832,
+        # khan_el_khalili 0.823, then a gap down to sultanahmet at 0.615.
+        self.assertEqual(rejected,
+                         {"palermo_soho", "chandni_chowk", "khan_el_khalili"})
+
+    def test_the_verdict_is_per_site_not_per_crop(self):
+        """The ratio moves with crop size and not in a consistent direction.
+
+        Kreuzberg reads 0.849 at 100 m against 0.528 at 400 m; Gastown goes
+        the other way, 0.196 to 0.521. Judging each crop separately would cut
+        single sizes out of sound sites, and the size axis would then mean
+        something different at each site, which is what the size holdout
+        exists to measure.
+        """
+        from osm_corpus.collect import load_corpus
+
+        corpus = load_corpus()
+        by_site = {}
+        for r in corpus["rows"]:
+            by_site.setdefault(r["site"], set()).add(r.get("rejected") is None)
+        for site, states in by_site.items():
+            if site == "surry_hills":
+                continue        # one crop fails on a shapely topology error
+            self.assertEqual(len(states), 1,
+                             f"{site} is accepted at some sizes and not others")
+
+    def test_open_ground_patching_stays_off(self):
+        """It helped where mapping was good and misled where it was poor.
+
+        Returning building-free ground within six metres of a street took
+        Chandni Chowk's blocked share to 0.128 while buildings genuinely cover
+        0.168 of that crop: the reach buffer threaded between the footprints
+        and hollowed them out.
+        """
+        import config
+
+        self.assertFalse(config.OSM_OPEN_GROUND)
+
+
+class HazardAwarenessTest(unittest.TestCase):
+    """Awareness is a process with three channels, not a fact.
+
+    The Protective Action Decision Model has people receive a cue, attend to
+    it, understand it, and only then decide to act, stopping at any step. The
+    step that matters most here is the interval of seeking confirmation before
+    moving, because that is where a robot's presence can do something a robot
+    cannot do for somebody already running.
+    """
+
+    def _model(self, perceptibility=0.9, prior=0.0, robot='N', seed=4,
+               crowd=40):
+        import numpy as np
+        import sim.model as M
+        from ued.level import generate_city_level
+
+        random.seed(seed)
+        # The crowd also draws from numpy; unseeded, the outcome depended on
+        # which tests had run before.
+        np.random.seed(seed)
+        lv = generate_city_level(random.Random(seed), difficulty=5,
+                                 crowd_size=crowd, width=140, height=140,
+                                 morphology="grid",
+                                 perceptibility=perceptibility,
+                                 prior_informed=prior,
+                                 robot_num=(2 if robot != 'N' else 1))
+        return M.FightingModel(number_agents=crowd, width=140, height=140,
+                               robot=robot, level=lv)
+
+    def _alive(self, fm):
+        return [a for a in fm.crowds if not a.dead]
+
+    def test_everyone_starts_unaware_unless_told(self):
+        fm = self._model(prior=0.0)
+        self.assertTrue(all(a.awareness == "unaware" for a in self._alive(fm)))
+
+    def test_prior_informed_start_milling_not_acting(self):
+        """Knowing there is an emergency is not the same as having moved.
+
+        The gap between the two is the delay the robots work on, so a prior
+        cue has to land in milling rather than straight into action.
+        """
+        fm = self._model(prior=1.0)
+        states = {a.awareness for a in self._alive(fm)}
+        self.assertEqual(states, {"milling"})
+
+    def test_an_imperceptible_hazard_is_never_sensed(self):
+        """A threshold, not a small probability.
+
+        An unodorised leak does not give a faint chance of being smelled. A
+        linear reading of perceptibility gave 0.0175 per step at 0.05, which
+        is near-certain detection inside 800 steps, and the entire low end of
+        the axis collapsed into the high end.
+        """
+        from config import PERCEPTIBILITY_SENSORY_FLOOR
+
+        fm = self._model(perceptibility=PERCEPTIBILITY_SENSORY_FLOOR - 0.05,
+                         prior=0.0)
+        for _ in range(500):
+            fm.step()
+        # With nobody told and no robot, nobody can find out.
+        self.assertTrue(all(a.awareness == "unaware" for a in self._alive(fm)))
+
+    def test_a_perceptible_hazard_is_noticed_from_inside(self):
+        fm = self._model(perceptibility=0.95, prior=0.0)
+        for _ in range(120):
+            fm.step()
+        aware = sum(1 for a in self._alive(fm) if a.awareness != "unaware")
+        self.assertGreater(aware, 0.5 * len(self._alive(fm)))
+
+    def test_word_of_mouth_spreads_from_a_seed(self):
+        """The dominant channel: most people learn of an emergency from
+        somebody else, and one who sees nobody responding tends not to."""
+        from config import PERCEPTIBILITY_SENSORY_FLOOR
+
+        fm = self._model(perceptibility=PERCEPTIBILITY_SENSORY_FLOOR - 0.05,
+                         prior=0.15)
+        seeded = sum(1 for a in self._alive(fm) if a.awareness != "unaware")
+        self.assertGreater(seeded, 0)
+        for _ in range(600):
+            fm.step()
+        spread = sum(1 for a in self._alive(fm) if a.awareness != "unaware")
+        self.assertGreater(spread, seeded,
+                           "nothing spread beyond those told in advance")
+
+    def test_perceptibility_changes_how_much_stays_in_the_zone(self):
+        """The axis has to do something, or it is not a design variable.
+
+        Measured over 800 steps with no robot: 17 of 27 still inside at 0.05,
+        1 of 27 at 0.90.
+        """
+        low = self._model(perceptibility=0.05, prior=0.05)
+        high = self._model(perceptibility=0.90, prior=0.05)
+        for _ in range(800):
+            low.step()
+            high.step()
+        self.assertGreater(low.alived_agents(), high.alived_agents())
+
+    def test_hazard_knowledge_is_local(self):
+        """A pedestrian knows where it sensed danger, not the whole zone.
+
+        Evacuation studies find people navigate on route-level knowledge and
+        act on what is visible from where they stand, rather than on a map of
+        the place. So memory is a handful of spots, and a pedestrian can round
+        a block into a face of the same hazard it has never seen. Assuming
+        global knowledge deletes the situation the robots exist to prevent.
+        """
+        from config import HAZARD_MEMORY_MAX_POINTS
+
+        fm = self._model(perceptibility=0.95)
+        for _ in range(300):
+            fm.step()
+        remembered = [a for a in self._alive(fm) if a.hazard_memory]
+        self.assertTrue(remembered, "nobody remembered sensing anything")
+        for a in remembered:
+            self.assertLessEqual(len(a.hazard_memory), HAZARD_MEMORY_MAX_POINTS)
+
+    def test_a_low_perceptibility_hazard_conveys_no_global_picture(self):
+        """Only a plume tells you roughly where the whole thing is."""
+        import sim.model as M
+        from config import PERCEPTIBILITY_GLOBAL_CUE
+
+        fm = self._model(perceptibility=PERCEPTIBILITY_GLOBAL_CUE - 0.2)
+        for _ in range(300):
+            fm.step()
+        zone = fm.danger_zone
+        centre_known = 0
+        for a in self._alive(fm):
+            for mx, my in a.hazard_memory:
+                if abs(mx - zone.cx) < 1.0 and abs(my - zone.cy) < 1.0:
+                    centre_known += 1
+        self.assertEqual(centre_known, 0,
+                         "a hazard below the plume threshold gave away its centre")
+
+    def test_the_crowd_never_uses_the_geodesic_escape_field(self):
+        """That field is the simulator's knowledge of the whole layout.
+
+        Handing it to the crowd is what made the zone empty itself with no
+        robot present, six runs out of six, so the policy was scored for work
+        it had not done.
+        """
+        import inspect
+
+        import sim.agent as agent_mod
+        src = inspect.getsource(agent_mod.CrowdAgent.which_goal_agent_want)
+        self.assertNotIn("nearest_safe_goal", src)
+        self.assertNotIn("mesh_danger", src)
+
+    def test_the_most_credible_neighbour_is_chosen(self):
+        """max_score used never to be assigned inside the loop.
+
+        Every neighbour passed `score > -99999`, so the choice was always
+        whichever came last in the list and the credibility ordering had never
+        taken effect.
+        """
+        import inspect
+
+        import sim.agent as agent_mod
+        src = inspect.getsource(agent_mod.CrowdAgent.which_goal_agent_want)
+        self.assertIn("max_score = score", src)
+
+
+class PreMovementTest(unittest.TestCase):
+    """Pre-movement is a distribution, and its tail is what matters."""
+
+    def test_the_delay_is_lognormal_and_right_skewed(self):
+        import statistics
+
+        import sim.model as M
+        from config import PREMOVEMENT_MEDIAN_STEPS
+        from ued.level import generate_city_level
+
+        random.seed(1)
+        lv = generate_city_level(random.Random(1), difficulty=4, crowd_size=10,
+                                 width=110, height=110, morphology="grid")
+        fm = M.FightingModel(number_agents=10, width=110, height=110,
+                             robot='N', level=lv)
+        a = fm.crowds[0]
+        draws = [a._draw_premovement() for _ in range(4000)]
+        median = statistics.median(draws)
+        mean = statistics.fmean(draws)
+        self.assertAlmostEqual(median, PREMOVEMENT_MEDIAN_STEPS,
+                               delta=0.15 * PREMOVEMENT_MEDIAN_STEPS)
+        # Right-skewed: the mean sits above the median, and the tail is long.
+        self.assertGreater(mean, median)
+        self.assertGreater(max(draws), 3 * median)
+
+    def test_a_robot_shortens_milling(self):
+        """The one channel the policy controls, and the mechanism is the same
+        one by which a clearer warning shortens delay: less need to seek
+        confirmation means less waiting."""
+        import sim.model as M
+        from config import MILLING_ROBOT_SPEEDUP
+
+        self.assertLess(MILLING_ROBOT_SPEEDUP, 1.0)
+
+        from ued.level import generate_city_level
+
+        random.seed(2)
+        lv = generate_city_level(random.Random(2), difficulty=4, crowd_size=10,
+                                 width=110, height=110, morphology="grid")
+        fm = M.FightingModel(number_agents=10, width=110, height=110,
+                             robot='N', level=lv)
+        a = fm.crowds[0]
+
+        random.seed(5)
+        a.awareness = "unaware"
+        a.update_awareness([], robot_near=True)
+        by_robot = a.act_after
+        random.seed(5)
+        a.awareness = "unaware"
+        a.update_awareness([], robot_near=False)
+        # Without a robot nothing cues it at all here, so compare against a
+        # fresh draw of the same seeded delay.
+        random.seed(5)
+        plain = a._draw_premovement()
+        self.assertLess(by_robot, plain)
+
+
+class WedgedPedestrianTest(unittest.TestCase):
+    """Pedestrians must not be able to stand still forever.
+
+    Two ways they could, both found by watching the viewer rather than by any
+    assertion, and both stable equilibria rather than transients: nothing in
+    the social force model works its way out of either.
+    """
+
+    def setUp(self):
+        # The simulation draws crowd spawn positions and pedestrian masses and
+        # speeds from the global stream, not from any seed a level carries, so
+        # seeding only the level generator leaves the crowd different on every
+        # run. Another class's setUp left that stream elsewhere and this test
+        # then saw a different medina alley: it passed alone and failed inside
+        # the suite.
+        import numpy as np
+
+        random.seed(20260916)
+        np.random.seed(20260916)
+
+    def _model(self, morph="grid", seed=3, size=140, crowd=60):
+        import sim.model as M
+        from ued.level import generate_city_level
+
+        random.seed(seed)
+        lv = generate_city_level(random.Random(seed), difficulty=5,
+                                 crowd_size=crowd, width=size, height=size,
+                                 morphology=morph, robot_num=2)
+        return M.FightingModel(number_agents=crowd, width=size, height=size,
+                               robot='N', level=lv)
+
+    def test_wall_heading_turns_into_a_tangent(self):
+        from types import SimpleNamespace
+        from shapely.geometry import Point, Polygon
+        from shapely.strtree import STRtree
+        from sim.agent import CrowdAgent
+
+        wall = Polygon([(2, -2), (4, -2), (4, 2), (2, 2)])
+        ring = wall.exterior
+        # The heading is only deflected when the way ahead is actually
+        # blocked, so the fake model has to answer that question the way the
+        # real one does.
+        model = SimpleNamespace(
+            _wall_exteriors=[ring],
+            _wall_exterior_index=STRtree([ring]),
+            is_free_point=(lambda x, y, padding=0.0:
+                           wall.distance(Point(x, y)) > padding),
+        )
+        agent = object.__new__(CrowdAgent)
+        agent.model = model
+        agent.xy = [1.4, 0.0]
+        agent.body_radius = 0.5
+
+        hx, hy = agent._wall_aware_heading(1.0, 0.0)
+        self.assertGreater(abs(hy), 0.9)
+        self.assertLess(hx, 0.0)
+        self.assertGreater(hx, -0.4)
+
+        # Walking away from the wall must retain the original goal direction.
+        self.assertEqual(agent._wall_aware_heading(-1.0, 0.0), (-1.0, 0.0))
+
+    def test_wall_heading_uses_blocking_wall_not_nearest_wall(self):
+        from types import SimpleNamespace
+        from shapely.geometry import Point, Polygon
+        from shapely.strtree import STRtree
+        from sim.agent import CrowdAgent
+
+        left = Polygon([(-2, -2), (-1, -2), (-1, 2), (-2, 2)])
+        right = Polygon([(1, -2), (2, -2), (2, 2), (1, 2)])
+        rings = [left.exterior, right.exterior]
+        agent = object.__new__(CrowdAgent)
+        agent.model = SimpleNamespace(
+            _wall_exteriors=rings,
+            _wall_exterior_index=STRtree(rings),
+            is_free_point=(lambda x, y, padding=0.0:
+                           min(left.distance(Point(x, y)),
+                               right.distance(Point(x, y))) > padding),
+        )
+        agent.xy = [0.1, 0.0]  # right wall is slightly closer; left blocks the goal
+        agent.body_radius = 0.5
+
+        hx, hy = agent._wall_aware_heading(-1.0, 0.0)
+        self.assertGreater(abs(hy), 0.9)
+        self.assertGreater(hx, 0.0)  # outward from the blocking left wall
+
+    def test_unwedge_checks_the_entire_body_sized_path(self):
+        from types import SimpleNamespace
+        from sim.agent import CrowdAgent
+
+        agent = object.__new__(CrowdAgent)
+        agent.xy = [1.5, 0.0]
+        agent.vel = [0.0, 0.0]
+        agent.body_radius = 0.5
+        agent.model = SimpleNamespace(
+            # A thin barrier lies across the positive tangent path. Its far
+            # endpoint is free, so a destination-only check would teleport.
+            is_free_point=lambda x, y, padding: not (0.2 < y < 0.3)
+        )
+        agent._wall_repulsion = lambda: (-1.0, 0.0)
+
+        freed = agent._unwedge(agent.xy)
+        self.assertLess(freed[1], 0.0)
+
+    def test_obstacle_corner_uses_true_body_radius(self):
+        from types import SimpleNamespace
+        from shapely.geometry import Polygon
+        from shapely.strtree import STRtree
+        from sim.model import FightingModel
+
+        obstacle = Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])
+        index = STRtree([obstacle])
+        model = SimpleNamespace(
+            width=10.0, height=10.0,
+            _obstacles_for_query=lambda: (index, [obstacle]),
+        )
+        # Euclidean corner distance is 0.495 m: a 0.5 m body does not fit.
+        self.assertFalse(FightingModel.is_free_point(
+            model, 1.35, 1.35, padding=0.5))
+        self.assertTrue(FightingModel.is_free_point(
+            model, 1.4, 1.4, padding=0.5))
+
+    def test_an_exploration_goal_is_never_the_agents_own_position(self):
+        """The first defect, and the reason it was permanent.
+
+        The drive force is proportional to the offset from the goal, so a goal
+        at the agent's own feet produces no force; and the goal is not
+        reconsidered until the agent arrives somewhere, which it never does.
+        `_explore_randomly` returned exactly that whenever the triangle it had
+        picked was unroutable, which is a normal draw rather than an
+        exceptional one: targets come from every walkable triangle and a level
+        can have pockets no path connects.
+        """
+        import math
+
+        fm = self._model()
+        for _ in range(150):
+            fm.step()
+        offenders = []
+        for a in fm.crowds:
+            if a.dead or a.type != 1 or not a.now_goal or a._dwelling:
+                continue
+            if math.dist(a.xy, a.now_goal) < 1e-6:
+                offenders.append(a.unique_id)
+        self.assertEqual(offenders, [],
+                         "an exploring pedestrian was aimed at its own feet")
+
+    def test_trip_waypoint_uses_actual_triangle_and_shared_portal(self):
+        from types import SimpleNamespace
+        from sim.agent import CrowdAgent
+
+        here = ((0.0, 0.0), (2.0, 0.0), (0.0, 2.0))
+        nxt = ((2.0, 0.0), (0.0, 2.0), (2.0, 2.0))
+        a = object.__new__(CrowdAgent)
+        a.xy = [0.2, 0.2]
+        a.now_pointing_mesh = nxt
+        a.model = SimpleNamespace(
+            find_mesh=lambda xy: here,
+            allow_crowd_departure=lambda: False,
+            next_mesh_from_to=lambda start, end: nxt if start == here else None,
+        )
+        # The caller's rounded-grid mesh is wrong; point containment wins.
+        self.assertEqual(a._explore_randomly(nxt), [1.2, 1.2])
+
+        # Entering the destination triangle is not yet an arrival at its
+        # centre. Do not discard the trip and pick a new destination.
+        a.model.find_mesh = lambda xy: nxt
+        self.assertEqual(a._explore_randomly(here), [4.0 / 3.0, 4.0 / 3.0])
+
+    def test_exploration_retries_an_unreachable_target(self):
+        import sim.model as M
+        fm = self._model()
+        a = next(x for x in fm.crowds if not x.dead)
+        mesh = fm.find_mesh(a.xy) or next(iter(fm.pure_mesh))
+
+        # A target the router cannot reach from here.
+        original = fm.next_mesh_from_to
+        fm.next_mesh_from_to = lambda *args, **kw: None
+        try:
+            goal = a._explore_randomly(mesh)
+        finally:
+            fm.next_mesh_from_to = original
+
+        import math
+        self.assertGreater(math.dist(a.xy, goal), 1e-6,
+                           "an unroutable target still froze the agent")
+
+    def test_onward_intent_survives_small_hazard_boundary_jitter(self):
+        """A departure must not flip back to flight at every boundary step."""
+        from types import SimpleNamespace
+        from sim.agent import CrowdAgent
+
+        gap = [0.1]
+        agent = object.__new__(CrowdAgent)
+        agent.model = SimpleNamespace(
+            danger_zone=SimpleNamespace(signed_distance=lambda x, y: gap[0]),
+            width=24, height=24)
+        agent.xy = [10.0, 10.0]
+        agent.type = 1
+        agent.decision_flag = 2
+        agent.decision_period = 2
+        agent.awareness = "acting"
+        agent.post_safe_intent = "depart"
+        agent.body_radius = 0.3
+        agent.vision_radius = 5.0
+        agent._signalling_robot = lambda neighbors: None
+        agent._robot_instruction_choice = lambda lead: False
+        agent.hazard_repulsion = lambda: (1.0, 0.0)
+        onward = []
+        def onward_goal():
+            onward.append(gap[0])
+            agent.now_goal = [10.0, 20.0]
+            return True
+        agent._post_safe_goal = onward_goal
+
+        for signed_gap in (0.1, -0.2):
+            gap[0] = signed_gap
+            agent.which_goal_agent_want([])
+            self.assertEqual(agent.now_goal, [10.0, 20.0])
+        self.assertEqual(len(onward), 2)
+
+        gap[0] = -0.4
+        agent.which_goal_agent_want([])
+        self.assertEqual(len(onward), 2)
+        self.assertGreater(agent.now_goal[0], agent.xy[0])
+
+    def test_concave_building_recess_routes_out_without_crossing_walls(self):
+        """A U-shaped outdoor building must not trap a walker at its base."""
+        import math
+        from ued.level import Level
+        from sim.model import FightingModel
+
+        # The goal is directly below the recess, but the only walkable route
+        # first heads north through the opening and then around the building.
+        building = [[4, 4], [16, 4], [16, 16], [12, 16],
+                    [12, 8], [8, 8], [8, 16], [4, 16]]
+        level = Level(obstacles=[building], exits=[], crowd_size=1,
+                      width=24, height=24, augmentation="identity",
+                      generator="validation")
+        fm = FightingModel(1, 24, 24, robot="N", level=level)
+        a = next(x for x in fm.crowds if x.type != 3)
+        a.xy = [10.0, 8.7]
+        a.vel = [0.0, 0.0]
+        a.scripted_goal = (10.0, 2.0)
+
+        self.assertFalse(fm.is_free_segment(
+            10.0, 8.7, 10.0, 2.0, padding=a.body_radius))
+        self.assertTrue(fm.is_free_segment(
+            10.0, 8.7, 10.0, 15.0, padding=a.body_radius))
+        farthest_north = a.xy[1]
+        for _ in range(90):
+            fm.step()
+            farthest_north = max(farthest_north, a.xy[1])
+            self.assertTrue(fm.is_free_point(
+                a.xy[0], a.xy[1], padding=a.body_radius))
+        self.assertGreater(farthest_north, 16.0)
+        self.assertLess(math.dist(a.xy, a.scripted_goal), 2.0)
+
+    def test_a_wedged_pedestrian_eventually_moves(self):
+        """The second defect: forces cancelling against a wall.
+
+        Measured in a medina: a pedestrian 0.21 m from a wall, well inside the
+        1.5 m contact threshold, with a goal 2.95 m ahead, a drive direction
+        of (0.76, 0.65) and a wall force of (-62.8, -53.8). Anti-parallel, so
+        the net force is zero and the swept move has nothing to attempt.
+        """
+        import math
+
+        from ued.level import generate_city_level
+        import sim.model as M
+        fm = self._model(morph="medina", seed=9)
+        for _ in range(120):
+            fm.step()
+
+        # Track everyone for long enough that the patience window can expire
+        # several times over.
+        start = {a.unique_id: tuple(a.xy) for a in fm.crowds if not a.dead}
+        far = {uid: 0.0 for uid in start}
+        for _ in range(300):
+            fm.step()
+            for a in fm.crowds:
+                if a.unique_id in far and not a.dead:
+                    far[a.unique_id] = max(far[a.unique_id],
+                                           math.dist(start[a.unique_id], a.xy))
+        still_present = {
+            a.unique_id: a for a in fm.crowds if not a.dead and not a._dwelling
+        }
+        frozen = [uid for uid, d in far.items()
+                  if uid in still_present and d < 0.2]
+        self.assertEqual(frozen, [],
+                         f"{len(frozen)} active pedestrians never moved")
+
+    def test_standing_still_briefly_is_not_disturbed(self):
+        """Patience, so milling and congestion are left alone.
+
+        A pedestrian legitimately stands still while seeking confirmation, or
+        when the crowd around it is packed. Shoving those would change the
+        dynamics being modelled rather than fix a defect.
+        """
+        import sim.model as M
+        fm = self._model()
+        a = next(x for x in fm.crowds if not x.dead)
+        held = (a.xy[0], a.xy[1])
+        self.assertGreater(a.WEDGE_PATIENCE, 1)
+        for i in range(a.WEDGE_PATIENCE - 1):
+            out = a.swept_move(held, [0.0, 0.0], 0.1)
+            self.assertAlmostEqual(out[0], held[0], places=9)
+            self.assertAlmostEqual(out[1], held[1], places=9)
+
+
+class CrowdDensityTest(unittest.TestCase):
+    """Crowd size is one definition, applied everywhere.
+
+    Four paths used to decide independently how many pedestrians a level
+    holds, and expressed as density they disagreed by more than an order of
+    magnitude: the curriculum drew 10 to 100 regardless of map size, real
+    crops scaled with crop area under a cap, the held-out set was pinned at
+    30. Training congestion and evaluation congestion were unrelated
+    quantities, so a transfer number measured across them was measuring two
+    changes at once. These tests hold the single definition in place.
+    """
+
+    def setUp(self):
+        import numpy as np
+
+        random.seed(20260917)
+        np.random.seed(20260917)
+
+    def test_walkable_area_excludes_blocks_and_clips_overhang(self):
+        from sim.crowd_density import walkable_area
+
+        self.assertEqual(walkable_area(100, 100, []), 10000.0)
+        square = [[(0, 0), (10, 0), (10, 10), (0, 10)]]
+        self.assertAlmostEqual(walkable_area(100, 100, square), 9900.0)
+        # A footprint hanging off the edge only removes the part inside the
+        # crop. Counted whole it would make the crop look emptier than it is.
+        overhang = [[(-20, 0), (10, 0), (10, 10), (-20, 10)]]
+        self.assertAlmostEqual(walkable_area(100, 100, overhang), 9900.0)
+
+    def test_generated_levels_land_in_the_density_band(self):
+        from config import CROWD_DENSITY_RANGE, CROWD_SIZE_LIMIT
+        from sim.crowd_density import walkable_area
+
+        lo, hi = CROWD_DENSITY_RANGE
+        rng = random.Random(11)
+        for difficulty in (0, 3, 6):
+            level = generate_random_level(rng, difficulty=difficulty,
+                                          width=100, height=100)
+            area = walkable_area(level.width, level.height, level.obstacles)
+            self.assertAlmostEqual(level.crowd_size / area,
+                                   level.crowd_density, places=9)
+            if CROWD_SIZE_LIMIT[0] < level.crowd_size < CROWD_SIZE_LIMIT[1]:
+                # Rounding to whole people moves the density by at most half a
+                # person over the walkable area.
+                self.assertGreaterEqual(level.crowd_density, lo - 0.5 / area)
+                self.assertLessEqual(level.crowd_density, hi + 0.5 / area)
+
+    def test_headcount_follows_walkable_ground_not_crop_area(self):
+        """An open crop holds more people than a built-up one of the same size.
+
+        This is the whole point of dividing by walkable area. Built coverage
+        runs from about a third to about three quarters across the corpus, so
+        a per-crop figure would mean a different congestion in every city.
+        """
+        rng = random.Random(23)
+        open_field = generate_random_level(rng, difficulty=0,
+                                           width=120, height=120)
+        dense = generate_random_level(rng, difficulty=6, width=120, height=120)
+        self.assertGreater(open_field.crowd_size, dense.crowd_size)
+        # But at the same congestion, which is what is being held constant.
+        self.assertAlmostEqual(open_field.crowd_density, dense.crowd_density,
+                               delta=0.02)
+
+    def test_size_changes_the_crowd_and_not_the_congestion(self):
+        from sim.crowd_density import crowd_size_for, realised_density
+
+        small = crowd_size_for(4000.0, density=0.045)
+        large = crowd_size_for(16000.0, density=0.045)
+        self.assertEqual(small, 180)
+        self.assertEqual(large, 720)
+        self.assertAlmostEqual(realised_density(small, 4000.0), 0.045)
+        self.assertAlmostEqual(realised_density(large, 16000.0), 0.045)
+
+    def test_the_cost_clamp_is_recorded_rather_than_hidden(self):
+        """Where the clamp binds, the level says what it actually ran at.
+
+        A 400 m crop at the target density wants a crowd no simulator here can
+        run in reasonable time. Clamping is the right answer, but a clamped
+        level that still reported the target density would make every claim
+        about congestion false for exactly the levels where it matters most.
+        """
+        from config import CROWD_DENSITY_RANGE, CROWD_SIZE_LIMIT
+        from sim.crowd_density import crowd_size_for, realised_density
+
+        # Derived from the configured cap rather than from a number written
+        # here, so raising the cap does not quietly turn this test into a
+        # test of nothing.
+        huge = 2.0 * CROWD_SIZE_LIMIT[1] / CROWD_DENSITY_RANGE[1]
+        n = crowd_size_for(huge, density=CROWD_DENSITY_RANGE[1])
+        self.assertEqual(n, CROWD_SIZE_LIMIT[1])
+        self.assertLess(realised_density(n, huge), CROWD_DENSITY_RANGE[0])
+        # And the floor holds for a crop with almost nowhere to stand.
+        self.assertEqual(crowd_size_for(1.0, density=0.05),
+                         CROWD_SIZE_LIMIT[0])
+
+    def test_mutation_carries_the_density_not_the_headcount(self):
+        """A child that lost a block should gain people, not keep the number.
+
+        Mutation edits the fabric, which changes how much ground the crowd
+        has. Carrying the parent's headcount across would move the child to a
+        different congestion for reasons that have nothing to do with the
+        design variable being mutated.
+        """
+        rng = random.Random(31)
+        parent = generate_random_level(rng, difficulty=3, width=110, height=110)
+        for _ in range(4):
+            child = mutate_level(parent, rng=rng)
+            self.assertAlmostEqual(child.crowd_density, parent.crowd_density,
+                                   delta=0.003)
+            parent = child
+
+    def test_real_crops_use_the_same_definition(self):
+        from sim.crowd_density import walkable_area
+        from osm_corpus.export import load_levels
+
+        try:
+            levels = load_levels()
+        except FileNotFoundError:
+            self.skipTest("the real-map corpus has not been exported here")
+        self.assertTrue(levels)
+        for lv in levels:
+            area = walkable_area(lv.width, lv.height, lv.obstacles)
+            self.assertIsNotNone(lv.crowd_density)
+            self.assertAlmostEqual(lv.crowd_size / area, lv.crowd_density,
+                                   places=4)
+
+    def test_holdout_cache_keeps_the_task_and_the_congestion(self):
+        """The cache round trip used to drop the hazard entirely.
+
+        Serialisation carried geometry and crowd size but not the danger zone,
+        so a cached held-out level arrived at evaluation with nothing to
+        evacuate from. Zero-shot numbers from a cached set were measuring a
+        different problem from the one being trained.
+        """
+        from ued.holdout import _deserialise, _serialise
+        from ued.level import generate_city_level
+
+        level = generate_city_level(random.Random(57), difficulty=4,
+                                    crowd_size=None, width=100, height=100,
+                                    seed=57)
+        level.augmentation = "identity"
+        level.size_band = "inside"
+        level.morphology = getattr(level.plan, "morphology", None)
+        back = _deserialise(_serialise([level]))[0]
+        self.assertIsNotNone(back.danger)
+        self.assertEqual(back.danger.to_dict(), level.danger.to_dict())
+        self.assertEqual(back.crowd_size, level.crowd_size)
+        self.assertAlmostEqual(back.crowd_density, level.crowd_density)
+        self.assertEqual(back.robot_num, level.robot_num)
+        self.assertAlmostEqual(back.perceptibility, level.perceptibility)
+
+
+class ValidationHarnessTest(unittest.TestCase):
+    """The verification harness runs, at a size that fits in a test suite.
+
+    The measurements themselves live in validation/ and take minutes; these
+    check that the scenarios build, that the scripted hooks drive the real
+    movement code, and that the numbers come back in the right shape. Without
+    this the harness rots quietly and the next person to run it finds it
+    broken rather than finds a result.
+    """
+
+    def setUp(self):
+        import numpy as np
+
+        random.seed(20260918)
+        np.random.seed(20260918)
+
+    def test_scenarios_build_and_are_walkable(self):
+        import sim.model as M
+        from validation.scenarios import bottleneck_level, corridor_level
+
+        for level in (corridor_level(20.0, 4.0), bottleneck_level(10.0, 3.0)):
+            env = M.FightingModel(4, level.width, level.height, robot="Q",
+                                  level=level)
+            self.assertTrue(env.pure_mesh, "scenario has no walkable ground")
+
+    def test_scripted_goal_drives_the_real_mover(self):
+        """A scripted goal moves the pedestrian, through agent_modeling."""
+        from validation.measure import _build, _crowd, _place, _park_robots
+        from validation.scenarios import corridor_level
+
+        env = _build(corridor_level(30.0, 4.0), 2, seed=1)
+        _park_robots(env)
+        crowd = _crowd(env)
+        a = crowd[0]
+        _place(env, a, 8.0, 8.0)
+        start = a.xy[0]
+        for _ in range(20):
+            a.scripted_goal = (a.xy[0] + 20.0, a.xy[1])
+            env.step()
+        self.assertGreater(a.xy[0] - start, 2.0)
+
+    def test_fundamental_diagram_returns_one_row_per_density(self):
+        from validation.measure import fundamental_diagram
+
+        rows = fundamental_diagram(densities=(0.2, 0.5), length=12.0,
+                                   width=4.0, warmup=3, measure=5,
+                                   verbose=False)
+        self.assertEqual(len(rows), 2)
+        for r in rows:
+            self.assertIn("flow_speed_ms", r)
+            self.assertGreater(r["n"], 0)
+
+    def test_the_standard_door_widths_are_geometrically_possible(self):
+        """What the calibrated body radius buys.
+
+        A pedestrian used to be a disc a metre across, which cannot enter a
+        0.8 m opening at all, and the published bottleneck experiments start
+        at 0.8 m. So the model could not be compared with them for a reason
+        that had nothing to do with its dynamics. At the calibrated radius the
+        comparison is at least possible.
+
+        An opening narrower than the body still passes nobody, and that is
+        correct rather than a defect.
+        """
+        from config import AGENT_BODY_RADIUS
+        from validation.measure import bottleneck_flow
+
+        self.assertLessEqual(2 * AGENT_BODY_RADIUS, 0.8)
+        r = bottleneck_flow(n=10, door_width=0.4, room=8.0, max_steps=60,
+                            seed=3)
+        self.assertEqual(r["crossed"], 0)
+        self.assertIn("t90_steps", r)
+
+
+class PhysicsCalibrationTest(unittest.TestCase):
+    """The invariants the calibration established, so they cannot drift back.
+
+    Each of these was a measured defect; docs/crowd_validation.md records the
+    numbers. They are cheap to check and expensive to rediscover.
+    """
+
+    def setUp(self):
+        import numpy as np
+
+        random.seed(20260919)
+        np.random.seed(20260919)
+
+    def test_the_body_radius_has_one_definition(self):
+        """It was written in config and again inside agent_modeling.
+
+        Two copies meant the radius the forces used and the radius the
+        collision test used could drift apart, and a pedestrian could be a
+        different size to itself depending on which one asked.
+        """
+        import re
+
+        import sim.agent as agent
+        from config import AGENT_BODY_RADIUS
+
+        src = open(agent.__file__, encoding="utf-8").read()
+        self.assertNotRegex(src, r"BODY_RADIUS\s*=\s*0\.\d")
+        self.assertAlmostEqual(AGENT_BODY_RADIUS, 0.25)
+
+    def test_nobody_is_blind_in_a_narrow_street(self):
+        """The visibility atlas quantises to a 4 m grid.
+
+        It casts from the centre of each cell, and a cell centre in an alley
+        narrower than the cell lands inside a building. Everyone standing
+        there used to get a visibility polygon of radius R/64 and see no
+        neighbours at all: no social force, no social cue, no crowd. Measured
+        at 20 per cent of a medina's pedestrians before the fix.
+        """
+        import sim.model as M
+        from citygen.morphology import MORPHOLOGIES
+        from ued.level import generate_city_level
+
+        self.assertIn("medina", MORPHOLOGIES)
+        level = generate_city_level(random.Random(61), difficulty=6,
+                                    crowd_size=None, width=100, height=100,
+                                    seed=61, morphology="medina")
+        env = M.FightingModel(level.crowd_size, level.width, level.height,
+                              robot="Q", level=level)
+        blind = 0
+        total = 0
+        for a in env.crowds:
+            if a.type == 3 or a.dead:
+                continue
+            total += 1
+            poly = env.vision_atlas.polygon_at(a.xy[0], a.xy[1],
+                                               a.vision_radius,
+                                               env.obstacles_version)
+            if poly.is_empty or poly.area < 1.0:
+                blind += 1
+        self.assertGreater(total, 20)
+        self.assertEqual(blind, 0)
+
+    def test_walking_speed_falls_with_density(self):
+        """The fundamental diagram, the first test any crowd model faces.
+
+        Flat before the visibility fix: 1.50 m/s at a tenth of a pedestrian
+        per square metre and 1.48 at three, where the published curve falls
+        by three quarters.
+        """
+        from validation.measure import fundamental_diagram
+
+        rows = fundamental_diagram(densities=(0.2, 2.0), length=20.0,
+                                   width=3.0, warmup=15, measure=25,
+                                   verbose=False)
+        sparse, dense = rows[0]["flow_speed_ms"], rows[1]["flow_speed_ms"]
+        self.assertLess(dense, 0.75 * sparse)
+
+    def test_is_free_point_matches_exact_geometry(self):
+        """Spatial-index filtering must agree with exact body clearance."""
+        import sim.model as M
+        from shapely.geometry import Point, box
+
+        from ued.level import generate_city_level
+
+        level = generate_city_level(random.Random(62), difficulty=5,
+                                    crowd_size=None, width=100, height=100,
+                                    seed=62)
+        env = M.FightingModel(8, level.width, level.height, robot="Q",
+                              level=level)
+        index, polys = env._obstacles_for_query()
+
+        def exact(x, y, pad):
+            if not (pad <= x <= env.width - pad and pad <= y <= env.height - pad):
+                return False
+            p = Point(x, y)
+            if pad <= 0.0:
+                for idx in index.query(p):
+                    q = polys[int(idx)]
+                    if q.contains(p) or q.touches(p):
+                        return False
+                return True
+            probe = box(x - pad, y - pad, x + pad, y + pad)
+            for idx in index.query(probe):
+                if polys[int(idx)].distance(p) <= pad:
+                    return False
+            return True
+
+        rng = random.Random(63)
+        for _ in range(3000):
+            x = rng.uniform(0, level.width)
+            y = rng.uniform(0, level.height)
+            pad = rng.choice((0.0, 0.25, 0.5))
+            self.assertEqual(env.is_free_point(x, y, padding=pad),
+                             exact(x, y, pad),
+                             f"disagreement at ({x:.2f}, {y:.2f}) pad {pad}")
+
+    def test_crowd_placement_cannot_hang(self):
+        """Placement used to retry without a bound.
+
+        Asked for more pedestrians than the geometry can hold, rejection
+        sampling never succeeds and the model never finishes constructing: a
+        worker hangs with nothing in the log until the watchdog restarts it.
+        """
+        import sim.model as M
+        from validation.scenarios import corridor_level
+
+        level = corridor_level(12.0, 3.0)
+        env = M.FightingModel(200, level.width, level.height, robot="Q",
+                              level=level)
+        self.assertEqual(len([a for a in env.crowds if a.type != 3]), 200)
+
+    def test_a_pedestrian_walks_through_a_gap_instead_of_along_the_wall(self):
+        """The doorway case.
+
+        The wall beside an opening has its normal pointing straight back at
+        anyone walking through it, so a heading-versus-nearest-wall rule turns
+        them along the facade. The model had no way to notice that the wall in
+        front of it has a hole in it.
+        """
+        from types import SimpleNamespace
+
+        from shapely.geometry import Point, Polygon
+        from shapely.strtree import STRtree
+
+        from sim.agent import CrowdAgent
+
+        lower = Polygon([(2, -4), (3, -4), (3, -1), (2, -1)])
+        upper = Polygon([(2, 1), (3, 1), (3, 4), (2, 4)])
+        rings = [lower.exterior, upper.exterior]
+        a = object.__new__(CrowdAgent)
+        a.body_radius = 0.25
+        a.xy = [1.0, 0.0]
+        a.model = SimpleNamespace(
+            _wall_exteriors=rings,
+            _wall_exterior_index=STRtree(rings),
+            is_free_point=(lambda x, y, padding=0.0:
+                           min(lower.distance(Point(x, y)),
+                               upper.distance(Point(x, y))) > padding),
+        )
+        hx, hy = a._wall_aware_heading(1.0, 0.0)
+        # Straight through the gap, not turned along the wall.
+        self.assertGreater(hx, 0.9)
+        self.assertLess(abs(hy), 0.2)
+
+
+class RobotSignalTest(unittest.TestCase):
+    """The robot's action has two halves: where it moves and what it signals.
+
+    Three modes. "off" signals nothing and is the control condition, "guide"
+    means follow me, "direct" points a heading. The crowd's response is the
+    only thing that distinguishes them, so these tests are about the crowd.
+    """
+
+    def setUp(self):
+        import numpy as np
+
+        random.seed(20260920)
+        np.random.seed(20260920)
+
+    def _level(self, robots=2):
+        from ued.level import generate_city_level
+
+        return generate_city_level(random.Random(70), difficulty=4,
+                                   crowd_size=None, width=100, height=100,
+                                   seed=70, robot_num=robots)
+
+    def _run(self, mode, signal=(0.0, 0.0), steps=40):
+        import sim.model as M
+        import sim.robot_action as ra
+        level = self._level()
+        env = M.FightingModel(level.crowd_size, level.width, level.height,
+                              robot="Q", level=level)
+        for rb in env.robots:
+            ra.apply_to(rb, ra.encode((0.0, 0.0), mode, signal))
+        for _ in range(steps):
+            for rb in env.robots:
+                rb.set_signal(mode, signal[0], signal[1])
+            env.step()
+        return env
+
+    def test_the_action_round_trips(self):
+        import sim.robot_action as ra
+        from config import ROBOT_MODES
+
+        for mode in ROBOT_MODES:
+            vec = ra.encode((1.5, -0.5), mode, (0.0, 1.0))
+            self.assertEqual(len(vec), ra.ACTION_DIM)
+            move, got, signal = ra.decode(vec)
+            self.assertEqual(got, mode)
+            self.assertAlmostEqual(move[0], 1.5, places=5)
+        # A two-number action, from before the signal existed, still reads.
+        self.assertEqual(ra.decode([0.2, 0.3])[1], "off")
+
+    def test_robot_instruction_is_drawn_once_per_encounter(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from sim.agent import CrowdAgent
+
+        a = object.__new__(CrowdAgent)
+        a.model = SimpleNamespace(step_count=0)
+        a.life_time = 0
+        a.compliance = 1.0
+        a._robot_instruction_key = None
+        a._robot_instruction_accept = None
+        a._robot_instruction_probability = None
+        a._robot_last_signal_step = None
+        rb = SimpleNamespace(unique_id=7, mode="direct",
+                             compliance_form_factor=1.0)
+
+        with patch("sim.agent.random.random",
+                   side_effect=(0.9, 0.1, 0.9)) as draw:
+            self.assertFalse(a._robot_instruction_choice(rb))
+            self.assertAlmostEqual(a._robot_instruction_probability, 0.75)
+            for step in range(1, 13):
+                a.model.step_count = step
+                self.assertFalse(a._robot_instruction_choice(rb))
+            self.assertEqual(draw.call_count, 1)
+            # A rotating arrow updates a goal, not the acceptance decision.
+            rb.signal_dir = (-1.0, 0.0)
+            self.assertFalse(a._robot_instruction_choice(rb))
+            self.assertEqual(draw.call_count, 1)
+            # A brief occlusion does not turn the same signal into a retry.
+            a.model.step_count = 13
+            a._robot_instruction_choice(None)
+            a.model.step_count = 14
+            self.assertFalse(a._robot_instruction_choice(rb))
+            self.assertEqual(draw.call_count, 1)
+            # A genuinely new encounter can be decided again.
+            a.model.step_count = 25
+            a._robot_instruction_choice(None)
+            a.model.step_count = 26
+            self.assertTrue(a._robot_instruction_choice(rb))
+            self.assertEqual(draw.call_count, 2)
+            # A different instruction mode is a new decision.
+            rb.mode = "guide"
+            a.model.step_count = 27
+            self.assertFalse(a._robot_instruction_choice(rb))
+            self.assertEqual(draw.call_count, 3)
+
+    def test_robot_compliance_factors_are_independent(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from sim.agent import CrowdAgent
+
+        a = object.__new__(CrowdAgent)
+        a.model = SimpleNamespace(step_count=0,
+                                  robot_compliance_scenario_factor=0.5)
+        a.life_time = 0
+        a.compliance = 1.2
+        a._robot_instruction_key = None
+        a._robot_instruction_accept = None
+        a._robot_instruction_probability = None
+        a._robot_last_signal_step = None
+        rb = SimpleNamespace(unique_id=7, mode="guide",
+                             compliance_form_factor=0.8)
+        with patch("sim.agent.random.random", return_value=0.1):
+            self.assertTrue(a._robot_instruction_choice(rb))
+        self.assertAlmostEqual(a._robot_instruction_probability,
+                               0.75 * 1.2 * 0.5 * 0.8)
+
+    def test_off_mode_influences_nobody(self):
+        """The control condition has to actually control for something.
+
+        A robot that is not signalling is a body in the way. It must not lead
+        anyone and must not tell anyone about the hazard, or there is no way
+        to separate what the guidance channel contributes.
+        """
+        env = self._run("off")
+        led = [a for a in env.crowds
+               if a.type != 3 and getattr(a, "following_robot_id", None)]
+        self.assertEqual(led, [])
+        cued_by_robot = [a for a in env.crowds
+                         if getattr(a, "cue_source", None) == "robot"]
+        self.assertEqual(cued_by_robot, [])
+
+    def test_guide_mode_leads_people_to_the_robot(self):
+        import math
+
+        env = self._run("guide")
+        led = [a for a in env.crowds
+               if a.type == 0 and getattr(a, "following_robot_id", None)]
+        self.assertTrue(led, "nobody followed a guiding robot")
+        by_id = {rb.unique_id: rb for rb in env.robots}
+        for a in led:
+            rb = by_id[a.following_robot_id]
+            # The goal is the robot it is recorded as following, not the
+            # team's first member.
+            self.assertAlmostEqual(
+                math.hypot(a.now_goal[0] - rb.xy[0],
+                           a.now_goal[1] - rb.xy[1]), 0.0, places=6)
+
+    def test_direct_mode_sends_people_along_the_heading(self):
+        """Not to the robot: past it.
+
+        This is what lets one robot turn a flow without standing in it, and
+        it is the difference between the two signalling modes.
+        """
+        import math
+
+        env = self._run("direct", signal=(0.0, 1.0))
+        led = [a for a in env.crowds
+               if a.type == 0 and getattr(a, "following_robot_id", None)]
+        self.assertTrue(led, "nobody took a directed heading")
+        aligned = 0
+        for a in led:
+            dy = a.now_goal[1] - a.xy[1]
+            dx = a.now_goal[0] - a.xy[0]
+            if dy > abs(dx):
+                aligned += 1
+        self.assertGreater(aligned, len(led) // 2)
+
+    def test_a_signal_cannot_be_read_through_a_building(self):
+        """The compliance path already went through the field of view.
+
+        The hazard cue from a robot did not: it was a plain distance test, so
+        a robot behind a block told people about a hazard it could not be
+        seen to be near. Both now read the same helper.
+        """
+        import sim.model as M
+        level = self._level(robots=1)
+        env = M.FightingModel(level.crowd_size, level.width, level.height,
+                              robot="Q", level=level)
+        rb = env.robots[0]
+        rb.set_signal("guide")
+        far = max(env.crowds, key=lambda a: (a.xy[0] - rb.xy[0]) ** 2
+                  + (a.xy[1] - rb.xy[1]) ** 2 if a.type != 3 else -1)
+        self.assertIsNone(far._signalling_robot([]))
+
+    def test_the_policy_emits_a_mode_and_the_gradient_reaches_it(self):
+        import torch
+
+        from configs import resolve_config
+        from learn.networks import PolicyNetwork
+        from sim.observation import obs_shapes
+        from sim.robot_action import ACTION_DIM
+        from config import ROBOT_MODES
+
+        cfg = resolve_config(check_data=False)
+        pol = PolicyNetwork(cfg)
+        b = 4
+        sh = obs_shapes(cfg)
+        ego = torch.randn(b, *sh["ego"])
+        mid = torch.randn(b, *sh["mid"])
+        glob = torch.randn(b, *sh["glob"])
+        rs = torch.randn(b, *sh["state"])
+        action, logp = pol.sample_action(ego, mid, glob, rs)
+        self.assertEqual(tuple(action.shape), (b, ACTION_DIM))
+        self.assertEqual(tuple(logp.shape), (b,))
+        # One mode chosen per row, as a hard one-hot the critic can read.
+        one_hot = action[:, 4:]
+        self.assertEqual(one_hot.shape[1], len(ROBOT_MODES))
+        for row in one_hot:
+            self.assertAlmostEqual(float(row.sum()), 1.0, places=5)
+
+        # Straight-through, so the critic's gradient reaches the mode head.
+        # Sampling and detaching would leave it untrained.
+        (action[:, 4:].sum() + logp.sum()).backward()
+        self.assertIsNotNone(pol.mode_head.weight.grad)
+        self.assertGreater(float(pol.mode_head.weight.grad.norm()), 0.0)
+
+
+class RobotWallMotionTest(unittest.TestCase):
+    """A robot command must not become a wall-induced reverse impulse."""
+
+    def _robot_at_wall(self):
+        from ued.level import Level
+        from sim.model import FightingModel
+
+        level = Level(obstacles=[[[5, 2], [7, 2], [7, 18], [5, 18]]],
+                      exits=[], crowd_size=1, width=20, height=20,
+                      generator="validation")
+        env = FightingModel(1, 20, 20, robot="Q", level=level)
+        robot = env.robot
+        robot.xy = [4.0, 10.0]
+        robot.robot_initialized = 1
+        return env, robot
+
+    def test_wall_approach_stops_without_bouncing_back(self):
+        import math
+
+        env, robot = self._robot_at_wall()
+        robot.receive_action([1.0, 0.0])
+        xs = [robot.xy[0]]
+        for _ in range(20):
+            before = tuple(robot.xy)
+            robot.robot_policy_Q()
+            xs.append(robot.xy[0])
+            self.assertLessEqual(math.dist(before, robot.xy), 1.0 + 1e-9)
+            self.assertTrue(env.is_free_point(
+                *robot.xy, padding=robot.body_radius))
+        self.assertTrue(all(b >= a - 1e-9 for a, b in zip(xs, xs[1:])))
+        self.assertAlmostEqual(robot.xy[0], 4.5, places=6)
+        self.assertEqual(robot.collision_check, 1)
+        self.assertAlmostEqual(robot.vel[0], 0.0, places=6)
+
+    def test_diagonal_wall_command_slides_along_wall(self):
+        env, robot = self._robot_at_wall()
+        robot.xy = [4.4, 10.0]
+        robot.receive_action([1.0, 1.0])
+        for _ in range(5):
+            robot.robot_policy_Q()
+            self.assertTrue(env.is_free_point(
+                *robot.xy, padding=robot.body_radius))
+        self.assertLessEqual(robot.xy[0], 4.5)
+        self.assertGreater(robot.xy[1], 12.0)
+        self.assertEqual(robot.collision_check, 1)
+
+    def test_exact_wall_contact_can_retreat(self):
+        env, robot = self._robot_at_wall()
+        robot.xy = [4.5, 10.0]
+        robot.receive_action([-1.0, 0.0])
+        robot.robot_policy_Q()
+        self.assertLess(robot.xy[0], 4.0)
+        self.assertTrue(env.is_free_point(
+            *robot.xy, padding=robot.body_radius))
+
+    def test_idle_at_exact_contact_is_not_a_collision(self):
+        _, robot = self._robot_at_wall()
+        robot.xy = [4.5, 10.0]
+        robot.receive_action([0.0, 0.0])
+        robot.robot_policy_Q()
+        self.assertEqual(robot.xy, [4.5, 10.0])
+        self.assertEqual(robot.collision_check, 0)
+
+    def test_map_edge_stops_without_rebound(self):
+        _, robot = self._robot_at_wall()
+        robot.xy = [0.7, 10.0]
+        robot.receive_action([-1.0, 0.0])
+        robot.robot_policy_Q()
+        self.assertGreaterEqual(robot.xy[0], robot.body_radius)
+        self.assertLess(robot.xy[0], 0.7)
+        self.assertEqual(robot.collision_check, 1)
+
+    def test_open_command_is_speed_limited(self):
+        _, robot = self._robot_at_wall()
+        robot.xy = [2.0, 10.0]
+        robot.receive_action([-10.0, 0.0])
+        robot.robot_policy_Q()
+        self.assertAlmostEqual(robot.xy[0], 1.0, places=6)
+        self.assertEqual(robot.collision_check, 0)
+
+
+class RenderBodySizeTest(unittest.TestCase):
+    """The picture has to show the bodies the simulation uses.
+
+    The renderer carried its own radii, 0.35 for a pedestrian and 0.6 for a
+    robot, with nothing tying them to the simulation. After the body radius
+    was calibrated to 0.25 that drew pedestrians half again too wide and the
+    robot at 60 per cent of its size, which is the one thing a viewer is used
+    to judge: whether a robot fills a street.
+    """
+
+    def test_the_renderer_draws_the_configured_bodies(self):
+        from config import (AGENT_BODY_RADIUS, RENDER_BODY_SCALE,
+                            ROBOT_BODY_RADIUS)
+        from viz.continuous_renderer import ContinuousRenderer
+
+        r = ContinuousRenderer(world_size=(60.0, 60.0))
+        self.assertAlmostEqual(r.crowd_r,
+                               AGENT_BODY_RADIUS * RENDER_BODY_SCALE)
+        self.assertAlmostEqual(r.robot_r,
+                               ROBOT_BODY_RADIUS * RENDER_BODY_SCALE)
+
+    def test_default_robot_image_and_guide_flash(self):
+        from types import SimpleNamespace
+        from matplotlib.patches import Circle
+        from viz.continuous_renderer import ContinuousRenderer
+
+        renderer = ContinuousRenderer(world_size=(30.0, 30.0))
+        robot = SimpleNamespace(xy=(10.0, 10.0), mode="guide",
+                                vel=(0.0, 0.0))
+        self.assertEqual(renderer.robot_style, "image")
+        self.assertIsNotNone(renderer.robot_img)
+        self.assertEqual(renderer.robot_image_scale, 1.0)
+
+        renderer._draw_robot(robot, step=0)
+        self.assertEqual(len(renderer.ax.images), 1)
+        self.assertEqual(tuple(renderer.ax.images[0].get_extent()),
+                         (9.5, 10.5, 9.5, 10.5))
+        glow = [p for p in renderer.ax.patches if isinstance(p, Circle)]
+        self.assertEqual(len(glow), 1)
+        self.assertAlmostEqual(glow[0].radius, 1.5)
+        self.assertAlmostEqual(glow[0].get_facecolor()[3], 0.20)
+        self.assertLess(glow[0].get_zorder(),
+                        renderer.ax.images[0].get_zorder())
+
+        for artist in list(renderer.ax.patches) + list(renderer.ax.images):
+            artist.remove()
+        renderer._draw_robot(robot, step=2)
+        self.assertEqual(len(renderer.ax.images), 1)
+        self.assertEqual(len(renderer.ax.patches), 0)
+
+        for artist in list(renderer.ax.images):
+            artist.remove()
+        renderer._draw_robot(robot, step=4)
+        self.assertEqual(len(renderer.ax.patches), 1)
+
+    def test_an_explicit_radius_still_wins(self):
+        """A figure that needs to be legible at print size can say so."""
+        from viz.continuous_renderer import ContinuousRenderer
+
+        r = ContinuousRenderer(world_size=(60.0, 60.0), crowd_radius=0.9,
+                               robot_radius=1.7)
+        self.assertAlmostEqual(r.crowd_r, 0.9)
+        self.assertAlmostEqual(r.robot_r, 1.7)
+
+
+class RasterBodySizeTest(unittest.TestCase):
+    """The observation has to show the bodies too.
+
+    Crowd and robots were one pixel each. At one pixel per metre that makes a
+    pedestrian twice its size and a robot half of it, so the policy saw a
+    robot no bigger than a pedestrian. The robot's footprint is what blocks a
+    street, which is half the task, and it was not in the observation.
+    """
+
+    def setUp(self):
+        import numpy as np
+
+        random.seed(20260921)
+        np.random.seed(20260921)
+
+    def _env(self, robots=2):
+        import sim.model as M
+        from ued.level import generate_city_level
+
+        level = generate_city_level(random.Random(91), difficulty=3,
+                                    crowd_size=None, width=100, height=100,
+                                    seed=91, robot_num=robots)
+        return M.FightingModel(level.crowd_size, level.width, level.height,
+                               robot="Q", level=level)
+
+    def test_body_stamps_respect_native_resolution(self):
+        from config import AGENT_BODY_RADIUS, ROBOT_BODY_RADIUS
+
+        env = self._env()
+        ped = len(env._disc_offsets(AGENT_BODY_RADIUS)[0])
+        rob = len(env._disc_offsets(ROBOT_BODY_RADIUS)[0])
+        self.assertGreater(ROBOT_BODY_RADIUS, AGENT_BODY_RADIUS)
+        # At 1 m/pixel both a 0.5 m robot radius and a 0.25 m
+        # pedestrian radius occupy the minimum one-pixel stamp.
+        self.assertEqual(rob, ped)
+        self.assertEqual(rob, 1)
+
+    def test_a_pedestrian_never_vanishes(self):
+        """Smaller than a pixel is still one pixel.
+
+        A body of radius 0.25 m covers a quarter of a square metre, so a disc
+        rounded to whole pixels would be empty and the crowd would disappear
+        from the observation entirely.
+        """
+        env = self._env()
+        for r in (0.05, 0.25, 0.49):
+            self.assertGreaterEqual(len(env._disc_offsets(r)[0]), 1)
+
+    def test_the_robot_is_in_the_raster_at_its_own_size(self):
+        import numpy as np
+
+        from config import ROBOT_BODY_RADIUS
+
+        env = self._env(robots=1)
+        img = np.asarray(env.return_current_image())
+        expect = len(env._disc_offsets(ROBOT_BODY_RADIUS)[0])
+        # At 1 m/pixel a 0.5 m-radius robot is represented by one pixel.
+        # The class still has its distinct value of 255.
+        self.assertGreaterEqual(int((img == 255).sum()), 1)
+        self.assertLessEqual(int((img == 255).sum()), expect)
+
+    def test_stamping_stays_inside_the_raster(self):
+        """A body on the boundary must not wrap or raise."""
+        import numpy as np
+
+        env = self._env(robots=1)
+        img = np.asarray(env.return_current_image()).copy()
+        for x, y in ((0.0, 0.0), (env.width, env.height), (0.0, env.height)):
+            env._stamp_body(img, x, y, 2.0, 255)
+        self.assertEqual(img.shape, np.asarray(env.static_grid).shape)

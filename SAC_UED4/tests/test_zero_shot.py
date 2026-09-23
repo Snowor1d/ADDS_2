@@ -1,0 +1,108 @@
+"""Regression checks for the outdoor task's zero-shot score."""
+
+from types import SimpleNamespace
+
+from learn.zero_shot import EpisodeMetrics, validation_levels
+
+
+class Zone:
+    def contains(self, x, y):
+        return x < 0
+
+
+class Model:
+    def __init__(self):
+        self.danger_zone = Zone()
+        self.crowds = [SimpleNamespace(unique_id=1, xy=(-1.0, 0.0),
+                                       type=1, dead=False)]
+        self.total_agents = 1
+        self.step_count = 0
+        self._empty_since = None
+
+    def agents_in_danger(self):
+        return sum(int(not person.dead and self.danger_zone.contains(*person.xy))
+                   for person in self.crowds)
+
+    def is_cleared_and_held(self):
+        if self.agents_in_danger():
+            self._empty_since = None
+            return False
+        if self._empty_since is None:
+            self._empty_since = self.step_count
+        return self.step_count - self._empty_since >= 2
+
+    def cleared_at(self):
+        return self._empty_since
+
+
+def test_reentry_and_sustained_clearance_are_distinct():
+    model = Model()
+    metrics = EpisodeMetrics()
+    outside = set()
+    for step, x in enumerate((1.0, -1.0, 1.0, 1.0, 1.0), start=1):
+        model.step_count = step
+        model.crowds[0].xy = (x, 0.0)
+        outside = metrics.observe(model, outside)
+    result = metrics.summary()
+    assert result["first_empty_step"] == 1
+    assert result["held_clear_step"] == 3
+    assert result["reentries"] == 1
+    assert result["held_clear_success"] == 1
+    assert result["mean_occupancy"] == 0.2
+    assert result["final_occupancy"] == 0.0
+
+
+def test_outflow_is_reported_without_false_reentry():
+    model = Model()
+    metrics = EpisodeMetrics()
+    metrics._active_ids = {1}
+    model.step_count = 1
+    model.crowds[0].xy = (1.0, 0.0)
+    outside = metrics.observe(model, set())
+    model.step_count = 2
+    model.crowds[0].dead = True
+    metrics.observe(model, outside)
+    result = metrics.summary()
+    assert result["outflows"] == 1
+    assert result["reentries"] == 0
+
+
+def test_open_flow_exposure_and_departure_reasons_are_separate():
+    model = Model()
+    metrics = EpisodeMetrics(initial_population=1)
+    metrics._active_ids = {1}
+    model.crowds[0].ever_acted = True
+    model.crowds[0].outflow_reason = None
+    model.step_count = 1
+    outside = metrics.observe(model, set())
+    model.crowds.append(SimpleNamespace(
+        unique_id=2, xy=(1.0, 0.0), type=1, dead=False,
+        ever_acted=False, outflow_reason=None))
+    model.total_agents = 2
+    model.crowds[0].dead = True
+    model.crowds[0].outflow_reason = "evacuation_departure"
+    model.step_count = 2
+    metrics.observe(model, outside)
+    result = metrics.summary()
+    assert result["inflows"] == 1
+    assert result["outflows"] == 1
+    assert result["informed_departures"] == 1
+    assert result["evacuation_departures"] == 1
+    assert result["informed_trip_outflows"] == 0
+    assert result["background_departures"] == 0
+    assert result["informed_departure_fraction"] == 1.0
+    assert result["hazard_person_steps"] == 1
+    assert result["mean_active_occupancy"] == 0.5
+
+
+def test_validation_set_spans_the_trained_sizes():
+    """Models are selected on generated levels at 100, 200 and 400 m, drawn
+    from seeds that training may never draw."""
+    from configs import resolve_config, _reserved_seed
+    cfg = resolve_config(check_data=False)
+    levels = [level for _, level in validation_levels(cfg)]
+    assert {level.width for level in levels} == set(cfg.VALIDATION_SIZES_M)
+    assert {level.difficulty for level in levels} == set(cfg.VALIDATION_DIFFICULTIES)
+    assert all(level.danger is not None for level in levels)
+    assert all(_reserved_seed(level.source_seed, cfg.TRAIN_RESERVED_SEED_RANGES)
+               for level in levels)

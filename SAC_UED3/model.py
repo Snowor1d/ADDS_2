@@ -1,0 +1,3683 @@
+from agent import RobotAgent
+from agent import CrowdAgent
+
+from core import RandomActivation, DataCollector
+from space import ContinuousSpace
+
+from shapely.geometry import Polygon, MultiPolygon, Point
+from shapely.strtree import STRtree
+from shapely.ops import triangulate
+from shapely.ops import unary_union
+import matplotlib.tri as mtri
+
+from core import Model, Agent
+from agent import WallAgent
+import random
+import copy
+import math
+import numpy as np
+import matplotlib.pyplot as plt 
+from scipy.spatial import Delaunay, ConvexHull
+from sklearn.cluster import DBSCAN
+from matplotlib.path import Path
+import triangle as tr
+import os
+from collections import deque
+from typing import List, Tuple
+from visibility_atlas import VisibilityAtlas
+from map_augmentation import transform_map_geometry, transformed_size, validate_transforms
+from typing import Optional
+#import cv2
+
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import torch.nn.functional as F
+
+from ADDS_AS_reinforcement import SACAgent, ReplayBuffer, PolicyNetwork, QNetwork, ACTION_SCALE, FrameStack, FrameStack2
+from config import *
+import json
+import ast
+
+PointT = Tuple[int, int]
+
+
+
+#USE_EGO = (MODEL_VERSION != "ME")
+DEBUG_SAVE = False
+
+
+def _point_on_segment(p: Tuple[int, int],
+                      a: Tuple[int, int],
+                      b: Tuple[int, int]) -> bool:
+    """점 p가 선분 ab 위에 있으면 True (벽 위 스폰 방지)."""
+    (px, py), (ax, ay), (bx, by) = p, a, b
+    cross  = (bx - ax) * (py - ay) - (by - ay) * (px - ax)
+    if cross != 0:
+        return False
+    dot = (px - ax) * (px - bx) + (py - ay) * (py - by)
+    return dot <= 0  # 가운데 있으면 0보다 작거나 같음
+
+def _point_in_polygon(p: Tuple[int, int],
+                      poly: List[Tuple[int, int]]) -> bool:
+    """
+    홀수-짝수(레이캐스팅) 규칙.
+    경계 위에 있으면 True를 즉시 반환해 ‘안전하지 않은’ 좌표로 취급.
+    """
+    x, y = p
+    inside = False
+    n = len(poly)
+    for i in range(n):
+        a = poly[i]
+        b = poly[(i + 1) % n]
+
+        # ① 경계 위 체크
+        if _point_on_segment(p, a, b):
+            return True
+
+        # ② 내부 여부 토글
+        xi, yi = a
+        xj, yj = b
+        intersect = ((yi > y) != (yj > y)) and \
+                    (x < (xj - xi) * (y - yi) / (yj - yi + 1e-12) + xi)
+        if intersect:
+            inside = not inside
+    return inside
+
+# 안전 스폰 헬퍼(연속 좌표). 기존 _sample_safe_cell 대체/신규
+def _sample_safe_pos(self, padding: float = 1.0, max_attempts: int = 2000) -> Tuple[float, float]:
+    xmin, ymin = padding, padding
+    xmax, ymax = self.width - padding, self.height - padding
+    for _ in range(max_attempts):
+        x = random.uniform(xmin, xmax)
+        y = random.uniform(ymin, ymax)
+        p = Point(x, y)
+        # 장애물/경계 충돌 금지
+        if any(Polygon(poly).contains(p) or Polygon(poly).touches(p) for poly in self.obstacles):
+            continue
+        # 이미 사용된 위치 근접 금지(로봇/군중 최소 거리)
+        if any(math.hypot(x - ax, y - ay) < 0.5 for (ax, ay) in getattr(self, "_occupied_positions", [])):
+            continue
+        return (x, y)
+    raise ValueError("안전 스폰 위치를 찾지 못했습니다(continuous).")
+
+
+
+def are_meshes_adjacent(mesh1, mesh2):
+    # 두 mesh의 공통 꼭짓점의 개수를 센다
+    common_vertices = set(mesh1) & set(mesh2)
+    return len(common_vertices) >= 2  # 공통 꼭짓점이 두 개 이상일 때 인접하다고 판단R
+
+# goal_list = [[0,50], [49, 50]]
+hazard_id = 5000
+total_crowd = 10
+max_specification = [20, 20]
+
+number_of_cases = 0 # 난이도 함수 ; 경우의 수
+started = 1
+
+def get_points_within_polygon(vertices, grid_size=1):
+    polygon_path = Path(vertices)
+    
+    # 다각형의 bounding box 설정
+    min_x = int(np.min([v[0] for v in vertices]))
+    max_x = int(np.max([v[0] for v in vertices]))
+    min_y = int(np.min([v[1] for v in vertices]))
+    max_y = int(np.max([v[1] for v in vertices]))
+    
+    # 그리드 점 생성
+    x_grid = np.arange(min_x, max_x + grid_size, grid_size)
+    y_grid = np.arange(min_y, max_y + grid_size, grid_size)
+    grid_points = np.array(np.meshgrid(x_grid, y_grid)).T.reshape(-1, 2)
+    
+    # 다각형 내부 점 필터링
+    inside_points = grid_points[polygon_path.contains_points(grid_points)]
+    
+    return inside_points.tolist()
+
+def bresenham(x0, y0, x1, y1):
+    """
+    Bresenham's Line Algorithm to find all grid points that a line passes through.
+    
+    Args:
+    x0, y0: Starting point of the line.
+    x1, y1: Ending point of the line.
+    
+    Returns:
+    A list of grid coordinates that the line passes through.
+    """
+    points = []
+    
+    dx = abs(x1 - x0)
+    dy = abs(y1 - y0)
+    
+    sx = 1 if x0 < x1 else -1
+    sy = 1 if y0 < y1 else -1
+    
+    err = dx - dy
+    
+    while True:
+        points.append([x0, y0])
+        
+        if x0 == x1 and y0 == y1:
+            break
+        
+        e2 = 2 * err
+        
+        if e2 > -dy:
+            err -= dy
+            x0 += sx
+        
+        if e2 < dx:
+            err += dx
+            y0 += sy
+    
+    return points
+
+
+def _dedup_pslg(vertices, segments, ndigits=6):
+    # 1) vertex dedup
+    key_to_new = {}
+    new_vertices = []
+    old_to_new = {}
+
+    for i, (x, y) in enumerate(vertices):
+        k = (round(float(x), ndigits), round(float(y), ndigits))
+        if k not in key_to_new:
+            key_to_new[k] = len(new_vertices)
+            new_vertices.append([k[0], k[1]])
+        old_to_new[i] = key_to_new[k]
+
+    # 2) segment remap + remove zero-length + remove duplicates (undirected)
+    seen = set()
+    new_segments = []
+    for a, b in segments:
+        ia = old_to_new[int(a)]
+        ib = old_to_new[int(b)]
+        if ia == ib:
+            continue
+        e = (ia, ib) if ia < ib else (ib, ia)
+        if e in seen:
+            continue
+        seen.add(e)
+        new_segments.append([ia, ib])
+
+    return new_vertices, new_segments
+
+
+def find_triangle_lines(v0, v1, v2):
+    """
+    Finds all grid coordinates that the triangle's edges pass through.
+    
+    Args:
+    v0, v1, v2: The three vertices of the triangle, each as [x, y].
+    
+    Returns:
+    A list of unique grid coordinates that the triangle's edges pass through.
+    """
+    line_points = set()  # Using a set to avoid duplicates
+    
+    # Get the points for each edge of the triangle
+    line_points.update(tuple(pt) for pt in bresenham(v0[0], v0[1], v1[0], v1[1]))
+    line_points.update(tuple(pt) for pt in bresenham(v1[0], v1[1], v2[0], v2[1]))
+    line_points.update(tuple(pt) for pt in bresenham(v2[0], v2[1], v0[0], v0[1]))
+    
+    return list(line_points)
+
+
+def is_point_in_triangle(p, v0, v1, v2):
+    """
+    Determines if a point p is inside the triangle formed by v0, v1, v2 using barycentric coordinates.
+    
+    Args:
+    p: The point to check, as [x, y].
+    v0, v1, v2: The triangle's vertices, each as [x, y].
+    
+    Returns:
+    True if the point is inside the triangle, False otherwise.
+    """
+    def sign(p1, p2, p3):
+        return (p1[0] - p3[0]) * (p2[1] - p3[1]) - (p2[0] - p3[0]) * (p1[1] - p3[1])
+    
+    d1 = sign(p, v0, v1)
+    d2 = sign(p, v1, v2)
+    d3 = sign(p, v2, v0)
+    
+    has_neg = (d1 < 0) or (d2 < 0) or (d3 < 0)
+    has_pos = (d1 > 0) or (d2 > 0) or (d3 > 0)
+    
+    return not (has_neg and has_pos)
+
+def calculate_internal_coordinates_in_triangle(width, height, v0, v1, v2, D):
+    """
+    Finds grid points inside the triangle formed by v0, v1, v2. 
+    A point is included if more than half of the grid square overlaps with the triangle.
+    
+    Args:
+    grid: The grid of points, a 2D array where each point is a coordinate [x, y].
+    v0, v1, v2: The triangle's vertices, each as [x, y].
+    D: The distance between grid points (grid resolution).
+    
+    Returns:
+    A list of grid points inside the triangle.
+    """
+    # Restricted to the triangle's bounding box and vectorised. The original
+    # form tested every grid point against every triangle, so the work was
+    # triangles times map area: 5.6 million scalar point-in-triangle tests on a
+    # 150x150 map, which is where most of the environment build time went. A
+    # triangle only covers a small part of the map, so the bounding box removes
+    # nearly all of it, and the barycentric test is three cross products that
+    # numpy evaluates on the whole box at once.
+    x0 = max(0, int(np.floor(min(v0[0], v1[0], v2[0]))))
+    x1 = min(width - 1, int(np.ceil(max(v0[0], v1[0], v2[0]))))
+    y0 = max(0, int(np.floor(min(v0[1], v1[1], v2[1]))))
+    y1 = min(height - 1, int(np.ceil(max(v0[1], v1[1], v2[1]))))
+    if x1 < x0 or y1 < y0:
+        return []
+
+    xs = np.arange(x0, x1 + 1)
+    ys = np.arange(y0, y1 + 1)
+    gx, gy = np.meshgrid(xs, ys, indexing="ij")
+
+    def _cross(ax, ay, bx, by, px, py):
+        return (px - bx) * (ay - by) - (ax - bx) * (py - by)
+
+    d1 = _cross(v0[0], v0[1], v1[0], v1[1], gx, gy)
+    d2 = _cross(v1[0], v1[1], v2[0], v2[1], gx, gy)
+    d3 = _cross(v2[0], v2[1], v0[0], v0[1], gx, gy)
+
+    has_neg = (d1 < 0) | (d2 < 0) | (d3 < 0)
+    has_pos = (d1 > 0) | (d2 > 0) | (d3 > 0)
+    inside = ~(has_neg & has_pos)
+
+    sel_x = gx[inside]
+    sel_y = gy[inside]
+    grid_points_in_triangle = [[int(a), int(b)] for a, b in zip(sel_x, sel_y)]
+            # else:
+            #     # If the center is not inside, check the neighboring points (for partial inclusion)
+            #     # Check the four corner points of the grid square
+            #     corners = [
+            #         [x - D/2, y - D/2],
+            #         [x + D/2, y - D/2],
+            #         [x - D/2, y + D/2],
+            #         [x + D/2, y + D/2]
+            #     ]
+                
+            #     inside_corners = sum(is_point_in_triangle(corner, v0, v1, v2) for corner in corners)
+                
+            #     # Include grid point if more than half of its corners are inside the triangle
+            #     if inside_corners >= 2:
+            #         grid_points_in_triangle.append(grid_point)
+
+    return grid_points_in_triangle
+
+def add_intermediate_points(p1, p2, D):
+    dist = np.linalg.norm(np.array(p2) - np.array(p1))
+    if dist > D:
+        num_points = int(dist // D) + 1
+        return np.linspace(p1, p2, num=num_points+1, endpoint = False)[1:].tolist()
+    return []
+
+def generate_segments_with_points(vertices, segments, D):
+    new_vertices = vertices.copy()
+    new_segments = []
+    for seg in segments:
+        p1 = vertices[seg[0]]
+        p2 = vertices[seg[1]]
+        new_points = add_intermediate_points(p1, p2, D)
+        last_index = seg[0]
+        for point in new_points:
+            new_vertices.append(point)
+            new_index = len(new_vertices) - 1
+            new_segments.append([last_index, new_index])
+            last_index = new_index
+        new_segments.append([last_index, seg[1]])
+    return new_vertices, new_segments
+
+def normalize_map_to_50(obs, target=50):
+    x = torch.from_numpy(obs).float()
+    if x.ndim == 2:
+        x = x.unsqueeze(0).unsqueeze(0)  # (1,1,H,W)
+        y = F.adaptive_max_pool2d(x, (target, target))
+        return y.squeeze().numpy()
+    else:  # (C,H,W)
+        x = x.unsqueeze(0)  # (1,C,H,W)
+        y = F.adaptive_max_pool2d(x, (target, target))
+        return y.squeeze(0).numpy()
+ 
+def ego_crop_from_full_map(full_map: np.ndarray,
+                           robot_xy_px: tuple[int, int],
+                           ego_size: int,
+                           pad_value: int = 50) -> np.ndarray:
+    """
+    full_map: (H, W) uint8
+    robot_xy_px: (ix, iy) in pixel coords (0..W-1, 0..H-1)
+    return: (ego_size, ego_size) uint8
+    """
+    H, W = full_map.shape
+    cx, cy = robot_xy_px
+    half = ego_size // 2
+
+    # 원하는 crop 좌표(맵 좌표 기준)
+    x0, x1 = cx - half, cx - half + ego_size
+    y0, y1 = cy - half, cy - half + ego_size
+
+    # 맵과 겹치는 부분
+    sx0, sx1 = max(0, x0), min(W, x1)
+    sy0, sy1 = max(0, y0), min(H, y1)
+
+    crop = np.full((ego_size, ego_size), pad_value, dtype=full_map.dtype)
+
+    # crop 안에서 어디에 붙일지 offset
+    dx0 = sx0 - x0
+    dy0 = sy0 - y0
+
+    crop[dy0:dy0 + (sy1 - sy0), dx0:dx0 + (sx1 - sx0)] = full_map[sy0:sy1, sx0:sx1]
+    return crop
+
+
+def downsample_full_map(full_map: np.ndarray, target: int) -> np.ndarray:
+    """
+    full_map: (H, W) uint8
+    return: (target, target) uint8 (adaptive pool)
+    """
+    x = torch.from_numpy(full_map).float().unsqueeze(0).unsqueeze(0)  # (1,1,H,W)
+    y = F.adaptive_max_pool2d(x, (target, target))
+    return y.squeeze(0).squeeze(0).byte().numpy()
+
+
+def union_obstacles_to_polygons(raw_obstacles, min_area=1e-8):
+    """
+    raw_obstacles: self.obstacles 같은 형태 (각 obstacle은 [[x,y],...])
+    return: (outer_polys, hole_rings)
+      - outer_polys: [ [(x,y),...], ... ]   (각각 exterior ring, 마지막 중복점 제거)
+      - hole_rings : [ [(x,y),...], ... ]   (각각 interior ring, 마지막 중복점 제거)
+    """
+    parts = []
+    for ob in raw_obstacles:
+        if ob is None or len(ob) < 3:
+            continue
+        P = Polygon(ob)
+        if not P.is_valid:
+            P = P.buffer(0)  # self-intersection 등 보정
+        if P.is_empty:
+            continue
+        # MultiPolygon이면 쪼개서 parts에 넣기
+        if isinstance(P, MultiPolygon):
+            parts.extend(list(P.geoms))
+        else:
+            parts.append(P)
+
+    if not parts:
+        return [], []
+
+    U = unary_union(parts)
+
+    # union 결과가 GeometryCollection / MultiPolygon일 수 있음
+    polys = []
+    if isinstance(U, Polygon):
+        polys = [U]
+    elif isinstance(U, MultiPolygon):
+        polys = list(U.geoms)
+    else:
+        # GeometryCollection 등: polygon만 추출
+        try:
+            polys = [g for g in U.geoms if isinstance(g, Polygon)]
+        except Exception:
+            polys = []
+
+    outer_polys = []
+    hole_rings = []
+
+    for P in polys:
+        if P.area <= min_area:
+            continue
+
+        ext = list(P.exterior.coords)[:-1]
+        if len(ext) >= 3:
+            outer_polys.append([(float(x), float(y)) for x, y in ext])
+
+        # holes(내부 링)도 segment로 넣어야 "구멍"이 장애물로 유지됨
+        for ring in P.interiors:
+            h = list(ring.coords)[:-1]
+            if len(h) >= 3:
+                hole_rings.append([(float(x), float(y)) for x, y in h])
+
+    return outer_polys, hole_rings
+
+
+
+def _resize_nearest_u8(img: np.ndarray, H: int, W: int) -> np.ndarray:
+    """Nearest-neighbour resize, so legacy callers asking for a fixed size
+    still get the right content from a natively world-sized raster."""
+    h, w = img.shape
+    ys = (np.arange(H) * (h / float(H))).astype(np.int64).clip(0, h - 1)
+    xs = (np.arange(W) * (w / float(W))).astype(np.int64).clip(0, w - 1)
+    return img[ys[:, None], xs[None, :]]
+
+
+class FightingModel(Model):
+    """A model with some number of agents."""
+
+    def __init__(self, number_agents: int, width: int, height: int, model_num = -1, robot = 'Q', level = None):
+        #print("model_num :", model_num)
+        super().__init__()
+        #print("height :", height)
+
+        # A UED level carries its own geometry, so it takes the procedural map
+        # branch (map_num == 0) and bypasses both the map_infos lookup and the
+        # generator. Everything downstream is unchanged.
+        self.ued_level = level
+        # The hazard the crowd must leave. Scaled to this world's size because
+        # map size is a curriculum axis and the canvas operator moves the crop
+        # edge, so a zone drawn on a 120 m plan can sit outside a 108 m one.
+        self.danger_zone = None
+        self.danger_inside_fraction = 1.0
+        self.danger_perceptibility = 0.5
+        self.danger_prior_informed = 0.0
+        self.robot_num = int(getattr(level, "robot_num", 1)) if level is not None else 1
+        if level is not None and getattr(level, "danger", None) is not None:
+            self.danger_zone = level.danger.scaled_to(float(width),
+                                                      float(height))
+            self.danger_inside_fraction = float(
+                getattr(level, "inside_fraction", 1.0))
+            self.danger_perceptibility = float(
+                getattr(level, "perceptibility", 0.5))
+            self.danger_prior_informed = float(
+                getattr(level, "prior_informed_fraction", 0.0))
+        if level is not None:
+            self.map_num = 0
+        elif model_num == -1:
+            if MAP_NUM not in (-2, -1):
+                self.map_num = int(MAP_NUM)
+            elif MAP_NUM == -1:
+                self.map_num = int(random.choice(MAP_NUM_RANDOM))
+            else:
+                self.map_num = -1
+        else:
+            self.map_num = int(model_num)
+
+        self._source_map_width = int(width)
+        self._source_map_height = int(height)
+
+        # Select one stable orientation per episode. The source dimensions are
+        # retained so extract_map() can transform geometry after it is loaded.
+        # A UED level pins its transform instead of redrawing one: the same
+        # level appearing in eight orientations would multiply the episodes
+        # needed to estimate its success rate, and mutation already supplies
+        # geometric diversity.
+        if level is not None:
+            self.map_augmentation = validate_transforms((level.augmentation,))[0]
+            self.width, self.height = map(
+                int,
+                transformed_size(
+                    self._source_map_width,
+                    self._source_map_height,
+                    self.map_augmentation,
+                ),
+            )
+        elif MAP_DATA_AUGMENTATION:
+            augmentation_transforms = validate_transforms(MAP_AUGMENTATION_TRANSFORMS)
+            self.map_augmentation = random.choice(augmentation_transforms)
+            self.width, self.height = map(
+                int,
+                transformed_size(
+                    self._source_map_width,
+                    self._source_map_height,
+                    self.map_augmentation,
+                ),
+            )
+        else:
+            self.map_augmentation = "identity"
+            self.width = self._source_map_width
+            self.height = self._source_map_height
+
+        self.space = ContinuousSpace(self.width, self.height, cell_size=10.0, torus=False)  
+        self.frame_stack = FrameStack(stack_len=4)
+        self._first_step = True
+        self.robot_version = robot
+        
+        self.crowds = []
+        self.step_n = 0
+
+        self.robot_type = robot
+        self.spaces_of_map = []
+        self.running = (
+            True  
+        )
+        
+        self.agent_id = 1000
+        self.agent_num = 0
+
+
+        self.using_model = False
+        self.total_agents = number_agents
+        self.obstacle_mesh = []
+        self.adjacent_mesh = {}
+        # map_ran_num = 2
+        self.walls = list()
+        self.obstacles = list()
+        self.exit_list = list()
+        self.mesh = list()
+        self.mesh_list = list()
+        if self.map_num != -1:
+            self.extract_map(self.map_num)
+
+        self.distance = {}  
+        self.schedule = RandomActivation(self)
+        self.running = (
+            True
+        )
+        self.next_vertex_matrix = {}
+        self.pure_mesh = []
+        self.mesh_danger = {}
+        self.match_grid_to_mesh = {}
+        self.match_mesh_to_grid = {}
+        self.valid_space = {}
+        self.blocked = np.zeros((self.height, self.width), dtype=bool)
+        self._obstacle_index = None
+        self._obstacle_polys = None
+        self.obstacles_grid_points = []
+        self.fill_outwalls(self.width, self.height)
+        self.mesh_map()
+        self._make_and_augment_configured_exits()
+        self.construct_map()
+        self.random_agent_distribute_outdoor(number_agents, 1)
+        if (self.robot_version != 'N'):
+            self.make_robot()
+        self.step_count = 0
+
+        self.now_evacuated = 0
+        self.now_evacuated_with_robot = 0
+
+        self.previous_evacuated = 0
+        self.previous_evacuated_with_robot = 0
+
+        self.before_minimum_distance = 0
+        self.minimum_distance = 0
+        self.new_founded_agent_danger = 0
+
+            
+        self._obstacle_polys = [Polygon(ob) for ob in self.obstacles]
+        #print(self._obstacle_polys)
+        self._exit_polys = [Polygon(poly) for poly in self.exit_list]
+        self._exit_union = unary_union(self._exit_polys) if self._exit_polys else None
+        self._mesh_polys = [Polygon(t) for t in self.mesh_list]
+        self._mesh_poly2tri = {poly: tri for poly, tri in zip(self._mesh_polys, self.mesh_list)}
+        self._mesh_index = STRtree(self._mesh_polys)
+        self._build_obstacle_index()
+        self.calculate_mesh_danger()   
+        self._build_blocked_grid()
+
+        self.obstacles_version = 0
+        self.vision_atlas = VisibilityAtlas(world_w=width, world_h=height, region_cells=4.0)
+        
+        SENSOR_R_AGENT = AGENT_VISION
+        SENSOR_R_ROBOT = ROBOT_VISION  
+        self.vision_atlas.rebuild_obstacles(self._obstacle_polys, self.obstacles_version)
+        self.vision_atlas.set_radii([AGENT_VISION])
+        self.vision_atlas.precompute(rays_per_poly=64, bsearch_iters=6)
+
+        #self.shadow_fov = ShadowFOV(self.blocked)
+
+
+        self.exit_meta = [
+        {"idx":i,
+         "width" : 5,             # exit_width = 5
+         } for i in range(len(self.exit_list))
+        ]
+
+        
+        
+
+        self.stats = DataCollector(
+            model_reporters = {
+                "Step"           : lambda m: m.step_n,
+                "Evacuated"      : lambda m: m.evacuated_agents(),
+                "EvacWithRobot"  : lambda m: m.evacuated_agents_with_robot(),
+                "AvgDanger"      : lambda m: np.mean([ag.danger for ag in m.crowds if not ag.dead]),
+            },
+            agent_reporters = {
+                "x"      : lambda a: a.xy[0],
+                "y"      : lambda a: a.xy[1],
+                "speed"  : lambda a: np.linalg.norm(a.vel),
+                "type"   : "type",
+                "danger" : "danger",
+            }
+        )
+        #print("static grid height : ", self.height)
+
+        self.static_grid = np.zeros((self.height, self.width), dtype = np.uint8)
+        self._render_static_map(self.height, self.width)
+
+        self.ego_stack = FrameStack2(4)
+        self.glob_stack = FrameStack2(4)
+
+    
+
+
+    def load_map_from_file(self, map_num: int, base_dir: str = "main_infos"):
+        """
+        현재 작업 디렉토리 기준:
+        ./main_infos/map_{map_num}.json
+
+        JSON 포맷:
+        {
+        "width": 100,
+        "height": 100,
+        "obstacles": [ [[x,y],...], ... ],
+        "exits":     [ [[x,y],...], ... ]   # json에는 tuple이 없으니 list로 저장됨
+        }
+        """
+        fname = f"map_{map_num}.json"
+        fpath = os.path.join(os.getcwd(), base_dir, fname)
+
+        if not os.path.exists(fpath):
+            raise FileNotFoundError(f"[map] not found: {fpath}")
+
+        with open(fpath, "r", encoding="utf-8") as f:
+            obj = json.load(f)
+
+        # --- width/height ---
+        w = obj.get("width", None)
+        h = obj.get("height", None)
+        # if w is not None and h is not None:
+        #     self.width = int(w)
+        #     self.height = int(h)
+
+        # --- obstacles: [[[x,y],...], ...] 형태 유지 ---
+        obstacles_raw = obj.get("obstacles", []) or []
+        obstacles: List[List[List[int]]] = []
+        for poly in obstacles_raw:
+            if not poly or len(poly) < 3:
+                continue
+            norm_poly: List[List[int]] = []
+            for pt in poly:
+                # pt가 [x,y] 형태라고 가정 (혹시 dict/tuple 섞여도 대비)
+                x, y = pt[0], pt[1]
+                norm_poly.append([int(x), int(y)])
+            obstacles.append(norm_poly)
+        self.obstacles = obstacles
+
+        # --- exits: 내부에서는 (x,y) 튜플 리스트로 맞춤 ---
+        exits_raw = obj.get("exits", []) or []
+        #print(exits_raw)
+        exits: List[List[PointT]] = []
+        for poly in exits_raw:
+            if not poly or len(poly) < 3:
+                continue
+            norm_poly: List[PointT] = []
+            for pt in poly:
+                x, y = pt[0], pt[1]
+                norm_poly.append((int(x), int(y)))
+            exits.append(norm_poly)
+        self.exit_list = exits
+        #(self.exit_list)
+
+
+
+    # def extract_map_info(self, map_num):
+    #     if map_num <= 49:
+    #         self.width = 50
+    #         self.height = 50
+    #     elif map_num <= 99:
+    #         self.width = 70
+    #         self.height = 70
+    #     elif map_num <= 199:
+    #         self.width =100
+    #         self.height = 100
+
+    def _sanitize_obstacles(self, eps=1e-6):
+        polys = []
+        for ob in self.obstacles:
+            if len(ob) < 3:
+                continue
+
+            P = Polygon(ob)
+            # self-intersection/비정상 폴리곤 교정
+            if not P.is_valid:
+                P = P.buffer(0)
+
+            if P.is_empty:
+                continue
+            if P.area < eps:
+                continue
+
+            polys.append(P)
+
+        if not polys:
+            self.obstacles = []
+            return
+
+        # 겹침/중복 병합
+        U = unary_union(polys)
+
+        out = []
+        if isinstance(U, Polygon):
+            out = [U]
+        elif isinstance(U, MultiPolygon):
+            out = list(U.geoms)
+        else:
+            # GeometryCollection이면 폴리곤만 추출
+            out = [g for g in getattr(U, "geoms", []) if isinstance(g, Polygon)]
+
+        # 좌표를 리스트로 환원 (마지막 닫힘좌표는 제거)
+        new_obs = []
+        for P in out:
+            coords = list(P.exterior.coords)
+            coords = coords[:-1]  # 닫힘 점 제거
+            # 좌표 양자화(중요)
+            coords = [[round(x, 6), round(y, 6)] for x, y in coords]
+            # 연속 중복 제거
+            cleaned = []
+            for c in coords:
+                if not cleaned or cleaned[-1] != c:
+                    cleaned.append(c)
+            if len(cleaned) >= 3:
+                new_obs.append(cleaned)
+
+        self.obstacles = new_obs
+    
+
+    def is_free(self, xy):
+        x, y = xy
+        if x < 0 or y < 0 or x > self.width or y > self.height:
+            return False
+        p = Point(x, y)
+        # Only the obstacles whose bounding box contains the point, found
+        # through the spatial index, instead of every obstacle in the map.
+        # This is called several times per agent per step by the swept move,
+        # and testing all of them made `contains` and `touches` together the
+        # single largest cost in the simulation: 236,892 shapely calls over
+        # 200 steps with 40 agents.
+        for idx in self._obstacle_index.query(p):
+            poly = self._obstacle_polys[int(idx)]
+            if poly.contains(p) or poly.touches(p):
+                return False
+        return True
+
+    # def in_exit(self, xy, tol=0.0):
+    #     p = Point(xy[0], xy[1])
+    #     for poly in self._exit_polys:
+    #         #print(f"{p}가 {poly}에 있는지 확인합니다")    
+    #         if (poly.buffer(tol).contains(p)) if tol > 0 else poly.contains(p):
+    #             return True
+    #     return False
+
+    def in_exit(self, xy, tol=0.3) -> bool:
+        if self._exit_union is None:
+            return False
+        p = Point(xy[0], xy[1])
+        return self._exit_union.buffer(tol).covers(p)
+    
+
+    def nearest_exit(self, xy):
+        """
+        xy에서 가장 가까운 exit_polygon과
+        그 polygon 경계 상 최단거리 점(q) 및 거리(d) 반환.
+        Returns:
+            (best_idx, (qx,qy), d)
+        """
+        if not self._exit_polys:
+            return None, (xy[0], xy[1]), float("inf")
+
+        p = Point(xy[0], xy[1])
+        best_idx = None
+        best_d = float("inf")
+        best_q = (xy[0], xy[1])
+
+        for i, poly in enumerate(self._exit_polys):
+            d = poly.distance(p)  # 내부면 0
+            if d < best_d:
+                best_d = d
+                best_idx = i
+                if d == 0.0:
+                    best_q = (xy[0], xy[1])
+                else:
+                    # 경계선 위의 최단점(투영점)
+                    q = poly.exterior.interpolate(poly.exterior.project(p))
+                    best_q = (q.x, q.y)
+
+        return best_idx, best_q, best_d
+    
+
+    def goal_point_into_exit(self, exit_idx: int, from_xy, eps=0.5):
+        """
+        exit 경계 최단점까지 도달했을 때 '안으로 들어가게' 만들기 위한 내부 목표점.
+        - 경계 최단점 q에서 polygon 내부 방향으로 eps 만큼 이동.
+        """
+        poly = self._exit_polys[exit_idx]
+        p = Point(from_xy[0], from_xy[1])
+
+        # 경계 최단점
+        q = poly.exterior.interpolate(poly.exterior.project(p))
+        # 내부 대표점(centroid보다 안전한 representative_point)
+        inside = poly.representative_point()
+
+        vx = inside.x - q.x
+        vy = inside.y - q.y
+        norm = (vx*vx + vy*vy) ** 0.5
+        if norm < 1e-9:
+            return (inside.x, inside.y)
+
+        ux, uy = vx / norm, vy / norm
+        gx, gy = q.x + eps * ux, q.y + eps * uy
+
+        # 혹시 eps 이동이 밖이면 eps 줄이기(최대 몇 번만)
+        for _ in range(5):
+            if poly.covers(Point(gx, gy)):
+                return (gx, gy)
+            gx, gy = q.x + (eps*0.5) * ux, q.y + (eps*0.5) * uy
+            eps *= 0.5
+
+        # 최후 fallback
+        return (inside.x, inside.y)
+    
+    def distance_to_exit(self, xy):
+        """exit_polygon까지 최단거리(내부면 0)."""
+        _, _, d = self.nearest_exit(xy)
+        return d
+
+    def visible_exits(self, xy, radius):
+        """
+        xy에서 radius 내 '시야 폴리곤' 기준으로 보이는 출구 idx 리스트.
+        mode:
+        - "intersects": 시야폴리곤과 출구폴리곤이 겹치면 visible (관대)
+        - "rep_point": 출구 대표점이 시야폴리곤에 포함되면 visible (보수)
+        """
+        vision_poly = self.vision_atlas.polygon_at(
+            float(xy[0]), float(xy[1]), float(radius), self.obstacles_version
+        )
+        if vision_poly is None or vision_poly.is_empty:
+            return []
+
+        out = []
+        for i, ex in enumerate(self._exit_polys):
+            if ex is None or ex.is_empty:
+                continue
+
+
+            if vision_poly.intersects(ex):
+                out.append(i)
+
+        return out
+
+    def find_mesh(self, xy):
+        p = Point(float(xy[0]), float(xy[1]))
+
+        hits = self._mesh_index.query(p)  # Shapely 2.x: indices (np.array), 1.8: list of geometries
+        if hits is None:
+            return None
+
+        # 호환 처리: 결과가 정수(인덱스)인지, geometry인지 구분
+        def _is_index(x):
+            try:
+                import numpy as _np
+                return isinstance(x, (int, _np.integer))
+            except Exception:
+                return isinstance(x, int)
+
+        if isinstance(hits, (list, tuple)) and hits and not _is_index(hits[0]):
+            # Shapely 1.8 스타일: geometry 리스트
+            for poly in hits:
+                # 경계도 포함하려면 covers 권장 (contains는 경계 제외)
+                if poly.covers(p):
+                    # poly -> tri 매핑
+                    return self._mesh_poly2tri[poly]
+        else:
+            # Shapely 2.x 스타일: 인덱스 배열/리스트
+            hits = np.atleast_1d(hits)
+            for i in hits:
+                i = int(i)
+                poly = self._mesh_polys[i]
+                if poly.covers(p):
+                    # poly를 키로 쓰는 게 불안하면, 인덱스 기반 매핑을 따로 유지하세요.
+                    return self._mesh_poly2tri[poly]
+
+        return None
+
+    def next_mesh_from_to(self, m_from, m_to):
+        return self.next_vertex_matrix.get(m_from, {}).get(m_to, None)
+
+
+
+    def alived_agents(self):
+        """How many pedestrians still have somewhere to get to.
+
+        Under the exit task this counted who had not yet escaped, and it fell
+        to zero as the crowd was removed from the simulation one by one. There
+        is no removal now, so it counts who is currently inside the hazard.
+
+        The name is kept because the training loop, the renderer and the
+        analysis scripts all read it, and because its role is unchanged: it is
+        the number that has to reach zero. What changed is that it can go back
+        up, which is the point of the task.
+        """
+        return self.agents_in_danger()
+
+    def evacuated_agents(self):
+        """How many pedestrians are currently clear of the hazard.
+
+        Currently, not cumulatively. A pedestrian that walks back into the
+        zone stops counting, because it is no longer evacuated in any sense
+        the task cares about, and a cumulative count would report the episode
+        as finished while people were standing in the danger.
+        """
+        n = 0
+        for i in self.schedule.agents:
+            if (i.type == 0 or i.type == 1 or i.type == 2) and i.dead != 1:
+                if self.is_safe(i.xy):
+                    n += 1
+        return n
+
+    def evacuated_agents_with_robot(self):
+        n = 0
+        for i in self.schedule.agents:
+            if ((i.type == 0 or i.type == 1 or i.type == 2) and i.dead != 1
+                    and i.is_effected_by_robot == 1 and self.is_safe(i.xy)):
+                n += 1
+        return n
+
+    def danger_occupancy(self) -> float:
+        """Share of the crowd inside the hazard, in [0, 1].
+
+        The scale-free version of `alived_agents`, which is what a reward or a
+        log wants: a level with 100 pedestrians and one with 10 both run from
+        1 to 0, so the same number means the same thing across the crowd-size
+        axis the curriculum varies.
+        """
+        total = max(1, int(self.total_agents))
+        return float(self.agents_in_danger()) / float(total)
+
+    def is_cleared(self) -> bool:
+        """Nobody is standing in the hazard, at this instant."""
+        return self.agents_in_danger() == 0
+
+    def is_cleared_and_held(self) -> bool:
+        """Cleared, and stayed cleared long enough to count.
+
+        The single definition of "finished", because there were two and they
+        disagreed. The training loop required the hazard to stay empty for
+        DANGER_CLEAR_HOLD_STEPS before recording a clearing time, while the
+        robot ended the episode the instant the count hit zero. The episode
+        therefore always stopped before the hold could complete, and every run
+        reported a clearing time of MAX_STEPS: 25 episodes out of 25 with the
+        80 per cent mark reached at step 27 and the 100 per cent mark never.
+
+        A hold is not a formality here. Nobody is removed from the simulation,
+        so the zone can empty for one step because a straggler stepped over
+        the line and refill on the next, and stopping there would score a
+        social-force jostle rather than the guidance. It is also what makes
+        the inflow half of the task count: without it a policy could sweep
+        everyone out and immediately stop, and keeping them out would never
+        be measured.
+        """
+        if self.agents_in_danger() > 0:
+            self._cleared_since = None
+            return False
+        if getattr(self, "_cleared_since", None) is None:
+            self._cleared_since = int(self.step_count)
+            return False
+        return (int(self.step_count) - int(self._cleared_since)
+                >= int(DANGER_CLEAR_HOLD_STEPS))
+
+    def should_finish(self) -> bool:
+        """Whether the episode ends here, per config.DANGER_TERMINATION.
+
+        Separate from `is_cleared_and_held` because the clearing time is
+        recorded under both settings and only the stopping differs. Under
+        "none" the robots go on holding an empty zone for the rest of the
+        episode, which is the half of the task an early finish never
+        exercises: a policy that sweeps everyone out and stops looks identical
+        to one that also keeps them out, because nobody gets the chance to
+        walk back in.
+        """
+        if DANGER_TERMINATION == "cleared":
+            return self.is_cleared_and_held()
+
+        if DANGER_TERMINATION == "defend":
+            # The window opens the first time the hazard empties and never
+            # reopens. Restarting it on re-entry would let a policy extend its
+            # own episode by letting people back in, which is the opposite of
+            # what the window is for.
+            #
+            # Opened by `_note_clearing` during the step, not here. This used
+            # to record the opening itself, and it is called from two places
+            # at different points in a step, the robot's own update and the
+            # training loop, so which call saw the empty zone first decided
+            # when the window opened; the same episode ended at two different
+            # steps depending on call order, and a test of the window length
+            # passed or failed at random.
+            opened = getattr(self, "_first_cleared_at", None)
+            if opened is None:
+                return False
+            return (int(self.step_count) - int(opened)
+                    >= int(DANGER_DEFEND_STEPS))
+
+        # "none": the robots go on holding the zone for the whole episode.
+        return False
+
+    def _apply_crowd_flow(self) -> None:
+        """Let pedestrians enter and leave across the map edge.
+
+        Off by default, because every measurement so far was taken on a closed
+        box and turning this on silently would make those incomparable. With
+        it on the crop stops being a box and becomes a piece of a larger city,
+        which is what a downtown block actually is.
+
+        Outflow is applied before inflow so a pedestrian cannot be counted as
+        having left and then immediately replaced within one step, which would
+        make the headcount look stable while the crowd churned completely.
+        """
+        if CROWD_ALLOW_OUTFLOW:
+            self._apply_outflow()
+        if CROWD_ALLOW_INFLOW:
+            self._apply_inflow()
+
+    def _apply_outflow(self) -> None:
+        """A pedestrian with nowhere left to go walks out of the picture.
+
+        Two conditions, not one. It has to be in the band along the crop edge,
+        and it has to have stopped moving there.
+
+        The distance alone is not enough, and nearly useless by itself: wall
+        repulsion pushes pedestrians away from the edge, so one placed 0.3 m
+        from it walks back to 30 m within a minute and a narrow band never
+        fires. What does happen is a robot pressing somebody toward the edge
+        with the wall behind them, and crowd navigation will not take them out
+        of that on its own. Without a release they stand there for the rest of
+        the episode, and if the spot is inside the hazard the robots can never
+        clear it.
+
+        Marked dead and removed from the continuous space, the mechanism the
+        exit task used for anyone who reached a door. What changed is the
+        reason: not "reached safety" but "left the crop".
+        """
+        margin = float(CROWD_OUTFLOW_MARGIN_M)
+        need = int(CROWD_OUTFLOW_STUCK_STEPS)
+        move = float(CROWD_OUTFLOW_STUCK_MOVE_M)
+
+        for a in self.crowds:
+            if a.dead or a.type not in (0, 1, 2):
+                continue
+            if getattr(a, "_dwelling", False):
+                # Standing at the end of a trip, not stuck. Trips end at
+                # street mouths, which sit inside this very band, so without
+                # this every pedestrian that finished a through trip would be
+                # removed as though a robot had pinned it against a wall.
+                a._edge_anchor = None
+                continue
+            x, y = float(a.xy[0]), float(a.xy[1])
+            at_edge = (x <= margin or y <= margin
+                       or x >= self.width - margin or y >= self.height - margin)
+            if not at_edge:
+                a._edge_anchor = None
+                continue
+
+            anchor = getattr(a, "_edge_anchor", None)
+            if anchor is None:
+                a._edge_anchor = (x, y, int(self.step_count))
+                continue
+            ax, ay, since = anchor
+            if math.hypot(x - ax, y - ay) > move:
+                # Still moving: reset rather than accumulate, so somebody
+                # walking along the edge is never removed.
+                a._edge_anchor = (x, y, int(self.step_count))
+                continue
+            if int(self.step_count) - int(since) < need:
+                continue
+
+            a.dead = True
+            try:
+                self.space.remove(a.unique_id)
+            except Exception:
+                # Already gone: harmless, and worth not failing the step over,
+                # because the flag it sets is what everything reads.
+                pass
+
+    def _apply_inflow(self) -> None:
+        """New pedestrians walk in from the streets beyond the crop.
+
+        Placed on a navmesh triangle that touches the edge, so a newcomer
+        arrives somewhere it can actually stand and walk from rather than
+        inside a block.
+
+        A newcomer knows nothing about the hazard, which is the point: it is
+        the inflow half of the task made literal. Nothing tells it to avoid
+        the zone, so if the robots do not turn it away it will walk in.
+        """
+        rate = float(CROWD_INFLOW_PER_100_STEPS) / 100.0
+        self._inflow_credit = getattr(self, "_inflow_credit", 0.0) + rate
+        if self._inflow_credit < 1.0:
+            return
+
+        edge_meshes = self._edge_meshes()
+        if not edge_meshes:
+            self._inflow_credit = 0.0
+            return
+
+        while self._inflow_credit >= 1.0:
+            self._inflow_credit -= 1.0
+            mesh = random.choice(edge_meshes)
+            x = (mesh[0][0] + mesh[1][0] + mesh[2][0]) / 3.0
+            y = (mesh[0][1] + mesh[1][1] + mesh[2][1]) / 3.0
+            a = CrowdAgent(self.agent_num, self, [x, y], 1)
+            # Some of the crowd already heard an alarm or the news before the
+            # episode began. They are cued, not acting: knowing there is an
+            # emergency is not the same as having started to move, and the
+            # gap between the two is the delay the robots work on.
+            if random.random() < float(getattr(self, "danger_prior_informed", 0.0)):
+                a.awareness = "milling"
+                a.cue_source = "prior"
+                a.cued_at = 0
+                a.act_after = a._draw_premovement()
+            self.crowds.append(a)
+            self.agent_num += 1
+            self.agent_id += 1
+            self.schedule.add(a)
+            self.space.place_agent(a, (x, y))
+            self.agents.append(a)
+            # The denominator every share-of-crowd figure uses, so it has to
+            # follow the headcount or the occupancy fraction drifts.
+            self.total_agents += 1
+
+    def arrive_at_destination(self, agent, mesh) -> bool:
+        """Handle a pedestrian reaching the end of a trip. True if it left.
+
+        A trip that ends at a street mouth is a trip out of the crop, but the
+        pedestrian only leaves when the crop is an open system, which needs
+        both flow flags. With outflow alone the crowd would drain out of a
+        closed box over the episode and the hazard would clear itself.
+        """
+        if not (CROWD_ALLOW_INFLOW and CROWD_ALLOW_OUTFLOW):
+            return False
+        import od
+
+        if not od.is_gate_mesh(self, mesh):
+            return False
+        agent.dead = True
+        try:
+            self.space.remove(agent.unique_id)
+        except Exception:
+            pass
+        return True
+
+    def _edge_meshes(self):
+        """Walkable triangles touching the crop boundary. Cached per geometry."""
+        key = getattr(self, "obstacles_version", 0)
+        cached = getattr(self, "_edge_mesh_cache", None)
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        band = 3.0
+        out = []
+        for mesh in self.pure_mesh:
+            cx = (mesh[0][0] + mesh[1][0] + mesh[2][0]) / 3.0
+            cy = (mesh[0][1] + mesh[1][1] + mesh[2][1]) / 3.0
+            if (cx <= band or cy <= band
+                    or cx >= self.width - band or cy >= self.height - band):
+                out.append(mesh)
+        self._edge_mesh_cache = (key, out)
+        return out
+
+    def _note_clearing(self) -> None:
+        """Record the first step the hazard emptied. Called once per step.
+
+        A single place, so the record cannot depend on who asked first. The
+        query functions read it and never write it.
+        """
+        if getattr(self, "_first_cleared_at", None) is None:
+            if self.agents_in_danger() == 0:
+                self._first_cleared_at = int(self.step_count)
+
+    def cleared_at(self):
+        """The step the hazard first emptied in the current streak, or None.
+
+        This, not the step the hold completed, is the clearing time: it keeps
+        the measure comparable with the free-flow estimate it is normalised
+        by, which counts the walk out and not the wait afterwards.
+        """
+        return getattr(self, "_cleared_since", None)
+
+    
+    
+    def write_log(self):
+        
+        evacuated_agent_num = 0
+        for i in self.schedule.agents:
+            if((i.type==0 or i.type==1 or i.type==2) and i.dead == 1):
+                evacuated_agent_num += 1
+
+        with open("experiment.txt", "a") as f:
+            f.write(f"{self.step_count} {evacuated_agent_num}\n")
+        with open("experiment2.txt", "a") as f2:
+            f2.write(f"{evacuated_agent_num}\n")
+
+
+
+    def fill_outwalls(self, w, h):
+        for i in range(w):
+            self.walls.append((i, 0))
+            self.walls.append((i, h-1))
+        for j in range(h):
+            self.walls.append((0, j))
+            self.walls.append((w-1, j))
+
+    def choice_safe_mesh_visualize(self, point):
+        point_grid = (int(point[0]), int(point[1]))
+        x = point_grid[0]
+        y = point_grid[1]
+        candidates = [(x+1,y+1), (x+1, y), (x, y+1), (x-1, y-1), (x-1, y), (x, y-1), (x-1, y+1), (x+1, y-1)]
+        for c in candidates:
+            if (self.match_grid_to_mesh[c] in self.pure_mesh):
+                return c
+
+        return False
+
+        return self.match_grid_to_mesh[point_grid]
+
+    def calculate_mesh_danger(self):
+        """Geodesic metres from each navmesh triangle to safety.
+
+        Safety is being outside the hazard, not reaching a door, so this is a
+        distance to a region rather than to a handful of points. Triangles
+        already outside score zero; the rest score the shortest walk to one
+        that is.
+
+        Computed as a multi-source shortest path over the mesh graph, seeded
+        from every safe triangle at once. Distance to a region is exactly what
+        multi-source Dijkstra answers, and the alternative of taking the
+        minimum over target points does not apply here: the safe boundary is
+        continuous, so there is no finite set of targets to minimise over the
+        way the old exit polygons gave one.
+
+        Straight-line distance will not do. A pedestrian ten metres from the
+        boundary with a block in between has to walk around it, and the
+        free-flow reference and the pedestrians' own routing both need the
+        distance they will actually cover.
+        """
+        import heapq
+
+        BIG = 1e18
+        self.mesh_danger = {}
+        if not self.pure_mesh:
+            return 0
+
+        zone = getattr(self, "danger_zone", None)
+        if zone is None:
+            # No hazard: everywhere is safe, so nobody has anywhere to go.
+            for mesh in self.pure_mesh:
+                self.mesh_danger[mesh] = 0.0
+            return 0
+
+        margin = float(DANGER_SAFE_MARGIN_M)
+        dist = {}
+        heap = []
+        for mesh in self.pure_mesh:
+            cx = (mesh[0][0] + mesh[1][0] + mesh[2][0]) / 3.0
+            cy = (mesh[0][1] + mesh[1][1] + mesh[2][1]) / 3.0
+            if zone.signed_distance(cx, cy) >= margin:
+                dist[mesh] = 0.0
+                heap.append((0.0, id(mesh), mesh))
+            else:
+                dist[mesh] = BIG
+        heapq.heapify(heap)
+
+        # The adjacency built during mesh_map, so this walks the same graph the
+        # crowd and the robots route on.
+        while heap:
+            d, _, mesh = heapq.heappop(heap)
+            if d > dist.get(mesh, BIG):
+                continue
+            for nb in self.adjacent_mesh.get(mesh, ()):
+                step = self.distance[mesh].get(nb)
+                if step is None or step >= BIG:
+                    continue
+                nd = d + step
+                if nd < dist.get(nb, BIG):
+                    dist[nb] = nd
+                    heapq.heappush(heap, (nd, id(nb), nb))
+
+        self.mesh_danger = dist
+        return 0
+
+ 
+    def free_flow_evacuation_steps(self) -> float:
+        """A level-intrinsic lower bound on how long clearing should take.
+
+        The success criterion the curriculum scores levels by needs a
+        reference, and MAX_STEPS is a human-set constant with nothing to do
+        with the level: set it generously and almost everything succeeds,
+        tighten it and almost nothing does, and either way p*(1-p) collapses
+        to zero and the curriculum loses its signal.
+
+        Travel plus queueing, as before, but both terms mean something
+        different now that safety is a region rather than a set of doors:
+
+          travel = worst geodesic distance out of the zone, at walking speed
+          queue  = the crowd inside, discharged across the zone's perimeter
+
+        The queue term is the part that changed most, and it is much smaller
+        than it was. An exit evacuation funnels everyone through a few metres
+        of doorway; a dispersal has the whole boundary available at once, so
+        for a typical zone here the perimeter is an order of magnitude wider
+        than the exits it replaced. Travel therefore dominates, which is the
+        honest description of the task: the difficulty is routing people out
+        through the street network, not queueing them through a gap.
+
+        Only the crowd that starts inside counts toward the queue. The rest
+        begin outside and never have to cross the boundary, so charging the
+        estimate for them would inflate the reference on exactly the levels
+        where the robots have the least dispersal work to do.
+        """
+        dt = max(1e-6, float(AGENT_TIME_STEP))
+        speed = max(1e-6, float(AGENT_SPEED_MEAN))
+
+        zone = getattr(self, "danger_zone", None)
+        if zone is None:
+            return 0.0
+
+        # Worst case over triangles that are actually inside the hazard.
+        # Taking the worst over every triangle would measure the map instead:
+        # the far corner of the crop is a long way from the zone and nobody
+        # standing there has anywhere to go.
+        margin = float(DANGER_SAFE_MARGIN_M)
+        inside_costs = []
+        for mesh, d in self.mesh_danger.items():
+            if d >= 1e5:
+                continue
+            cx = (mesh[0][0] + mesh[1][0] + mesh[2][0]) / 3.0
+            cy = (mesh[0][1] + mesh[1][1] + mesh[2][1]) / 3.0
+            if zone.signed_distance(cx, cy) < margin:
+                inside_costs.append(d)
+        worst_distance = max(inside_costs) if inside_costs else 0.0
+        travel_steps = (worst_distance / speed) / dt
+
+        # Perimeter is the analogue of total exit width. Most of it is usable
+        # at once, which is why this term is small.
+        width = float(zone.perimeter())
+        inside_crowd = float(self.total_agents) * float(
+            getattr(self, "danger_inside_fraction", 1.0))
+        queue_steps = 0.0
+        if width > 0 and EVAC_SPECIFIC_FLOW > 0:
+            queue_steps = (inside_crowd / (EVAC_SPECIFIC_FLOW * width)) / dt
+
+        return float(travel_steps + queue_steps)
+
+    # ---------------------------------------------------------------- hazard
+
+    def in_danger(self, xy) -> bool:
+        """Standing inside the hazard, boundary included."""
+        zone = getattr(self, "danger_zone", None)
+        if zone is None:
+            return False
+        return zone.contains(float(xy[0]), float(xy[1]))
+
+    def is_safe(self, xy) -> bool:
+        """Clear of the hazard by the margin.
+
+        Deliberately not the negation of `in_danger`. A pedestrian exactly on
+        the boundary is out by one test and in by the other, and one
+        social-force jostle flips it either way; an episode then hovers at
+        99 per cent cleared indefinitely for a reason the policy cannot fix.
+        """
+        zone = getattr(self, "danger_zone", None)
+        if zone is None:
+            return True
+        return zone.signed_distance(float(xy[0]),
+                                    float(xy[1])) >= DANGER_SAFE_MARGIN_M
+
+    def escape_distance(self, xy) -> float:
+        """Geodesic metres from here to safety, zero if already clear.
+
+        Straight-line where no navmesh triangle contains the point, which
+        happens for a pedestrian pressed into a corner during a collision
+        resolution. The straight line is a lower bound, so the fallback can
+        only under-report the work remaining, never invent progress.
+        """
+        zone = getattr(self, "danger_zone", None)
+        if zone is None:
+            return 0.0
+        if self.is_safe(xy):
+            return 0.0
+        mesh = self.match_grid_to_mesh.get((int(xy[0]), int(xy[1])))
+        if mesh is not None:
+            d = self.mesh_danger.get(mesh)
+            if d is not None and d < 1e5:
+                return float(d)
+        return float(zone.escape_distance(float(xy[0]), float(xy[1])))
+
+    def agents_in_danger(self) -> int:
+        """How many pedestrians are inside the hazard right now.
+
+        A live count, not a running total. Under the exit task a pedestrian
+        that reached safety was removed from the simulation, so progress only
+        ever went one way. Here nobody is removed: a pedestrian that leaves
+        can drift back in, and keeping them out is half of what the robots are
+        being asked to do, so the measure has to be able to go backwards.
+        """
+        zone = getattr(self, "danger_zone", None)
+        if zone is None:
+            return 0
+        # `xy` rather than `pos`. Both describe where a pedestrian is, but
+        # `pos` is the mesa-space copy and is set to a rounded integer pair
+        # partway through each agent's move; anything reading it sees a
+        # position up to half a metre away from the real one. Half a metre is
+        # nothing in open ground and everything at a boundary, which is the
+        # only place this question is ever asked, and it made the occupancy
+        # count disagree with the per-agent escape distances.
+        n = 0
+        for a in self.schedule.agents:
+            if getattr(a, "type", None) in (0, 1, 2) and a.dead != 1:
+                if zone.contains(float(a.xy[0]), float(a.xy[1])):
+                    n += 1
+        return n
+
+    def nearest_safe_goal(self, xy):
+        """Where a pedestrian inside the hazard should head next.
+
+        Downhill on the geodesic escape field, not toward the straight-line
+        nearest point outside. `mesh_danger` already holds, for every navmesh
+        triangle, the shortest walk to safety, so the next move is simply the
+        adjacent triangle with the smallest value, and following that from
+        triangle to triangle traces a genuine shortest route out.
+
+        The straight-line version was wrong in exactly the places this task is
+        about. A pedestrian in a medina alley 5 m from the boundary with a
+        block in between was handed a goal 7 m away through a wall while the
+        real way out was 42 m around; it walked into the wall and stood there
+        for the rest of the episode. The zone emptied everywhere the fabric
+        was open and never emptied where it was not, which would have taught
+        the policy that dense morphologies are simply impossible.
+
+        Falls back to the straight line when the position resolves to no
+        triangle, which happens when a collision pushes somebody into a
+        corner. In open ground the two agree anyway.
+        """
+        zone = getattr(self, "danger_zone", None)
+        if zone is None:
+            return (float(xy[0]), float(xy[1]))
+
+        # The triangle actually standing on, by point-in-polygon, not the one
+        # the integer grid dictionary happens to hold for this cell. A one
+        # metre cell spans several triangles and the dictionary keeps whichever
+        # was found first, so for a pedestrian near a cell corner it can name a
+        # triangle on the other side of a wall; the shared edge with that
+        # triangle's neighbour is then behind the wall, and the pedestrian
+        # walks into it and balances there against the wall repulsion.
+        mesh = self.find_mesh(xy)
+        if mesh is None:
+            mesh = self.match_grid_to_mesh.get((int(xy[0]), int(xy[1])))
+        if mesh is not None:
+            here = self.mesh_danger.get(mesh)
+            if here is not None and here < 1e5:
+                best, best_cost = None, here
+                for nb in self.adjacent_mesh.get(mesh, ()):
+                    cost = self.mesh_danger.get(nb)
+                    if cost is None or cost >= 1e5:
+                        continue
+                    if cost < best_cost:
+                        best, best_cost = nb, cost
+                if best is not None:
+                    # Aim at the midpoint of the edge the two triangles share,
+                    # not at the next triangle's centroid. Two triangles that
+                    # share an edge can still have a line between their
+                    # centroids that leaves both of them, when the shared edge
+                    # is short and the pair is splayed around an obstacle
+                    # corner; a pedestrian handed that line walks into the
+                    # corner and stops. The shared edge is by construction
+                    # inside both triangles, so steering through it is always
+                    # walkable. This is the funnel step every navmesh follower
+                    # does.
+                    shared = [p for p in mesh if p in best]
+                    if len(shared) >= 2:
+                        (ax, ay), (bx, by) = shared[0], shared[1]
+                        mx, my = (ax + bx) / 2.0, (ay + by) / 2.0
+                        # Nudge past the edge, toward the next triangle. The
+                        # midpoint alone is a goal a pedestrian standing on
+                        # the edge has already reached, so it stops there and
+                        # the whole descent stalls one triangle short of
+                        # safety. A fraction of the way to the next centroid
+                        # is still inside that triangle, so it stays walkable.
+                        ncx = (best[0][0] + best[1][0] + best[2][0]) / 3.0
+                        ncy = (best[0][1] + best[1][1] + best[2][1]) / 3.0
+                        return (mx + 0.6 * (ncx - mx), my + 0.6 * (ncy - my))
+                    return ((best[0][0] + best[1][0] + best[2][0]) / 3.0,
+                            (best[0][1] + best[1][1] + best[2][1]) / 3.0)
+                # Already on the lowest triangle around: the boundary is
+                # inside this one, so the straight line out is right here.
+        return zone.nearest_safe_point(float(xy[0]), float(xy[1]),
+                                       margin=DANGER_SAFE_MARGIN_M)
+
+
+    def mesh_map(self):
+        self._sanitize_obstacles()
+        # Spacing of the points inserted along long edges before
+        # triangulation. See config.NAVMESH_SEGMENT_STEP_M: the all-pairs path
+        # table is cubic in the triangle count, so this is the main cost knob.
+        D = NAVMESH_SEGMENT_STEP_M
+        outer_polys, _ = union_obstacles_to_polygons(self.obstacles)
+        self.obstacles = [ [list(p) for p in poly ] for poly in outer_polys]
+        map_boundary = [[0, 0], [self.width, 0], [self.width, self.height], [0, self.height]]
+        obstacle_hulls = []
+
+        for obstacle in self.obstacles:
+            obstacle_hulls.append(np.array(obstacle, dtype=float))
+        # 경계점 및 장애물의 모서리 점 추가
+        vertices = map_boundary.copy()
+        for hull_points in obstacle_hulls:
+            vertices.extend(hull_points.tolist())
+        segments = [[i, (i + 1) % 4] for i in range(4)]  # 맵의 경계
+        offset = 4  # 맵 경계 포인트를 위한 오프셋
+
+        # 장애물의 모서리 추가
+        for hull_points in obstacle_hulls:
+            n = len(hull_points)
+            segments.extend([[i + offset, (i + 1) % n + offset] for i in range(n)])
+            offset += n
+
+        # 세그먼트 및 포인트로 메쉬화
+        vertices_with_points, segments_with_points = generate_segments_with_points(vertices, segments, D)
+        vertices_with_points, segments_with_points = _dedup_pslg(vertices_with_points, segments_with_points)
+        # 삼각형화를 위한 데이터 생성
+        triangulation_data = {'vertices': np.array(vertices_with_points), 'segments': np.array(segments_with_points)}
+
+        # 삼각형화
+        t = tr.triangulate(triangulation_data, 'p')
+        boundary_coords = []
+
+        for tri in t['triangles']:
+            v0, v1, v2 = t['vertices'][tri[0]], t['vertices'][tri[1]], t['vertices'][tri[2]]
+            vertices_tuple = tuple(sorted([tuple(v0), tuple(v1), tuple(v2)]))
+            self.mesh_list.append(vertices_tuple)
+            
+            # 삼각형의 내부 좌표 계산
+            internal_coords = calculate_internal_coordinates_in_triangle(self.width, self.height, v0, v1, v2, D)
+            # 내부 좌표 저장
+            self.mesh.append(internal_coords)
+
+            # The grid-to-mesh map used to be built by a second identical pass
+            # over the same triangles. Same triangles, same containment test,
+            # so it is folded in here; first triangle still wins, because this
+            # loop visits them in the same order the second pass did.
+            for i in internal_coords:
+                key = (i[0], i[1])
+                if key not in self.match_grid_to_mesh:
+                    self.match_grid_to_mesh[key] = vertices_tuple
+
+
+        obstacle_polys = [Polygon(ob) for ob in self.obstacles]
+        from shapely.ops import unary_union
+        built = unary_union([q for q in obstacle_polys
+                             if q.is_valid and not q.is_empty]) \
+            if obstacle_polys else None
+
+        # A triangle counts as walkable only if a pedestrian's body fits in
+        # it, not merely if its centroid is outside the blocks.
+        #
+        # Without the body check the navmesh includes slivers that nobody can
+        # occupy, and the routing built on it then plans through gaps narrower
+        # than the walkers it is planning for. A pedestrian that follows such
+        # a route wedges: the wall repulsion cancels its drive in every
+        # direction, and it cannot leave by the way it came because that gap
+        # is the one that trapped it. Measured on a 200 m Soho crop, one
+        # pedestrian walked 209 m over six hundred steps while never getting
+        # 2 m from where it started, in a spot whose largest free circle
+        # equals its own body radius exactly.
+        #
+        # Measured against the pedestrian rather than the robot: the crowd is
+        # what the navmesh routes, and the robot is the wider of the two, so
+        # the robot's own clearance is a generator concern rather than a
+        # meshing one.
+        clearance = float(AGENT_BODY_RADIUS)
+
+        for mesh in self.mesh_list:
+            mx = (mesh[0][0] + mesh[1][0] + mesh[2][0]) / 3.0
+            my = (mesh[0][1] + mesh[1][1] + mesh[2][1]) / 3.0
+            p = Point(mx, my)
+
+            if any(P.contains(p) or P.touches(p) for P in obstacle_polys):
+                self.obstacle_mesh.append(mesh)
+            elif built is not None and built.distance(p) < clearance:
+                # Outside the blocks, but with no room to stand.
+                self.obstacle_mesh.append(mesh)
+        # Adjacency by shared edge, found by hashing edges rather than by
+        # comparing every triangle with every other. Two triangles in a
+        # triangulation share two vertices exactly when they share an edge, so
+        # bucketing each triangle's three edges finds every neighbour in one
+        # pass over the triangles instead of n-squared set intersections.
+        mesh_index = {m: idx for idx, m in enumerate(self.mesh_list)}
+        n_mesh = len(self.mesh_list)
+        obstacle_set = set(self.obstacle_mesh)
+
+        edge_owners = {}
+        for mesh in self.mesh_list:
+            for a, b in ((mesh[0], mesh[1]), (mesh[1], mesh[2]), (mesh[2], mesh[0])):
+                edge_owners.setdefault((a, b) if a <= b else (b, a), []).append(mesh)
+
+        self.next_vertex_matrix = {start: {end: None for end in self.mesh_list}
+                                   for start in self.mesh_list}
+        for mesh in self.mesh_list:
+            self.distance[mesh] = {end: math.inf for end in self.mesh_list}
+            self.distance[mesh][mesh] = 0
+            self.next_vertex_matrix[mesh][mesh] = mesh
+
+        def centre(m):
+            return ((m[0][0] + m[1][0] + m[2][0]) / 3.0,
+                    (m[0][1] + m[1][1] + m[2][1]) / 3.0)
+
+        rows, cols, weights = [], [], []
+        for owners in edge_owners.values():
+            if len(owners) < 2:
+                continue
+            for i in range(len(owners)):
+                for j in range(len(owners)):
+                    if i == j:
+                        continue
+                    m1, m2 = owners[i], owners[j]
+                    # An obstacle triangle is unreachable in both directions,
+                    # so it contributes no edge and stays isolated.
+                    if m1 in obstacle_set or m2 in obstacle_set:
+                        continue
+                    c1, c2 = centre(m1), centre(m2)
+                    d = math.hypot(c1[0] - c2[0], c1[1] - c2[1])
+                    self.distance[m1][m2] = d
+                    self.next_vertex_matrix[m1][m2] = m2
+                    self.adjacent_mesh.setdefault(m1, []).append(m2)
+                    rows.append(mesh_index[m1])
+                    cols.append(mesh_index[m2])
+                    weights.append(d)
+
+        # All-pairs shortest paths by Dijkstra from every triangle, not by
+        # Floyd-Warshall.
+        #
+        # Floyd-Warshall is cubic in the triangle count whatever the graph
+        # looks like, and the vectorised form only moved that cost into numpy:
+        # a 400 m road-derived crop triangulates into about 1900 triangles and
+        # spent 78 of its 87-second build inside the pivot loop. But this graph
+        # is planar and each triangle has at most three neighbours, so the
+        # edge count is linear in the node count and repeated Dijkstra is far
+        # cheaper than the cubic bound. scipy runs all sources in C.
+        #
+        # The graph is undirected and the weights are symmetric, which is what
+        # makes the next-hop table fall out of the same call: on the shortest
+        # path from b to a, the triangle just before a is the one a should step
+        # to when heading for b. Ties between equally short routes may be
+        # broken differently than the pivot loop broke them; the distances are
+        # the same, which is what the free-flow estimate and the reward use.
+        if n_mesh:
+            from scipy.sparse import coo_matrix
+            from scipy.sparse.csgraph import dijkstra
+
+            graph = coo_matrix((np.asarray(weights, dtype=np.float64),
+                                (np.asarray(rows, dtype=np.int32),
+                                 np.asarray(cols, dtype=np.int32))),
+                               shape=(n_mesh, n_mesh)).tocsr()
+            dist_mat, pred = dijkstra(graph, directed=False,
+                                      return_predecessors=True)
+
+            for mesh1 in self.mesh_list:
+                a = mesh_index[mesh1]
+                drow = self.distance[mesh1]
+                nrow = self.next_vertex_matrix[mesh1]
+                da = dist_mat[a]
+                for mesh2 in self.mesh_list:
+                    b = mesh_index[mesh2]
+                    if a == b:
+                        continue
+                    drow[mesh2] = float(da[b])
+                    nxt = int(pred[b, a])
+                    nrow[mesh2] = self.mesh_list[nxt] if nxt >= 0 else None
+        for mesh in self.mesh_list:
+            if mesh not in self.obstacle_mesh:
+                self.pure_mesh.append(mesh)
+
+        
+        boundary_coords = []
+        boundary_coords = list(set(map(tuple, boundary_coords)))
+
+        # This was a width x height x mesh triple loop, 5 million scalar
+        # containment tests on a 200x200 map. It is the inverse of the
+        # grid-to-mesh map, so it comes straight from the same vectorised
+        # containment test, once per mesh instead of once per grid point per
+        # mesh. Points on a shared edge still land in every mesh that contains
+        # them, and each list keeps the same x-then-y ordering as before.
+        for mesh in self.pure_mesh:
+            internal_coords = calculate_internal_coordinates_in_triangle(
+                self.width, self.height, mesh[0], mesh[1], mesh[2], D
+            )
+            if internal_coords:
+                self.match_mesh_to_grid[mesh] = internal_coords
+        for i in range(-10, self.width + 10):      # self.width가 50이라고 가정
+            for j in range(-10, self.height + 10):   # self.height가 50이라고 가정
+                if 0 <= i < self.width and 0 <= j < self.height:
+                    self.valid_space[(i, j)] = 1
+                else:
+                    self.valid_space[(i, j)] = 0
+
+    def get_path(self, next_vertex_matrix, start, end): #start->end까지 최단 경로로 가려면 어떻게 가야하는지 알려줌 
+
+        if next_vertex_matrix[start][end] is None:
+            return []
+
+        path = [start]
+        while start != end:
+            start = next_vertex_matrix[start][end]
+            path.append(start)
+        return path
+
+    def extract_map(self, map_num):
+
+        #좌하단 #우하단 #우상단 #좌상단 순으로 입력해주기
+        if map_num == 0:
+            transformed_width, transformed_height = self.width, self.height
+            self.width = self._source_map_width
+            self.height = self._source_map_height
+            if self.ued_level is not None:
+                self._load_ued_level(self.ued_level)
+            else:
+                self.make_random_exit_2()
+            self.width, self.height = transformed_width, transformed_height
+            self._apply_map_augmentation()
+            return
+
+        if map_num == 6:
+            self.obstacles.append([[10, 10], [20, 10], [20, 20], [10, 20]])
+            self.obstacles.append([[10, 30], [40, 30], [40, 40], [10, 40]])
+            
+            
+            self.obstacles.append([[60, 60], [70, 60], [70, 70], [60, 70]])
+            self.obstacles.append([[10, 80], [40, 80], [40, 90], [10, 90]])
+            self.obstacles.append([[60, 30], [90, 30], [90, 40], [60, 40]])
+
+
+
+        elif map_num == 7:
+            self.obstacles.append([[10, 30], [20, 30], [28, 40], [10, 40]])
+            self.obstacles.append([[30, 10], [35, 10], [35, 30], [30, 30]])
+            self.obstacles.append([[10, 10], [15, 10], [15, 15], [10, 15]])
+            self.obstacles.append([[15, 20], [22, 20], [22, 25], [15, 25]])
+            self.obstacles.append([[35, 35], [40, 35], [40, 40], [35, 40]])
+            # self.obstacles.append([[30, 30], [35, 30], [35, 35]]) ## ?? 이 줄만 추가하면 세그멘테이션 오류 (코어 덤프됨) 뜸 왤까?
+
+        
+        elif map_num == 8:
+            self.obstacles.append([[10, 15], [25, 15], [10, 40]])
+            self.obstacles.append([[30, 20], [40, 20], [40, 35], [30, 35]])
+
+        elif map_num == 26:
+            self.obstacles.append([[20, 15], [35, 30], [30, 35], [15, 20]])
+            self.obstacles.append([[20, 0], [30, 0], [30, 10]])
+            self.obstacles.append([[10, 40], [20, 40], [20, 35], [10, 35]])
+
+        elif map_num == 50:
+            self.obstacles.append([[20, 0], [30, 0], [30, 15], [20, 15]])
+            self.obstacles.append([[0, 30], [20, 30], [20, 50], [0, 50]])
+            self.obstacles.append([[30, 30], [40, 30], [40, 40], [30, 40]])
+            self.obstacles.append([[30, 50], [40, 50], [60, 70], [30, 70]])
+            self.obstacles.append([[50, 0], [70, 0], [70, 50], [50, 30]])
+
+        elif map_num == 51:
+            #self.obstacles.append([[0, 0], [20, 0], [20, 10], [0, 30]])
+            #self.obstacles.append([[40, 5], [50, 10], [40, 20], [30, 15]])
+            self.obstacles.append([[30, 10], [40, 10], [40, 20], [30, 20]])
+            self.obstacles.append([[20, 30], [30, 40], [20, 50], [10, 40]])
+            self.obstacles.append([[50, 30], [60, 30], [60, 50], [50, 50]])
+            self.obstacles.append([[40, 60], [50, 60], [50, 70], [40, 70]])
+        
+
+        elif map_num == 53:
+            self.obstacles.append([[20, 5], [30, 5], [30, 15], [20, 15]])
+            self.obstacles.append([[10, 20], [30, 20], [30, 30], [10, 30]])
+            self.obstacles.append([[10, 45], [20, 45], [20, 55], [10, 55]])
+            self.obstacles.append([[20, 65], [30, 65], [30, 75], [20, 75]])
+            self.obstacles.append([[10, 80], [30, 80], [30, 90], [10, 90]])
+            self.obstacles.append([[40, 60], [60, 60], [60, 70], [40, 70]])
+            self.obstacles.append([[40, 30], [60, 30], [60, 40], [40, 40]])
+            #self.obstacles.append([[40, 10], [60, 10], [60, 20], [40, 20]])
+            self.obstacles.append([[70, 5], [80, 5], [80, 15], [70, 15]])
+            self.obstacles.append([[70, 20], [90, 20], [90, 30], [70, 30]])
+            self.obstacles.append([[80, 45], [90, 45], [90, 55], [80, 55]])
+            self.obstacles.append([[70, 65], [80, 65], [80, 75], [70, 75]])
+            self.obstacles.append([[70, 80], [90, 80], [90, 90], [70, 90]])
+
+        elif map_num == 54:
+            self.obstacles.append([[20, 0], [30, 0], [30, 5], [20, 5]])
+            self.obstacles.append([[0, 10], [10, 10], [10, 20], [0, 20]])
+            self.obstacles.append([[30, 20], [35, 20], [35, 30], [30, 30]])
+            self.obstacles.append([[10, 35], [30, 35], [30, 40], [10, 40]])
+            self.obstacles.append([[10, 60], [30, 60], [30, 70], [10, 70]])
+            self.obstacles.append([[55, 45], [65, 55], [60, 60], [50, 50]])
+            self.obstacles.append([[55, 25], [70, 25], [70, 30], [55, 30]])
+            self.obstacles.append([[60, 10], [65, 10], [65, 15], [60, 15]])
+            self.obstacles.append([[45, 35], [50, 40], [45, 45], [40, 40]])
+            self.obstacles.append([[25, 45], [30, 45], [30, 55], [25, 55]])
+            self.obstacles.append([[40, 10], [45, 10], [45, 15], [40, 15]])
+        
+        elif map_num == 100:
+            #self.obstacles.append([[20, 10], [30, 10], [30, 20]])
+            self.obstacles.append([[10, 30], [15, 30], [15, 40], [10, 40]])
+            self.obstacles.append([[10, 50], [20, 50], [20, 60], [10, 60]])
+            self.obstacles.append([[30, 50], [50, 50], [50, 60], [30, 60]])
+            #self.obstacles.append([[20, 50], [50, 50], [50, 60], [20, 60]])
+            self.obstacles.append([[15, 80], [30, 80], [30, 90], [15, 90]])
+            self.obstacles.append([[50, 80], [60, 80], [60, 90], [50, 90]])
+            #self.obstacles.append([[70, 50], [80, 50], [80, 60], [70, 60]])
+            self.obstacles.append([[85, 55], [100, 55], [100, 60], [85, 60]])
+            #self.obstacles.append([[70, 70], [80, 70], [80, 80], [70, 80]])
+            self.obstacles.append([[70, 70], [75, 70],[75, 80], [70, 80]])
+            self.obstacles.append([[25, 20], [30, 20], [30, 30], [25, 25]])
+            self.obstacles.append([[5, 15], [10, 15], [10,20], [5, 20]])
+            #self.obstacles.append([[15, 10], [25, 10], [25, 15], [20, 15]])
+            self.obstacles.append([[85, 85], [90, 85], [90, 90], [85, 90]])
+            self.obstacles.append([[60, 30], [80, 30], [80, 40], [60, 40]])
+            #self.obstacles.append([[85, 30], [90, 30], [90, 40], [85, 40]])
+            #self.obstacles.append([[60, 10], [70, 10], [70, 20], [60, 20]])
+            self.obstacles.append([[80, 10], [90, 10], [90, 20], [80, 20]])
+            self.obstacles.append([[30, 0], [50, 0], [50, 10], [30, 10]])
+            self.obstacles.append([[40, 25], [50, 25], [50, 30], [40, 30]])
+            #self.obstacles.append([[50, 10], [60, 10], [50, 20]])
+            #self.obstacles.append([[90, 30], [90, 40], [80, 40]])
+            #self.obstacles.append([[50, 30], [60, 40], [50, 40]])
+            #self.obstacles.append([[80, 10], [90, 10], [90, 20]])
+
+        elif map_num == 101:
+            self.obstacles.append([[20, 5], [30, 5], [30, 15], [20, 15]])
+            #self.obstacles.append([[10, 20], [30, 20], [30, 30], [10, 30]])
+            self.obstacles.append([[20, 90], [30, 90], [30, 100], [20, 100]])
+            self.obstacles.append([[10, 45], [20, 45], [20, 55], [10, 55]])
+            self.obstacles.append([[20, 65], [30, 65], [30, 75], [20, 75]])
+            
+            self.obstacles.append([[0, 10], [10, 10], [10, 30], [0, 30]])
+            self.obstacles.append([[40, 60], [60, 60], [60, 70], [40, 70]])
+            self.obstacles.append([[40, 30], [60, 30], [60, 40], [40, 40]])
+            self.obstacles.append([[70, 5], [80, 5], [80, 15], [70, 15]])
+            self.obstacles.append([[0, 10], [10, 10], [10, 30], [0, 30]])
+            self.obstacles.append([[80, 30], [100, 30], [100, 50], [80, 50]])
+
+            #self.obstacles.append([[70, 65], [80, 65], [80, 75], [70, 75]])
+            #self.obstacles.append([[70, 80], [90, 80], [90, 90], [70, 90]])
+    
+        elif map_num == 102:
+            self.obstacles.append([[10, 10], [20, 10], [20, 20], [10, 20]])
+            
+            self.obstacles.append([[30, 20], [40, 40], [30, 45], [10, 40]])
+            self.obstacles.append([[30, 55], [40, 60], [30, 80], [10, 60]])
+            
+            self.obstacles.append([[10, 80], [20, 80], [20, 90], [10, 90]])
+            #self.obstacles.append([[45, 60], [55, 60], [60, 80], [40, 80]])
+            #self.obstacles.append([[40, 20], [60, 20], [55, 40], [45, 40]])
+            self.obstacles.append([[80, 10], [90, 10], [90, 20], [80, 20]])
+            
+            self.obstacles.append([[70, 20], [90, 40], [70, 45], [60, 40]])
+            self.obstacles.append([[70, 55], [90, 60], [70, 80], [60, 60]])
+            
+            self.obstacles.append([[80, 80], [90, 80], [90, 90], [80, 90]])
+        
+        elif map_num == 103:
+            self.obstacles.append([[10, 20], [20, 20], [20, 30], [10, 30]])
+            self.obstacles.append([[40, 10], [50, 10], [50, 20], [40, 20]])
+            self.obstacles.append([[60, 0], [70, 0], [70, 10], [60, 10]])
+            self.obstacles.append([[70, 20], [80, 20], [80, 30], [70, 30]])
+            self.obstacles.append([[40, 0], [70, 0], [70, 30], [40, 30]])
+            self.obstacles.append([[50, 50], [60, 50], [60, 60], [50, 60]])
+            self.obstacles.append([[0, 50], [30, 50], [30, 60], [0, 90]])
+            self.obstacles.append([[60, 70], [100, 70], [100, 100], [30, 100]])
+
+        elif map_num == 104:
+            #self.obstacles.append([[20, 0], [40, 0], [40, 10], [30, 10]])
+            self.obstacles.append([[0, 20], [20, 20], [20, 50], [0, 70]])
+            #self.obstacles.append([[20, 50], [30, 50], [30, 60], [20, 60]])
+            self.obstacles.append([[50, 20], [60, 20], [60, 30], [50, 30]])
+            self.obstacles.append([[50, 40], [50, 50], [60, 50], [60, 40]])
+            self.obstacles.append([[80, 20], [90, 20], [90, 30], [80, 30]])
+            self.obstacles.append([[80, 40], [90, 40], [90, 50]])
+            self.obstacles.append([[10, 70], [15, 70], [15, 80], [10, 80]])
+            self.obstacles.append([[40, 70], [100, 70], [100, 100], [10, 100]])
+
+        elif map_num == 105:
+ 
+            self.obstacles.append([[30, 20], [35, 25], [20, 60], [10, 50]])
+            self.obstacles.append([[40, 30], [50, 40], [30, 70], [25, 65]])
+            self.obstacles.append([[10, 80], [15, 80], [15, 90], [10, 90]])
+            self.obstacles.append([[10, 10], [20, 10], [20, 20], [10, 20]])
+            self.obstacles.append([[25, 90], [40, 90], [40, 95], [25, 95]])
+            self.obstacles.append([[50, 70], [55, 70], [55, 80], [50, 80]])
+            self.obstacles.append([[65, 40], [70, 40], [70, 50], [65, 50]])
+            self.obstacles.append([[70, 30], [90, 30], [90, 35], [70, 35]])
+            self.obstacles.append([[80, 5], [85, 5], [85, 10], [80, 10]])
+            self.obstacles.append([[90, 15], [95, 15], [95, 20], [90, 20]])
+            self.obstacles.append([[50, 0], [60, 0], [60, 30], [50, 20]])
+            self.obstacles.append([[100, 50], [100, 100], [70, 100], [70, 80]])
+
+        elif map_num == 106:
+            self.obstacles.append([[45, 25], [55, 35], [35, 65], [20, 50]])
+            self.obstacles.append([[60, 40], [75, 55], [50, 80], [40, 70]])
+            self.obstacles.append([[20, 70], [30, 80], [20, 90], [10, 80]])
+            self.obstacles.append([[70, 80], [80, 80], [80, 90], [70, 90]])
+            self.obstacles.append([[90, 60], [90, 65], [85, 65], [85, 60]])
+            self.obstacles.append([[80, 20], [100, 20], [100, 50], [80, 30]])
+            self.obstacles.append([[0, 30], [10, 30], [10, 40], [0, 40]])
+            self.obstacles.append([[60, 0], [60, 20], [50, 10], [50, 0]])
+
+        elif map_num == 107:
+            self.obstacles.append([[0, 0], [30, 0], [20, 30], [0, 30]])
+            self.obstacles.append([[80, 50], [100, 50], [100, 100], [80, 100]])
+            self.obstacles.append([[40, 0], [50, 0], [50, 10], [40, 10]])
+            self.obstacles.append([[80, 10], [90, 10], [90, 20], [80, 20]])
+            self.obstacles.append([[40, 20], [50, 20], [50, 30], [40, 30]])
+            self.obstacles.append([[20, 40], [40, 40], [40, 50], [20, 50]])
+            self.obstacles.append([[10, 60], [20, 60], [20, 70], [10, 70]])
+            self.obstacles.append([[10, 80], [15, 80], [15, 85], [10, 90]])
+            self.obstacles.append([[25, 85], [30, 85], [30, 90], [25, 90]])
+            self.obstacles.append([[45, 90], [60, 90], [60, 95], [45, 95]])
+            self.obstacles.append([[55, 60], [60, 60], [60, 70], [55, 70]])
+        
+        elif map_num == 108:
+            #self.obstacles.append([[10, 10], [15, 10], [15, 20], [10, 20]])
+            #self.obstacles.append([[25, 15], [30, 15], [30, 20], [25, 20]])
+
+            self.obstacles.append([[0, 25], [10, 25], [10, 30], [0, 30]])
+            self.obstacles.append([[25, 10], [30, 10], [30, 15], [25, 15]])
+            self.obstacles.append([[20, 35], [30, 35], [30, 40], [20, 40]])
+            self.obstacles.append([[10, 50], [20, 50], [20, 70], [10, 70]])
+            self.obstacles.append([[10, 80], [20, 80], [20, 90], [10, 90]])
+            self.obstacles.append([[40, 70], [50, 70], [50, 90], [40, 90]])
+            self.obstacles.append([[60, 70], [80, 90], [60, 90]])
+            self.obstacles.append([[70, 60], [90, 60], [90, 80]])
+            self.obstacles.append([[50, 40], [90, 40], [90, 50], [60, 50]])
+            self.obstacles.append([[75, 25], [80, 25], [80, 30], [75, 30]])
+            self.obstacles.append([[85, 10], [90, 10], [90, 15], [85, 15]])
+            self.obstacles.append([[40, 50], [50, 60], [40, 60]])
+            self.obstacles.append([[50, 10], [60, 10], [60, 20], [50, 20]])
+
+        elif map_num == 109:
+            #self.obstacles.append([[10, 10], [15, 10], [15, 20], [10, 20]])
+            #self.obstacles.append([[25, 15], [30, 15], [30, 20], [25, 20]])
+
+            self.obstacles.append([[0, 25], [10, 25], [10, 30], [0, 30]])
+            #self.obstacles.append([[25, 10], [30, 10], [30, 15], [25, 15]])
+            #self.obstacles.append([[20, 35], [30, 35], [30, 40], [20, 40]])
+            #self.obstacles.append([[10, 50], [20, 50], [20, 70], [10, 70]])
+            self.obstacles.append([[10, 80], [20, 80], [20, 90], [10, 90]])
+           # self.obstacles.append([[40, 70], [50, 70], [50, 90], [40, 90]])
+            #self.obstacles.append([[60, 70], [80, 90], [60, 90]])
+            self.obstacles.append([[70, 60], [90, 60], [90, 80]])
+            #self.obstacles.append([[50, 40], [90, 40], [90, 50], [60, 50]])
+            #self.obstacles.append([[75, 25], [80, 25], [80, 30], [75, 30]])
+            self.obstacles.append([[85, 10], [90, 10], [90, 15], [85, 15]])
+            self.obstacles.append([[40, 50], [50, 60], [40, 60]])
+            self.obstacles.append([[50, 10], [60, 10], [60, 20], [50, 20]])
+
+        elif map_num == 110:
+            self.obstacles.append([[0, 5], [10, 5], [10, 10], [0, 10]])
+            self.obstacles.append([[20, 0], [30, 0], [30, 5], [20, 5]])
+            self.obstacles.append([[30, 20], [40, 20], [40, 25], [30, 25]])
+            self.obstacles.append([[10, 30], [20, 30], [20, 50], [10, 50]])
+            self.obstacles.append([[30, 45], [40, 45], [40, 50], [30, 50]])
+            self.obstacles.append([[40, 60], [50, 60], [50, 70], [40, 70]])
+            self.obstacles.append([[15, 70], [30, 70], [30, 80], [15, 80]])
+            self.obstacles.append([[15, 90], [20, 90], [20, 95], [15, 95]])
+            self.obstacles.append([[60, 80], [80, 80], [80, 90], [60, 90]])
+            self.obstacles.append([[60, 50], [70, 50], [70, 55], [60, 55]])
+            self.obstacles.append([[90, 60], [100, 60], [100, 70], [90, 70]])
+            self.obstacles.append([[80, 45], [90, 45], [90, 50], [80, 50]])
+            self.obstacles.append([[60, 30], [70, 30], [70, 40], [60, 40]])
+            self.obstacles.append([[55, 10], [60, 10], [60, 15], [55, 15]])
+            self.obstacles.append([[85, 10], [90, 10], [90, 20], [85, 20]])
+
+        elif map_num == 111:
+            self.obstacles.append([[0, 50], [20, 70], [30, 100], [0, 100]])
+            self.obstacles.append([[60, 0], [100, 0], [100, 50], [60, 50]])
+            self.obstacles.append([[10,10], [15, 10], [15, 15], [10, 15]])
+            self.obstacles.append([[0, 30], [10, 30], [10, 35], [0, 35]])
+            self.obstacles.append([[20, 40], [30, 40], [30, 50], [20, 50]])
+            self.obstacles.append([[30, 0], [40, 0], [40, 20], [30, 20]])
+            self.obstacles.append([[50, 60], [60, 60], [60, 65], [50, 65]])
+            self.obstacles.append([[35, 70], [40, 70], [40, 80], [35, 80]])
+            self.obstacles.append([[60, 80], [65, 80], [65, 90], [60, 90]])
+            self.obstacles.append([[70, 70], [80, 70], [80, 75], [70, 75]])
+            self.obstacles.append([[85, 85], [90, 85], [90, 90], [85, 90]])
+
+        elif map_num == 112:
+            self.obstacles.append([[10, 15], [20, 15], [20, 20], [10, 20]])
+            #self.obstacles.append([[30, 30], [35, 30], [35, 40], [30, 40]])
+            self.obstacles.append([[40, 10], [50, 10], [50, 15], [40, 15]])
+            #self.obstacles.append([[55, 30], [60, 30], [60, 40], [55, 40]])
+            self.obstacles.append([[50, 50], [55, 50], [55, 60], [50, 60]])
+            #self.obstacles.append([[70, 50], [80, 50], [80, 55], [70, 55]])
+            self.obstacles.append([[70, 70], [75, 70], [75, 80], [70, 80]])
+            #self.obstacles.append([[85, 85], [90, 85], [90, 90], [85, 90]])
+            self.obstacles.append([[0, 30], [50, 80], [50, 100], [0, 100]])
+            self.obstacles.append([[70, 0], [100, 0], [100, 30], [70, 30]])
+
+        elif map_num == 113:
+            self.obstacles.append([[30, 0], [60, 0], [60, 20], [30, 20]])
+            self.obstacles.append([[30, 40], [60, 40], [60, 60], [30, 60]])
+            self.obstacles.append([[0, 50], [10, 50], [10, 70], [0, 70]])
+            self.obstacles.append([[0, 80], [50, 80], [50, 100], [0, 100]])
+            self.obstacles.append([[80, 40], [100, 40], [100, 80], [80, 80]])
+
+        elif map_num == 114:
+            self.obstacles.append([[0, 40], [10, 40], [10, 70], [0, 80]])
+            self.obstacles.append([[10, 90], [15, 90], [15, 95], [10, 95]])
+            self.obstacles.append([[30, 50], [40, 50], [40, 60], [30, 60]])
+            self.obstacles.append([[50, 80], [100, 80], [100, 100], [30, 100]])
+            self.obstacles.append([[20, 10], [30, 10], [30, 20], [20, 20]])
+            self.obstacles.append([[50, 20], [60, 20], [60, 30], [50, 30]])
+            self.obstacles.append([[80, 10], [90, 10], [90, 15], [80, 15]])
+            self.obstacles.append([[80, 30], [100, 30], [100, 50], [80, 50]])
+
+        elif map_num == 115:
+            self.obstacles.append([[40, 0], [50, 0], [50, 5], [40, 5]])
+            self.obstacles.append([[25, 10], [30, 10], [30, 15], [25, 15]])
+            #self.obstacles.append([[20, 25], [30, 25], [30, 30], [20, 30]])
+            self.obstacles.append([[10, 20], [15, 20], [15, 30], [10, 30]])
+            self.obstacles.append([[10, 45], [30, 45], [30, 55], [10, 55]])
+            #self.obstacles.append([[35, 40], [50, 40], [50, 50], [35, 50]])
+            self.obstacles.append([[55, 40], [70, 40], [70, 50], [55, 50]])
+            self.obstacles.append([[55, 10], [60, 10], [60, 30], [55, 30]])
+            self.obstacles.append([[75, 70], [80, 70], [80, 80], [75, 80]])
+            #self.obstacles.append([[70, 25], [75, 25], [75, 35], [70, 35]])
+            #self.obstacles.append([[75, 60], [80, 60], [80, 80], [75, 80]])
+            #self.obstacles.append([[55, 75], [70, 75], [70, 80], [55, 80]])
+            self.obstacles.append([[40, 60], [50, 60], [50, 80], [40, 80]])
+            self.obstacles.append([[10, 70], [30, 70], [30, 80], [10, 80]])
+            self.obstacles.append([[50, 90], [60, 90], [60, 100], [50, 100]])
+            self.obstacles.append([[75, 90], [80, 90], [80, 100], [75, 100]])
+            self.obstacles.append([[90, 70], [100, 70], [100, 80], [90, 80]])
+            self.obstacles.append([[70, 15], [90, 15], [90, 20], [70, 20]])
+            #self.obstacles.append([[80, 25], [90, 25], [90, 30], [80, 30]])
+            self.obstacles.append([[75, 40], [80, 40], [80, 50], [75, 50]])
+
+        elif map_num == 116:
+            self.obstacles.append([[0, 10], [30, 40], [0, 40]])
+            self.obstacles.append([[20, 0], [40, 0], [40, 20]])
+            self.obstacles.append([[40, 40], [45, 40], [45, 45], [40, 45]])
+            self.obstacles.append([[50, 20], [60, 20], [60, 25], [50, 25]])
+            self.obstacles.append([[55, 55], [60, 55], [60, 60], [55, 60]])
+            self.obstacles.append([[30, 65], [40, 65], [40, 70], [30, 70]])
+            self.obstacles.append([[60, 80], [80, 100], [60, 100]])
+            self.obstacles.append([[70, 30], [100, 0], [100, 80], [70, 50]])
+
+        elif map_num == 117:
+            self.obstacles.append([[0, 10], [30, 10], [30, 20], [0, 20]])
+            self.obstacles.append([[40, 10], [60, 10], [60, 20], [40, 20]])
+            #self.obstacles.append([[0, 30], [30, 30], [30, 40], [0, 40]])
+            self.obstacles.append([[40, 30], [60, 30], [60, 40], [40, 40]])
+            self.obstacles.append([[70, 30], [100, 30], [100, 40], [70, 40]])
+            self.obstacles.append([[0, 50], [30, 50], [30, 60], [0, 60]])
+            #self.obstacles.append([[40, 50], [60, 50], [60, 60], [40, 60]])
+            self.obstacles.append([[70, 50], [100, 50], [100, 60], [70, 60]])
+            self.obstacles.append([[0, 70], [30, 70], [30, 80], [0,80]])
+            self.obstacles.append([[40, 70], [60, 70], [60, 80], [40, 80]])
+            #self.obstacles.append([[70, 70], [100, 70], [100, 80], [70, 80]])
+            self.obstacles.append([[40, 90], [60, 90], [60, 100], [40, 100]])
+            #self.obstacles.append([[70, 90], [100, 90], [100, 100], [70, 100]])
+            self.obstacles.append([[20, 90], [30, 90], [30, 100], [20, 100]])
+            #self.obstacles.append([[80, 10], [90, 10], [90, 20], [80, 20]])
+            #self.obstacles.append([[]])
+
+        elif map_num == 118:
+            self.obstacles.append([[20, 0], [90, 0], [90, 20], [40, 20]])
+            self.obstacles.append([[0, 30], [20, 50], [20, 70], [0, 70]])
+            self.obstacles.append([[40, 80], [60, 80], [80, 100], [40, 100]])
+            self.obstacles.append([[80, 60], [100, 60], [100, 80]])
+            self.obstacles.append([[40, 40], [45, 40], [45, 45], [40, 45]])
+            self.obstacles.append([[40, 60], [45, 60], [45, 65], [40, 65]])
+            self.obstacles.append([[60, 60], [65, 60], [65, 65], [60, 65]])
+            self.obstacles.append([[60, 40], [65, 40], [65, 45], [60, 45]])
+
+        elif map_num == 119:
+            #self.obstacles.append([[10, 10], [15, 10], [15, 15], [10, 15]])
+            self.obstacles.append([[10, 20], [15, 20], [15, 30], [10, 30]])
+            self.obstacles.append([[10, 45], [20, 45], [20, 50], [10, 50]])
+            self.obstacles.append([[10, 60], [15, 60], [15, 70], [10, 70]])
+            self.obstacles.append([[10, 80], [20, 80], [20, 90], [10, 90]])
+            self.obstacles.append([[40, 10], [50, 10], [50, 20], [40, 20]]) 
+            self.obstacles.append([[40, 30], [50, 30], [50, 35], [40, 35]])
+            self.obstacles.append([[40, 40], [50, 40], [50, 50], [40, 50]])
+            self.obstacles.append([[40, 65], [50, 65], [50, 70], [40, 70]])
+            self.obstacles.append([[40, 80], [45, 80], [45, 90], [40, 90]])
+            self.obstacles.append([[70, 70], [80, 80], [80, 90], [70, 90]])
+            self.obstacles.append([[70, 50], [80, 50], [80, 70], [70, 60]])
+            self.obstacles.append([[70, 40], [80, 40], [80, 45], [70, 45]])
+            self.obstacles.append([[70, 20], [80, 30], [70, 30]])
+            self.obstacles.append([[70, 0], [80, 0], [80, 20], [70, 10]])    
+
+        elif map_num == 120:
+            self.obstacles.append([[20, 10], [50, 10], [50, 20], [20, 20]])
+            self.obstacles.append([[70, 10], [80, 10], [80, 20], [70, 20]])
+            self.obstacles.append([[40, 30], [60, 30], [60, 40], [40, 40]])
+            self.obstacles.append([[20, 60], [30, 60], [30, 80], [20, 80]])
+            self.obstacles.append([[20, 30],[30, 30], [30, 50], [20, 50]])
+            #self.obstacles.append([[20, 30], [30, 30], [30, 80], [20, 80]])
+            self.obstacles.append([[70, 30], [80, 30], [80, 60], [70, 60]])
+            self.obstacles.append([[40, 70], [80, 70], [80, 80], [40, 80]]) 
+            self.obstacles.append([[10, 90], [20, 90], [20, 95], [10, 95]])   
+            self.obstacles.append([[5, 60], [10, 60], [10, 70], [5, 70]])
+
+        elif map_num == 121:
+            self.obstacles.append([[10, 20], [20, 20], [20, 30], [10, 30]])
+            #self.obstacles.append([[10, 40], [20, 40], [20, 50], [10, 50]])
+            self.obstacles.append([[10, 60], [20, 60], [20, 70], [10, 70]])
+            self.obstacles.append([[0, 80], [30, 80], [30, 100], [0, 100]])
+            self.obstacles.append([[30, 20], [50, 20], [50, 30], [30, 30]])
+            self.obstacles.append([[30, 40], [70, 40], [70, 50], [30, 50]])
+            #self.obstacles.append([[30, 60], [70, 60], [70, 70], [30, 70]])
+            self.obstacles.append([[40, 80], [60, 80], [60, 90], [40, 90]])
+            self.obstacles.append([[80, 60], [90, 60], [90, 70], [80, 70]])
+            self.obstacles.append([[80, 40], [90, 40], [90, 50], [80, 50]])
+            self.obstacles.append([[60, 0], [100, 0], [100, 30], [90, 30]])
+
+        elif map_num == 122:
+            #self.obstacles.append([[20, 0], [40, 0], [40, 10], [30, 10]])
+            self.obstacles.append([[0, 20], [20, 20], [20, 50], [0, 70]])
+            #self.obstacles.append([[20, 50], [30, 50], [30, 60], [20, 60]])
+            self.obstacles.append([[50, 20], [60, 20], [60, 30], [50, 30]])
+            self.obstacles.append([[50, 40], [50, 50], [60, 50], [60, 40]])
+            self.obstacles.append([[80, 20], [90, 20], [90, 30], [80, 30]])
+            self.obstacles.append([[80, 40], [90, 40], [90, 50]])
+            self.obstacles.append([[10, 70], [15, 70], [15, 80], [10, 80]])
+            self.obstacles.append([[40, 70], [100, 70], [100, 100], [10, 100]])
+
+        elif map_num == 123:
+            #self.obstacles.append([[20, 10], [30, 10], [30, 20]])
+            self.obstacles.append([[10, 30], [15, 30], [15, 40], [10, 40]])
+            self.obstacles.append([[10, 50], [20, 50], [20, 60], [10, 60]])
+            self.obstacles.append([[30, 50], [50, 50], [50, 60], [30, 60]])
+            #self.obstacles.append([[20, 50], [50, 50], [50, 60], [20, 60]])
+            self.obstacles.append([[15, 80], [30, 80], [30, 90], [15, 90]])
+            self.obstacles.append([[50, 80], [60, 80], [60, 90], [50, 90]])
+            #self.obstacles.append([[70, 50], [80, 50], [80, 60], [70, 60]])
+            self.obstacles.append([[85, 55], [100, 55], [100, 60], [85, 60]])
+            #self.obstacles.append([[70, 70], [80, 70], [80, 80], [70, 80]])
+            self.obstacles.append([[70, 70], [75, 70],[75, 80], [70, 80]])
+            self.obstacles.append([[25, 20], [30, 20], [30, 30], [25, 25]])
+            self.obstacles.append([[5, 15], [10, 15], [10,20], [5, 20]])
+            #self.obstacles.append([[15, 10], [25, 10], [25, 15], [20, 15]])
+            self.obstacles.append([[85, 85], [90, 85], [90, 90], [85, 90]])
+            self.obstacles.append([[60, 30], [80, 30], [80, 40], [60, 40]])
+            #self.obstacles.append([[85, 30], [90, 30], [90, 40], [85, 40]])
+            #self.obstacles.append([[60, 10], [70, 10], [70, 20], [60, 20]])
+            self.obstacles.append([[80, 10], [90, 10], [90, 20], [80, 20]])
+            self.obstacles.append([[30, 0], [50, 0], [50, 10], [30, 10]])
+            self.obstacles.append([[40, 25], [50, 25], [50, 30], [40, 30]])
+            #self.obstacles.append([[50, 10], [60, 10], [50, 20]])
+            #self.obstacles.append([[90, 30], [90, 40], [80, 40]])
+            #self.obstacles.append([[50, 30], [60, 40], [50, 40]])
+            #self.obstacles.append([[80, 10], [90, 10], [90, 20]])
+        elif map_num == 124:
+            self.obstacles.append([[0, 10], [30, 10], [30, 20], [0, 20]])
+            self.obstacles.append([[40, 10], [60, 10], [60, 20], [40, 20]])
+            #self.obstacles.append([[0, 30], [30, 30], [30, 40], [0, 40]])
+            self.obstacles.append([[40, 30], [60, 30], [60, 40], [40, 40]])
+            self.obstacles.append([[70, 30], [100, 30], [100, 40], [70, 40]])
+            self.obstacles.append([[0, 50], [30, 50], [30, 60], [0, 60]])
+            #self.obstacles.append([[40, 50], [60, 50], [60, 60], [40, 60]])
+            self.obstacles.append([[70, 50], [100, 50], [100, 60], [70, 60]])
+            self.obstacles.append([[0, 70], [30, 70], [30, 80], [0,80]])
+            self.obstacles.append([[40, 70], [60, 70], [60, 80], [40, 80]])
+            #self.obstacles.append([[70, 70], [100, 70], [100, 80], [70, 80]])
+            self.obstacles.append([[40, 90], [60, 90], [60, 100], [40, 100]])
+            #self.obstacles.append([[70, 90], [100, 90], [100, 100], [70, 100]])
+            self.obstacles.append([[20, 90], [30, 90], [30, 100], [20, 100]])
+            #self.obstacles.append([[80, 10], [90, 10], [90, 20], [80, 20]])
+            #self.obstacles.append([[]])
+        elif map_num == 125:
+            self.obstacles.append([[20, 0], [90, 0], [90, 20], [40, 20]])
+            self.obstacles.append([[0, 30], [20, 50], [20, 70], [0, 70]])
+            self.obstacles.append([[40, 80], [60, 80], [80, 100], [40, 100]])
+            self.obstacles.append([[80, 60], [100, 60], [100, 80]])
+            self.obstacles.append([[40, 40], [45, 40], [45, 45], [40, 45]])
+            self.obstacles.append([[40, 60], [45, 60], [45, 65], [40, 65]])
+            self.obstacles.append([[60, 60], [65, 60], [65, 65], [60, 65]])
+            self.obstacles.append([[60, 40], [65, 40], [65, 45], [60, 45]])
+
+        elif map_num == 130: # 자과캠 환경 플랜트
+            self.obstacles.append([[10, 10], [46, 10], [46, 55], [55, 55], [55, 62], [46, 62], [46, 65], [35, 65], [35, 32], [12, 32], [12, 15], [10, 15]])
+            self.obstacles.append([[52, 36], [70, 36], [70, 43], [75, 43], [75, 65], [62, 65], [62, 43], [52, 43]])
+            #self.obstacles.append([[10, 90], [20, 90], [20, 88], [85, 88], [85, 92], [100, 92], [100, 100], [10, 100]])
+            self.obstacles.append([[10, 90], [20, 90], [20, 88], [85, 88], [85, 100], [10, 100]])
+            #self.obstacles.append([[53, 0], [100, 0], [100, 70], [83, 70], [83, 35]])
+            self.obstacles.append([[60, 0], [100, 0], [100, 70], [84, 70], [84, 67], [90, 67], [90, 40]])
+            self.obstacles.append([[20, 40], [22, 40], [22, 60], [20, 60]])
+            self.obstacles.append([[0, 0], [5, 0], [5, 70], [0, 70]])
+
+
+        elif map_num == 131: # 반포 3동 주민센터
+            self.obstacles.append([[0, 10], [20, 10], [20, 32], [0, 32]])
+            self.obstacles.append([[8, 52], [20, 52], [20, 66], [12, 66], [12, 62], [8, 62]])
+            self.obstacles.append([[0, 75], [45, 100], [0, 100]])
+            self.obstacles.append([[30, 0], [40, 0], [40, 10], [30, 10]])
+            self.obstacles.append([[30, 14], [40, 14], [40, 20], [30, 20]])
+            self.obstacles.append([[30, 26], [40, 26], [40, 48], [30, 48]])
+            self.obstacles.append([[30, 55], [40, 55], [40, 60], [30, 60]])
+
+            self.obstacles.append([[52, 15], [82, 15], [82, 8], [92, 8], [92, 25], [94, 25], [94, 57], [82, 57], [82, 26], [52, 26]])
+            self.obstacles.append([[34, 66], [52, 66], [52, 90], [34, 80]])
+            self.obstacles.append([[62, 75], [92, 75], [92, 90], [78, 96], [62, 90]])
+
+        elif map_num == 132: # 웨스턴 조선
+            self.obstacles.append([[0, 0], [40, 0], [0, 30]])
+            self.obstacles.append([[0, 75], [50, 100], [0, 100]])
+            self.obstacles.append([[9, 50], [50, 52], [45, 80], [10, 62]])
+            self.obstacles.append([[55, 58], [70, 60], [68, 70], [52, 70]])
+            self.obstacles.append([[52, 30], [85, 5], [91, 13], [90, 30], [75, 45], [60, 42]])
+            self.obstacles.append([[68, 80], [74, 80], [72, 92], [65, 90]])
+            self.obstacles.append([[80, 62], [100, 62], [100, 92], [78, 92]])
+            self.obstacles.append([[39, 29], [50, 43], [41, 48], [16, 48], [14, 45]])
+
+        elif map_num == 133: # 이촌 코오롱 아파트
+            self.obstacles.append([[20, 15], [40, 15], [40, 12], [80, 12], [80, 25], [40, 25], [40, 30], [20, 30]])
+            self.obstacles.append([[92, 12], [100, 12], [100, 25], [92, 25]])
+            self.obstacles.append([[20, 42], [32, 42], [32, 70], [20, 70]])
+            self.obstacles.append([[0, 92], [20, 92], [20, 100], [0, 100]])
+            self.obstacles.append([[50, 70], [100, 70], [100, 86], [50, 86]])
+            self.obstacles.append([[42, 38], [65, 38], [65, 42], [58, 42], [50, 49], [50, 60], [42, 60]])
+            self.obstacles.append([[60, 47], [100, 47], [100, 60], [55, 60], [55, 50]])
+
+        elif map_num == 134: #잠원 한신 아파트
+            self.obstacles.append([[20, 0], [32, 0], [32, 8], [37, 8], [37, 15], [20, 15]])
+            self.obstacles.append([[55, 0], [65, 0], [65, 5], [55, 5]])
+            self.obstacles.append([[65, 15], [100, 15], [100, 30], [65, 30]])
+            self.obstacles.append([[65, 55], [80, 55], [80, 90], [55, 90], [55, 85], [65, 72]])
+            #self.obstacles.append([[20, 30], [48, 30], [57, 60], [20, 60]])
+            self.obstacles.append([[22, 42], [48, 42], [57, 60], [22, 60]])
+            self.obstacles.append([[92, 75], [100, 75], [100, 90], [92, 90]])
+            self.obstacles.append([[0, 20], [10, 20], [10, 72], [40, 72], [40, 87], [10, 87], [10, 80], [0, 80]])
+        else:
+            self.load_map_from_file(map_num, base_dir="map_infos")
+
+        self._apply_map_augmentation()
+
+    def _apply_map_augmentation(self):
+        if self.map_augmentation == "identity":
+            return
+
+        obstacles, exits, width, height = transform_map_geometry(
+            self.obstacles,
+            self.exit_list,
+            self._source_map_width,
+            self._source_map_height,
+            self.map_augmentation,
+        )
+        self.obstacles = [[list(point) for point in poly] for poly in obstacles]
+        self.exit_list = [[tuple(point) for point in poly] for poly in exits]
+        self.width = int(width)
+        self.height = int(height)
+
+    def _make_and_augment_configured_exits(self):
+        """Create legacy built-in exits in source space, then transform them."""
+        if self.map_num == 0:
+            return
+
+        first_new_exit = len(self.exit_list)
+        transformed_width, transformed_height = self.width, self.height
+        self.width = self._source_map_width
+        self.height = self._source_map_height
+        try:
+            self.make_random_exit()
+        finally:
+            self.width = transformed_width
+            self.height = transformed_height
+
+        if self.map_augmentation == "identity" or first_new_exit == len(self.exit_list):
+            return
+
+        _, transformed_exits, _, _ = transform_map_geometry(
+            [],
+            self.exit_list[first_new_exit:],
+            self._source_map_width,
+            self._source_map_height,
+            self.map_augmentation,
+        )
+        self.exit_list[first_new_exit:] = [
+            [tuple(point) for point in poly] for poly in transformed_exits
+        ]
+
+    def _load_ued_level(self, level):
+        """Install a curriculum level's geometry in place of generating one.
+
+        The level stores geometry in source space, exactly as the generator
+        leaves it, so the caller's usual _apply_map_augmentation() step still
+        applies. Replaying a level therefore costs nothing, which matters
+        because generation runs 0.8-2.1 s on average.
+        """
+        self.obstacles = [[list(point) for point in poly] for poly in level.obstacles]
+        self.exit_list = [[tuple(point) for point in poly] for poly in level.exits]
+        self.random_seed = level.source_seed
+        self.is_random_map = True
+
+    def make_random_exit_2(self, seed: Optional[int] = None, difficulty: int = 6):
+        """
+        map_num == 0 전용:
+        - Shapely(unary_union) 기반 random_map.generate_map() 사용 (difficulty 단일 입력 버전)
+        - difficulty(1/2/3)에 따라 출구/장애물/편향/간격 등이 내부 테이블로 자동 결정됨
+        """
+        from random_map import RandomMapSpec, generate_map
+
+        spec = RandomMapSpec(
+            width=self.width,
+            height=self.height,
+            difficulty=difficulty,   # ✅ 추가
+            seed=seed,
+            # attempts는 필요하면 여기서 덮어쓰기 가능 (RandomMapSpec 기본값 사용)
+            # map_level_max_tries=200,
+            # obstacle_level_max_tries=20000,
+            # exit_max_tries=2000,
+        )
+
+        data = generate_map(spec)
+
+        self.obstacles = data.obstacles
+        self.exit_list = data.exits  # polygon list 유지
+        self.random_seed = data.seed_used
+        self.is_random_map = True
+
+    def construct_map(self):
+        for i in range(len(self.obstacles)):
+            for each_point in  get_points_within_polygon(self.obstacles[i], 1):
+                self.obstacles_grid_points.append(each_point)
+                a = WallAgent(self.agent_num, self, each_point, 9)
+                self.agent_num+=1
+                #self.schedule_e.add(a)
+                self.valid_space[(each_point[0], each_point[1]-1)] = 0
+                self.valid_space[(each_point[0], each_point[1])] = 0
+                #self.grid.place_agent(a, each_point)
+
+    def _obstacles_for_query(self):
+        """The obstacle index, built on demand.
+
+        Spawning runs before construct_map, which is where the index is
+        normally built, so this has to be able to make it early rather than
+        assume it exists.
+        """
+        if getattr(self, "_obstacle_index", None) is None:
+            self._build_obstacle_index()
+        return self._obstacle_index, self._obstacle_polys
+
+    # Resolution of the clearance grid, in metres, and the slack that makes a
+    # grid answer safe. The grid measures distance to the nearest obstacle
+    # cell centre, so it can be wrong by up to a cell; one whole cell of slack
+    # is more than enough and keeps the fast path conservative.
+    CLEARANCE_RES_M = 0.5
+
+    def _clearance_grid(self):
+        """Signed distance to the nearest obstacle, on a coarse grid.
+
+        A filter in front of the exact test, not a replacement for it.
+        is_free_point was 44 per cent of the step cost at 400 pedestrians:
+        6 calls per pedestrian per step, each building a shapely box and a
+        point and querying the index. Most of those calls are from the middle
+        of a street, where the answer is obvious. The grid answers those in an
+        array lookup and defers anything within a metre of a wall to the exact
+        test, so the answers are unchanged.
+        """
+        key = getattr(self, "obstacles_version", 0)
+        cached = getattr(self, "_clearance_cache", None)
+        if cached is not None and cached[0] == key:
+            return cached[1]
+
+        import numpy as _np
+        from scipy.ndimage import distance_transform_edt
+        from shapely import contains_xy
+        from shapely.ops import unary_union
+
+        res = float(self.CLEARANCE_RES_M)
+        _, polys = self._obstacles_for_query()
+        nx = int(math.ceil(self.width / res)) + 1
+        ny = int(math.ceil(self.height / res)) + 1
+        xs = (_np.arange(nx) + 0.5) * res
+        ys = (_np.arange(ny) + 0.5) * res
+        gx, gy = _np.meshgrid(xs, ys, indexing="ij")
+        if polys:
+            blob = unary_union(list(polys))
+            inside = contains_xy(blob, gx.ravel(), gy.ravel()).reshape(gx.shape)
+        else:
+            inside = _np.zeros(gx.shape, dtype=bool)
+        # Positive outside, negative inside, both in metres.
+        out_d = distance_transform_edt(~inside) * res
+        in_d = distance_transform_edt(inside) * res
+        signed = _np.where(inside, -in_d, out_d).astype(_np.float32)
+        self._clearance_cache = (key, (signed, res))
+        return signed, res
+
+    def is_free_point(self, x: float, y: float, padding: float = 0.0) -> bool:
+        """Whether a body of radius `padding` fits here.
+
+        `padding` used to hold the point off the crop edge and nothing else:
+        obstacles were tested against the bare point, so a spot a quarter of a
+        metre from a building passed for a pedestrian half a metre wide. That
+        is how seven pedestrians came to be spawned into a medina alley whose
+        largest free circle has a radius of 0.25 m. They could not stand
+        there, let alone walk, and spent the whole episode pressed against the
+        wall; it looked like a wedging defect and it was a placement one.
+
+        Rebuilding a Polygon per obstacle per call is also why this is slow,
+        so the prepared obstacle list is used instead.
+        """
+        if not (0+padding <= x <= self.width-padding and 0+padding <= y <= self.height-padding):
+            return False
+
+        # Coarse filter first; only positions near a wall reach the exact
+        # test below.
+        try:
+            signed, res = self._clearance_grid()
+            i = int(x / res)
+            j = int(y / res)
+            if 0 <= i < signed.shape[0] and 0 <= j < signed.shape[1]:
+                c = float(signed[i, j])
+                if c - res > padding:
+                    return True
+                if c + res < padding:
+                    return False
+        except Exception:
+            # A grid failure must not change the answer, only the speed.
+            pass
+
+        p = Point(x, y)
+        index, polys = self._obstacles_for_query()
+        if padding <= 0.0:
+            for idx in index.query(p):
+                poly = polys[int(idx)]
+                if poly.contains(p) or poly.touches(p):
+                    return False
+            return True
+
+        # Query by the body's bounding box, then use the exact point-to-wall
+        # distance. A low-resolution buffered point was an octagon: its
+        # diagonal radius was smaller than `padding`, so pedestrians could
+        # squeeze into the corners of obstacles and then be unable to leave.
+        from shapely.geometry import box
+        probe = box(x - padding, y - padding, x + padding, y + padding)
+        for idx in index.query(probe):
+            if polys[int(idx)].distance(p) <= padding:
+                return False
+        return True
+
+
+                                  
+    def make_robot(self, n_robots: Optional[int] = None):
+        if n_robots is None:
+            n_robots = int(getattr(self, "robot_num", 1))
+        self.robot_placement(max(1, min(int(MAX_ROBOTS), int(n_robots))))
+
+
+    def reward_distance_sum(self):
+        result = 0
+        for i in self.crowds:
+            if(i.dead == False and (i.type==0 or i.type==1)):
+                result += i.danger
+        return result 
+          
+
+    def make_exit(self):
+        exit_width = 5
+        exit_height = 5
+        # self.exit_list = [[(0,0), (exit_width, 0), (exit_width, exit_height), (0, exit_height)],
+        #                  [(self.width-exit_width-1,0), (self.width-1, 0), (self.width-1, exit_height), (self.width-exit_width-1, exit_height)],
+        #                  [(0, self.height-exit_height-2), (exit_width, self.height-exit_height-2), (exit_width, self.height-1), (0, self.height-1)],
+        #                  [(self.width-exit_width-1, self.height-exit_height-2), (self.width-1, self.height-exit_height-2), (self.width-1, self.height-1), (self.width-exit_width-1, self.height-1)]
+        #                 ]
+        # self.exit_list = [[(0,0), (exit_width, 0), (exit_width, exit_height), (0, exit_height)],
+        #                   [(self.width-exit_width-1,0), (self.width-1, 0), (self.width-1, exit_height), (self.width-exit_width-1, exit_height)],
+        #                   [(0, self.height-exit_height-1), (exit_width, self.height-exit_height-2), (exit_width, self.height-1), (0, self.height-1)],
+        #                   [(self.width-exit_width-1, self.height-exit_height-2), (self.width-1, self.height-exit_height-2), (self.width-1, self.height-1), (self.width-exit_width-1, self.height-1)]
+        #                  ]
+        # self.exit_point = [[(exit_width)/2, (exit_height)/2],
+        #                    [(self.width-exit_width-1+self.width-1)/2, (exit_height)/2],
+        #                    [(exit_width)/2, (self.height-exit_height-1+self.height-1)/2],
+        #                    [(self.width-exit_width-1+self.width-1)/2, (self.height-exit_height-1+self.height-1)/2]
+        #                    ]
+        
+        
+        return 0
+
+    def make_random_exit(self):
+        exit_width = 5
+        exit_height = 5
+
+        # 모든 출구 목록 정의
+        all_exits = [
+            [(0, 0), (exit_width, 0), (exit_width, exit_height), (0, exit_height)],  # 왼아
+            [(self.width-exit_width, 0), (self.width, 0), (self.width, exit_height), (self.width-exit_width, exit_height)],  # 오아
+            [(self.width-exit_width, self.height-exit_height), (self.width, self.height-exit_height), (self.width, self.height), (self.width-exit_width, self.height)],  # 오위
+            [(0, self.height-exit_height), (exit_width, self.height-exit_height), (exit_width, self.height), (0, self.height)],  #  왼위
+          
+        ]
+
+        # 랜덤하게 출구 선택
+
+        index = []
+        #print(self.map_num)
+        if (self.map_num == 6): #우하단
+            index = [1]
+        elif (self.map_num == 7): #좌하단
+            index = [0]
+        elif (self.map_num == 8) : #우하단
+            index = [1]
+        elif (self.map_num == 26) :
+            index = [1]
+        elif (self.map_num == 100):
+            index = [0, 2]
+        elif (self.map_num == 101):
+            index = [1, 3]
+        elif (self.map_num == 102):
+            index = [0, 2]
+        elif (self.map_num == 103):
+            index = [1, 3]
+        elif (self.map_num == 104):
+            index = [1, 3]
+        elif (self.map_num == 105):
+            index = [1, 3]
+        elif (self.map_num == 106):
+            index = [0, 1]
+        elif (self.map_num == 108):
+            index = [0, 2]
+        elif (self.map_num == 109):
+            index = [0, 2]
+        elif (self.map_num == 110):
+            index = [1, 3]
+        elif (self.map_num == 111):
+            index = [0, 2]
+        elif (self.map_num == 112):
+            index = [0, 2]
+        elif (self.map_num == 113):
+            index = [0, 2]
+        elif (self.map_num == 114):
+            index = [1, 3]
+        elif (self.map_num == 115):
+            index = [0, 2]
+        elif (self.map_num == 116):
+            index = [0, 2]
+        elif (self.map_num == 117):
+            index = [1, 3]
+        elif (self.map_num == 118):
+            index = [0, 2]
+        elif (self.map_num == 119):
+            index = [0, 2]
+        elif (self.map_num == 120):
+            index = [1, 3]
+        elif (self.map_num == 121):
+            index = [0, 2]
+        elif (self.map_num == 50):
+            index = [2]
+        elif (self.map_num == 51):
+            index = [3]
+
+        elif (self.map_num == 53):
+            index = [1]
+        elif (self.map_num == 54):
+            index = [1]
+
+    
+        for i in range(len(index)):
+            self.exit_list.append(all_exits[index[i]])
+
+        if (self.map_num == 122):
+            self.exit_list.append([(0, 75), (5, 75), (5, 100), (0, 100)])
+        elif (self.map_num == 123):
+            self.exit_list.append([(0,0), (20, 0), (20, 5), (0, 5)])
+            self.exit_list.append([(95, 0), (100, 0), (100, 5), (95, 5)])
+        elif (self.map_num == 124):
+            self.exit_list.append([(0, 25), (5, 25), (5, 45), (0, 45)])
+            self.exit_list.append([(95, 41), (100, 41), (100, 49), (95, 49)])
+        elif (self.map_num == 125):
+            self.exit_list.append([(10, 95), (30, 95), (30, 100), (10, 100)])
+            self.exit_list.append([(95, 30), (100, 30), (100, 50), (95, 50)])
+        elif (self.map_num == 130):
+            self.exit_list.append([(0, 72), (5, 72), (5, 82), (0,82)])
+            self.exit_list.append([(95, 72), (100, 72), (100, 82), (95, 82)])
+        elif (self.map_num == 131):
+            self.exit_list.append([(0, 65), (0, 73), (5, 73), (5, 65)])
+            self.exit_list.append([(47, 95), (57, 95), (57, 100), (47, 100)])
+            self.exit_list.append([(21, 0), (29, 0), (29, 5), (21, 5)])
+        elif (self.map_num == 132):
+            self.exit_list.append([(0, 31), (5, 31), (5, 69), (0, 69)])
+        #     self.exit_list.append([(0, 70), (5, 70), (5, 80), (0, 80)])
+        #     self.exit_list.append([(78, 92), (100, 92), (100, 100), (78, 100)])
+        elif (self.map_num == 133):
+            self.exit_list.append([(0, 30), (5, 30), (5, 40), (0, 40)])
+
+        elif (self.map_num == 134):
+            self.exit_list.append([[0, 0], [5, 0], [5, 10], [0,10]])
+            self.exit_list.append([[81, 95], [92, 95], [92, 100], [81, 100]])
+
+        return 0
+
+
+    def check_bridge(self, space1, space2):
+        visited = {}
+        for i in self.space_graph.keys():
+            visited[i] = 0
+        
+        stack = [space1]
+        while(stack):
+            node = stack.pop()
+            if(visited[((node[0][0], node[0][1]), (node[1][0], node[1][1]))] == 0):
+                visited[((node[0][0], node[0][1]), (node[1][0], node[1][1]))] = 1
+                stack.extend(self.space_graph[((node[0][0], node[0][1]), (node[1][0], node[1][1]))])
+        if (visited[space2] == 0):
+            return 0
+        else:
+            return 1
+
+
+    def robot_placement(self, n_robots: int = 1, padding: float = 1.0):
+        """Place the team.
+
+        Outside the hazard by default. Responders arrive from outside a danger
+        area rather than materialising inside it, and starting inside would
+        also hand the policy the dispersal half for free: a robot already
+        among the crowd has only to push, where one arriving from outside has
+        to get in first, which is the part the street network makes hard.
+
+        `self.robot` stays pointing at the first robot. A great deal of code
+        reads it, including the renderer, the human-play script and the
+        evaluation path, and for a team of one it means what it always did.
+        """
+        self._occupied_positions = [(getattr(a, "xy", a.pos)[0], getattr(a, "xy", a.pos)[1])
+                                    for a in getattr(self, "robots", [])]
+        self.robots = []
+        want_outside = (ROBOT_START == "outside"
+                        and getattr(self, "danger_zone", None) is not None)
+        for idx in range(int(n_robots)):
+            x = y = None
+            if want_outside:
+                # A bounded search rather than a rejection loop without one:
+                # a hazard covering most of the walkable ground would spin
+                # forever, and the fallback of placing anywhere is better than
+                # failing to build the episode at all.
+                for _try in range(200):
+                    cx, cy = _sample_safe_pos(self, padding=padding)
+                    if self.is_safe((cx, cy)):
+                        x, y = cx, cy
+                        break
+            if x is None:
+                x, y = _sample_safe_pos(self, padding=padding)
+            self._occupied_positions.append((x, y))
+
+            robot = RobotAgent(self.agent_id, self, [x, y], 3, robot_index=idx)
+            self.agent_id += 10
+            self.robots.append(robot)
+            self.schedule.add(robot)
+            # ✨ 연속 공간에 배치
+            self.space.place_agent(robot, (x, y))
+            self.agents.append(robot)
+        self.robot = self.robots[0] if self.robots else None
+    
+
+    # 군중 배치 교체 (연속 좌표 사용)
+    def _meshes_by_hazard(self):
+        """Navmesh triangles split into those inside the hazard and those clear.
+
+        Cached per obstacle version: the split only changes when the geometry
+        or the zone does, and it is consulted once per pedestrian at spawn.
+        """
+        key = (id(self.danger_zone), getattr(self, "obstacles_version", 0))
+        cached = getattr(self, "_hazard_mesh_cache", None)
+        if cached is not None and cached[0] == key:
+            return cached[1], cached[2]
+
+        inside, outside = [], []
+        zone = self.danger_zone
+        margin = float(DANGER_SAFE_MARGIN_M)
+        for mesh in self.pure_mesh:
+            cx = (mesh[0][0] + mesh[1][0] + mesh[2][0]) / 3.0
+            cy = (mesh[0][1] + mesh[1][1] + mesh[2][1]) / 3.0
+            if zone is None:
+                outside.append(mesh)
+            elif zone.contains(cx, cy):
+                inside.append(mesh)
+            elif zone.signed_distance(cx, cy) >= margin:
+                outside.append(mesh)
+        self._hazard_mesh_cache = (key, inside, outside)
+        return inside, outside
+
+    def random_agent_distribute_outdoor(self, agent_num: int, ran: int, padding: float = 1.0):
+        """Place the crowd, most of it inside the hazard.
+
+        Placement is part of the task, not a detail. A crowd spread uniformly
+        over the crop would leave only the fraction that happens to fall in the
+        zone with anywhere to go, and the episode would be over before the
+        robots did anything. A crowd placed entirely inside would make the task
+        pure dispersal and never exercise the half about keeping people out. So
+        the level carries the split, and it is drawn per level rather than
+        fixed.
+        """
+        self._occupied_positions = getattr(self, "_occupied_positions", [])
+        inside_meshes, outside_meshes = self._meshes_by_hazard()
+        n_inside = int(round(agent_num * float(
+            getattr(self, "danger_inside_fraction", 1.0))))
+        if not inside_meshes:
+            n_inside = 0
+        if not outside_meshes:
+            n_inside = agent_num
+
+        # Spacing between newly placed pedestrians, and how many meshes to
+        # try before giving up on it.
+        #
+        # The loop over meshes used to be unbounded. When the requested crowd
+        # does not fit, and it does not once the density approaches what the
+        # bodies can pack, rejection sampling never succeeds and construction
+        # spins forever: a training worker would hang silently until the
+        # watchdog restarted it, with nothing in the log to say why. So the
+        # spacing requirement is relaxed in stages and then dropped, which
+        # produces a crowd that starts out overlapping rather than no episode
+        # at all.
+        MESH_TRIES = 60
+        for placed in range(agent_num):
+            pool = inside_meshes if placed < n_inside else outside_meshes
+            if not pool:
+                pool = self.pure_mesh
+            x = y = None
+            for stage, (gap, pad) in enumerate(
+                    ((0.5, padding), (2 * AGENT_BODY_RADIUS, padding),
+                     (0.0, padding), (0.0, 0.0))):
+                for _mesh_try in range(MESH_TRIES):
+                    # 메시 기반 선택은 유지하되 최종 좌표는 연속 무작위(삼각형 내부 샘플)로
+                    mesh = random.choice(pool)
+                    tri = Polygon([mesh[0], mesh[1], mesh[2]])
+                    minx, miny, maxx, maxy = tri.bounds
+                    for _try in range(200):
+                        cx = random.uniform(minx, maxx)
+                        cy = random.uniform(miny, maxy)
+                        if not tri.contains(Point(cx, cy)):  # 삼각형 내부만
+                            continue
+                        if pad > 0 and not self.is_free_point(cx, cy,
+                                                              padding=pad):
+                            continue
+                        if gap > 0 and any(
+                                math.hypot(cx - ax, cy - ay) < gap
+                                for (ax, ay) in self._occupied_positions):
+                            continue
+                        x, y = cx, cy
+                        break
+                    if x is not None:
+                        break
+                if x is not None:
+                    break
+            if x is None:
+                # Nowhere at all: put it on a triangle centroid. Overlapping
+                # bodies resolve themselves in a few steps through the contact
+                # term, which is a better failure than no crowd.
+                mesh = random.choice(pool)
+                x = (mesh[0][0] + mesh[1][0] + mesh[2][0]) / 3.0
+                y = (mesh[0][1] + mesh[1][1] + mesh[2][1]) / 3.0
+
+            a = CrowdAgent(self.agent_num, self, [x, y], 1)
+            # Some of the crowd already heard an alarm or the news before the
+            # episode began. They are cued, not acting: knowing there is an
+            # emergency is not the same as having started to move, and the
+            # gap between the two is the delay the robots work on.
+            if random.random() < float(getattr(self, "danger_prior_informed", 0.0)):
+                a.awareness = "milling"
+                a.cue_source = "prior"
+                a.cued_at = 0
+                a.act_after = a._draw_premovement()
+            self.crowds.append(a)
+            self.agent_num += 1
+            self.schedule.add(a)
+            self.space.place_agent(a, (x, y))
+            self.agents.append(a)
+            self._occupied_positions.append((x, y))
+
+
+
+    def floyd_warshall(self): #공간과 공간사이의 최단 경로를 구하는 알고리즘 
+
+        vertices = list(self.space_graph.keys())
+        n = len(vertices)
+        distance_matrix = {start: {end: float('infinity') for end in vertices} for start in vertices}  
+        next_vertex_matrix = {start: {end: None for end in vertices} for start in vertices}
+        
+    
+        for start in self.space_graph.keys():
+            for end in self.space_graph[start]:
+                end_t = ((end[0][0], end[0][1]), (end[1][0],end[1][1]))
+                start_xy = [(start[0][0]+start[1][0])/2, (start[0][1]+start[1][1])/2]
+                end_xy = [(end[0][0]+end[1][0])/2, (end[0][1]+end[1][1])/2]
+                distance_matrix[start][end_t] = math.sqrt(pow(start_xy[0]-end_xy[0],2)+pow(start_xy[1]-end_xy[1], 2))
+                next_vertex_matrix[start][end_t] = end_t
+
+        for k in vertices:
+            for i in vertices:
+                for j in vertices:
+                    if distance_matrix[i][j] > distance_matrix[i][k] + distance_matrix[k][j]:
+                        distance_matrix[i][j] = distance_matrix[i][k] + distance_matrix[k][j]
+                        next_vertex_matrix[i][j] = next_vertex_matrix[i][k]
+        return [next_vertex_matrix, distance_matrix]
+
+    def get_path(self, next_vertex_matrix, start, end): #start->end까지 최단 경로로 가려면 어떻게 가야하는지 알려줌 
+        start = ((start[0][0], start[0][1]), (start[1][0], start[1][1]))
+        end = ((end[0][0], end[0][1]), (end[1][0], end[1][1]))
+        if next_vertex_matrix[start][end] is None:
+            return []
+
+        path = [start]
+        while start != end:
+            start = next_vertex_matrix[start][end]
+            path.append(start)
+        return path
+    
+    def exit_score(self, agent, exit_idx, alpha):
+        
+        """식 (12): distance·density·width 3요소 (exit_polygon 버전)."""
+
+        # (i) 거리: agent → exit_polygon(경계 최단점 q)까지의 '경로거리'
+        q, _ = self.nearest_point_on_exit(exit_idx, agent.xy)
+        d_s = agent.point_to_point_distance(agent.xy, q)
+
+        # (ii) 밀도(혼잡): 동일 출구를 목표로 하는 인원 수
+        people_to_exit = sum(
+            bool(ag.exit_belief and ag.exit_belief["idx"] == exit_idx)
+            for ag in self.crowds if not ag.dead
+        )
+        d_e = people_to_exit
+
+        # (iii) 폭
+        d_w = self.exit_meta[exit_idx]["width"]
+
+        base  = (K1*np.exp(-d_s) + K2*np.exp(-d_e) + K3*(1 - np.exp(-d_w)))
+        score = np.exp(-alpha) * base / (K1 + K2 + K3)
+        return score
+
+    # ----------------------------------------------------- escaping a hazard
+
+    def escape_goal_for(self, agent):
+        """Where this pedestrian should walk to get clear, and how good it is.
+
+        The same shape as the exit machinery it replaces, because the social
+        behaviour it models is the same: a pedestrian aims at the way out it
+        believes in, prefers a near one to a far one, avoids the way everyone
+        else is going, and passes what it believes to its neighbours.
+
+        What changed is what "the way out" is. An exit was one of a handful of
+        fixed polygons, so a belief could be an index and two pedestrians
+        could share one. The hazard boundary is continuous and every
+        pedestrian has its own nearest point on it, so a belief is a direction
+        out rather than a place, and sharing it means adopting a neighbour's
+        heading rather than its destination.
+
+        Returns (goal_xy, score) or (None, -inf) when the pedestrian is clear.
+        """
+        zone = getattr(self, "danger_zone", None)
+        if zone is None or self.is_safe(agent.xy):
+            return None, -float("inf")
+
+        goal = self.nearest_safe_goal(agent.xy)
+
+        # (i) distance, geodesic so a block in the way counts against it
+        d_s = self.escape_distance(agent.xy)
+
+        # (ii) congestion: how many others are heading the same way. Measured
+        # by direction rather than by destination, since no two pedestrians
+        # share a destination on a continuous boundary.
+        gx, gy = goal[0] - agent.xy[0], goal[1] - agent.xy[1]
+        norm = math.hypot(gx, gy)
+        crowding = 0
+        if norm > 1e-9:
+            ux, uy = gx / norm, gy / norm
+            for ag in self.crowds:
+                if ag is agent or ag.dead:
+                    continue
+                bel = getattr(ag, "escape_belief", None)
+                if not bel:
+                    continue
+                bx, by = bel["dir"]
+                if ux * bx + uy * by > 0.7:      # within about 45 degrees
+                    crowding += 1
+
+        # (iii) how wide the way out is here. The zone's perimeter stands in
+        # for exit width, scaled so a large hazard does not read as a
+        # generously wide door: what matters is the boundary available per
+        # person, and a bigger zone holds more people.
+        d_w = zone.perimeter() / max(1.0, float(self.total_agents))
+
+        base = (K1 * np.exp(-d_s) + K2 * np.exp(-crowding)
+                + K3 * (1 - np.exp(-d_w)))
+        return goal, float(base / (K1 + K2 + K3))
+
+    def hazard_in_sight(self, agent) -> bool:
+        """Whether this pedestrian has line of sight to the hazard.
+
+        Through the visibility atlas, the same structure the robots use, so a
+        hazard behind a block is not sensed. That occlusion is what makes
+        hazard knowledge local: a pedestrian one street away with a building
+        in between learns nothing by looking.
+        """
+        zone = getattr(self, "danger_zone", None)
+        if zone is None:
+            return False
+        x, y = float(agent.xy[0]), float(agent.xy[1])
+        if zone.contains(x, y):
+            return True
+        try:
+            poly = self.vision_atlas.polygon_at(
+                x, y, float(agent.vision_radius), self.obstacles_version)
+            return bool(poly is not None and poly.intersects(zone.polygon()))
+        except Exception:
+            # A visibility failure should not silently make every hazard
+            # invisible; fall back to plain range.
+            return zone.signed_distance(x, y) <= agent.vision_radius
+
+    def awareness_counts(self) -> dict:
+        """How many pedestrians are in each awareness state.
+
+        The diagnostic the information-diffusion curve is read from, and the
+        one that says whether a robot's contribution came from shortening
+        milling or from supplying a direction.
+        """
+        out = {"unaware": 0, "milling": 0, "acting": 0}
+        for a in self.crowds:
+            if a.dead or a.type == 3:
+                continue
+            st = getattr(a, "awareness", "unaware")
+            out[st if st in out else "unaware"] = out.get(
+                st if st in out else "unaware", 0) + 1
+        return out
+
+    def hazard_is_visible(self, agent) -> bool:
+        """Whether this pedestrian can tell where the hazard edge is.
+
+        Anyone inside can. A hazard is not a door that has to be spotted: if
+        you are in the smoke you know it, and the alarm tells the rest. What a
+        pedestrian inside does not know is which way out is quickest through
+        the street network, which is what the robots are there to supply and
+        what the belief propagation below approximates.
+
+        From outside, the boundary has to be within sight. That is what makes
+        the inflow half of the task non-trivial: a pedestrian that cannot see
+        the hazard has no reason to avoid it and will walk straight in.
+        """
+        zone = getattr(self, "danger_zone", None)
+        if zone is None:
+            return False
+        if zone.contains(float(agent.xy[0]), float(agent.xy[1])):
+            return True
+        return zone.signed_distance(float(agent.xy[0]),
+                                    float(agent.xy[1])) <= agent.vision_radius
+
+    def nearest_point_on_exit(self, exit_idx, xy):
+        poly = self._exit_polys[exit_idx]
+        p = Point(xy[0], xy[1])
+        d = poly.distance(p)
+        if d == 0.0:
+            return (xy[0], xy[1]), 0.0
+        q = poly.exterior.interpolate(poly.exterior.project(p))
+        return (q.x, q.y), d
+
+
+    def step(self):
+        self.stats.collect(self)
+        self.step_n += 1
+        self.step_count += 1
+        self._apply_crowd_flow()
+        self._note_clearing()
+
+        if (self.robot_version == 'Q'):
+            # 1) full map (uint8) 가져오기 (학습 때랑 동일: MAP_H, MAP_W)
+            #print("MAP_H :", MAP_H)
+            full_map = self.return_current_image()  # (world_h, world_w) uint8
+
+            # 2) ACTION_SCALE boundary 여부 확인
+            # (예: ACTION_SCALE=4일 때, step 1, 5, 9... 에서 새로운 행동 결정)
+            is_boundary = ((self.step_n - 1) % ACTION_SCALE == 0)
+
+            # 3) ego/global frame 만들기
+            # _build_ego_global_frames 내부 구현에 따라 반환값이 np.array 형태여야 함
+            ego_f, glob_f = self.build_ego_global_frames(full_map)
+
+            # 4) frame stack 업데이트
+            if self._first_step:
+                ego_state = self.ego_stack.reset(ego_f)     # (4, EGO, EGO)
+                glob_state = self.glob_stack.reset(glob_f)  # (4, DOWN, DOWN)
+                self._first_step = False
+            elif is_boundary:
+                # 행동 결정 시점에는 스택에 실제로 push
+                ego_state = self.ego_stack.append(ego_f)
+                glob_state = self.glob_stack.append(glob_f)
+            else:
+                # 행동 결정 시점이 아니면 "현재 프레임이 들어왔다면?" 가정만 하고 스택 상태 유지
+                ego_state = self.ego_stack.peek_with(ego_f)
+                glob_state = self.glob_stack.peek_with(glob_f)
+
+            # 5) 로봇 상태 가져오기 (항상 필요할 수 있음)
+            robot_state = np.array(self.return_current_robot_state(), dtype=np.float32)
+
+        # 6) 로봇 행동 결정 및 수행
+        if self.robot_version == 'Q':
+            if self.using_model and is_boundary:
+                # ---------------------------------------------------------
+                # [수정됨] Agent의 select_action과 인터페이스 통일
+                # 내부적으로 agent.select_action(ego, global, robot, deterministic=True) 호출
+                # ---------------------------------------------------------
+                action, _ = self.sac_agent.select_action(ego_state, glob_state, robot_state, deterministic=False)
+
+                # The whole action: the move and the signal. Taking only the
+                # first two numbers would run the policy with its signal
+                # permanently off, which is a different policy.
+                import robot_action as _ra
+
+                real_action = _ra.apply_to(self.robot, action)
+
+            # 로그 출력 (ACTION_SCALE 주기마다 혹은 SCALE_CHECK 시)
+            if self.using_model and ((self.step_n % ACTION_SCALE == (ACTION_SCALE - 1)) and SCALE_CHECK):
+                # (주의) 각 reward 함수들이 정의되어 있어야 함
+                print(f"reward_based_alived : {self.reward_based_alived() * REWARD_A:.4f}")
+                print(f"reward_based_all_agents_danger : {self.reward_based_all_agents_danger() * REWARD_B:.4f}")
+                print(f"reward_penalty : {self.reward_penalty() * REWARD_D:.4f}")
+                print(f"reward_fixed : {REWARD_FIXED}")
+                print(f"reward_based_farthest_agent_distance : {self.reward_based_farthest_agent_distance() * REWARD_L:.4f}")
+
+        elif self.robot_version == 'T':
+            self.robot.robot_policy_going_exit()
+        # elif self.robot_version == 'R':
+        #     self.robot.robot_policy_go_and_back()
+
+        # 7) 환경 진행 (Mesa schedule step)
+        self.schedule.step()
+
+        # 8) 통계 업데이트 (대피 인원 등)
+        self.previous_evacuated = self.now_evacuated
+        self.now_evacuated = self.evacuated_agents()
+
+        self.previous_evacuated_with_robot = self.now_evacuated_with_robot
+        self.now_evacuated_with_robot = self.evacuated_agents_with_robot()
+            
+
+    def check_reward(self, reference_reward):
+        if self.step_count <= len(reference_reward*100):
+            return self.evacuated_agents()-reference_reward[int(self.step_count/100)]
+        else :
+            return self.evacuated_agents()-self.total_agents
+        
+    def reward_based_evacuated_timestep_with_robot(self):
+        if (self.now_evacuated >= 10 and self.previous_evacuated < 10):
+            return (3000-self.step_n)/3000
+    
+    def reward_based_evacuated_with_robot(self):
+        return (self.now_evacuated_with_robot - self.previous_evacuated_with_robot)
+    
+
+    def reward_based_all_agents_danger(self):
+        """Negative total escape distance over the crowd.
+
+        `agent.danger` is now geodesic metres to safety rather than to an
+        exit, and it is zero for anyone already clear. Summing it gives a
+        dense signal that improves whenever anybody moves toward the boundary,
+        which is what makes early learning possible: the occupancy term only
+        changes when somebody actually crosses the line.
+        """
+        reward = 0.0
+        for agent in self.crowds:
+            if (agent.type in (0, 1, 2)) and (agent.dead == False):
+                reward += agent.danger
+        return -reward
+
+    def reward_based_reentry(self):
+        """Penalty for pedestrians that were clear and walked back in.
+
+        The inflow half of the task, stated directly. The occupancy term
+        already rises when somebody re-enters, but only by one crowd-share,
+        the same as for somebody who never left; this says that letting
+        somebody back in is a distinct failure and not merely a lack of
+        progress.
+
+        Counted against the previous step, so a pedestrian loitering on the
+        boundary is charged once when it crosses rather than every step it
+        spends inside.
+        """
+        previous = getattr(self, "_safe_last_step", None)
+        now = set()
+        for agent in self.crowds:
+            if agent.type in (0, 1, 2) and agent.dead == False:
+                if self.is_safe(agent.xy):
+                    now.add(agent.unique_id)
+        self._safe_last_step = now
+        if previous is None:
+            return 0.0
+        # Anyone who was safe last step and is not safe now.
+        return -float(len(previous - now)) / max(1, self.total_agents)
+    
+    def reward_based_evacuated_confirmed(self):
+        reward = 0
+        for agent in self.crowds:
+            if(agent.type == 0 and agent.is_confirmed == 1 and agent.is_confirmed_past == 0):
+                reward += 1
+
+        return reward
+    def reward_based_gain(self):
+        
+        reward=0
+        #robot이 agent를 끌어당기면 +reward
+        for agent in self.crowds:
+            if(agent.type == 0 or agent.type == 1 or agent.type == 2 ) and (agent.dead == False):
+                if(agent.robot_tracked>0):
+                    reward += agent.gain
+
+
+        #print("tracked 되고 있는 수 : ", num)
+        return reward
+    
+    def reward_penalty(self):
+        reward = 0
+        guided_num = 0
+        for agent in self.crowds:
+            if(agent.type == 0 and agent.dead == False):
+                guided_num += 1
+        if(guided_num == 0 and self.robot.danger<5):
+            return -1
+        return 0
+    
+    def agents_near_robot_num(self):
+        agent_total = 0
+        for agent in self.crowds:
+            if (agent.type == 0 and agent.dead == False):
+                agent_total += 1
+        return agent_total
+
+    def agents_near_robot_num_robot_index(self, robot_index: int):
+        """Pedestrians currently following this particular robot.
+
+        With one robot `agents_near_robot_num` counted everyone in the
+        following state, which was the same thing. With a team it is not:
+        crediting every robot with the whole team's followers would tell each
+        one it is doing the work the others are doing, and the observation
+        would be identical for a robot in the thick of it and one standing
+        alone across the map.
+        """
+        if not self.robots:
+            return self.agents_near_robot_num()
+        rb = self.robots[min(robot_index, len(self.robots) - 1)]
+        total = 0
+        for agent in self.crowds:
+            if agent.type == 0 and agent.dead == False:
+                if getattr(agent, "following_robot_id", None) == rb.unique_id:
+                    total += 1
+        return total
+
+    
+    def reward_based_distance_from_near_agent_gain(self):
+        guided_num = 0
+        for agent in self.crowds:
+            if(agent.type == 0 and agent.dead == False):
+                guided_num += 1
+        
+        if (guided_num > 0):
+            self.before_minimum_distance = 0
+            return 0 
+        
+        minimum_distance = 999999
+        for agent in self.crowds:
+            if(agent.type == 0 or agent.type ==1 or agent.type == 2) and (agent.dead == False):
+                distance = self.robot.point_to_point_distance(self.robot.xy, agent.xy)
+                if(distance < minimum_distance):
+                    minimum_distance = distance
+        
+        self.before_minimum_distance = self.minimum_distance
+        self.minimum_distance = minimum_distance
+
+        if(self.before_minimum_distance == 0 or self.minimum_distance == 0):
+            return 0
+        
+        return (self.before_minimum_distance - self.minimum_distance)
+        
+    def reward_based_gain_with_time_bonus(self):
+        reward=0
+        #robot이 agent를 끌어당기면 +reward
+        for agent in self.crowds:
+            if(agent.type == 0 or agent.type == 1 or agent.type == 2 ) and (agent.dead == False):
+                if(agent.robot_tracked>0):
+                    reward += agent.gain
+
+        if (self.alived_agents()<self.total_agents*0.4):
+            reward = reward * 2
+
+        #print("tracked 되고 있는 수 : ", num)
+        return reward
+    
+    def reward_based_alived(self):
+        """Negative share of the crowd still inside the hazard.
+
+        Unchanged in form, changed in meaning. `alived_agents` used to be who
+        had not yet reached an exit and could only fall; it is now who is
+        standing in the danger, and it rises again when somebody walks back
+        in. So this term rewards clearing the zone and penalises letting it
+        refill, which is both halves of the task in one number.
+        """
+        return -self.alived_agents() / max(1, self.total_agents)
+    
+    def reward_based_alived_root(self):
+        reward = 0
+        num = 0
+        reward = -math.sqrt(self.alived_agents()/self.total_agents)
+
+        return reward
+
+    def reward_evacuation(self):
+        if(self.step_n<3):
+            return 0
+        return -self.robot.danger/100
+        
+
+    def return_agent_id(self, agent_id):
+        """Look an agent up by id.
+
+        Through a dictionary, not a scan. Every pedestrian following a
+        neighbour calls this twice per step, and the scan walked the whole
+        agent list each time: at a thousand pedestrians that is a thousand
+        comparisons to answer one question, and it showed up as 24,402 calls
+        costing 0.29 s over twenty steps.
+
+        The map is rebuilt when it goes stale rather than maintained at every
+        insertion, because agents are added from several places and a missed
+        update would silently return the wrong agent, which is far worse than
+        rebuilding.
+        """
+        cache = getattr(self, "_agent_by_id", None)
+        if cache is None or len(cache) != len(self.agents):
+            cache = {a.unique_id: a for a in self.agents}
+            self._agent_by_id = cache
+        found = cache.get(agent_id)
+        if found is not None:
+            return found
+        # Not in the map: it may have been added since the last rebuild.
+        cache = {a.unique_id: a for a in self.agents}
+        self._agent_by_id = cache
+        return cache.get(agent_id)
+    
+    def use_model(self, file_path):
+        from config import USING_TRAINED_MODEL
+        input_shape = (50, 50)
+        num_actions = 4
+
+        self.sac_agent = SACAgent(input_shape, start_epsilon=0)
+        if (USING_TRAINED_MODEL):
+            self.sac_agent.load_model(file_path)
+        self.using_model = True
+        self.sac_agent.policy.eval()
+
+    
+    def reward_based_distance_from_near_agents(self):
+        guided_num = 0
+        for agent in self.crowds:
+            if(agent.type == 0 and agent.dead == False):
+                guided_num += 1
+        
+        if (guided_num > 0):
+            return 0 
+        
+        minimum_distance = 999999
+        for agent in self.crowds:
+            if(agent.type == 0 or agent.type ==1 or agent.type == 2) and (agent.dead == False):
+                distance = self.robot.point_to_point_distance(self.robot.xy, agent.xy)
+                if(distance < minimum_distance):
+                    minimum_distance = distance
+        if(minimum_distance == 999999):
+            return 0
+        if(minimum_distance < 8):
+            return 0
+        return -minimum_distance
+    
+    def reward_based_all_agents_danger_log(self):
+        reward = 0
+        for agent in self.crowds:
+            if(agent.type == 0 or agent.type == 1 or agent.type == 2) and (agent.dead == False):
+                reward += agent.danger
+        return -math.log(reward+1)
+
+    def reward_based_all_agents_danger_root(self):
+        reward = 0
+        for agent in self.crowds:
+            if(agent.type == 0 or agent.type == 1 or agent.type == 2) and (agent.dead == False):
+                reward += agent.danger
+        return -math.sqrt(reward)
+        
+
+    def reward_based_new_founded_agent_danger(self):
+        reward = self.new_founded_agent_danger
+        self.new_founded_agent_danger = 0
+        return reward
+
+    def reward_based_farthest_agent_distance(self):
+        farthest_distance = 0
+        for agent in self.crowds:
+            if(agent.type == 0 or agent.type ==1 or agent.type == 2) and (agent.dead == False):
+                distance = self.robot.point_to_point_distance(self.robot.xy, agent.xy)
+                if (distance>farthest_distance):
+                    farthest_distance = distance
+        return -farthest_distance/((self.width**2 + self.height**2)**0.5)
+    
+    def reward_based_near_agents_exist(self):
+        
+        for agent in self.crowds:
+            if(agent.dead == False):
+                distance = self.robot.point_to_point_distance(self.robot.xy, agent.xy)
+                if (distance<20):
+                    return 0
+        return -2
+
+    def reward_penalty_collision(self):
+        if self.robot.collision_check :
+            return -1
+        else :
+            return 0
+
+    def return_current_robot_state(self, robot_index: int = 0):
+        """The scalar part of one robot's observation.
+
+        Indexed by robot because every robot needs its own position and its
+        own local crowd count; the shared parts, the map scale, are the same
+        for all of them and repeated rather than factored out so the vector
+        has one fixed layout.
+
+        Two hazard terms are new and they are what make the task legible. The
+        signed distance to the boundary says which side the robot is on and by
+        how much, which decides whether its job right now is pushing people
+        out or turning people away. The occupancy says how much of the work is
+        left, which the ego crop cannot show because most of the hazard is
+        usually outside it.
+        """
+        rb = self.robots[robot_index] if self.robots else self.robot
+        if (self.agents_near_robot_num_robot_index(robot_index) == 0):
+            agent_num = 0
+        else:
+            agent_num = 1
+
+        zone = getattr(self, "danger_zone", None)
+        if zone is None:
+            signed = 0.0
+        else:
+            # Normalised by the zone's own scale, so "just outside" reads the
+            # same on a small hazard and a large one, and clipped because a
+            # robot on the far side of the map only needs to know it is far.
+            ref = max(1.0, float(zone.max_escape_distance()))
+            signed = max(-2.0, min(2.0, zone.signed_distance(
+                float(rb.xy[0]), float(rb.xy[1])) / ref))
+
+        # Normalised by the world, not by the MAP_W/MAP_H constants: on a map
+        # that is not 100 wide the constant form returns values above 1 and the
+        # network sees positions it was never trained on.
+        #
+        # The two scale terms are what make size generalisation possible at
+        # all. The maps are rasterised at a fixed one pixel per metre, so the
+        # ego crop is the same physical patch everywhere and carries no size
+        # information, and the global view is pooled to a fixed grid which
+        # hides it as well. Without these the policy cannot tell a small room
+        # from a large hall.
+        # What this robot is signalling, as a one-hot over ROBOT_MODES, and
+        # the heading it is signalling when that mode is "direct".
+        #
+        # In the joint observation this is how a robot learns what its
+        # teammates are doing. Two robots both leading the same pocket of
+        # crowd is wasted, and a robot cannot see a signal it is not close
+        # enough to read, so the mode has to arrive through the state vector
+        # rather than through the raster.
+        mode = getattr(rb, "mode", "off")
+        modes = tuple(ROBOT_MODES)
+        one_hot = tuple(1.0 if mode == m else 0.0 for m in modes)
+        sx, sy = getattr(rb, "signal_dir", (0.0, 0.0))
+
+        return (
+            rb.xy[0] / max(1.0, float(self.width)),
+            rb.xy[1] / max(1.0, float(self.height)),
+            agent_num,
+            math.log(max(1.0, float(self.width)) / MAP_SIZE_REFERENCE),
+            math.log(max(1.0, float(self.height)) / MAP_SIZE_REFERENCE),
+            signed,
+            self.danger_occupancy(),
+        ) + one_hot + (float(sx), float(sy))
+    
+    # 연속 → 라스터 (RL 프레임) 교체
+    def world_to_px(self, x: float, y: float):
+        """World metres to a pixel index in the native raster.
+
+        One place for this conversion. It used to be duplicated across the
+        trainer, the evaluator and two experiment scripts, all of them scaling
+        by the MAP_W/MAP_H constants while the raster itself is sized by the
+        world. On a map that is not exactly 100 wide the two disagree, and a
+        60-wide map raises IndexError as soon as an agent is drawn.
+        """
+        h, w = self.static_grid.shape
+        ix = int(np.clip(x / max(1e-9, self.width) * w, 0, w - 1))
+        iy = int(np.clip(y / max(1e-9, self.height) * h, 0, h - 1))
+        return ix, iy
+
+    def return_current_image(self, H: Optional[int] = None, W: Optional[int] = None):
+        """Rasterise the world at one pixel per metre.
+
+        Fixed metres-per-pixel rather than a fixed grid, so an ego crop covers
+        the same physical area on every map and stays consistent with the
+        robot's sensing radius, which is given in metres. The global branch is
+        what absorbs the size difference, via downsample_full_map's adaptive
+        pooling plus the scale scalar in the robot state.
+
+        H and W are honoured for callers that still want a fixed-size image;
+        the resize happens after rasterising, so the content is right either
+        way.
+        """
+        # 나중에 벽과 장애물은 자정되어있는 것을 쓰게 교체할 것임 (시간이슈)
+
+        img = self.static_grid.copy()
+
+        # 군중
+        for ag in self.crowds:
+            if ag.dead:
+                continue
+            ix, iy = self.world_to_px(ag.xy[0], ag.xy[1])
+            img[iy, ix] = 150 if ag.type == 0 else 150
+            
+
+        # 로봇
+        for rb in getattr(self, "robots", []):
+            ix, iy = self.world_to_px(rb.xy[0], rb.xy[1])
+            img[iy, ix] = 255
+
+        if H is not None and W is not None and img.shape != (int(H), int(W)):
+            img = _resize_nearest_u8(img, int(H), int(W))
+
+        return img
+    
+    def _build_obstacle_index(self):
+        """Spatial index over the obstacles, plus the pieces the step loop reuses.
+
+        Everything here used to be rebuilt inside the per-agent inner loop:
+        the wall repulsion copied the obstacle list, constructed a fresh
+        boundary polygon, and asked each polygon for its exterior ring on
+        every call, for every agent, on every step. None of it changes unless
+        the geometry does.
+        """
+        from shapely.geometry import Polygon as _Poly
+        from shapely.strtree import STRtree as _Tree
+
+        # Spawning asks whether a body fits before construct_map has run, so
+        # the polygon list may not exist yet; derive it from the raw rings.
+        if getattr(self, "_obstacle_polys", None) is None:
+            self._obstacle_polys = [_Poly(ob) for ob in self.obstacles
+                                    if ob is not None and len(ob) >= 3]
+
+        polys = list(self._obstacle_polys)
+        # The crop wall, as an obstacle like any other, built once.
+        polys.append(_Poly([(0, 0), (self.width - 1, 0),
+                            (self.width - 1, self.height - 1),
+                            (0, self.height - 1)]))
+        self._wall_polys = polys
+        self._wall_exteriors = [q.exterior for q in polys]
+        self._wall_exterior_index = _Tree(self._wall_exteriors)
+        self._obstacle_index = _Tree(self._obstacle_polys) \
+            if self._obstacle_polys else _Tree([])
+
+    def update_obstacles(self, new_polys):
+        # self._obstacle_polys = new_polys
+        # self.obstacles_version += 1
+        # self.vision_atlas.rebuild_obstacles(self._obstacle_polys, self.obstacles_version)
+        # print("[vision] obs polys:", len(self._polys))
+        
+        self.obstacles = [list(poly.exterior.coords) for poly in new_polys]
+        self._obstacle_polys = [Polygon(ob) for ob in self.obstacles]
+
+        self.obstacles_grid_points.clear()
+        self.construct_map()
+        self._build_blocked_grid()
+        #self.shadow_fov = ShadowFOV(self.valid_spaces)
+
+        #self.vision_atlas.precompute(rays_per_poly=32, bsearch_iters=8)
+    def choice_random_waypoint(self):
+        return [random.randint(0, self.width-1), random.randint(0, self.height-1)]
+
+    
+    def return_robot(self):
+        return self.robot
+
+    def calculate_all_agents_life_time(self):
+        total_life_time = 0
+        for agent in self.crowds:
+            if(agent.type == 0 or agent.type == 1 or agent.type == 2):
+                total_life_time += agent.life_time
+        return total_life_time
+
+
+    def _build_blocked_grid(self):
+        """
+        장애물/외벽 정보를 기반으로 FOV용 blocked[y, x] 맵 생성.
+        True = 시야 막힘.
+        """
+        self.blocked = np.zeros((self.height, self.width), dtype=bool)
+
+        # 1) 외곽 벽
+        for x in range(self.width):
+            self.blocked[0, x] = True
+            self.blocked[self.height - 1, x] = True
+        for y in range(self.height):
+            self.blocked[y, 0] = True
+            self.blocked[y, self.width - 1] = True
+
+        # 2) construct_map 에서 만든 장애물 grid 포인트
+        for (gx, gy) in self.obstacles_grid_points:
+            if 0 <= gx < self.width and 0 <= gy < self.height:
+                self.blocked[gy, gx] = True
+
+
+    def _render_static_map(self, H : int=100, W : int=100):
+
+        def to_px(x, y):
+            # (0,width)×(0,height) → (0..W-1, 0..H-1)
+            ix = int(np.clip(x / self.width  * W, 0, W-1))
+            iy = int(np.clip(y / self.height * H, 0, H-1))
+            return ix, iy
+
+        # 벽/장애물: 폴리곤을 rasterize (경량화: 경계 bbox만 순회)
+        for poly in self.obstacles:
+            P = Polygon(poly)
+            minx, miny, maxx, maxy = P.bounds
+            gx0, gy0 = to_px(minx, miny)
+            gx1, gy1 = to_px(maxx, maxy)
+            for ix in range(min(gx0, gx1), max(gx0, gx1)+1):
+                for iy in range(min(gy0, gy1), max(gy0, gy1)+1):
+                    # 픽셀 중심 좌표를 월드 좌표로 역변환
+                    x = (ix + 0.5) * self.width / W
+                    y = (iy + 0.5) * self.height / H
+                    if P.contains(Point(x, y)):
+                        self.static_grid[iy, ix] = 50  # 벽/장애물
+
+        # 출구 (이 과제에서는 비어 있음; 번호 맵과 GUI 편집기를 위해 유지)
+        for epoly in self.exit_list:
+            P = Polygon(epoly)
+            minx, miny, maxx, maxy = P.bounds
+            gx0, gy0 = to_px(minx, miny)
+            gx1, gy1 = to_px(maxx, maxy)
+            for ix in range(min(gx0, gx1), max(gx0, gx1)+1):
+                for iy in range(min(gy0, gy1), max(gy0, gy1)+1):
+                    x = (ix + 0.5) * self.width / W
+                    y = (iy + 0.5) * self.height / H
+                    if P.contains(Point(x, y)):
+                        self.static_grid[iy, ix] = max(self.static_grid[iy, ix], 100)
+
+        # 위험 구역
+        #
+        # Drawn into the static layer because it does not move within an
+        # episode, and drawn at all because it is the single most important
+        # thing on the map: a robot that cannot see the hazard is being asked
+        # to clear a region it has no way to locate.
+        #
+        # Value 200 sits between the crowd at 150 and a robot at 255, and
+        # clear of the wall at 50 and the map padding that shares that value.
+        # It is written under the crowd rather than over it, so a pedestrian
+        # standing in the hazard still reads as a pedestrian; where they are
+        # is what the robot has to act on, and the zone is stationary
+        # background it can infer from the pixels around them.
+        zone = getattr(self, "danger_zone", None)
+        if zone is not None:
+            x0, y0, x1, y1 = zone.bounds()
+            gx0, gy0 = to_px(x0, y0)
+            gx1, gy1 = to_px(x1, y1)
+            for ix in range(max(0, min(gx0, gx1)), min(W, max(gx0, gx1) + 1)):
+                for iy in range(max(0, min(gy0, gy1)), min(H, max(gy0, gy1) + 1)):
+                    x = (ix + 0.5) * self.width / W
+                    y = (iy + 0.5) * self.height / H
+                    if zone.contains(x, y):
+                        self.static_grid[iy, ix] = DANGER_PIXEL_VALUE
+
+    def _robot_world_to_px(self):
+        return self.world_to_px(self.robot.xy[0], self.robot.xy[1])
+
+    def build_ego_global_frames(self, full_map_u8: np.ndarray):
+        ix, iy = self._robot_world_to_px()
+
+        ego_u8 = ego_crop_from_full_map(full_map_u8, (ix, iy), EGO_MAP_SIZE, pad_value=50)     # (EGO,EGO)
+        glob_u8 = downsample_full_map(full_map_u8, DOWNSAMPLE_MAP_SIZE)                       # (DOWN,DOWN)
+
+        ego_f = ego_u8.astype(np.float32) / 255.0
+        glob_f = glob_u8.astype(np.float32) / 255.0
+        return ego_f, glob_f
+
+    # def _policy_deterministic_action(self, ego_state_4chw, glob_state_4chw, robot_state):
+    #     """
+    #     ego_state_4chw: (4,EGO,EGO)
+    #     glob_state_4chw: (4,DOWN,DOWN)
+    #     robot_state: (3,)
+    #     return: (2,) in [-2,2]
+    #     """
+    #     device = next(self.sac_agent.policy.parameters()).device  # policy가 올라간 디바이스
+
+    #     ego_t = torch.from_numpy(ego_state_4chw).unsqueeze(0).float().to(device)   # (1,4,EGO,EGO)
+    #     glob_t = torch.from_numpy(glob_state_4chw).unsqueeze(0).float().to(device) # (1,4,DOWN,DOWN)
+    #     robot_t = torch.from_numpy(robot_state).unsqueeze(0).float().to(device)    # (1,3)
+
+    #     with torch.no_grad():
+    #         mean, _ = self.sac_agent.policy(ego_t, glob_t, robot_t)
+    #         # sample_action의 변환과 동일한 deterministic 버전
+    #         sigma = torch.sigmoid(mean)
+    #         action = 4.0 * sigma - 2.0  # [-2, 2]
+    #     return action.squeeze(0).cpu().numpy().astype(np.float32)
+
+        
+
+
+
+    @staticmethod
+    def current_healthy_agents(model) -> int:
+        """Returns the total number of healthy agents.
+
+        Args:
+            model (SimulationModel): The model instance.
+
+        Returns:
+            (Integer): Number of Agents.
+        """
+        return sum([1 for agent in model.schedule_e.agents if agent.health > 0]) ### agent의 health가 0이어야 cureent_healthy_agents 수에 안 들어감
+                                                                               ### agent.py 에서 exit area 도착했을 때 health를 0으로 바꿈
+
+
+    @staticmethod
+    def current_non_healthy_agents(model) -> int:
+        """Returns the total number of non healthy agents.
+
+        Args:
+            model (SimulationModel): The model instance.
+
+        Returns:
+            (Integer): Number of Agents.
+        """
+        return sum([1 for agent in model.schedule_e.agents if agent.health == 0])

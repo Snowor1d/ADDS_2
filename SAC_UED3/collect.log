@@ -1,0 +1,115 @@
+extracts for 29 sites:
+    africa/egypt                                 present (169 MiB)
+    africa/morocco                               present (232 MiB)
+    africa/south-africa                          present (400 MiB)
+    asia/china                                   present (1519 MiB)
+    asia/india/northern-zone                     present (212 MiB)
+    asia/japan/kansai                            present (335 MiB)
+    asia/japan/kanto                             present (478 MiB)
+    asia/south-korea                             present (273 MiB)
+    asia/thailand                                present (312 MiB)
+    australia-oceania/australia                  present (917 MiB)
+    europe/france/ile-de-france                  present (322 MiB)
+    europe/germany/berlin                        present (94 MiB)
+    europe/italy/centro                          present (365 MiB)
+    europe/netherlands                           present (1336 MiB)
+    europe/spain                                 present (1412 MiB)
+    europe/turkey                                present (615 MiB)
+    europe/united-kingdom/england/greater-london present (122 MiB)
+    north-america/canada/british-columbia        present (1187 MiB)
+    north-america/mexico                         present (615 MiB)
+    north-america/us/louisiana                   present (139 MiB)
+    north-america/us/new-york                    present (473 MiB)
+    south-america/argentina                      present (409 MiB)
+    south-america/brazil/sudeste                 present (817 MiB)
+
+cropping 29 sites at [100, 200, 400] m, traversability from roads, simplify 1.5 m:
+  shibuya                    100 m  ok  n=   18 cov=0.390 verts=   95  
+  shibuya                    200 m  ok  n=   34 cov=0.552 verts=  218  
+  shibuya                    400 m  ok  n=   83 cov=0.590 verts=  583  
+  times_square               100 m  ok  n=    6 cov=0.470 verts=   27  
+  times_square               200 m  ok  n=   17 cov=0.591 verts=   75  
+  times_square               400 m  ok  n=   39 cov=0.666 verts=  183  
+  covent_garden              100 m  ok  n=    3 cov=0.705 verts=   33  
+  covent_garden              200 m  ok  n=   19 cov=0.642 verts=  122  
+  covent_garden              400 m  ok  n=   76 cov=0.624 verts=  447  
+  pigalle                    100 m  ok  n=    8 cov=0.461 verts=   39  
+  pigalle                    200 m  ok  n=   18 cov=0.625 verts=   97  
+  pigalle                    400 m  ok  n=   34 cov=0.687 verts=  222  
+  eixample                   100 m  ok  n=    8 cov=0.452 verts=   30  
+  eixample                   200 m  ok  n=   18 cov=0.594 verts=   73  
+  eixample                   400 m  ok  n=   64 cov=0.541 verts=  319  
+  mitte                      100 m  ok  n=    5 cov=0.712 verts=   25  
+  mitte                      200 m  ok  n=   11 cov=0.723 verts=   89  
+  mitte                      400 m  ok  n=   26 cov=0.788 verts=  285  
+  myeongdong                 100 m  ok  n=    6 cov=0.579 verts=   40  
+  myeongdong                 200 m  ok  n=   12 cov=0.691 verts=   83  
+  myeongdong                 400 m  ok  n=   29 cov=0.754 verts=  243  
+  vila_madalena              100 m  ok  n=    4 cov=0.800 verts=   17  
+  vila_madalena              200 m  ok  n=   12 cov=0.807 verts=   55  
+  vila_madalena              400 m  ok  n=   23 cov=0.822 verts=  172  
+  dotonbori                  100 m  ok  n=    8 cov=0.532 verts=   49  
+  dotonbori                  200 m  ok  n=   16 cov=0.672 verts=   90  
+  dotonbori                  400 m  ok  n=   76 cov=0.672 verts=  405  
+  nanjing_road               100 m  ok  n=    5 cov=0.475 verts=   31  
+  nanjing_road               200 m  ok  n=   12 cov=0.636 verts=   81  
+  nanjing_road               400 m  ok  n=   40 cov=0.719 verts=  255  
+  chandni_chowk              100 m  ok  n=    4 cov=0.687 verts=   20  
+  chandni_chowk              200 m  ok  n=    7 cov=0.767 verts=   44  
+  chandni_chowk              400 m  ok  n=   35 cov=0.762 verts=  288  
+  khao_san                   100 m  ok  n=    7 cov=0.763 verts=   44  
+  khao_san                   200 m  ok  n=   12 cov=0.815 verts=  104  
+  khao_san                   400 m  ok  n=   47 cov=0.693 verts=  378  
+  hongdae                    100 m  ok  n=    4 cov=0.630 verts=   17  
+  hongdae                    200 m  ok  n=   16 cov=0.635 verts=   68  
+  hongdae                    400 m  ok  n=   42 cov=0.657 verts=  226  
+  sultanahmet                100 m  ok  n=    7 cov=0.584 verts=   33  
+  sultanahmet                200 m  ok  n=   17 cov=0.658 verts=  104  
+  sultanahmet                400 m  ok  n=   53 cov=0.690 verts=  398  
+  gracia                     100 m  ok  n=    5 cov=0.762 verts=   22  
+  gracia                     200 m  ok  n=    9 cov=0.776 verts=   54  
+  gracia                     400 m  ok  n=   33 cov=0.752 verts=  201  
+  kreuzberg                  100 m  ok  n=   11 cov=0.408 verts=   52  
+  kreuzberg                  200 m  ok  n=   30 cov=0.546 verts=  166  
+  kreuzberg                  400 m  ok  n=   47 cov=0.724 verts=  496  
+  trastevere                 100 m  ok  n=    7 cov=0.654 verts=   40  
+  trastevere                 200 m  ok  n=   18 cov=0.632 verts=  129  
+  trastevere                 400 m  ok  n=   56 cov=0.653 verts=  383  
+  grachtengordel             100 m  ok  n=    6 cov=0.629 verts=   26  
+  grachtengordel             200 m  ok  n=    8 cov=0.729 verts=   44  
+  grachtengordel             400 m  ok  n=   28 cov=0.774 verts=  169  
+  la_latina                  100 m  ok  n=    6 cov=0.720 verts=   35  
+  la_latina                  200 m  ok  n=   14 cov=0.773 verts=   82  
+  la_latina                  400 m  ok  n=   44 cov=0.694 verts=  337  
+  khan_el_khalili            100 m  ok  n=    6 cov=0.669 verts=   41  
+  khan_el_khalili            200 m  ok  n=   12 cov=0.559 verts=  113  
+  khan_el_khalili            400 m  ok  n=   39 cov=0.719 verts=  456  
+  marrakesh_medina           100 m  ok  n=    3 cov=0.138 verts=   13  
+  marrakesh_medina           200 m  ok  n=   11 cov=0.444 verts=   69  
+  marrakesh_medina           400 m  ok  n=   38 cov=0.685 verts=  430  
+  maboneng                   100 m  ok  n=    4 cov=0.725 verts=   24  
+  maboneng                   200 m  ok  n=   11 cov=0.732 verts=   61  
+  maboneng                   400 m  ok  n=   31 cov=0.750 verts=  186  
+  soho_nyc                   100 m  ok  n=    9 cov=0.547 verts=   36  
+  soho_nyc                   200 m  ok  n=   18 cov=0.614 verts=   75  
+  soho_nyc                   400 m  ok  n=   46 cov=0.613 verts=  199  
+  french_quarter             100 m  ok  n=    4 cov=0.748 verts=   15  
+  french_quarter             200 m  ok  n=   10 cov=0.798 verts=   53  
+  french_quarter             400 m  ok  n=   35 cov=0.757 verts=  161  
+  gastown                    100 m  ok  n=    2 cov=0.786 verts=   21  
+  gastown                    200 m  ok  n=    9 cov=0.718 verts=   68  
+  gastown                    400 m  ok  n=   36 cov=0.716 verts=  261  
+  centro_historico_cdmx      100 m  ok  n=    3 cov=0.764 verts=   16  
+  centro_historico_cdmx      200 m  ok  n=   10 cov=0.764 verts=   45  
+  centro_historico_cdmx      400 m  ok  n=   28 cov=0.793 verts=  153  
+  palermo_soho               100 m  ok  n=    2 cov=0.426 verts=    8  
+  palermo_soho               200 m  ok  n=    9 cov=0.846 verts=   35  
+  palermo_soho               400 m  ok  n=   27 cov=0.827 verts=  114  
+  surry_hills                100 m  ok  n=    7 cov=0.579 verts=   31  
+  surry_hills                200 m  ok  n=   16 cov=0.663 verts=   80  
+  surry_hills                400 m  REJ n=    0 cov=0.000 verts=    0  GEOSException: TopologyException: side location conflict at 141.72169236798075 116.4219682598228. This can occur if the input geometry is invalid.
+  gangnam_superblock         100 m  ok  n=    3 cov=0.778 verts=   14  
+  gangnam_superblock         200 m  ok  n=   10 cov=0.692 verts=   46  
+  gangnam_superblock         400 m  ok  n=   25 cov=0.734 verts=  144  
+
+86 of 87 crops usable -> /home/amrl_sunny/ADDS_2/SAC_UED2/osm_corpus/data/corpus/index.json
