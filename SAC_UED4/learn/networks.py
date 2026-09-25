@@ -23,9 +23,9 @@ The same size has about the same parameter count in both families (see
 NETWORK_SIZES and tests/test_madrl.py), so a comparison between them is a
 comparison of structure rather than of capacity.
 
-The action layout (move 2, signalled heading 2, mode one-hot) and its
-squashing are unchanged, so sim/robot_action.py still owns what an action
-means.
+The action layout (move 2, the signalled heading 2 only with USE_DIRECT, then
+the mode one-hot) is owned by sim/robot_action.py; the actor's continuous
+head is as wide as its CONT_DIM and its mode head as wide as ROBOT_MODES.
 """
 
 from __future__ import annotations
@@ -188,8 +188,11 @@ def _shapes(cfg):
 class PolicyNetwork(nn.Module):
     """Shared actor. Input: one robot's ego, mid, glob and state."""
 
-    def __init__(self, cfg, action_cont: int = 4):
+    def __init__(self, cfg, action_cont: int = None):
         super().__init__()
+        from sim import robot_action
+        # Move (2), plus the signalled heading (2) only when "direct" exists.
+        action_cont = robot_action.CONT_DIM if action_cont is None else action_cont
         s = _shapes(cfg)
         spec = network_spec(cfg)
         self.spec = spec

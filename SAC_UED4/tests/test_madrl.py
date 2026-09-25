@@ -131,11 +131,13 @@ class TeamQTest(unittest.TestCase):
         from sim.robot_action import ACTION_DIM
         rng = random.Random(0)
         acts = np.stack([exploration_action(rng) for _ in range(300)])
+        from sim import robot_action as ra
         self.assertEqual(acts.shape[1], ACTION_DIM)
-        self.assertEqual(ACTION_DIM, 7)
-        modes = acts[:, 4:].argmax(1)
-        self.assertEqual(set(modes.tolist()), {0, 1, 2})
-        self.assertGreater(np.abs(acts[:, 2:4]).max(), 0.5)
+        modes = acts[:, ra.MODE].argmax(1)
+        self.assertEqual(set(modes.tolist()), set(range(len(ra.ROBOT_MODES))))
+        self.assertGreater(np.abs(acts[:, ra.MOVE]).max(), 0.5)
+        if ra.SIGNAL is not None:
+            self.assertGreater(np.abs(acts[:, ra.SIGNAL]).max(), 0.5)
 
     def test_select_action_explores_with_the_full_action(self):
         from learn.sac import SACAgent
@@ -146,7 +148,8 @@ class TeamQTest(unittest.TestCase):
         obs = {k: np.zeros((2,) + sh[k], np.float32)
                for k in ("ego", "mid", "glob", "state")}
         out = agent.act(obs, epsilon=1.0, rng=random.Random(1))
-        self.assertEqual(out.shape, (2, 7))
+        from sim.robot_action import ACTION_DIM
+        self.assertEqual(out.shape, (2, ACTION_DIM))
 
     def test_loaded_policy_drives_every_robot(self):
         cfg = _cfg()
@@ -187,7 +190,9 @@ class RewardTimeTest(unittest.TestCase):
         cfg = _cfg()
         m = _model(_level(robots=1))
         got = []
-        run_episode(m, cfg, lambda o, r: np.zeros((1, 7), np.float32) + [0, 0, 0, 0, 1, 0, 0],
+        from sim.robot_action import encode
+        guide = encode((0.0, 0.0), "guide")[None]
+        run_episode(m, cfg, lambda o, r: guide,
                     gamma=0.99, max_steps=10, emit=got.append)
         acted = [t for t in got if t.action is not None]
         self.assertEqual([t.step for t in acted], [0, 1, 2])
@@ -203,7 +208,9 @@ class RewardTimeTest(unittest.TestCase):
         # The robots also ask should_finish, so decide by the step count.
         m.should_finish = lambda: m.step_count >= 6
         got = []
-        run_episode(m, cfg, lambda o, r: np.zeros((1, 7), np.float32) + [0, 0, 0, 0, 1, 0, 0],
+        from sim.robot_action import encode
+        guide = encode((0.0, 0.0), "guide")[None]
+        run_episode(m, cfg, lambda o, r: guide,
                     gamma=0.99, max_steps=100, emit=got.append)
         acted = [t for t in got if t.action is not None]
         self.assertTrue(acted[-1].terminal)
@@ -454,7 +461,8 @@ class NetworkSizeTest(unittest.TestCase):
         sh = obs_shapes(cfg)
         x = {k: torch.randn(2, *sh[k]) for k in ("ego", "mid", "glob", "state")}
         a, logp = pol.sample_action(x["ego"], x["mid"], x["glob"], x["state"])
-        self.assertEqual(tuple(a.shape), (2, 7))
+        from sim.robot_action import ACTION_DIM
+        self.assertEqual(tuple(a.shape), (2, ACTION_DIM))
 
     def test_checkpoint_of_another_network_is_refused(self):
         from learn.replay import SchemaMismatch
@@ -471,3 +479,50 @@ class NetworkSizeTest(unittest.TestCase):
             _cfg(NET_SIZE="s")
         with self.assertRaises(ConfigError):
             _cfg(NET_ENCODER="resnet")
+
+
+class DirectModeSwitchTest(unittest.TestCase):
+    """USE_DIRECT: with it off (the default) "direct" and the signalled
+    heading are gone from the action and from the observed state."""
+
+    def test_default_has_no_direct_and_no_heading(self):
+        from sim import robot_action as ra
+        from sim.observation import own_state_layout, teammate_state_layout
+        cfg = _cfg()
+        self.assertFalse(cfg.USE_DIRECT)
+        self.assertEqual(tuple(cfg.ROBOT_MODES), ("off", "guide"))
+        self.assertEqual((ra.CONT_DIM, ra.ACTION_DIM), (2, 4))
+        self.assertIsNone(ra.SIGNAL)
+        self.assertNotIn("signal_x", own_state_layout(cfg))
+        self.assertNotIn("mode_direct", teammate_state_layout(cfg))
+        with self.assertRaises(ValueError):
+            ra.encode((0, 0), "direct")
+        move, mode, heading = ra.decode(ra.encode((1.0, -1.0), "guide"))
+        self.assertEqual((move, mode, heading), ((1.0, -1.0), "guide", (0.0, 0.0)))
+
+    def test_policy_emits_the_short_action(self):
+        from learn.networks import PolicyNetwork
+        from sim.observation import obs_shapes
+        from sim import robot_action as ra
+        cfg = _cfg()
+        pol = PolicyNetwork(cfg)
+        sh = obs_shapes(cfg)
+        x = {k: torch.randn(3, *sh[k]) for k in ("ego", "mid", "glob", "state")}
+        a = pol.deterministic_action(x["ego"], x["mid"], x["glob"], x["state"])
+        self.assertEqual(tuple(a.shape), (3, ra.ACTION_DIM))
+        self.assertTrue(torch.all(a[:, ra.MODE].sum(1) == 1))
+
+    def test_override_cannot_change_the_action_layout(self):
+        from configs import ConfigError
+        with self.assertRaises(ConfigError):
+            _cfg(USE_DIRECT=True)
+
+    def test_layouts_with_direct(self):
+        from sim.observation import own_state_layout, teammate_state_layout
+
+        class C:
+            ROBOT_MODES = ("off", "guide", "direct")
+        own = own_state_layout(C)
+        self.assertIn("mode_direct", own)
+        self.assertIn("signal_x", own)
+        self.assertEqual(len(teammate_state_layout(C)), 9)

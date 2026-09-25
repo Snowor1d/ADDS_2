@@ -308,7 +308,19 @@ CROWD_DWELL_STEPS = (10, 60)
 # exactly the kind the protective-action literature says people stop to
 # question. "direct" covers the same ground without that claim: a heading
 # away from the hazard is a redirection, not a reversal.
-ROBOT_MODES = ("off", "guide", "direct")
+#
+# USE_DIRECT decides whether "direct" is available at all. False (the
+# default) leaves the robots "off" and "guide" only, and drops the signalled
+# heading from the action and from the observed robot state with it, since
+# only "direct" reads it: the action is then move (2) + mode one-hot (2)
+# instead of move (2) + heading (2) + mode (3). Changing it changes the action
+# and observation schemas, so checkpoints trained under the other setting are
+# refused. Set it here, not as a run override: the action layout is fixed
+# when the simulator modules are imported.
+USE_DIRECT = False
+ROBOT_MODES = ("off", "guide", "direct") if USE_DIRECT else ("off", "guide")
+ACTION_SCHEMA_VERSION = ("act-v1-move2-signal2-mode3" if USE_DIRECT
+                         else "act-v2-move2-mode2")
 # How far the signal carries, in metres.
 #
 # Not arbitrary: emergency signage standards express legibility as a multiple
@@ -383,7 +395,8 @@ K3 = 1                           # width weight
 # they were produced under, and nothing is loaded across a mismatch: an old
 # buffer read under a new meaning trains on the wrong thing without any error.
 OBSERVATION_SCHEMA_VERSION = "obs-v2-multires-partial"
-ACTION_SCHEMA_VERSION = "act-v1-move2-signal2-mode3"
+# ACTION_SCHEMA_VERSION follows USE_DIRECT and is set next to it, under
+# WHAT A ROBOT SIGNALS below.
 
 # Crop sizes the real-map corpus exports and the observation contract is
 # validated for. A viewer or evaluation setting outside this set is rejected at

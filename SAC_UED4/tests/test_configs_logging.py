@@ -318,7 +318,8 @@ class LoggerTest(unittest.TestCase):
 
     def test_run_name(self):
         from learn.metrics_logger import MetricsLogger, run_name
-        cfg = resolve_config({"WANDB_MODE": "online", "DATASET_SIZES_M": (100,),
+        cfg = resolve_config({"WANDB_MODE": "online", "WANDB_RUN_NAME": None,
+                              "DATASET_SIZES_M": (100,),
                               "DATASET_DENSITY_BY_SIZE": {100: None}},
                              check_data=False)
         self.assertTrue(run_name(cfg, now=0).startswith(

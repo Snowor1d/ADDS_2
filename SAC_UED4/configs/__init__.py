@@ -52,6 +52,7 @@ OBSERVATION_SCHEMA_KEYS = (
     "OBS_GLOBAL_SIZE", "OBS_HISTORY_DECISIONS", "OBS_DENSITY_SATURATION",
     "OBS_PATH_SCALE_M", "OBS_TEAM_DISTANCE_SCALE_M", "ROBOT_VISION",
     "TEAM_SHARE_OBSERVATIONS", "ACTOR_GLOBAL_CROWD_TRUTH", "ROBOT_MODES",
+    "USE_DIRECT",
     "ACTION_SCALE", "MAP_SIZE_REFERENCE",
 )
 
@@ -421,6 +422,25 @@ def validate_config(cfg: ResolvedConfig, check_data: bool = True) -> None:
                "resumed as the realistic policy", p)
     _check(cfg.RESUME_MODE in ("latest_compatible", "fresh"),
            f"RESUME_MODE={cfg.RESUME_MODE!r}", p)
+
+    # Robot modes. ROBOT_MODES and ACTION_SCHEMA_VERSION follow USE_DIRECT in
+    # configs/environment.py, and the action layout is built from them when
+    # sim/robot_action.py is imported; an override of one without the others
+    # would train a network on one layout and act with another.
+    want_modes = (("off", "guide", "direct") if cfg.USE_DIRECT
+                  else ("off", "guide"))
+    _check(tuple(cfg.ROBOT_MODES) == want_modes,
+           f"ROBOT_MODES={tuple(cfg.ROBOT_MODES)} does not follow "
+           f"USE_DIRECT={cfg.USE_DIRECT}; set USE_DIRECT in "
+           "configs/environment.py rather than overriding it", p)
+    try:
+        from sim import robot_action as _ra
+        _check(tuple(_ra.ROBOT_MODES) == tuple(cfg.ROBOT_MODES),
+               "the action layout was built for ROBOT_MODES="
+               f"{tuple(_ra.ROBOT_MODES)}, not {tuple(cfg.ROBOT_MODES)}; "
+               "USE_DIRECT cannot be changed by an override", p)
+    except ImportError:
+        pass
 
     # Network.
     _check(cfg.NET_ENCODER in ("cnn", "impala"),

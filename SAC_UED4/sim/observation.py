@@ -41,12 +41,28 @@ MID_STATIC = ("walkable", "hazard", "hazard_boundary", "path_to_boundary",
 MID_DYNAMIC = ("team_crowd", "team_observed", "team_age")
 GLOBAL_STATIC = ("obstacle", "hazard", "path_to_boundary")
 GLOBAL_DYNAMIC = ("team_crowd", "team_observed")
-OWN_STATE = ("x", "y", "log_w", "log_h", "signed_hazard_distance",
-             "mode_off", "mode_guide", "mode_direct", "signal_x", "signal_y",
-             "own_visible_crowd", "team_seen_in_hazard",
-             "team_observed_hazard_fraction")
-TEAMMATE_STATE = ("present", "dx", "dy", "mode_off", "mode_guide",
-                  "mode_direct", "signal_x", "signal_y", "message_age")
+def own_state_layout(cfg) -> Tuple[str, ...]:
+    """Names of the robot's own scalar state, in order. The mode one-hot has
+    one entry per ROBOT_MODES, and the signalled heading is there only when
+    "direct" is (USE_DIRECT)."""
+    modes = tuple(cfg.ROBOT_MODES)
+    heading = ("signal_x", "signal_y") if "direct" in modes else ()
+    return (("x", "y", "log_w", "log_h", "signed_hazard_distance")
+            + tuple(f"mode_{m}" for m in modes) + heading
+            + ("own_visible_crowd", "team_seen_in_hazard",
+               "team_observed_hazard_fraction"))
+
+
+def teammate_state_layout(cfg) -> Tuple[str, ...]:
+    """Names of one teammate's slot, in order; same rule as the own state."""
+    modes = tuple(cfg.ROBOT_MODES)
+    heading = ("signal_x", "signal_y") if "direct" in modes else ()
+    return (("present", "dx", "dy") + tuple(f"mode_{m}" for m in modes)
+            + heading + ("message_age",))
+
+
+def _index(layout: Tuple[str, ...]) -> Dict[str, int]:
+    return {name: i for i, name in enumerate(layout)}
 
 
 def ego_channels(cfg) -> int:
@@ -62,7 +78,8 @@ def global_channels(cfg) -> int:
 
 
 def state_dim(cfg) -> int:
-    return len(OWN_STATE) + len(TEAMMATE_STATE) * (int(cfg.MAX_ROBOTS) - 1)
+    return (len(own_state_layout(cfg))
+            + len(teammate_state_layout(cfg)) * (int(cfg.MAX_ROBOTS) - 1))
 
 
 def obs_shapes(cfg) -> Dict[str, Tuple[int, ...]]:
@@ -600,6 +617,8 @@ def build_observations(requests: Sequence[ObsRequest], cfg,
     truth = bool(cfg.ACTOR_GLOBAL_CROWD_TRUTH)
     modes = tuple(cfg.ROBOT_MODES)
     Rm = int(cfg.MAX_ROBOTS)
+    own_ix = _index(own_state_layout(cfg))
+    mate_ix = _index(teammate_state_layout(cfg))
     unions: Dict[tuple, tuple] = {}
     for b, req in zip(rows, requests):
         st = req.static
@@ -688,31 +707,36 @@ def build_observations(requests: Sequence[ObsRequest], cfg,
         # ---------------- scalar state
         s = out["state"][b]
         zone = st.zone_obj()
-        s[0] = px / max(1.0, Wm)
-        s[1] = py / max(1.0, Hm)
-        s[2] = math.log(max(1.0, Wm) / float(cfg.MAP_SIZE_REFERENCE))
-        s[3] = math.log(max(1.0, Hm) / float(cfg.MAP_SIZE_REFERENCE))
-        s[4] = 0.0 if zone is None else max(
+        own = own_ix
+        s[own["x"]] = px / max(1.0, Wm)
+        s[own["y"]] = py / max(1.0, Hm)
+        s[own["log_w"]] = math.log(max(1.0, Wm) / float(cfg.MAP_SIZE_REFERENCE))
+        s[own["log_h"]] = math.log(max(1.0, Hm) / float(cfg.MAP_SIZE_REFERENCE))
+        s[own["signed_hazard_distance"]] = 0.0 if zone is None else max(
             -2.0, min(2.0, zone.signed_distance(px, py) / st.zone_ref_m))
-        s[5 + int(rec.mode[r])] = 1.0
-        s[8], s[9] = float(rec.signal[r, 0]), float(rec.signal[r, 1])
-        own = float(rec.counts[r].sum())
-        s[10] = min(2.0, own / 20.0)
+        s[own["mode_" + modes[int(rec.mode[r])]]] = 1.0
+        if "signal_x" in own:
+            s[own["signal_x"]] = float(rec.signal[r, 0])
+            s[own["signal_y"]] = float(rec.signal[r, 1])
+        s[own["own_visible_crowd"]] = min(
+            2.0, float(rec.counts[r].sum()) / 20.0)
         ref_people = max(1.0, st.hazard_area_m2 * 0.05)
         if truth:
             inside_truth = _truth_inside(rec, st, cfg)
-            s[11] = min(2.0, inside_truth / ref_people)
-            s[12] = 1.0
+            s[own["team_seen_in_hazard"]] = min(2.0, inside_truth / ref_people)
+            s[own["team_observed_hazard_fraction"]] = 1.0
         else:
             inm = (gx >= 0) & (gx < Wm) & (gy >= 0) & (gy < Hm)
             hz = np.zeros(gx.shape[0], dtype=bool)
             hz[inm] = st.hazard[gy[inm], gx[inm]] >= 0.5
-            s[11] = min(2.0, float(cnt[hz].sum()) / ref_people)
-            s[12] = min(1.0, float(hz.sum()) / max(1.0, st.hazard_area_m2))
+            s[own["team_seen_in_hazard"]] = min(
+                2.0, float(cnt[hz].sum()) / ref_people)
+            s[own["team_observed_hazard_fraction"]] = min(
+                1.0, float(hz.sum()) / max(1.0, st.hazard_area_m2))
 
         # ---------------- teammates, nearest first
-        base = len(OWN_STATE)
-        width = len(TEAMMATE_STATE)
+        base = len(own_ix)
+        width = len(mate_ix)
         mates = []
         for m in range(rec.n_robots):
             if m == r:
@@ -728,13 +752,14 @@ def build_observations(requests: Sequence[ObsRequest], cfg,
         scale = float(cfg.OBS_TEAM_DISTANCE_SCALE_M)
         for k, (_d, m, lagm, src) in enumerate(mates[:Rm - 1]):
             o = base + k * width
-            s[o] = 1.0
-            s[o + 1] = (float(src.pose[m, 0]) - px) / scale
-            s[o + 2] = (float(src.pose[m, 1]) - py) / scale
-            s[o + 3 + int(src.mode[m])] = 1.0
-            s[o + 6] = float(src.signal[m, 0])
-            s[o + 7] = float(src.signal[m, 1])
-            s[o + 8] = lagm / max(1, H - 1)
+            s[o + mate_ix["present"]] = 1.0
+            s[o + mate_ix["dx"]] = (float(src.pose[m, 0]) - px) / scale
+            s[o + mate_ix["dy"]] = (float(src.pose[m, 1]) - py) / scale
+            s[o + mate_ix["mode_" + modes[int(src.mode[m])]]] = 1.0
+            if "signal_x" in mate_ix:
+                s[o + mate_ix["signal_x"]] = float(src.signal[m, 0])
+                s[o + mate_ix["signal_y"]] = float(src.signal[m, 1])
+            s[o + mate_ix["message_age"]] = lagm / max(1, H - 1)
     return out
 
 

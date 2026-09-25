@@ -458,9 +458,11 @@ def main():
                         signal_mode = "off"
                     elif event.key == pygame.K_2:
                         signal_mode = "guide"
-                    elif event.key == pygame.K_3:
+                    # "direct" exists only with USE_DIRECT; without it the
+                    # heading keys do nothing.
+                    elif event.key == pygame.K_3 and "direct" in ROBOT_MODES:
                         signal_mode = "direct"
-                    elif event.key in _SIGNAL_KEYS:
+                    elif event.key in _SIGNAL_KEYS and "direct" in ROBOT_MODES:
                         signal_dir = _SIGNAL_KEYS[event.key]
                         signal_mode = "direct"
             if not running:

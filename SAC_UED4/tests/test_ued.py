@@ -4090,6 +4090,9 @@ class RobotSignalTest(unittest.TestCase):
         This is what lets one robot turn a flow without standing in it, and
         it is the difference between the two signalling modes.
         """
+        from config import ROBOT_MODES
+        if "direct" not in ROBOT_MODES:
+            self.skipTest("USE_DIRECT is False: robots have no 'direct' mode")
         import math
 
         env = self._run("direct", signal=(0.0, 1.0))
@@ -4142,14 +4145,15 @@ class RobotSignalTest(unittest.TestCase):
         self.assertEqual(tuple(action.shape), (b, ACTION_DIM))
         self.assertEqual(tuple(logp.shape), (b,))
         # One mode chosen per row, as a hard one-hot the critic can read.
-        one_hot = action[:, 4:]
+        from sim.robot_action import MODE
+        one_hot = action[:, MODE]
         self.assertEqual(one_hot.shape[1], len(ROBOT_MODES))
         for row in one_hot:
             self.assertAlmostEqual(float(row.sum()), 1.0, places=5)
 
         # Straight-through, so the critic's gradient reaches the mode head.
         # Sampling and detaching would leave it untrained.
-        (action[:, 4:].sum() + logp.sum()).backward()
+        (action[:, MODE].sum() + logp.sum()).backward()
         self.assertIsNotNone(pol.mode_head.weight.grad)
         self.assertGreater(float(pol.mode_head.weight.grad.norm()), 0.0)
 
