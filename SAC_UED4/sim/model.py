@@ -85,7 +85,9 @@ def _point_in_polygon(p: Tuple[int, int],
     return inside
 
 # 안전 스폰 헬퍼(연속 좌표). 기존 _sample_safe_cell 대체/신규
-def _sample_safe_pos(self, padding: float = 1.0, max_attempts: int = 2000) -> Tuple[float, float]:
+def _sample_safe_pos(self, padding: float = 1.0, max_attempts: int = 2000,
+                     accept=None) -> Tuple[float, float]:
+    """A random free position; `accept(x, y)` may add conditions."""
     xmin, ymin = padding, padding
     xmax, ymax = self.width - padding, self.height - padding
     for _ in range(max_attempts):
@@ -97,6 +99,8 @@ def _sample_safe_pos(self, padding: float = 1.0, max_attempts: int = 2000) -> Tu
             continue
         # 이미 사용된 위치 근접 금지(로봇/군중 최소 거리)
         if any(math.hypot(x - ax, y - ay) < 0.5 for (ax, ay) in getattr(self, "_occupied_positions", [])):
+            continue
+        if accept is not None and not accept(x, y):
             continue
         return (x, y)
     raise ValueError("안전 스폰 위치를 찾지 못했습니다(continuous).")
@@ -1829,6 +1833,62 @@ class FightingModel(Model):
 
 
                                   
+    # Clearance a robot is spawned with, beyond its own body radius.
+    ROBOT_SPAWN_MARGIN_M = 0.2
+
+    def main_walkable_component(self) -> set:
+        """Navmesh triangles of the largest connected walkable region.
+
+        Real crops contain courtyards and pockets that no walking route joins
+        to the streets; a robot placed in one can move but never leave.
+        """
+        cached = getattr(self, "_main_component", None)
+        if cached is not None and cached[0] == getattr(self, "obstacles_version", 0):
+            return cached[1]
+        pure = set(self.pure_mesh)
+        seen, best = set(), set()
+        for start in self.pure_mesh:
+            if start in seen:
+                continue
+            comp, stack = {start}, [start]
+            seen.add(start)
+            while stack:
+                u = stack.pop()
+                for v in self.adjacent_mesh.get(u, ()):
+                    if v in pure and v not in seen:
+                        seen.add(v)
+                        comp.add(v)
+                        stack.append(v)
+            if len(comp) > len(best):
+                best = comp
+        self._main_component = (getattr(self, "obstacles_version", 0), best)
+        return best
+
+    def obstacle_clearance(self, x: float, y: float, reach: float = 3.0) -> float:
+        """Distance from a point to the nearest building or map edge, 0 if the
+        point is inside a building; capped at `reach`."""
+        edge = min(x, y, self.width - x, self.height - y)
+        if edge <= 0.0:
+            return 0.0
+        from shapely.geometry import box
+        index, polys = self._obstacles_for_query()
+        p = Point(x, y)
+        best = min(edge, reach)
+        for idx in index.query(box(x - reach, y - reach, x + reach, y + reach)):
+            poly = polys[int(idx)]
+            if poly.contains(p):
+                return 0.0
+            best = min(best, poly.distance(p))
+        return float(best)
+
+    def robot_spawn_ok(self, x: float, y: float, radius: float) -> bool:
+        """The body fits with ROBOT_SPAWN_MARGIN_M to spare, on the main
+        walkable network."""
+        if not self.is_free_point(x, y, padding=radius + self.ROBOT_SPAWN_MARGIN_M):
+            return False
+        mesh = self.match_grid_to_mesh.get((int(x), int(y)))
+        return mesh is not None and mesh in self.main_walkable_component()
+
     def make_robot(self, n_robots: Optional[int] = None):
         if n_robots is None:
             n_robots = int(getattr(self, "robot_num", 1))
@@ -1876,6 +1936,13 @@ class FightingModel(Model):
         self._occupied_positions = [(getattr(a, "xy", a.pos)[0], getattr(a, "xy", a.pos)[1])
                                     for a in getattr(self, "robots", [])]
         self.robots = []
+        # Only where a robot's whole body fits with a little room, and on the
+        # walkable network the streets belong to. The point test alone put 13%
+        # of robots (16 of 120 measured) with their body inside a wall, most
+        # often in the inner corner of a building; the move rule then blocked
+        # every direction and the robot never moved. Another 2 of 120 landed
+        # in courtyards with no walking route to the rest of the crop.
+        fits = lambda x, y: self.robot_spawn_ok(x, y, float(ROBOT_BODY_RADIUS))
         want_outside = (ROBOT_START == "outside"
                         and getattr(self, "danger_zone", None) is not None)
         for idx in range(int(n_robots)):
@@ -1886,12 +1953,13 @@ class FightingModel(Model):
                 # forever, and the fallback of placing anywhere is better than
                 # failing to build the episode at all.
                 for _try in range(200):
-                    cx, cy = _sample_safe_pos(self, padding=padding)
+                    cx, cy = _sample_safe_pos(self, padding=padding,
+                                              accept=fits)
                     if self.is_safe((cx, cy)):
                         x, y = cx, cy
                         break
             if x is None:
-                x, y = _sample_safe_pos(self, padding=padding)
+                x, y = _sample_safe_pos(self, padding=padding, accept=fits)
             self._occupied_positions.append((x, y))
 
             robot = RobotAgent(self.agent_id, self, [x, y], 3, robot_index=idx)

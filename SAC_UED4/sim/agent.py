@@ -1961,9 +1961,22 @@ class RobotAgent(CrowdAgent):
             return self.model.is_free_point(
                 x1, y1, padding=self.body_radius)
 
+        def separating(x0, y0, x1, y1):
+            # A body already overlapping a wall (spawned or pushed there) is
+            # otherwise blocked in every direction: every segment starts
+            # closer than its radius. Let it move while each step takes it
+            # further from the wall. Steps are 0.1 m, so this cannot carry it
+            # through a building.
+            if not hasattr(self.model, "obstacle_clearance"):
+                return False
+            c0 = self.model.obstacle_clearance(x0, y0)
+            if c0 >= self.body_radius:
+                return False
+            return self.model.obstacle_clearance(x1, y1) > c0 + 1e-6
+
         for _ in range(steps):
             tx, ty = x + sx, y + sy
-            if clear(x, y, tx, ty):
+            if clear(x, y, tx, ty) or separating(x, y, tx, ty):
                 x, y = tx, ty
                 continue
             self.collision_check = 1

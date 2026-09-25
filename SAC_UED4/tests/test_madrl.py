@@ -526,3 +526,54 @@ class DirectModeSwitchTest(unittest.TestCase):
         self.assertIn("mode_direct", own)
         self.assertIn("signal_x", own)
         self.assertEqual(len(teammate_state_layout(C)), 9)
+
+
+class RobotStuckTest(unittest.TestCase):
+    """Robots used to spawn with their body inside a wall (13% of robots on
+    OSM crops, mostly in inner building corners) and could then never move."""
+
+    def _model_with_block(self):
+        from sim.danger import DangerZone
+        from ued.level import Level
+        import sim.model as M
+        random.seed(0)
+        np.random.seed(0)
+        block = [[40.0, 40.0], [60.0, 40.0], [60.0, 60.0], [40.0, 60.0]]
+        lv = Level(obstacles=[block], exits=[], crowd_size=5, width=100,
+                   height=100)
+        lv.danger = DangerZone("circle", 20.0, 80.0, radius=8.0)
+        lv.robot_num = 3
+        lv.augmentation = "identity"
+        return M.FightingModel(5, 100, 100, robot="Q", level=lv)
+
+    def test_robots_spawn_clear_of_walls_on_the_main_network(self):
+        from learn.training_maps import OsmTrainingMaps
+        import sim.model as M
+        cfg = _cfg(DATASET_SITES=("gastown", "mitte", "gracia"),
+                   DATASET_SIZES_M=(100,), DATASET_DENSITY_BY_SIZE={100: None})
+        maps = OsmTrainingMaps(cfg)
+        rng = random.Random(4)
+        for k in range(6):
+            lv = maps.sample(rng)
+            lv.robot_num = 3
+            random.seed(k)
+            m = M.FightingModel(int(lv.crowd_size), lv.width, lv.height,
+                                robot="Q", level=lv)
+            main = m.main_walkable_component()
+            for rb in m.robots:
+                self.assertTrue(m.is_free_point(rb.xy[0], rb.xy[1],
+                                                padding=rb.body_radius))
+                self.assertIn(m.find_mesh(rb.xy), main)
+
+    def test_a_robot_inside_a_wall_backs_out_but_never_goes_in(self):
+        m = self._model_with_block()
+        rb = m.robots[0]
+        rb.xy = [39.8, 50.0]            # body 0.5 m, 0.2 m from the block face
+        # Pushing further in is refused.
+        end = rb._move_robot_with_walls(2.0, 0.0, 0.5)
+        self.assertLessEqual(end[0], 39.8 + 1e-9)
+        # Moving away is allowed until the body is clear.
+        rb.xy = [39.8, 50.0]
+        end = rb._move_robot_with_walls(-2.0, 0.0, 0.5)
+        self.assertLess(end[0], 39.8 - 0.5)
+        self.assertTrue(m.is_free_point(end[0], end[1], padding=rb.body_radius))
