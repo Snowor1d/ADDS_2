@@ -2142,6 +2142,10 @@ class RobotAgent(CrowdAgent):
 
         self.action[0] = action[0]
         self.action[1] = action[1]
+        # A new decision: under ROBOT_ACTION_MODE = "waypoint" the target is
+        # set from it, relative to where the robot stands now, on its next
+        # move.
+        self._waypoint = None
 
         
         if(self.now_exploration == 1):
@@ -2228,6 +2232,83 @@ class RobotAgent(CrowdAgent):
                 y += sy
         return [x, y]
 
+    def heading_target(self):
+        """Where this robot is going under its current command: its waypoint
+        under ROBOT_ACTION_MODE = "waypoint", otherwise the point the
+        commanded velocity reaches over one decision interval, walls
+        ignored. Its own position when it has no command yet."""
+        x, y = float(self.xy[0]), float(self.xy[1])
+        if ROBOT_ACTION_MODE == "waypoint":
+            wp = getattr(self, "_waypoint", None)
+            return (float(wp[0][0]), float(wp[0][1])) if wp else (x, y)
+        ax, ay = float(self.action[0]), float(self.action[1])
+        n = math.hypot(ax, ay)
+        if not math.isfinite(n) or n < 1e-9:
+            return (x, y)
+        if n > 1.0:
+            ax, ay = ax / n, ay / n
+        reach = (float(ROBOT_SPEED_MAX) * float(ROBOT_TIME_STEP)
+                 * int(ACTION_SCALE))
+        return (x + ax * reach, y + ay * reach)
+
+    # Arrival tolerance for a waypoint, in metres.
+    WAYPOINT_ARRIVAL_M = 0.3
+
+    def _waypoint_velocity(self, dt):
+        """Velocity toward the current waypoint along the navmesh.
+
+        The action's two movement numbers, each in [-2, 2], are an offset of
+        up to ROBOT_WAYPOINT_RANGE_M per axis from where the robot stood when
+        it received them. Straight there when the body-clear line is free;
+        otherwise through the next portal's safest point. Slows to land on
+        the target instead of oscillating across it.
+        """
+        m = self.model
+        r = self.body_radius
+        x, y = float(self.xy[0]), float(self.xy[1])
+        if getattr(self, "_waypoint", None) is None:
+            ax = max(-2.0, min(2.0, float(self.action[0]))) / 2.0
+            ay = max(-2.0, min(2.0, float(self.action[1]))) / 2.0
+            rng = float(ROBOT_WAYPOINT_RANGE_M)
+            self._waypoint = m.nearest_main_ground(x + ax * rng, y + ay * rng,
+                                                   r)
+        (gx, gy), goal_tri = self._waypoint
+        d_goal = math.hypot(gx - x, gy - y)
+        if d_goal < self.WAYPOINT_ARRIVAL_M:
+            return 0.0, 0.0
+        aim = (gx, gy)
+        if not m.is_free_segment(x, y, gx, gy, padding=r):
+            now = m.find_mesh(self.xy)
+            if now is not None and goal_tri is not None and now != goal_tri:
+                nxt = m.next_mesh_from_to(now, goal_tri)
+                if nxt is not None:
+                    aim = m.portal_point(now, nxt, (x, y), (gx, gy), r)
+                    # Standing on the portal the containment test can still
+                    # name the triangle being left, and the portal would then
+                    # be a target at the robot's feet. Aim into the next one.
+                    if math.hypot(aim[0] - x, aim[1] - y) < 0.3:
+                        aim = ((nxt[0][0] + nxt[1][0] + nxt[2][0]) / 3.0,
+                               (nxt[0][1] + nxt[1][1] + nxt[2][1]) / 3.0)
+        dx, dy = aim[0] - x, aim[1] - y
+        n = math.hypot(dx, dy)
+        if n < 1e-9:
+            return 0.0, 0.0
+        dx, dy = dx / n, dy / n
+        # Touching a wall, every straight line that leans into it is refused
+        # by the mover and the robot stands still against it (1 route in 300
+        # on the training crops). Drop the part of the heading that goes into
+        # the wall and lean slightly away from it instead.
+        face = self._nearest_wall_normal(x, y)
+        if face is not None:
+            ux, uy = face
+            into = dx * ux + dy * uy
+            if into < 0.0:
+                dx, dy = dx - into * ux + 0.3 * ux, dy - into * uy + 0.3 * uy
+                n = math.hypot(dx, dy) or 1e-9
+                dx, dy = dx / n, dy / n
+        speed = min(float(ROBOT_SPEED_MAX), d_goal / max(dt, 1e-9))
+        return speed * dx, speed * dy
+
     def robot_policy_Q(self):
         if (math.hypot(self.xy[0] - self.robot_waypoint[0],
                        self.xy[1] - self.robot_waypoint[1]) < 2):
@@ -2253,8 +2334,11 @@ class RobotAgent(CrowdAgent):
 
         start_x, start_y = self.xy
         dt = float(ROBOT_TIME_STEP)
-        self.xy = self._move_robot_with_walls(
-            ROBOT_SPEED_MAX * ax, ROBOT_SPEED_MAX * ay, dt)
+        if ROBOT_ACTION_MODE == "waypoint":
+            vx, vy = self._waypoint_velocity(dt)
+        else:
+            vx, vy = ROBOT_SPEED_MAX * ax, ROBOT_SPEED_MAX * ay
+        self.xy = self._move_robot_with_walls(vx, vy, dt)
         self.vel = [(self.xy[0] - start_x) / dt,
                     (self.xy[1] - start_y) / dt]
         self.model.space.clamp(self.xy)

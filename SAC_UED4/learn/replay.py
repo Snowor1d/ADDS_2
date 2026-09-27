@@ -174,6 +174,7 @@ class ReplayBuffer:
         self.pose = np.zeros((C, R, 2), np.float32)
         self.mode = np.zeros((C, R), np.int8)
         self.signal = np.zeros((C, R, 2), np.float32)
+        self.intent = np.zeros((C, R, 2), np.float32)
         self.avail = np.zeros((C, R, R), np.uint8)
         self.priv = np.zeros((C, G, G), np.uint8)
         self.action = np.zeros((C, R, ACTION_DIM), np.float32)
@@ -230,6 +231,8 @@ class ReplayBuffer:
         self.pose[i] = record.pose
         self.mode[i] = record.mode
         self.signal[i] = record.signal
+        self.intent[i] = (record.intent if record.intent is not None
+                          else record.pose)
         self.avail[i] = record.avail
         self.priv[i] = record.priv
         self.has_action[i] = action is not None
@@ -273,7 +276,7 @@ class ReplayBuffer:
             n_robots=int(self.n_robots[i]), anchors=self.anchors[i],
             counts=self.counts[i], observed=obs.reshape(R, E, E).astype(bool),
             pose=self.pose[i], mode=self.mode[i], signal=self.signal[i],
-            avail=self.avail[i], priv=self.priv[i])
+            avail=self.avail[i], priv=self.priv[i], intent=self.intent[i])
 
     def _linked(self, a: int, b: int) -> bool:
         """b is still the record that followed a in the same episode."""
@@ -379,7 +382,8 @@ class ReplayBuffer:
     # -------------------------------------------------------- persistence
 
     ARRAYS = ("n_robots", "anchors", "counts", "observed", "pose", "mode",
-              "signal", "avail", "priv", "action", "has_action", "step_rewards",
+              "signal", "intent", "avail", "priv", "action", "has_action",
+              "step_rewards",
               "hold", "terminal", "episode", "step", "prev", "next",
               "static_id")
 
@@ -402,6 +406,10 @@ class ReplayBuffer:
                 raise ValueError(f"stored buffer holds {n} > capacity "
                                  f"{self.capacity}")
             for k in self.ARRAYS:
+                if k == "intent" and k not in data.files:
+                    # Saved before intents were recorded: heading "here".
+                    self.intent[:n] = data["pose"]
+                    continue
                 arr = data[k]
                 if arr.shape[1:] != getattr(self, k).shape[1:]:
                     raise SchemaMismatch(f"replay array {k} has shape "

@@ -163,22 +163,12 @@ class SACAgent:
         loss_q.backward()
         self.q_opt.step()
 
-        # Actor: replace only the sampled robot's action.
-        B, N = mask.shape
-        idx = batch["agent_index"].clamp(0, N - 1)
-        rows = torch.arange(B, device=dev)
-        pick = {k: obs[k][rows, idx] for k in OBS_KEYS}
-        new_a, logp = self.policy.sample_action(pick["ego"], pick["mid"],
-                                                pick["glob"], pick["state"])
-        mixed = act.clone()
-        mixed[rows, idx] = new_a
-        for p in list(self.q1.parameters()) + list(self.q2.parameters()):
-            p.requires_grad_(False)
-        qn = torch.min(team_value(self.q1(obs, mixed, mask), mask),
-                       team_value(self.q2(obs, mixed, mask), mask))
-        for p in list(self.q1.parameters()) + list(self.q2.parameters()):
-            p.requires_grad_(True)
-        loss_pi = (self.alpha * logp - qn).mean()
+        # Actor. ACTOR_UPDATE_ROBOTS picks whose action is re-drawn from the
+        # current policy and differentiated: one sampled robot per sample, or
+        # every real robot. ACTOR_TEAMMATE_ACTIONS picks what the others do
+        # meanwhile: what they actually did (stored), or what the current
+        # policy would do now (current, no gradient through them).
+        loss_pi, logp = self._actor_loss(obs, act, mask, batch["agent_index"])
         self.pi_opt.zero_grad()
         loss_pi.backward()
         self.pi_opt.step()
@@ -206,6 +196,63 @@ class SACAgent:
                 "train/target_entropy": self.target_entropy,
                 **({"train/loss_alpha": float(loss_alpha.item())}
                    if loss_alpha is not None else {})}
+
+    def _team_q_min(self, obs, actions, mask):
+        return torch.min(team_value(self.q1(obs, actions, mask), mask),
+                         team_value(self.q2(obs, actions, mask), mask))
+
+    def _actor_loss(self, obs, act, mask, agent_index):
+        """(loss, log-probabilities of the differentiated actions, flat over
+        real robots). The critics are frozen for the duration."""
+        cfg = self.cfg
+        B, N = mask.shape
+        dev = mask.device
+        rows = torch.arange(B, device=dev)
+        critics = list(self.q1.parameters()) + list(self.q2.parameters())
+        for p in critics:
+            p.requires_grad_(False)
+        try:
+            if cfg.ACTOR_TEAMMATE_ACTIONS == "current":
+                with torch.no_grad():
+                    base, _ = self._per_robot_actions(obs, mask)
+            else:
+                base = act
+            if cfg.ACTOR_UPDATE_ROBOTS == "one":
+                idx = agent_index.clamp(0, N - 1)
+                pick = {k: obs[k][rows, idx] for k in OBS_KEYS}
+                new_a, logp = self.policy.sample_action(
+                    pick["ego"], pick["mid"], pick["glob"], pick["state"])
+                mixed = base.clone()
+                mixed[rows, idx] = new_a
+                qn = self._team_q_min(obs, mixed, mask)
+                return (self.alpha * logp - qn).mean(), logp
+            # Every real robot.
+            new_all, logp_all = self._per_robot_actions(obs, mask)
+            real = mask > 0
+            if cfg.ACTOR_TEAMMATE_ACTIONS == "current":
+                # All re-drawn together: one critic pass differentiates the
+                # team value with respect to every robot's action.
+                mixed = torch.where(real.unsqueeze(-1), new_all, base)
+                qn = self._team_q_min(obs, mixed, mask)
+                ent = team_value(logp_all, mask.float())
+                return (self.alpha * ent - qn).mean(), logp_all[real]
+            # Each robot against its teammates' stored actions: one critic
+            # pass per slot, a robot's term counted only where it exists.
+            total = torch.zeros((), device=dev)
+            count = real.sum().clamp(min=1)
+            for j in range(N):
+                valid = real[:, j]
+                if not bool(valid.any()):
+                    continue
+                mixed = base.clone()
+                mixed[:, j] = new_all[:, j]
+                qn = self._team_q_min(obs, mixed, mask)
+                term = self.alpha * logp_all[:, j] - qn
+                total = total + (term * valid.float()).sum()
+            return total / count, logp_all[real]
+        finally:
+            for p in critics:
+                p.requires_grad_(True)
 
     def _soft_update(self, net, target):
         with torch.no_grad():

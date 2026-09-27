@@ -319,8 +319,29 @@ CROWD_DWELL_STEPS = (10, 60)
 # when the simulator modules are imported.
 USE_DIRECT = False
 ROBOT_MODES = ("off", "guide", "direct") if USE_DIRECT else ("off", "guide")
-ACTION_SCHEMA_VERSION = ("act-v1-move2-signal2-mode3" if USE_DIRECT
-                         else "act-v2-move2-mode2")
+
+# How the two movement numbers of the action are applied.
+#   "velocity"  a direction, walked at ROBOT_SPEED_MAX for the ACTION_SCALE
+#               steps the action is held. The policy steers every metre
+#               itself, round every corner and into every side street.
+#   "waypoint"  a target point up to ROBOT_WAYPOINT_RANGE_M away on each
+#               axis, relative to the robot; one off the walkable network is
+#               moved to the nearest ground on it. The robot walks there
+#               along the navmesh, through each portal at the point farthest
+#               from the walls, and stops on arrival. The policy decides
+#               where to be; getting there, alleys included, is the robot's.
+# Measured on the twenty 200 m training crops: a robot steered along that
+# route reached 300 of 300 targets 20-60 m away, including every route
+# through a passage 1.5-2.5 m wide. The action keeps its size, so the
+# networks do not change, but the action schema does: checkpoints trained
+# under one are refused under the other. Set it here, not as a run override.
+ROBOT_ACTION_MODE = "velocity"       # "velocity" | "waypoint"
+ROBOT_WAYPOINT_RANGE_M = 20.0
+
+ACTION_SCHEMA_VERSION = (("act-v1-move2-signal2-mode3" if USE_DIRECT
+                          else "act-v2-move2-mode2")
+                         + ("-waypoint" if ROBOT_ACTION_MODE == "waypoint"
+                            else ""))
 # How far the signal carries, in metres.
 #
 # Not arbitrary: emergency signage standards express legibility as a multiple
@@ -414,6 +435,16 @@ SUPPORTED_CROP_SIZES_M = (100, 200, 400)
 TEAM_SHARE_OBSERVATIONS = True
 COMM_DELAY_DECISIONS = 0
 COMM_DROP_PROB = 0.0
+# Whether a message also carries where its sender is heading: its waypoint
+# under ROBOT_ACTION_MODE = "waypoint", or the point its current command
+# reaches by the end of the decision interval under "velocity". Shown in
+# each teammate slot relative to the receiver, as old as the rest of that
+# message, and for the robot itself in its own state. Without it a robot
+# knows where its teammates are but not where they are going, and nothing
+# keeps two of them from heading for the same people. Adds four numbers to
+# the own state and two to each teammate slot, so it is part of the
+# observation schema.
+TEAM_SHARE_INTENT = False
 
 # Actor access to the simulator's true crowd map. False is the realistic
 # default. True is a full-information upper bound only, and must run under its

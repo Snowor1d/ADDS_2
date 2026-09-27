@@ -51,8 +51,9 @@ OBSERVATION_SCHEMA_KEYS = (
     "EGO_MAP_SIZE", "OBS_EGO_RES_M", "OBS_MID_SIZE", "OBS_MID_RES_M",
     "OBS_GLOBAL_SIZE", "OBS_HISTORY_DECISIONS", "OBS_DENSITY_SATURATION",
     "OBS_PATH_SCALE_M", "OBS_TEAM_DISTANCE_SCALE_M", "ROBOT_VISION",
-    "TEAM_SHARE_OBSERVATIONS", "ACTOR_GLOBAL_CROWD_TRUTH", "ROBOT_MODES",
-    "USE_DIRECT",
+    "TEAM_SHARE_OBSERVATIONS", "TEAM_SHARE_INTENT",
+    "ACTOR_GLOBAL_CROWD_TRUTH", "ROBOT_MODES",
+    "USE_DIRECT", "ROBOT_ACTION_MODE", "ROBOT_WAYPOINT_RANGE_M",
     "ACTION_SCALE", "MAP_SIZE_REFERENCE",
 )
 
@@ -442,7 +443,44 @@ def validate_config(cfg: ResolvedConfig, check_data: bool = True) -> None:
     except ImportError:
         pass
 
+    # How the move is applied. Read by sim/agent.py when it is imported, so
+    # like USE_DIRECT it is set in configs/environment.py, never overridden.
+    _check(cfg.ROBOT_ACTION_MODE in ("velocity", "waypoint"),
+           f"ROBOT_ACTION_MODE={cfg.ROBOT_ACTION_MODE!r}; expected "
+           "'velocity' or 'waypoint'", p)
+    _check(float(cfg.ROBOT_WAYPOINT_RANGE_M) > 0.0,
+           f"ROBOT_WAYPOINT_RANGE_M={cfg.ROBOT_WAYPOINT_RANGE_M} must be "
+           "positive", p)
+    want_schema = (("act-v1-move2-signal2-mode3" if cfg.USE_DIRECT
+                    else "act-v2-move2-mode2")
+                   + ("-waypoint" if cfg.ROBOT_ACTION_MODE == "waypoint"
+                      else ""))
+    _check(cfg.ACTION_SCHEMA_VERSION == want_schema,
+           f"ACTION_SCHEMA_VERSION={cfg.ACTION_SCHEMA_VERSION!r} does not "
+           f"follow USE_DIRECT and ROBOT_ACTION_MODE (expected "
+           f"{want_schema!r})", p)
+    try:
+        import sim.agent as _agent
+        _check(_agent.ROBOT_ACTION_MODE == cfg.ROBOT_ACTION_MODE
+               and float(_agent.ROBOT_WAYPOINT_RANGE_M)
+               == float(cfg.ROBOT_WAYPOINT_RANGE_M),
+               "the simulator was imported with ROBOT_ACTION_MODE="
+               f"{_agent.ROBOT_ACTION_MODE!r}, ROBOT_WAYPOINT_RANGE_M="
+               f"{_agent.ROBOT_WAYPOINT_RANGE_M}; set them in "
+               "configs/environment.py rather than overriding them", p)
+    except ImportError:
+        pass
+
     # Network.
+    _check(isinstance(cfg.TEAM_SHARE_INTENT, bool),
+           f"TEAM_SHARE_INTENT={cfg.TEAM_SHARE_INTENT!r} must be True or "
+           "False", p)
+    _check(cfg.ACTOR_UPDATE_ROBOTS in ("all", "one"),
+           f"ACTOR_UPDATE_ROBOTS={cfg.ACTOR_UPDATE_ROBOTS!r}; expected 'all' "
+           "or 'one'", p)
+    _check(cfg.ACTOR_TEAMMATE_ACTIONS in ("stored", "current"),
+           f"ACTOR_TEAMMATE_ACTIONS={cfg.ACTOR_TEAMMATE_ACTIONS!r}; expected "
+           "'stored' or 'current'", p)
     _check(isinstance(cfg.ALPHA_AUTO, bool),
            f"ALPHA_AUTO={cfg.ALPHA_AUTO!r} must be True or False", p)
     _check(float(cfg.ALPHA_START) > 0.0,

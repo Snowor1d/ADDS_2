@@ -252,6 +252,131 @@ class AlphaAutoTest(unittest.TestCase):
                 _cfg(**bad)
 
 
+class ActorUpdateModeTest(unittest.TestCase):
+    """ACTOR_UPDATE_ROBOTS x ACTOR_TEAMMATE_ACTIONS."""
+
+    def _run(self, tmp, **over):
+        from learn.replay import ReplayBuffer, StaticStore
+        from learn.sac import SACAgent
+        cfg = _cfg(BATCH_SIZE=8, **over)
+        store = StaticStore(tmp)
+        buf = ReplayBuffer(cfg, 500, store)
+        agent = SACAgent(cfg)
+        _fill(cfg, buf, store, agent)
+        return agent, buf
+
+    def test_every_combination_trains(self):
+        for robots in ("all", "one"):
+            for mates in ("stored", "current"):
+                with self.subTest(robots=robots, mates=mates), \
+                        tempfile.TemporaryDirectory() as tmp:
+                    agent, buf = self._run(tmp, ACTOR_UPDATE_ROBOTS=robots,
+                                           ACTOR_TEAMMATE_ACTIONS=mates)
+                    before = [p.detach().clone()
+                              for p in agent.policy.parameters()]
+                    info = agent.update(buf.sample(8,
+                                                   np.random.default_rng(0)))
+                    self.assertTrue(np.isfinite(info["train/loss_pi"]))
+                    changed = sum(1 for b, a in zip(
+                        before, agent.policy.parameters())
+                        if not torch.equal(b, a.detach()))
+                    self.assertEqual(changed, len(before))
+                    # The critics are trainable again afterwards.
+                    self.assertTrue(all(p.requires_grad
+                                        for p in agent.q1.parameters()))
+
+    def test_all_against_stored_teammates_scores_each_slot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            agent, buf = self._run(tmp, ACTOR_UPDATE_ROBOTS="all",
+                                   ACTOR_TEAMMATE_ACTIONS="stored")
+            batch = buf.sample(8, np.random.default_rng(0))
+            calls = {"n": 0}
+            orig = agent._team_q_min
+
+            def counted(*a, **k):
+                calls["n"] += 1
+                return orig(*a, **k)
+            agent._team_q_min = counted
+            agent.update(batch)
+            N = int(np.asarray(batch["mask"]).shape[1])
+            real_slots = int((np.asarray(batch["mask"]) > 0).any(0).sum())
+            self.assertEqual(calls["n"], real_slots)
+            self.assertLessEqual(real_slots, N)
+
+    def test_invalid_settings_are_refused(self):
+        from configs import ConfigError
+        for bad in ({"ACTOR_UPDATE_ROBOTS": "every"},
+                    {"ACTOR_TEAMMATE_ACTIONS": "latest"}):
+            with self.assertRaises(ConfigError):
+                _cfg(**bad)
+
+
+class TeamIntentTest(unittest.TestCase):
+    """TEAM_SHARE_INTENT: where each teammate is heading."""
+
+    def test_layout_grows_only_when_on(self):
+        from sim.observation import (own_state_layout, state_dim,
+                                     teammate_state_layout)
+        off, on = _cfg(), _cfg(TEAM_SHARE_INTENT=True)
+        self.assertNotIn("intent_dx", own_state_layout(off))
+        self.assertIn("intent_dx", own_state_layout(on))
+        self.assertIn("intent_dy", teammate_state_layout(on))
+        self.assertEqual(state_dim(on) - state_dim(off),
+                         2 + 2 * (int(on.MAX_ROBOTS) - 1))
+        self.assertNotEqual(off.observation_schema(),
+                            on.observation_schema())
+
+    def test_a_teammate_slot_shows_where_it_is_heading(self):
+        from sim.observation import (CommChannel, build_static_layers,
+                                     build_observations, record_decision,
+                                     teammate_state_layout, own_state_layout,
+                                     ObsRequest)
+        cfg = _cfg(TEAM_SHARE_INTENT=True)
+        m = _model(_level(robots=2, seed=5))
+        a, b = m.robots[0], m.robots[1]
+        a.action[0], a.action[1] = 0.0, 0.0
+        b.action[0], b.action[1] = 1.0, 0.0      # due +x
+        rec = record_decision(m, cfg, 0, CommChannel(cfg, 2, seed=0))
+        from config import ROBOT_SPEED_MAX, ROBOT_TIME_STEP, ACTION_SCALE
+        reach = ROBOT_SPEED_MAX * ROBOT_TIME_STEP * ACTION_SCALE
+        self.assertAlmostEqual(float(rec.intent[1, 0]),
+                               float(b.xy[0]) + reach, places=4)
+        self.assertAlmostEqual(float(rec.intent[0, 0]), float(a.xy[0]),
+                               places=4)
+        st = build_static_layers(m, cfg)
+        H = int(cfg.OBS_HISTORY_DECISIONS)
+        window = [None] * (H - 1) + [rec]
+        obs = build_observations([ObsRequest(static=st, window=window,
+                                             receiver=0)], cfg)
+        own = {n: i for i, n in enumerate(own_state_layout(cfg))}
+        mate = {n: i for i, n in enumerate(teammate_state_layout(cfg))}
+        scale = float(cfg.OBS_TEAM_DISTANCE_SCALE_M)
+        o = len(own)
+        s0 = obs["state"][0]
+        want = (float(rec.intent[1, 0]) - float(a.xy[0])) / scale
+        self.assertAlmostEqual(float(s0[o + mate["intent_dx"]]), want,
+                               places=4)
+        self.assertAlmostEqual(float(s0[own["intent_dx"]]), 0.0, places=4)
+
+    def test_a_replay_saved_before_intents_still_loads(self):
+        from learn.replay import ReplayBuffer, StaticStore
+        from learn.sac import SACAgent
+        cfg = _cfg()
+        with tempfile.TemporaryDirectory() as tmp:
+            store = StaticStore(tmp)
+            buf = ReplayBuffer(cfg, 200, store)
+            _fill(cfg, buf, store, SACAgent(cfg), episodes=((2, 20),))
+            path = os.path.join(tmp, "buf.npz")
+            buf.save(path, cfg.schema_versions())
+            with np.load(path, allow_pickle=False) as data:
+                kept = {k: data[k] for k in data.files if k != "intent"}
+            np.savez(path, **kept)
+            again = ReplayBuffer(cfg, 200, store)
+            again.load(path, cfg.schema_versions())
+            n = again.size
+            np.testing.assert_array_equal(again.intent[:n], again.pose[:n])
+
+
 class RewardTimeTest(unittest.TestCase):
     def test_first_and_cut_short_decisions_are_recorded(self):
         from learn.rollout import run_episode
@@ -594,6 +719,99 @@ class DirectModeSwitchTest(unittest.TestCase):
         self.assertIn("mode_direct", own)
         self.assertIn("signal_x", own)
         self.assertEqual(len(teammate_state_layout(C)), 9)
+
+
+class WaypointActionTest(unittest.TestCase):
+    """ROBOT_ACTION_MODE = "waypoint": the move is a target point, walked
+    to along the navmesh."""
+
+    def setUp(self):
+        import sim.agent as A
+        self._A = A
+        self._saved = A.ROBOT_ACTION_MODE
+
+    def tearDown(self):
+        self._A.ROBOT_ACTION_MODE = self._saved
+
+    def _model_with_slotted_wall(self):
+        """A wall across the map with one 2 m gap far to the side."""
+        from sim.danger import DangerZone
+        from ued.level import Level
+        import sim.model as M
+        random.seed(0)
+        np.random.seed(0)
+        left = [[0.0, 28.0], [40.0, 28.0], [40.0, 32.0], [0.0, 32.0]]
+        right = [[42.0, 28.0], [60.0, 28.0], [60.0, 32.0], [42.0, 32.0]]
+        lv = Level(obstacles=[left, right], exits=[], crowd_size=3, width=60,
+                   height=60)
+        lv.danger = DangerZone("circle", 50.0, 50.0, radius=5.0)
+        lv.robot_num = 1
+        lv.augmentation = "identity"
+        return M.FightingModel(3, 60, 60, robot="Q", level=lv)
+
+    def _drive(self, m, rb, steps):
+        from config import ROBOT_TIME_STEP
+        for _ in range(steps):
+            vx, vy = rb._waypoint_velocity(ROBOT_TIME_STEP)
+            rb.xy = rb._move_robot_with_walls(vx, vy, ROBOT_TIME_STEP)
+
+    def test_the_robot_walks_round_a_wall_through_a_narrow_gap(self):
+        from config import ROBOT_WAYPOINT_RANGE_M
+        self._A.ROBOT_ACTION_MODE = "waypoint"
+        m = self._model_with_slotted_wall()
+        rb = m.robots[0]
+        rb.xy = [10.0, 20.0]
+        # (10, 40): straight ahead, behind the wall; the gap is 30 m aside.
+        rb.receive_action([0.0, 2.0 * 20.0 / float(ROBOT_WAYPOINT_RANGE_M)])
+        self._drive(m, rb, 150)
+        self.assertLess(math.dist(rb.xy, (10.0, 40.0)), 0.5)
+
+    def test_a_held_velocity_toward_the_same_point_stops_at_the_wall(self):
+        from config import ROBOT_SPEED_MAX, ROBOT_TIME_STEP
+        m = self._model_with_slotted_wall()
+        rb = m.robots[0]
+        rb.xy = [10.0, 20.0]
+        for _ in range(150):
+            rb.xy = rb._move_robot_with_walls(0.0, ROBOT_SPEED_MAX,
+                                              ROBOT_TIME_STEP)
+        self.assertLess(rb.xy[1], 28.0)
+
+    def test_it_stops_on_arrival(self):
+        self._A.ROBOT_ACTION_MODE = "waypoint"
+        m = self._model_with_slotted_wall()
+        rb = m.robots[0]
+        rb.xy = [10.0, 10.0]
+        rb.receive_action([0.2, 0.0])     # a tenth of the range to the right
+        self._drive(m, rb, 20)
+        from config import ROBOT_TIME_STEP
+        self.assertEqual(rb._waypoint_velocity(ROBOT_TIME_STEP), (0.0, 0.0))
+
+    def test_heading_target_is_the_waypoint(self):
+        self._A.ROBOT_ACTION_MODE = "waypoint"
+        m = self._model_with_slotted_wall()
+        rb = m.robots[0]
+        rb.xy = [10.0, 10.0]
+        rb.receive_action([0.2, 0.0])
+        self._drive(m, rb, 1)
+        from config import ROBOT_WAYPOINT_RANGE_M
+        wx, wy = rb.heading_target()
+        self.assertAlmostEqual(wx, 10.0 + 0.1 * float(ROBOT_WAYPOINT_RANGE_M),
+                               places=4)
+        self.assertAlmostEqual(wy, 10.0, places=4)
+
+    def test_a_target_inside_a_building_moves_to_the_network(self):
+        m = self._model_with_slotted_wall()
+        (x, y), tri = m.nearest_main_ground(20.0, 30.0, 0.5)
+        self.assertTrue(m.is_free_point(x, y, padding=0.5)
+                        or tri in m.main_walkable_component())
+        self.assertFalse(28.0 < y < 32.0 and x < 40.0)
+
+    def test_the_action_schema_follows_the_mode(self):
+        from configs import ConfigError
+        with self.assertRaises(ConfigError):
+            _cfg(ACTION_SCHEMA_VERSION="act-v2-move2-mode2-waypoint")
+        with self.assertRaises(ConfigError):
+            _cfg(ROBOT_ACTION_MODE="waypoint")   # the simulator disagrees
 
 
 class RobotStuckTest(unittest.TestCase):

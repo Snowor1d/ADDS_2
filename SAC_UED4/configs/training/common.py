@@ -89,6 +89,22 @@ ALPHA_START = 0.2
 ALPHA_LR = 3e-4
 ALPHA_TARGET_ENTROPY = None
 
+# --------------- ACTOR UPDATE (multi-robot) ---------------
+# Whose action the actor loss re-draws from the current policy and
+# differentiates, per sampled decision instant:
+#   "all"  every real robot (a team of three gives three times the policy
+#          gradient samples per batch)
+#   "one"  one robot drawn at random, as before
+# What the other robots are taken to do meanwhile:
+#   "stored"   the actions they actually took, as recorded in the replay
+#              (MADDPG): the best reply to what teammates did. With "all",
+#              one critic pass per robot slot.
+#   "current"  what the current policy would do now, without gradient
+#              through them: teammates as they are, not as an older policy
+#              was. With "all", one critic pass re-draws the whole team.
+ACTOR_UPDATE_ROBOTS = "all"         # "all" | "one"
+ACTOR_TEAMMATE_ACTIONS = "stored"   # "stored" | "current"
+
 ENABLE_TIMER = True
 N_ENVS = 12
 # Gradient updates per stored decision instant. Measured on this machine
@@ -269,7 +285,7 @@ WANDB_GROUP = None                  # None = EXPERIMENT_ID
 # "outdoor-madrl-v2-dataset-100m-0924-1530". A run started from a checkpoint
 # as a new run (see the resume rule in learn/metrics_logger.py) gets
 # "-resume<episode>" appended either way; a run that carries on keeps its name.
-WANDB_RUN_NAME = "madrl-AutoAlpha-260927"
+WANDB_RUN_NAME = "260907-all(ActorUpdate)-stored(TeamActions)"
 # Only models chosen on validation are uploaded, never the replay buffer or
 # every periodic checkpoint.
 WANDB_UPLOAD_CHECKPOINTS = "selected"   # "none" | "selected"

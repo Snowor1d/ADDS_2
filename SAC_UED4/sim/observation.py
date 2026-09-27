@@ -43,12 +43,15 @@ GLOBAL_STATIC = ("obstacle", "hazard", "path_to_boundary")
 GLOBAL_DYNAMIC = ("team_crowd", "team_observed")
 def own_state_layout(cfg) -> Tuple[str, ...]:
     """Names of the robot's own scalar state, in order. The mode one-hot has
-    one entry per ROBOT_MODES, and the signalled heading is there only when
-    "direct" is (USE_DIRECT)."""
+    one entry per ROBOT_MODES, the signalled heading is there only when
+    "direct" is (USE_DIRECT), and where it is heading only with
+    TEAM_SHARE_INTENT."""
     modes = tuple(cfg.ROBOT_MODES)
     heading = ("signal_x", "signal_y") if "direct" in modes else ()
+    intent = (("intent_dx", "intent_dy")
+              if getattr(cfg, "TEAM_SHARE_INTENT", False) else ())
     return (("x", "y", "log_w", "log_h", "signed_hazard_distance")
-            + tuple(f"mode_{m}" for m in modes) + heading
+            + tuple(f"mode_{m}" for m in modes) + heading + intent
             + ("own_visible_crowd", "team_seen_in_hazard",
                "team_observed_hazard_fraction"))
 
@@ -57,8 +60,10 @@ def teammate_state_layout(cfg) -> Tuple[str, ...]:
     """Names of one teammate's slot, in order; same rule as the own state."""
     modes = tuple(cfg.ROBOT_MODES)
     heading = ("signal_x", "signal_y") if "direct" in modes else ()
+    intent = (("intent_dx", "intent_dy")
+              if getattr(cfg, "TEAM_SHARE_INTENT", False) else ())
     return (("present", "dx", "dy") + tuple(f"mode_{m}" for m in modes)
-            + heading + ("message_age",))
+            + heading + intent + ("message_age",))
 
 
 def _index(layout: Tuple[str, ...]) -> Dict[str, int]:
@@ -362,6 +367,15 @@ class DecisionRecord:
     signal: np.ndarray         # (R, 2) float32
     avail: np.ndarray          # (R, R) uint8 bitmask over lags
     priv: np.ndarray           # (G, G) uint8 true people per global cell
+    intent: Optional[np.ndarray] = None   # (R, 2) float32 world xy heading to
+
+
+def _intent(rec: "DecisionRecord", r: int) -> Tuple[float, float]:
+    """Where robot r of this record was heading; its position for a record
+    stored before intents were."""
+    if rec.intent is None:
+        return float(rec.pose[r, 0]), float(rec.pose[r, 1])
+    return float(rec.intent[r, 0]), float(rec.intent[r, 1])
 
 
 def crowd_positions(model) -> np.ndarray:
@@ -485,6 +499,7 @@ def record_decision(model, cfg, t: int, comm: CommChannel) -> DecisionRecord:
     pose = np.zeros((Rm, 2), dtype=np.float32)
     mode = np.zeros((Rm,), dtype=np.int8)
     signal = np.zeros((Rm, 2), dtype=np.float32)
+    intent = np.zeros((Rm, 2), dtype=np.float32)
     modes = tuple(cfg.ROBOT_MODES)
     P = crowd_positions(model)
     for i, rb in enumerate(robots):
@@ -492,11 +507,13 @@ def record_decision(model, cfg, t: int, comm: CommChannel) -> DecisionRecord:
         pose[i] = (float(rb.xy[0]), float(rb.xy[1]))
         mode[i] = modes.index(getattr(rb, "mode", "off"))
         signal[i] = getattr(rb, "signal_dir", (0.0, 0.0))
+        intent[i] = (rb.heading_target() if hasattr(rb, "heading_target")
+                     else pose[i])
     comm.send(t)
     return DecisionRecord(n_robots=n, anchors=anchors, counts=counts,
                           observed=observed, pose=pose, mode=mode,
                           signal=signal, avail=comm.avail(t, Rm),
-                          priv=truth_counts(model, cfg, P))
+                          priv=truth_counts(model, cfg, P), intent=intent)
 
 
 # ------------------------------------------------------------ building inputs
@@ -718,6 +735,10 @@ def build_observations(requests: Sequence[ObsRequest], cfg,
         if "signal_x" in own:
             s[own["signal_x"]] = float(rec.signal[r, 0])
             s[own["signal_y"]] = float(rec.signal[r, 1])
+        if "intent_dx" in own:
+            ix, iy = _intent(rec, r)
+            s[own["intent_dx"]] = (ix - px) / float(cfg.OBS_TEAM_DISTANCE_SCALE_M)
+            s[own["intent_dy"]] = (iy - py) / float(cfg.OBS_TEAM_DISTANCE_SCALE_M)
         s[own["own_visible_crowd"]] = min(
             2.0, float(rec.counts[r].sum()) / 20.0)
         ref_people = max(1.0, st.hazard_area_m2 * 0.05)
@@ -759,6 +780,10 @@ def build_observations(requests: Sequence[ObsRequest], cfg,
             if "signal_x" in mate_ix:
                 s[o + mate_ix["signal_x"]] = float(src.signal[m, 0])
                 s[o + mate_ix["signal_y"]] = float(src.signal[m, 1])
+            if "intent_dx" in mate_ix:
+                ix, iy = _intent(src, m)
+                s[o + mate_ix["intent_dx"]] = (ix - px) / scale
+                s[o + mate_ix["intent_dy"]] = (iy - py) / scale
             s[o + mate_ix["message_age"]] = lagm / max(1, H - 1)
     return out
 
