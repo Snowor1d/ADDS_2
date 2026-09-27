@@ -1150,6 +1150,11 @@ class FightingModel(Model):
             if (cx <= band or cy <= band
                     or cx >= self.width - band or cy >= self.height - band):
                 out.append(mesh)
+        # Newcomers walk in along the streets, so not into a pocket the
+        # street network does not reach.
+        main = self.main_walkable_component()
+        if main:
+            out = [t for t in out if t in main] or out
         self._edge_mesh_cache = (key, out)
         return out
 
@@ -2058,6 +2063,17 @@ class FightingModel(Model):
             inside_meshes, outside_meshes = self._meshes_by_hazard()
             n_inside = int(round(agent_num * float(
                 getattr(self, "danger_inside_fraction", 1.0))))
+        # Only ground the street network reaches. Real crops contain sealed
+        # courtyards; a pedestrian placed in one can never leave it and ends
+        # up pressed into its corners, trying to follow or flee toward people
+        # on the far side of the wall (measured on OSM crops: 10 of 14
+        # pedestrians wedged against a wall for 80+ steps were in two such
+        # courtyards). Robots are already held to the same network.
+        main = self.main_walkable_component()
+        if main:
+            inside_meshes = [t for t in inside_meshes if t in main]
+            outside_meshes = [t for t in outside_meshes if t in main]
+        if str(CROWD_SPAWN) != "uniform":
             if not inside_meshes:
                 n_inside = 0
             if not outside_meshes:
@@ -2833,10 +2849,16 @@ class FightingModel(Model):
                                     if ob is not None and len(ob) >= 3]
 
         polys = list(self._obstacle_polys)
-        # The crop wall, as an obstacle like any other, built once.
-        polys.append(_Poly([(0, 0), (self.width - 1, 0),
-                            (self.width - 1, self.height - 1),
-                            (0, self.height - 1)]))
+        # The crop wall, as an obstacle like any other, built once. On the
+        # crop's own boundary: it used to sit at width - 1 and height - 1, a
+        # leftover of the integer grid, so the last metre along the right and
+        # top edges lay outside it. A pedestrian that stepped into that strip
+        # was pushed outward by this ring against its own drive back in, and
+        # stood 0.1 m from it for the rest of the episode (measured on OSM
+        # crops: 3 of the last 6 pedestrians wedged against a wall).
+        polys.append(_Poly([(0, 0), (self.width, 0),
+                            (self.width, self.height),
+                            (0, self.height)]))
         self._wall_polys = polys
         self._wall_exteriors = [q.exterior for q in polys]
         self._wall_exterior_index = _Tree(self._wall_exteriors)

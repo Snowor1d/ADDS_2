@@ -2398,6 +2398,11 @@ class CrowdKnowledgeTest(unittest.TestCase):
         import sim.model as M
         from ued.level import generate_city_level
 
+        # The crowd draws from the global generators too; unseeded, the
+        # outcome depended on which tests had run before.
+        import numpy as np
+        random.seed(seed)
+        np.random.seed(seed)
         lv = generate_city_level(random.Random(seed), difficulty=5,
                                  crowd_size=30, width=140, height=140,
                                  morphology="grid", robot_num=1,
@@ -2483,6 +2488,11 @@ class CrowdFlowTest(unittest.TestCase):
         import sim.model as M
         from ued.level import generate_city_level
 
+        # The crowd draws from the global generators too; unseeded, the
+        # outcome depended on which tests had run before.
+        import numpy as np
+        random.seed(seed)
+        np.random.seed(seed)
         lv = generate_city_level(random.Random(seed), difficulty=5,
                                  crowd_size=30, width=140, height=140,
                                  morphology="grid", robot_num=1,
@@ -2557,6 +2567,10 @@ class CrowdFlowTest(unittest.TestCase):
         M.CROWD_ALLOW_OUTFLOW = True
         try:
             fm = self._model()
+            # Only the stuck release is under test. A held pedestrian whose
+            # trip ends at a street mouth on this edge would otherwise leave
+            # by arriving there, which is correct but a different mechanism.
+            fm.arrive_at_destination = lambda agent, mesh: False
             held = fm.crowds[:3]
             n0 = self._alive(fm)
             fm.step()
@@ -3107,15 +3121,21 @@ class HazardAwarenessTest(unittest.TestCase):
     def test_perceptibility_changes_how_much_stays_in_the_zone(self):
         """The axis has to do something, or it is not a design variable.
 
-        Measured over 800 steps with no robot: 17 of 27 still inside at 0.05,
-        1 of 27 at 0.90.
+        Summed over three seeds, 800 steps, no robot: 33 still inside at
+        0.05, 10 at 0.90. One seed alone is too noisy to compare (seed 8 has
+        1 at 0.05 and 6 at 0.90 with the crowd model as it was before the
+        corner fixes).
         """
-        low = self._model(perceptibility=0.05, prior=0.05)
-        high = self._model(perceptibility=0.90, prior=0.05)
-        for _ in range(800):
-            low.step()
-            high.step()
-        self.assertGreater(low.alived_agents(), high.alived_agents())
+        low_total = high_total = 0
+        for seed in (4, 5, 6):
+            low = self._model(perceptibility=0.05, prior=0.05, seed=seed)
+            high = self._model(perceptibility=0.90, prior=0.05, seed=seed)
+            for _ in range(800):
+                low.step()
+                high.step()
+            low_total += low.alived_agents()
+            high_total += high.alived_agents()
+        self.assertGreater(low_total, high_total)
 
     def test_hazard_knowledge_is_local(self):
         """A pedestrian knows where it sensed danger, not the whole zone.
@@ -3433,6 +3453,7 @@ class WedgedPedestrianTest(unittest.TestCase):
         agent = object.__new__(CrowdAgent)
         agent.model = SimpleNamespace(
             danger_zone=SimpleNamespace(signed_distance=lambda x, y: gap[0]),
+            is_free_segment=lambda *args, **kwargs: True,
             width=24, height=24)
         agent.xy = [10.0, 10.0]
         agent.type = 1

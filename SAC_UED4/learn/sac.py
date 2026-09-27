@@ -51,7 +51,20 @@ class SACAgent:
         self.gamma = float(cfg.GAMMA_START)
         self.tau = 0.995
         self.batch_size = int(cfg.BATCH_SIZE)
-        self.alpha = torch.tensor(float(cfg.ALPHA_START), device=self.device)
+        # Entropy temperature, learned when ALPHA_AUTO. Optimised in log space
+        # so it stays positive; `self.alpha` is always the current value as a
+        # constant, which is what the targets and the actor loss use.
+        self.alpha_auto = bool(cfg.ALPHA_AUTO)
+        self.target_entropy = (float(cfg.ALPHA_TARGET_ENTROPY)
+                               if cfg.ALPHA_TARGET_ENTROPY is not None
+                               else -float(robot_action.CONT_DIM))
+        self.log_alpha = torch.tensor(float(np.log(float(cfg.ALPHA_START))),
+                                      device=self.device,
+                                      requires_grad=self.alpha_auto)
+        self.alpha_opt = (torch.optim.Adam([self.log_alpha],
+                                           lr=float(cfg.ALPHA_LR))
+                          if self.alpha_auto else None)
+        self.alpha = self.log_alpha.detach().exp()
         self.epsilon = float(cfg.START_EPSILON)
         self.replay = replay
         mk_q = lambda: CentralizedCritic(cfg, self.action_dim).to(self.device)
@@ -170,6 +183,17 @@ class SACAgent:
         loss_pi.backward()
         self.pi_opt.step()
 
+        # Temperature: raise alpha while the policy's entropy is below the
+        # target, lower it while above. Uses this batch's fresh actions.
+        loss_alpha = None
+        if self.alpha_auto:
+            loss_alpha = -(self.log_alpha
+                           * (logp.detach() + self.target_entropy)).mean()
+            self.alpha_opt.zero_grad()
+            loss_alpha.backward()
+            self.alpha_opt.step()
+            self.alpha = self.log_alpha.detach().exp()
+
         self._soft_update(self.q1, self.q1_target)
         self._soft_update(self.q2, self.q2_target)
         self.updates += 1
@@ -178,7 +202,10 @@ class SACAgent:
                 "train/q_team": float(q1.mean().item()),
                 "train/target": float(y.mean().item()),
                 "train/entropy": float(-logp.mean().item()),
-                "train/alpha": float(self.alpha.item())}
+                "train/alpha": float(self.alpha.item()),
+                "train/target_entropy": self.target_entropy,
+                **({"train/loss_alpha": float(loss_alpha.item())}
+                   if loss_alpha is not None else {})}
 
     def _soft_update(self, net, target):
         with torch.no_grad():
@@ -205,6 +232,9 @@ class SACAgent:
             "q2_target": self.q2_target.state_dict(),
             "q_opt": self.q_opt.state_dict(), "pi_opt": self.pi_opt.state_dict(),
             "updates": self.updates, "epsilon": self.epsilon,
+            "log_alpha": float(self.log_alpha.item()),
+            "alpha_opt": (self.alpha_opt.state_dict()
+                          if self.alpha_opt is not None else None),
             **(extra or {}),
         }
         tmp = path + ".tmp"
@@ -253,6 +283,15 @@ class SACAgent:
                 self.pi_opt.load_state_dict(ckpt["pi_opt"])
                 self.updates = int(ckpt.get("updates", 0))
                 self.epsilon = float(ckpt.get("epsilon", self.epsilon))
+                # Resuming continues the learned temperature. A checkpoint
+                # from before ALPHA_AUTO has none and keeps ALPHA_START; a
+                # fixed-alpha run always uses ALPHA_START.
+                if self.alpha_auto and "log_alpha" in ckpt:
+                    with torch.no_grad():
+                        self.log_alpha.fill_(float(ckpt["log_alpha"]))
+                    self.alpha = self.log_alpha.detach().exp()
+                    if ckpt.get("alpha_opt") is not None:
+                        self.alpha_opt.load_state_dict(ckpt["alpha_opt"])
         return ckpt
 
 

@@ -8,6 +8,7 @@
 """
 
 import os
+import math
 import random
 import tempfile
 import unittest
@@ -182,6 +183,73 @@ class UpdateTest(unittest.TestCase):
                           if not torch.equal(b, a.detach()))
             self.assertEqual(changed, len(before))
             self.assertTrue(np.isfinite(info["train/loss_q"]))
+
+
+class AlphaAutoTest(unittest.TestCase):
+    """The entropy temperature is learned toward a target entropy."""
+
+    def _agent_and_buffer(self, tmp, **over):
+        from learn.replay import ReplayBuffer, StaticStore
+        from learn.sac import SACAgent
+        cfg = _cfg(BATCH_SIZE=8, **over)
+        store = StaticStore(tmp)
+        buf = ReplayBuffer(cfg, 500, store)
+        agent = SACAgent(cfg)
+        _fill(cfg, buf, store, agent)
+        return cfg, agent, buf
+
+    def test_default_target_is_minus_the_continuous_dimensions(self):
+        from learn.sac import SACAgent
+        from sim import robot_action
+        agent = SACAgent(_cfg())
+        self.assertTrue(agent.alpha_auto)
+        self.assertEqual(agent.target_entropy, -float(robot_action.CONT_DIM))
+        self.assertAlmostEqual(float(agent.alpha), 0.2, places=6)
+
+    def test_alpha_moves_toward_the_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            # A target far above any reachable entropy: alpha has to rise.
+            _, up, buf = self._agent_and_buffer(tmp, ALPHA_TARGET_ENTROPY=50.0)
+            for _ in range(3):
+                info = up.update(buf.sample(8, np.random.default_rng(0)))
+            self.assertGreater(float(up.alpha), 0.2)
+            self.assertIn("train/loss_alpha", info)
+        with tempfile.TemporaryDirectory() as tmp:
+            # Far below: alpha has to fall.
+            _, down, buf = self._agent_and_buffer(tmp,
+                                                  ALPHA_TARGET_ENTROPY=-50.0)
+            for _ in range(3):
+                down.update(buf.sample(8, np.random.default_rng(0)))
+            self.assertLess(float(down.alpha), 0.2)
+
+    def test_fixed_alpha_stays_put(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, agent, buf = self._agent_and_buffer(tmp, ALPHA_AUTO=False)
+            for _ in range(3):
+                info = agent.update(buf.sample(8, np.random.default_rng(0)))
+            self.assertAlmostEqual(float(agent.alpha), 0.2, places=6)
+            self.assertNotIn("train/loss_alpha", info)
+
+    def test_resume_keeps_the_learned_alpha(self):
+        from learn.sac import SACAgent
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg, agent, buf = self._agent_and_buffer(tmp,
+                                                     ALPHA_TARGET_ENTROPY=50.0)
+            for _ in range(3):
+                agent.update(buf.sample(8, np.random.default_rng(0)))
+            path = os.path.join(tmp, "ckpt.pt")
+            agent.save(path)
+            again = SACAgent(cfg)
+            again.load(path)
+            self.assertAlmostEqual(float(again.alpha), float(agent.alpha),
+                                   places=6)
+
+    def test_invalid_settings_are_refused(self):
+        from configs import ConfigError
+        for bad in ({"ALPHA_START": 0.0}, {"ALPHA_LR": -1.0},
+                    {"ALPHA_AUTO": "yes"}, {"ALPHA_TARGET_ENTROPY": "auto"}):
+            with self.assertRaises(ConfigError):
+                _cfg(**bad)
 
 
 class RewardTimeTest(unittest.TestCase):
@@ -564,6 +632,46 @@ class RobotStuckTest(unittest.TestCase):
                 self.assertTrue(m.is_free_point(rb.xy[0], rb.xy[1],
                                                 padding=rb.body_radius))
                 self.assertIn(m.find_mesh(rb.xy), main)
+
+    def test_the_crowd_spawns_on_the_main_network(self):
+        """Sealed courtyards on OSM crops are walkable but unreachable.
+        Pedestrians placed there pressed into their corners for the rest of
+        the episode (la_latina and khao_san: 10 of 14 wedged pedestrians)."""
+        from learn.training_maps import OsmTrainingMaps
+        import sim.model as M
+        cfg = _cfg(DATASET_SITES=("la_latina",), DATASET_SIZES_M=(100,),
+                   DATASET_DENSITY_BY_SIZE={100: None})
+        maps = OsmTrainingMaps(cfg)
+        rng = random.Random(0)
+        lv = maps.sample(rng)
+        random.seed(0)
+        np.random.seed(0)
+        m = M.FightingModel(int(lv.crowd_size), lv.width, lv.height,
+                            robot="Q", level=lv)
+        main = m.main_walkable_component()
+        self.assertLess(len(main), len(m.pure_mesh),
+                        "this crop is expected to contain a sealed pocket")
+        for a in m.crowds:
+            self.assertIn(m.find_mesh(a.xy), main)
+        for mesh in m._edge_meshes():
+            self.assertIn(mesh, main)
+
+    def test_a_pedestrian_in_a_sealed_pocket_heads_for_the_network(self):
+        from learn.training_maps import OsmTrainingMaps
+        import sim.model as M
+        cfg = _cfg(DATASET_SITES=("la_latina",), DATASET_SIZES_M=(100,),
+                   DATASET_DENSITY_BY_SIZE={100: None})
+        lv = OsmTrainingMaps(cfg).sample(random.Random(0))
+        random.seed(0)
+        np.random.seed(0)
+        m = M.FightingModel(int(lv.crowd_size), lv.width, lv.height,
+                            robot="Q", level=lv)
+        a = m.crowds[0]
+        a.xy = [34.75, 84.25]           # inner corner of a sealed courtyard
+        here = m.find_mesh(a.xy)
+        self.assertNotIn(here, m.main_walkable_component())
+        goal = a._explore_randomly(here)
+        self.assertGreater(math.dist(a.xy, goal), 1.0)
 
     def test_a_robot_inside_a_wall_backs_out_but_never_goes_in(self):
         m = self._model_with_block()

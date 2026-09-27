@@ -443,6 +443,16 @@ def validate_config(cfg: ResolvedConfig, check_data: bool = True) -> None:
         pass
 
     # Network.
+    _check(isinstance(cfg.ALPHA_AUTO, bool),
+           f"ALPHA_AUTO={cfg.ALPHA_AUTO!r} must be True or False", p)
+    _check(float(cfg.ALPHA_START) > 0.0,
+           f"ALPHA_START={cfg.ALPHA_START} must be positive", p)
+    _check(float(cfg.ALPHA_LR) > 0.0,
+           f"ALPHA_LR={cfg.ALPHA_LR} must be positive", p)
+    _check(cfg.ALPHA_TARGET_ENTROPY is None
+           or isinstance(cfg.ALPHA_TARGET_ENTROPY, (int, float)),
+           f"ALPHA_TARGET_ENTROPY={cfg.ALPHA_TARGET_ENTROPY!r} must be a "
+           "number or None", p)
     _check(cfg.NET_ENCODER in ("cnn", "impala"),
            f"NET_ENCODER={cfg.NET_ENCODER!r}; expected 'cnn' or 'impala'", p)
     _check(cfg.NET_SIZE in ("m", "l", "xl"),

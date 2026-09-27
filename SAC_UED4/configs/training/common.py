@@ -76,9 +76,18 @@ NET_SIZE = "m"                      # "m" | "l" | "xl"
 # --------------- SAC ALGORITHM PARAMETER ---------------
 LOG_STD_MAX = 0.5
 LOG_STD_MIN = -20
+# Entropy temperature. With ALPHA_AUTO the temperature is learned so that
+# the policy's entropy tracks ALPHA_TARGET_ENTROPY (Haarnoja et al. 2018,
+# "Soft Actor-Critic Algorithms and Applications"); ALPHA_START is then only
+# its initial value. Without it alpha stays at ALPHA_START, and changing any
+# reward weight also changes how much entropy is worth relative to reward.
+# The entropy is that of the whole action: the squashed move (and signal)
+# plus the mode choice. None sets the usual -(continuous action dimensions),
+# -2 without "direct" and -4 with it.
+ALPHA_AUTO = True
 ALPHA_START = 0.2
-ALPHA_END = 0.2
-ALPHA_DECAY_STEPS = 3000
+ALPHA_LR = 3e-4
+ALPHA_TARGET_ENTROPY = None
 
 ENABLE_TIMER = True
 N_ENVS = 12
@@ -146,7 +155,7 @@ CRITIC_PRIVILEGED_CROWD = True
 # The weights are design values set before any policy was trained on them, not
 # measured quantities.
 REWARD_VERSION = "rew-v2-person-time"
-REWARD_W_PERSON_TIME = 1.0
+REWARD_W_PERSON_TIME = 5.0
 REWARD_W_REMAINING_PATH = 1.0
 REWARD_W_REENTRY = 2.0
 REWARD_W_COLLISION = 0.05
@@ -260,7 +269,7 @@ WANDB_GROUP = None                  # None = EXPERIMENT_ID
 # "outdoor-madrl-v2-dataset-100m-0924-1530". A run started from a checkpoint
 # as a new run (see the resume rule in learn/metrics_logger.py) gets
 # "-resume<episode>" appended either way; a run that carries on keeps its name.
-WANDB_RUN_NAME = "madrl-NotDirect"
+WANDB_RUN_NAME = "madrl-AutoAlpha-260927"
 # Only models chosen on validation are uploaded, never the replay buffer or
 # every periodic checkpoint.
 WANDB_UPLOAD_CHECKPOINTS = "selected"   # "none" | "selected"

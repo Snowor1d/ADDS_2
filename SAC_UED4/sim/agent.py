@@ -674,10 +674,34 @@ class CrowdAgent(Agent):
                 nx, ny = tx, ty
             else:
                 # 축 분리
+                moved = False
                 if fits(nx + vel[0]*sdt, ny):
                     nx += vel[0]*sdt
+                    moved = True
                 if fits(nx, ny + vel[1]*sdt):
                     ny += vel[1]*sdt
+                    moved = True
+                if not moved:
+                    # Along the facade. Splitting the move by axis slides
+                    # along walls that run with the grid and stops dead at
+                    # a slanted one: a pedestrian in a passage between a
+                    # slanted building and the crop edge had its drive along
+                    # the passage refused on both axes, every step, for the
+                    # rest of the episode (maboneng crop).
+                    face = self._nearest_wall_normal(nx, ny)
+                    if face is not None:
+                        ux, uy = face
+                        dx, dy = vel[0]*sdt, vel[1]*sdt
+                        into = dx*ux + dy*uy
+                        if into < 0.0:
+                            dx -= into*ux
+                            dy -= into*uy
+                        dx += 0.01*ux
+                        dy += 0.01*uy
+                        if fits(nx + dx, ny + dy):
+                            nx, ny = nx + dx, ny + dy
+        if not fits(nx, ny):
+            nx, ny = self._push_out_of_wall(nx, ny)
         # Wedging is measured as a lack of progress, not as a lack of motion.
         #
         # A pedestrian pressed into a corner does not stand still: it shuffles
@@ -712,6 +736,72 @@ class CrowdAgent(Agent):
         self._progress_anchor = (freed[0], freed[1])
         self._wedged_for = 0
         return freed
+
+    def _nearest_wall_normal(self, x, y):
+        """Unit normal, pointing away from it, of the nearest building face
+        within a body radius and a hand's breadth; None if there is none."""
+        from shapely.geometry import Point, box
+        m = self.model
+        if not hasattr(m, "_obstacles_for_query"):
+            return None
+        reach = self.body_radius + SF_WALL_MARGIN_M
+        p = Point(x, y)
+        index, polys = m._obstacles_for_query()
+        best = None
+        for idx in index.query(box(x - reach, y - reach, x + reach, y + reach)):
+            ring = polys[int(idx)].exterior
+            d = ring.distance(p)
+            if d < reach and (best is None or d < best[0]):
+                best = (d, ring)
+        if best is None:
+            return None
+        q = best[1].interpolate(best[1].project(p))
+        n = math.hypot(x - q.x, y - q.y)
+        if n < 1e-9:
+            return None
+        return (x - q.x) / n, (y - q.y) / n
+
+    def _push_out_of_wall(self, x, y):
+        """Move a body that overlaps a building just clear of its nearest face.
+
+        The swept move only accepts positions where the whole body fits, so a
+        body already overlapping a wall, by contact forces or a crowd push,
+        was refused every move, including the ones that would have reduced
+        the overlap. Measured on a maboneng crop: a pedestrian 0.004 m into a
+        building in a 0.8 m passage along the crop edge stood still for the
+        rest of the episode while its drive pointed along the passage.
+        """
+        from shapely.geometry import Point, box
+        m = self.model
+        if not hasattr(m, "_obstacles_for_query"):
+            return x, y
+        r = self.body_radius
+        p = Point(x, y)
+        index, polys = m._obstacles_for_query()
+        best = None
+        for idx in index.query(box(x - r, y - r, x + r, y + r)):
+            poly = polys[int(idx)]
+            if poly.contains(p):
+                return x, y          # inside a building: the unwedge handles it
+            d = poly.exterior.distance(p)
+            if d < r and (best is None or d < best[0]):
+                best = (d, poly.exterior)
+        if best is None:
+            return x, y
+        d, ring = best
+        q = ring.interpolate(ring.project(p))
+        n = math.hypot(x - q.x, y - q.y)
+        if n < 1e-9:
+            return x, y
+        push = r - d + 0.01
+        px = x + (x - q.x) / n * push
+        py = y + (y - q.y) / n * push
+        if not (0.0 < px < m.width and 0.0 < py < m.height):
+            return x, y
+        if (m.is_free_point(px, py, padding=r)
+                or m.obstacle_clearance(px, py) > m.obstacle_clearance(x, y)):
+            return px, py
+        return x, y
 
     # Steps of not getting anywhere before a pedestrian is treated as wedged.
     WEDGE_PATIENCE = 12
@@ -857,6 +947,15 @@ class CrowdAgent(Agent):
         self.update_awareness(near_agents, self._signal_robot is not None)
 
         self.which_goal_agent_want(near_agents)
+        # Straight-line goals (fleeing along a remembered bearing, following
+        # a neighbour or a robot) are walked around buildings rather than
+        # into them. Measured on OSM crops: 7 of 14 pedestrians wedged against
+        # a wall for 80+ steps were pressed into a concave building corner by
+        # a flee heading or a neighbour on the far side of the wall. A goal
+        # already in sight, which includes every navmesh waypoint, is kept.
+        if (not getattr(self, "_dwelling", False)
+                and getattr(self, "scripted_goal", None) is None):
+            self.now_goal = self._routed_goal(self.now_goal)
 
         # ---- 목표 방향 ----
         gx = self.now_goal[0] - self.xy[0]
@@ -982,7 +1081,12 @@ class CrowdAgent(Agent):
         # 🔹 (추가) 맵 outer wall 반발력
         W = self.model.width
         H = self.model.height
-        MARGIN = 2.0         # 이 거리 안으로 들어오면 힘 발생
+        # Only at contact range, like a wall. The crop edge is not a wall: the
+        # city carries on past it, and the swept move already keeps bodies
+        # inside the map. A 2 m band pinned pedestrians between the edge and a
+        # building a metre from it, and held people back from the street
+        # mouths they were leaving by (7 of 14 wedged cases measured).
+        MARGIN = self.body_radius + SF_WALL_MARGIN_M
         K_BORDER = 200.0     # 경계 힘 세기 (필요하면 조절)
         F_wx = 0
         F_wy = 0
@@ -1590,6 +1694,12 @@ class CrowdAgent(Agent):
                     min(max(self.xy[0] + ux * step, m), self.model.width - m),
                     min(max(self.xy[1] + uy * step, m), self.model.height - m),
                 ]
+                if not self.model.is_free_segment(
+                        float(self.xy[0]), float(self.xy[1]),
+                        self.now_goal[0], self.now_goal[1], padding=0.0):
+                    waypoint = self._flee_waypoint(2.0 * step, (ux, uy))
+                    if waypoint is not None:
+                        self.now_goal = waypoint
                 return
             # Acting but with nothing remembered: told rather than sensed. It
             # knows to move and not where, so it falls through to the social
@@ -1686,6 +1796,111 @@ class CrowdAgent(Agent):
             min(max(self.xy[1] + uy * step, m), self.model.height - m),
         ]
 
+    @staticmethod
+    def _portal_waypoint(now_mesh, nxt):
+        """Through the edge two adjacent triangles share, just past it.
+
+        A centroid-to-centroid segment can cut through a building corner even
+        for adjacent triangles; the shared edge is inside both.
+        """
+        shared = [p for p in now_mesh if p in nxt]
+        cx = sum(p[0] for p in nxt) / 3.0
+        cy = sum(p[1] for p in nxt) / 3.0
+        if len(shared) >= 2:
+            mx = (shared[0][0] + shared[1][0]) / 2.0
+            my = (shared[0][1] + shared[1][1]) / 2.0
+            return [mx + 0.6 * (cx - mx), my + 0.6 * (cy - my)]
+        return [cx, cy]
+
+    def _flee_waypoint(self, reach, bearing):
+        """Next navmesh waypoint toward the nearby walkable ground farthest
+        from the remembered hazard spots, for a flee heading that runs into
+        a building.
+
+        A straight heading into a concave building corner or a dead-end
+        alley has no walkable ground beyond the wall that the pedestrian can
+        route to: the triangle nearest the blocked heading is the one it
+        already stands in, so it pressed into the corner indefinitely
+        (measured on OSM crops: 14 of 19 pedestrians wedged against a wall
+        for 80+ steps). Searching the triangles within `reach` metres of
+        walking lets it back out of the pocket and round the block. Only the
+        local layout is used, and only its own hazard memory; the choice is
+        kept for a few seconds so it does not dither between two exits.
+        """
+        m = self.model
+        now = m.find_mesh(self.xy) or self.choice_safe_mesh(self.xy)
+        if now is None or not self.hazard_memory:
+            return None
+
+        def centre(t):
+            return ((t[0][0] + t[1][0] + t[2][0]) / 3.0,
+                    (t[0][1] + t[1][1] + t[2][1]) / 3.0)
+
+        x, y = float(self.xy[0]), float(self.xy[1])
+
+        def safety(c):
+            return min(math.hypot(c[0] - hx, c[1] - hy)
+                       for hx, hy in self.hazard_memory)
+
+        cached = getattr(self, "_flee_target", None)
+        if (cached is not None and cached[0] != now
+                and int(m.step_count) < cached[1]
+                and m.next_mesh_from_to(now, cached[0]) is not None):
+            target = cached[0]
+        else:
+            import heapq
+            start = centre(now)
+            dist = {now: math.hypot(start[0] - x, start[1] - y)}
+            heap = [(dist[now], 0, now)]
+            best, best_score, tie = now, safety(start), 1
+            while heap:
+                d, _, t = heapq.heappop(heap)
+                if d > dist.get(t, math.inf):
+                    continue
+                ct = centre(t)
+                score = safety(ct)
+                if score > best_score + 1e-6:
+                    best, best_score = t, score
+                for nb in m.adjacent_mesh.get(t, ()):
+                    cn = centre(nb)
+                    nd = d + math.hypot(cn[0] - ct[0], cn[1] - ct[1])
+                    if nd <= reach and nd < dist.get(nb, math.inf):
+                        dist[nb] = nd
+                        heapq.heappush(heap, (nd, tie, nb))
+                        tie += 1
+            target = best
+            self._flee_target = (target, int(m.step_count) + 10)
+        if target == now:
+            # Nothing within reach is farther from the danger than where it
+            # stands: it is cornered. Holding the heading pressed it into the
+            # wall between it and that heading for the rest of the episode;
+            # standing in the open part of this triangle is what is left.
+            return list(centre(now))
+        nxt = m.next_mesh_from_to(now, target)
+        if nxt is None:
+            return None
+        return self._portal_waypoint(now, nxt)
+
+    def _routed_goal(self, goal):
+        """`goal` when it is in sight; otherwise the next navmesh waypoint
+        toward the walkable ground nearest it."""
+        m = self.model
+        x, y = float(self.xy[0]), float(self.xy[1])
+        gx = min(max(float(goal[0]), 0.01), m.width - 0.01)
+        gy = min(max(float(goal[1]), 0.01), m.height - 0.01)
+        if math.hypot(gx - x, gy - y) < 1e-6:
+            return [gx, gy]
+        if m.is_free_segment(x, y, gx, gy, padding=0.0):
+            return [gx, gy]
+        now = m.find_mesh(self.xy) or self.choice_safe_mesh(self.xy)
+        target = m.find_mesh((gx, gy)) or self.choice_safe_mesh((gx, gy))
+        if now is None or target is None or now == target:
+            return [gx, gy]
+        nxt = m.next_mesh_from_to(now, target)
+        if nxt is None:
+            return [gx, gy]
+        return self._portal_waypoint(now, nxt)
+
     def _explore_randomly(self, now_mesh):
         """The next waypoint toward whichever triangle this agent is exploring.
 
@@ -1707,6 +1922,14 @@ class CrowdAgent(Agent):
         # The rounded 1 m grid can name a triangle across a wall or portal.
         # Route from the triangle containing the pedestrian whenever possible.
         now_mesh = self.model.find_mesh(self.xy) or now_mesh
+        # A pocket the street network does not reach: a sliver along the crop
+        # edge or a courtyard that shares only a vertex with the streets. No
+        # destination is routable from it, so walk back onto the network.
+        if (now_mesh is not None and getattr(self.model, "pure_mesh", None)
+                and now_mesh not in self.model.main_walkable_component()):
+            rejoin = self._nearest_main_mesh_centre()
+            if rejoin is not None:
+                return rejoin
         for _ in range(8):
             goal_mesh = self.now_pointing_mesh
             if goal_mesh is not None:
@@ -1721,17 +1944,7 @@ class CrowdAgent(Agent):
                     if nxt is not None:
                         # A centroid-to-centroid segment can cut through a
                         # building corner even for adjacent triangles.
-                        shared = [p for p in now_mesh if p in nxt]
-                        if len(shared) >= 2:
-                            mx = (shared[0][0] + shared[1][0]) / 2.0
-                            my = (shared[0][1] + shared[1][1]) / 2.0
-                            cx = sum(p[0] for p in nxt) / 3.0
-                            cy = sum(p[1] for p in nxt) / 3.0
-                            waypoint = [mx + 0.6 * (cx - mx),
-                                        my + 0.6 * (cy - my)]
-                            return waypoint
-                        return [sum(p[0] for p in nxt) / 3.0,
-                                sum(p[1] for p in nxt) / 3.0]
+                        return self._portal_waypoint(now_mesh, nxt)
                 else:
                     # Stay on this trip until the arrival check says the
                     # destination was reached. A large triangle is not its
@@ -1766,7 +1979,34 @@ class CrowdAgent(Agent):
             nb = random.choice(neighbours)
             return [(nb[0][0]+nb[1][0]+nb[2][0])/3.0,
                     (nb[0][1]+nb[1][1]+nb[2][1])/3.0]
+        # A triangle with no neighbours: a sliver along the crop edge or a
+        # courtyard that shares only a vertex with the streets. Returning the
+        # agent's own position here gave a goal that followed it around, so
+        # it stood still against the edge for the rest of the episode
+        # (measured on OSM crops: 3 of the 8 remaining wedged pedestrians).
+        # Walk back onto the connected street network instead.
+        rejoin = self._nearest_main_mesh_centre()
+        if rejoin is not None:
+            return rejoin
         return [self.xy[0], self.xy[1]]
+
+    def _nearest_main_mesh_centre(self):
+        m = self.model
+        try:
+            main = m.main_walkable_component()
+        except Exception:
+            return None
+        if not main:
+            return None
+        x, y = float(self.xy[0]), float(self.xy[1])
+        best, best_d = None, math.inf
+        for t in main:
+            cx = (t[0][0] + t[1][0] + t[2][0]) / 3.0
+            cy = (t[0][1] + t[1][1] + t[2][1]) / 3.0
+            d = (cx - x) ** 2 + (cy - y) ** 2
+            if d < best_d:
+                best, best_d = [cx, cy], d
+        return best
 
 
   
