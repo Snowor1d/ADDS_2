@@ -337,8 +337,10 @@ class TeamIntentTest(unittest.TestCase):
         a.action[0], a.action[1] = 0.0, 0.0
         b.action[0], b.action[1] = 1.0, 0.0      # due +x
         rec = record_decision(m, cfg, 0, CommChannel(cfg, 2, seed=0))
-        from config import ROBOT_SPEED_MAX, ROBOT_TIME_STEP, ACTION_SCALE
-        reach = ROBOT_SPEED_MAX * ROBOT_TIME_STEP * ACTION_SCALE
+        import config
+        from configs import decision_max_steps
+        reach = (config.ROBOT_SPEED_MAX * config.ROBOT_TIME_STEP
+                 * decision_max_steps(config))
         self.assertAlmostEqual(float(rec.intent[1, 0]),
                                float(b.xy[0]) + reach, places=4)
         self.assertAlmostEqual(float(rec.intent[0, 0]), float(a.xy[0]),
@@ -380,7 +382,7 @@ class TeamIntentTest(unittest.TestCase):
 class RewardTimeTest(unittest.TestCase):
     def test_first_and_cut_short_decisions_are_recorded(self):
         from learn.rollout import run_episode
-        cfg = _cfg()
+        cfg = _cfg(ROBOT_DECISION_MAX_S=2.0)
         m = _model(_level(robots=1))
         got = []
         from sim.robot_action import encode
@@ -396,7 +398,7 @@ class RewardTimeTest(unittest.TestCase):
 
     def test_task_termination_marks_the_last_transition_terminal(self):
         from learn.rollout import run_episode
-        cfg = _cfg()
+        cfg = _cfg(ROBOT_DECISION_MAX_S=2.0)
         m = _model(_level(robots=1))
         # The robots also ask should_finish, so decide by the step count.
         m.should_finish = lambda: m.step_count >= 6
@@ -458,7 +460,8 @@ class ReplayTest(unittest.TestCase):
     def setUp(self):
         from learn.replay import ReplayBuffer, StaticStore
         from learn.sac import SACAgent
-        self.cfg = _cfg(BATCH_SIZE=8)
+        # Pinned so the short episodes hold enough decisions to check.
+        self.cfg = _cfg(BATCH_SIZE=8, ROBOT_DECISION_MAX_S=2.0)
         self.tmp = tempfile.TemporaryDirectory()
         self.store = StaticStore(self.tmp.name)
         self.buf = ReplayBuffer(self.cfg, 400, self.store)
@@ -721,6 +724,96 @@ class DirectModeSwitchTest(unittest.TestCase):
         self.assertEqual(len(teammate_state_layout(C)), 9)
 
 
+class DecisionTimingTest(unittest.TestCase):
+    """A team decision is held up to ROBOT_DECISION_MAX_S, and ends early
+    when a robot arrives at its waypoint or is blocked by a wall."""
+
+    def setUp(self):
+        import sim.agent as A
+        self._A = A
+        self._saved = A.ROBOT_ACTION_MODE
+
+    def tearDown(self):
+        self._A.ROBOT_ACTION_MODE = self._saved
+
+    def _model_with_wall(self):
+        from sim.danger import DangerZone
+        from ued.level import Level
+        import sim.model as M
+        random.seed(0)
+        np.random.seed(0)
+        wall = [[0.0, 28.0], [60.0, 28.0], [60.0, 32.0], [0.0, 32.0]]
+        lv = Level(obstacles=[wall], exits=[], crowd_size=3, width=60,
+                   height=60)
+        lv.danger = DangerZone("circle", 50.0, 50.0, radius=5.0)
+        lv.robot_num = 1
+        lv.augmentation = "identity"
+        return M.FightingModel(3, 60, 60, robot="Q", level=lv)
+
+    def _holds(self, m, cfg, move, steps):
+        from learn.rollout import run_episode
+        from sim.robot_action import encode
+        got = []
+        act = encode(move, "guide")[None]
+        run_episode(m, cfg, lambda o, r: act, gamma=0.99, max_steps=steps,
+                    emit=got.append)
+        return [t.hold for t in got if t.action is not None]
+
+    def test_the_longest_decision_is_the_configured_time(self):
+        cfg = _cfg(ROBOT_DECISION_MAX_S=4.0)
+        self.assertEqual(cfg.decision_max_steps(), 8)
+        m = _model(_level(robots=1))
+        self.assertEqual(self._holds(m, cfg, (0.0, 0.0), 20), [8, 8, 4])
+
+    def test_the_longest_decision_is_whole_steps(self):
+        from configs import ConfigError
+        with self.assertRaises(ConfigError):
+            _cfg(ROBOT_DECISION_MAX_S=1.2)
+
+    def test_arrival_ends_the_decision(self):
+        from config import ROBOT_WAYPOINT_RANGE_M
+        move = (2.0 * 2.0 / float(ROBOT_WAYPOINT_RANGE_M), 0.0)  # 2 m right
+        for on_events, want in ((True, 3), (False, 8)):
+            # Resolved before the simulator is switched, which the config
+            # check would otherwise refuse.
+            cfg = _cfg(ROBOT_DECISION_MAX_S=4.0,
+                       ROBOT_DECISION_ON_EVENTS=on_events)
+            self._A.ROBOT_ACTION_MODE = "waypoint"
+            m = self._model_with_wall()
+            m.robots[0].xy = [10.0, 10.0]
+            # One step to initialise the robot, two to walk 2 m.
+            self.assertEqual(self._holds(m, cfg, move, 8)[0], want)
+            self._A.ROBOT_ACTION_MODE = self._saved
+
+    def test_a_wall_ends_the_decision(self):
+        m = self._model_with_wall()
+        rb = m.robots[0]
+        rb.xy = [10.0, 27.0]
+        cfg = _cfg(ROBOT_DECISION_MAX_S=4.0)
+        holds = self._holds(m, cfg, (0.0, 1.0), 8)
+        self.assertLess(holds[0], 8)
+        self.assertEqual(rb.decision_event, "blocked")
+
+    def test_a_replay_saved_with_shorter_decisions_still_loads(self):
+        from learn.replay import ReplayBuffer, StaticStore
+        from learn.sac import SACAgent
+        cfg = _cfg(ROBOT_DECISION_MAX_S=2.0)
+        longer = _cfg(ROBOT_DECISION_MAX_S=4.0)
+        with tempfile.TemporaryDirectory() as tmp:
+            store = StaticStore(tmp)
+            buf = ReplayBuffer(cfg, 200, store)
+            _fill(cfg, buf, store, SACAgent(cfg), episodes=((2, 20),))
+            path = os.path.join(tmp, "buf.npz")
+            buf.save(path, cfg.schema_versions())
+            again = ReplayBuffer(longer, 200, store)
+            again.load(path, longer.schema_versions())
+            n = again.size
+            self.assertEqual(again.step_rewards.shape[1], 8)
+            np.testing.assert_array_equal(again.step_rewards[:n, :4],
+                                          buf.step_rewards[:n])
+            self.assertFalse(again.step_rewards[:n, 4:].any())
+
+
 class WaypointActionTest(unittest.TestCase):
     """ROBOT_ACTION_MODE = "waypoint": the move is a target point, walked
     to along the navmesh."""
@@ -799,6 +892,66 @@ class WaypointActionTest(unittest.TestCase):
                                places=4)
         self.assertAlmostEqual(wy, 10.0, places=4)
 
+    def test_the_action_speed_scales_the_walk(self):
+        from config import ROBOT_SPEED_MAX, ROBOT_TIME_STEP
+        self._A.ROBOT_ACTION_MODE = "waypoint"
+        m = self._model_with_slotted_wall()
+        rb = m.robots[0]
+        rb.xy = [10.0, 10.0]
+        rb.receive_action([1.0, 0.0], speed_fraction=0.5)   # 10 m right
+        vx, vy = rb._waypoint_velocity(ROBOT_TIME_STEP)
+        self.assertAlmostEqual(math.hypot(vx, vy), 0.5 * ROBOT_SPEED_MAX)
+        rb.receive_action([1.0, 0.0])
+        vx, vy = rb._waypoint_velocity(ROBOT_TIME_STEP)
+        self.assertAlmostEqual(math.hypot(vx, vy), float(ROBOT_SPEED_MAX))
+
+    def test_speed_fraction_reads_the_action(self):
+        from sim import robot_action as ra
+        v = np.zeros(ra.ACTION_DIM + 1, np.float32)
+        saved = (ra.SPEED, ra.ACTION_DIM)
+        try:
+            ra.SPEED, ra.ACTION_DIM = 2, len(v)
+            for raw, want in ((-2.0, 0.0), (0.0, 0.5), (2.0, 1.0), (9.0, 1.0)):
+                v[2] = raw
+                self.assertAlmostEqual(ra.speed_fraction(v), want)
+        finally:
+            ra.SPEED, ra.ACTION_DIM = saved
+        if ra.SPEED is None:
+            self.assertEqual(ra.speed_fraction(v), 1.0)
+
+    def test_the_planned_path_goes_through_the_gap(self):
+        from config import ROBOT_WAYPOINT_RANGE_M
+        self._A.ROBOT_ACTION_MODE = "waypoint"
+        m = self._model_with_slotted_wall()
+        rb = m.robots[0]
+        rb.xy = [10.0, 20.0]
+        self.assertEqual(rb.planned_path(), [])
+        rb.receive_action([0.0, 2.0 * 20.0 / float(ROBOT_WAYPOINT_RANGE_M)])
+        self._drive(m, rb, 1)
+        pts = rb.planned_path()
+        self.assertEqual(pts[0], (float(rb.xy[0]), float(rb.xy[1])))
+        self.assertLess(math.dist(pts[-1], (10.0, 40.0)), 1e-6)
+        # Some point on the way crosses the wall line inside the gap.
+        self.assertTrue(any(39.5 < x < 42.5 and 27.0 < y < 33.0
+                            for x, y in pts[1:-1]))
+        for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+            self.assertTrue(m.is_free_segment(x0, y0, x1, y1, padding=0.0))
+
+    def test_the_renderer_draws_the_plan(self):
+        from config import ROBOT_WAYPOINT_RANGE_M
+        from viz.continuous_renderer import ContinuousRenderer
+        self._A.ROBOT_ACTION_MODE = "waypoint"
+        m = self._model_with_slotted_wall()
+        rb = m.robots[0]
+        rb.xy = [10.0, 20.0]
+        rb.receive_action([0.0, 2.0 * 20.0 / float(ROBOT_WAYPOINT_RANGE_M)])
+        self._drive(m, rb, 1)
+        r = ContinuousRenderer(world_size=(60.0, 60.0), robot_style="circle")
+        r.draw(m)
+        dashed = [ln for ln in r.ax.lines if ln.get_linestyle() == "--"]
+        self.assertEqual(len(dashed), 1)
+        self.assertEqual(tuple(dashed[0].get_xydata()[-1]), (10.0, 40.0))
+
     def test_a_target_inside_a_building_moves_to_the_network(self):
         m = self._model_with_slotted_wall()
         (x, y), tri = m.nearest_main_ground(20.0, 30.0, 0.5)
@@ -809,7 +962,7 @@ class WaypointActionTest(unittest.TestCase):
     def test_the_action_schema_follows_the_mode(self):
         from configs import ConfigError
         with self.assertRaises(ConfigError):
-            _cfg(ACTION_SCHEMA_VERSION="act-v2-move2-mode2-waypoint")
+            _cfg(ACTION_SCHEMA_VERSION="act-v2-move2-mode2-waypoint-speed")
         with self.assertRaises(ConfigError):
             _cfg(ROBOT_ACTION_MODE="waypoint")   # the simulator disagrees
 

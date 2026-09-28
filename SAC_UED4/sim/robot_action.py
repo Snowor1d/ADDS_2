@@ -18,6 +18,11 @@ and without it, the default (four numbers):
     0:2   where to move
     2:4   a one-hot over ("off", "guide")
 
+Under ROBOT_ACTION_MODE = "waypoint" one more continuous number follows the
+move (and the heading, if any), before the mode: the speed to walk to the
+waypoint at, [-2, 2] mapped to [0, 1] of ROBOT_SPEED_MAX. Under "velocity" the
+length of the move already is the speed, so there is none.
+
 The heading exists only for "direct", so it is dropped with it rather than
 left as two numbers the policy would have to learn to ignore. CONT_DIM is how
 many of the numbers are continuous (the squashed Gaussian part of the
@@ -34,19 +39,24 @@ from typing import Sequence, Tuple
 
 import numpy as np
 
-from config import ROBOT_MODES
+from config import ROBOT_ACTION_MODE, ROBOT_MODES
 
 HAS_SIGNAL = "direct" in ROBOT_MODES
+HAS_SPEED = ROBOT_ACTION_MODE == "waypoint"
 MOVE = slice(0, 2)
 SIGNAL = slice(2, 4) if HAS_SIGNAL else None
-CONT_DIM = 4 if HAS_SIGNAL else 2
+_S = 4 if HAS_SIGNAL else 2
+SPEED = _S if HAS_SPEED else None
+CONT_DIM = _S + (1 if HAS_SPEED else 0)
 MODE = slice(CONT_DIM, CONT_DIM + len(ROBOT_MODES))
 ACTION_DIM = CONT_DIM + len(ROBOT_MODES)
 
 
 def encode(move: Sequence[float], mode: str,
-           signal: Sequence[float] = (0.0, 0.0)) -> np.ndarray:
-    """Build an action vector from its parts."""
+           signal: Sequence[float] = (0.0, 0.0),
+           speed: float = 1.0) -> np.ndarray:
+    """Build an action vector from its parts. `speed` is a fraction of
+    ROBOT_SPEED_MAX, kept only when the layout has a speed."""
     if mode not in ROBOT_MODES:
         raise ValueError(f"unknown robot mode {mode!r}; expected one of "
                          f"{ROBOT_MODES}")
@@ -54,6 +64,8 @@ def encode(move: Sequence[float], mode: str,
     out[MOVE] = (float(move[0]), float(move[1]))
     if SIGNAL is not None:
         out[SIGNAL] = (float(signal[0]), float(signal[1]))
+    if SPEED is not None:
+        out[SPEED] = 4.0 * min(1.0, max(0.0, float(speed))) - 2.0
     out[MODE][ROBOT_MODES.index(mode)] = 1.0
     return out
 
@@ -73,11 +85,21 @@ def decode(vec: Sequence[float]) -> Tuple[Tuple[float, float], str,
     return (float(v[0]), float(v[1])), mode, heading
 
 
+def speed_fraction(vec: Sequence[float]) -> float:
+    """The speed an action asks for, as a fraction of ROBOT_SPEED_MAX; full
+    speed when the layout has none."""
+    v = np.asarray(vec, dtype=np.float32).reshape(-1)
+    if SPEED is None or v.shape[0] < ACTION_DIM:
+        return 1.0
+    return min(1.0, max(0.0, (float(v[SPEED]) + 2.0) / 4.0))
+
+
 def apply_to(robot, vec):
     """Apply an action vector to one robot. Returns the move it accepted."""
     move, mode, signal = decode(vec)
     robot.set_signal(mode, signal[0], signal[1])
-    return robot.receive_action([move[0], move[1]])
+    return robot.receive_action([move[0], move[1]],
+                                speed_fraction=speed_fraction(vec))
 
 
 def random_action(rng=None, scale: float = 2.0) -> np.ndarray:
@@ -93,4 +115,4 @@ def random_action(rng=None, scale: float = 2.0) -> np.ndarray:
     move = (rng.uniform(-scale, scale), rng.uniform(-scale, scale))
     signal = (rng.uniform(-scale, scale), rng.uniform(-scale, scale))
     mode = ROBOT_MODES[rng.randrange(len(ROBOT_MODES))]
-    return encode(move, mode, signal)
+    return encode(move, mode, signal, speed=rng.uniform(0.0, 1.0))

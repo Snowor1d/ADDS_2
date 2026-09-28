@@ -36,7 +36,8 @@ from ued.level import generate_random_level
 from ued.population import LevelPopulation
 
 # How many states of one episode are kept for the MaxMC estimate. A full
-# episode is up to MAX_STEPS/ACTION_SCALE transitions and each carries two map
+# episode is one transition per decision, up to MAX_STEPS with decisions on
+# events (ROBOT_DECISION_ON_EVENTS), and each carries two map
 # stacks, so keeping all of them for every in-flight worker would cost
 # hundreds of megabytes. A few dozen samples are enough for a mean.
 MAXMC_SAMPLES = 64

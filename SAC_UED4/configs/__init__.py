@@ -188,6 +188,16 @@ class ResolvedConfig:
                   else gamma_per_decision)
         return g ** (1.0 / max(1, int(self.ACTION_SCALE)))
 
+    def decision_max_steps(self) -> int:
+        return decision_max_steps(self)
+
+
+def decision_max_steps(cfg) -> int:
+    """Simulation steps a decision is held at most: ROBOT_DECISION_MAX_S in
+    ROBOT_TIME_STEP. Takes a ResolvedConfig or the `config` module."""
+    return max(1, int(round(float(cfg.ROBOT_DECISION_MAX_S)
+                            / float(cfg.ROBOT_TIME_STEP))))
+
 
 def collect() -> Tuple[Dict[str, Any], Dict[str, str]]:
     """All settings and their owning file. Raises on a name owned twice."""
@@ -451,10 +461,18 @@ def validate_config(cfg: ResolvedConfig, check_data: bool = True) -> None:
     _check(float(cfg.ROBOT_WAYPOINT_RANGE_M) > 0.0,
            f"ROBOT_WAYPOINT_RANGE_M={cfg.ROBOT_WAYPOINT_RANGE_M} must be "
            "positive", p)
+    k = float(cfg.ROBOT_DECISION_MAX_S) / float(cfg.ROBOT_TIME_STEP)
+    _check(k >= 1.0 - 1e-9 and abs(k - round(k)) < 1e-6,
+           f"ROBOT_DECISION_MAX_S={cfg.ROBOT_DECISION_MAX_S} must be a "
+           f"positive whole number of ROBOT_TIME_STEP="
+           f"{cfg.ROBOT_TIME_STEP}", p)
+    _check(isinstance(cfg.ROBOT_DECISION_ON_EVENTS, bool),
+           f"ROBOT_DECISION_ON_EVENTS={cfg.ROBOT_DECISION_ON_EVENTS!r} must "
+           "be True or False", p)
     want_schema = (("act-v1-move2-signal2-mode3" if cfg.USE_DIRECT
                     else "act-v2-move2-mode2")
-                   + ("-waypoint" if cfg.ROBOT_ACTION_MODE == "waypoint"
-                      else ""))
+                   + ("-waypoint-speed"
+                      if cfg.ROBOT_ACTION_MODE == "waypoint" else ""))
     _check(cfg.ACTION_SCHEMA_VERSION == want_schema,
            f"ACTION_SCHEMA_VERSION={cfg.ACTION_SCHEMA_VERSION!r} does not "
            f"follow USE_DIRECT and ROBOT_ACTION_MODE (expected "

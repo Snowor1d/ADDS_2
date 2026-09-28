@@ -28,6 +28,7 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
+from configs import decision_max_steps
 from sim.observation import (DecisionRecord, ObsRequest, StaticLayers,
                              build_observations, critic_privileged, obs_shapes)
 
@@ -179,7 +180,8 @@ class ReplayBuffer:
         self.priv = np.zeros((C, G, G), np.uint8)
         self.action = np.zeros((C, R, ACTION_DIM), np.float32)
         self.has_action = np.zeros(C, bool)
-        self.step_rewards = np.zeros((C, int(cfg.ACTION_SCALE)), np.float32)
+        # One column per step of the longest decision (ROBOT_DECISION_MAX_S).
+        self.step_rewards = np.zeros((C, decision_max_steps(cfg)), np.float32)
         self.hold = np.zeros(C, np.int16)
         self.terminal = np.zeros(C, bool)
         self.episode = np.full(C, -1, np.int64)
@@ -241,7 +243,8 @@ class ReplayBuffer:
         sr = np.asarray(step_rewards, dtype=np.float32).reshape(-1)
         if sr.shape[0] > self.step_rewards.shape[1]:
             raise ValueError(f"an action held {sr.shape[0]} steps, more than "
-                             f"ACTION_SCALE={self.step_rewards.shape[1]}")
+                             f"ROBOT_DECISION_MAX_S allows "
+                             f"({self.step_rewards.shape[1]} steps)")
         self.step_rewards[i] = 0.0
         self.step_rewards[i, :sr.shape[0]] = sr
         self.hold[i] = int(sr.shape[0])
@@ -411,6 +414,13 @@ class ReplayBuffer:
                     self.intent[:n] = data["pose"]
                     continue
                 arr = data[k]
+                if (k == "step_rewards" and arr.ndim == 2
+                        and arr.shape[1] <= self.step_rewards.shape[1]):
+                    # Saved under a shorter ROBOT_DECISION_MAX_S: the extra
+                    # columns are past every stored hold and stay zero.
+                    self.step_rewards[:n] = 0.0
+                    self.step_rewards[:n, :arr.shape[1]] = arr
+                    continue
                 if arr.shape[1:] != getattr(self, k).shape[1:]:
                     raise SchemaMismatch(f"replay array {k} has shape "
                                          f"{arr.shape[1:]}, expected "

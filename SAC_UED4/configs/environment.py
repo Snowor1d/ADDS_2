@@ -329,19 +329,37 @@ ROBOT_MODES = ("off", "guide", "direct") if USE_DIRECT else ("off", "guide")
 #               moved to the nearest ground on it. The robot walks there
 #               along the navmesh, through each portal at the point farthest
 #               from the walls, and stops on arrival. The policy decides
-#               where to be; getting there, alleys included, is the robot's.
+#               where to be and how fast to get there (one more action
+#               number, a share of ROBOT_SPEED_MAX); the route, alleys
+#               included, is the robot's.
 # Measured on the twenty 200 m training crops: a robot steered along that
 # route reached 300 of 300 targets 20-60 m away, including every route
-# through a passage 1.5-2.5 m wide. The action keeps its size, so the
-# networks do not change, but the action schema does: checkpoints trained
+# through a passage 1.5-2.5 m wide. The speed makes the action one number
+# longer, so the networks and the action schema change: checkpoints trained
 # under one are refused under the other. Set it here, not as a run override.
-ROBOT_ACTION_MODE = "velocity"       # "velocity" | "waypoint"
+ROBOT_ACTION_MODE = "waypoint"       # "velocity" | "waypoint"
 ROBOT_WAYPOINT_RANGE_M = 20.0
+
+# When the team takes its next decision. A decision (every robot's move and
+# mode) is held until either
+#   - ROBOT_DECISION_MAX_S has passed since it was taken, or
+#   - with ROBOT_DECISION_ON_EVENTS, some robot reached its waypoint (under
+#     "waypoint") or a wall stopped more than half of its commanded move,
+# checked after every simulation step. The team decides together: a
+# transition is one joint action scored by a team critic, so one robot cannot
+# keep its old action while the others take new ones. The mode changes only
+# at a decision.
+# ROBOT_DECISION_MAX_S = ACTION_SCALE * ROBOT_TIME_STEP (2 s) with
+# ROBOT_DECISION_ON_EVENTS = False is the fixed interval used before. It must
+# be a whole number of ROBOT_TIME_STEP. GAMMA_START stays a discount per
+# ACTION_SCALE steps; each transition is discounted by the steps it lasted.
+ROBOT_DECISION_MAX_S = 30
+ROBOT_DECISION_ON_EVENTS = True
 
 ACTION_SCHEMA_VERSION = (("act-v1-move2-signal2-mode3" if USE_DIRECT
                           else "act-v2-move2-mode2")
-                         + ("-waypoint" if ROBOT_ACTION_MODE == "waypoint"
-                            else ""))
+                         + ("-waypoint-speed"
+                            if ROBOT_ACTION_MODE == "waypoint" else ""))
 # How far the signal carries, in metres.
 #
 # Not arbitrary: emergency signage standards express legibility as a multiple

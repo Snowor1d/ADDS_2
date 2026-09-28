@@ -2424,8 +2424,10 @@ class FightingModel(Model):
         # rasterise the whole map every step whether or not a policy was
         # loaded, and to drive robot zero only.
         if self.robot_version == 'Q':
-            if self.using_model and (self.step_n - 1) % ACTION_SCALE == 0:
+            if self.using_model and self._policy_decision_due():
                 self._act_with_loaded_policy()
+            if self.using_model:
+                self._policy_hold += 1
         elif self.robot_version == 'T':
             self.robot.robot_policy_going_exit()
 
@@ -2667,7 +2669,20 @@ class FightingModel(Model):
         self._policy_deterministic = bool(deterministic)
         self._policy_history = ObservationHistory(
             cfg, build_static_layers(self, cfg), len(self.robots))
+        self._policy_hold = None
         self.using_model = True
+
+    def _policy_decision_due(self) -> bool:
+        """The same rule as learn/rollout.py: the first step, the longest
+        decision used up, or (ROBOT_DECISION_ON_EVENTS) a robot arrived or
+        was blocked on the last move."""
+        from configs import decision_max_steps
+        cfg = self._policy_cfg
+        return (self._policy_hold is None
+                or self._policy_hold >= decision_max_steps(cfg)
+                or (bool(cfg.ROBOT_DECISION_ON_EVENTS)
+                    and any(getattr(rb, "decision_event", None)
+                            for rb in self.robots)))
 
     def _act_with_loaded_policy(self):
         import sim.robot_action as _ra
@@ -2677,6 +2692,7 @@ class FightingModel(Model):
         actions = self.sac_agent.act(obs, deterministic=self._policy_deterministic)
         for rb, action in zip(self.robots, actions):
             _ra.apply_to(rb, action)
+        self._policy_hold = 0
 
     def reward_based_distance_from_near_agents(self):
         guided_num = 0

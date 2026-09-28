@@ -17,6 +17,8 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 from config import *
+import config as _config
+from configs import decision_max_steps as _decision_max_steps
 
 # How far choice_safe_mesh will look for a walkable mesh, in grid cells.
 # Real building footprints need more than the original radius of two; see the
@@ -2022,6 +2024,9 @@ class RobotAgent(CrowdAgent):
         self.action = [0, 0, "GUIDE"]
         self.past_xy = deque(maxlen=20)
         self.collision_check = 0
+        # Why the last move calls for a new decision ("arrived", "blocked")
+        # or None; see _decision_event. Cleared by each new action.
+        self.decision_event = None
         self.detect_abnormal_order = 0
         self.is_game_finished = 0
 
@@ -2134,7 +2139,7 @@ class RobotAgent(CrowdAgent):
         else:
             self.signal_dir = (0.0, 0.0)
 
-    def receive_action(self, action):
+    def receive_action(self, action, speed_fraction: float = 1.0):
                 
         
         direction_probs = action[0]
@@ -2146,6 +2151,9 @@ class RobotAgent(CrowdAgent):
         # set from it, relative to where the robot stands now, on its next
         # move.
         self._waypoint = None
+        self.decision_event = None
+        # Under "waypoint", the share of ROBOT_SPEED_MAX to walk there at.
+        self.speed_fraction = min(1.0, max(0.0, float(speed_fraction)))
 
         
         if(self.now_exploration == 1):
@@ -2235,7 +2243,7 @@ class RobotAgent(CrowdAgent):
     def heading_target(self):
         """Where this robot is going under its current command: its waypoint
         under ROBOT_ACTION_MODE = "waypoint", otherwise the point the
-        commanded velocity reaches over one decision interval, walls
+        commanded velocity reaches over the longest decision interval, walls
         ignored. Its own position when it has no command yet."""
         x, y = float(self.xy[0]), float(self.xy[1])
         if ROBOT_ACTION_MODE == "waypoint":
@@ -2248,11 +2256,31 @@ class RobotAgent(CrowdAgent):
         if n > 1.0:
             ax, ay = ax / n, ay / n
         reach = (float(ROBOT_SPEED_MAX) * float(ROBOT_TIME_STEP)
-                 * int(ACTION_SCALE))
+                 * _decision_max_steps(_config))
         return (x + ax * reach, y + ay * reach)
 
     # Arrival tolerance for a waypoint, in metres.
     WAYPOINT_ARRIVAL_M = 0.3
+    # A move against a wall that covers less than this share of its command
+    # is blocked. Sliding along a wall at 45 degrees still covers 0.71.
+    BLOCKED_PROGRESS = 0.5
+
+    def _decision_event(self, x0, y0, vx, vy, dt):
+        """Why this robot needs a new decision after the move from (x0, y0)
+        at commanded velocity (vx, vy), or None: "arrived" at its waypoint,
+        or "blocked" by a wall. Whether the rollout acts on it is
+        ROBOT_DECISION_ON_EVENTS."""
+        x, y = float(self.xy[0]), float(self.xy[1])
+        wp = getattr(self, "_waypoint", None)
+        if ROBOT_ACTION_MODE == "waypoint" and wp is not None:
+            (gx, gy), _ = wp
+            if math.hypot(gx - x, gy - y) < self.WAYPOINT_ARRIVAL_M:
+                return "arrived"
+        want = math.hypot(vx, vy) * dt
+        if (self.collision_check and want > 1e-6
+                and math.hypot(x - x0, y - y0) < self.BLOCKED_PROGRESS * want):
+            return "blocked"
+        return None
 
     def _waypoint_velocity(self, dt):
         """Velocity toward the current waypoint along the navmesh.
@@ -2260,8 +2288,9 @@ class RobotAgent(CrowdAgent):
         The action's two movement numbers, each in [-2, 2], are an offset of
         up to ROBOT_WAYPOINT_RANGE_M per axis from where the robot stood when
         it received them. Straight there when the body-clear line is free;
-        otherwise through the next portal's safest point. Slows to land on
-        the target instead of oscillating across it.
+        otherwise through the next portal's safest point, at the action's
+        speed (speed_fraction of ROBOT_SPEED_MAX). Slows to land on the
+        target instead of oscillating across it.
         """
         m = self.model
         r = self.body_radius
@@ -2306,8 +2335,38 @@ class RobotAgent(CrowdAgent):
                 dx, dy = dx - into * ux + 0.3 * ux, dy - into * uy + 0.3 * uy
                 n = math.hypot(dx, dy) or 1e-9
                 dx, dy = dx / n, dy / n
-        speed = min(float(ROBOT_SPEED_MAX), d_goal / max(dt, 1e-9))
+        speed = min(float(ROBOT_SPEED_MAX)
+                    * float(getattr(self, "speed_fraction", 1.0)),
+                    d_goal / max(dt, 1e-9))
         return speed * dx, speed * dy
+
+    def planned_path(self, max_points: int = 64):
+        """The route _waypoint_velocity will follow from here to the current
+        waypoint, as [(x, y), ...] starting at the robot: straight to the
+        target once the body-clear line is free, otherwise through the next
+        portal's crossing point, the same rule the robot steers by. Empty
+        without a waypoint. For drawing; the robot does not read it."""
+        wp = getattr(self, "_waypoint", None)
+        if wp is None:
+            return []
+        m = self.model
+        r = self.body_radius
+        (gx, gy), goal_tri = wp
+        cur = (float(self.xy[0]), float(self.xy[1]))
+        pts = [cur]
+        tri = m.find_mesh(cur)
+        for _ in range(max_points):
+            if (tri is None or goal_tri is None or tri == goal_tri
+                    or m.is_free_segment(cur[0], cur[1], gx, gy, padding=r)):
+                break
+            nxt = m.next_mesh_from_to(tri, goal_tri)
+            if nxt is None:
+                break
+            cur = tuple(m.portal_point(tri, nxt, cur, (gx, gy), r))
+            pts.append(cur)
+            tri = nxt
+        pts.append((float(gx), float(gy)))
+        return pts
 
     def robot_policy_Q(self):
         if (math.hypot(self.xy[0] - self.robot_waypoint[0],
@@ -2342,4 +2401,6 @@ class RobotAgent(CrowdAgent):
         self.vel = [(self.xy[0] - start_x) / dt,
                     (self.xy[1] - start_y) / dt]
         self.model.space.clamp(self.xy)
+        self.decision_event = self._decision_event(start_x, start_y,
+                                                   vx, vy, dt)
         return tuple(self.xy)

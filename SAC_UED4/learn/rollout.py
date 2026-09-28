@@ -4,9 +4,11 @@ The training worker, the validation and zero-shot evaluators and the tests
 all run episodes through `run_episode`, so they measure, observe, act and
 account reward identically.
 
-Time (docs/outdoor_madrl_redesign.md section 5.4): a decision is taken every
-ACTION_SCALE simulation steps and held until the next decision or the end of
-the episode. The transition for that decision carries
+Time (docs/outdoor_madrl_redesign.md section 5.4): a team decision is held
+until ROBOT_DECISION_MAX_S has passed, or, with ROBOT_DECISION_ON_EVENTS,
+until some robot arrives at its waypoint or is blocked by a wall (checked after
+every step), or until the episode ends. The transition for that decision
+carries
 
     reward = sum_{i<k} gamma_step^i r_i      hold = k
 
@@ -26,6 +28,7 @@ from typing import Callable, Dict, List, Optional
 
 import numpy as np
 
+from configs import decision_max_steps
 from sim import robot_action
 from sim.observation import (DecisionRecord, ObservationHistory, StaticLayers,
                              build_static_layers)
@@ -80,6 +83,8 @@ def run_episode(model, cfg, act_fn: Optional[ActFn], *, gamma: float,
     state after the last action (action None).
     """
     A = int(cfg.ACTION_SCALE)
+    K = decision_max_steps(cfg)
+    on_events = bool(cfg.ROBOT_DECISION_ON_EVENTS)
     R = int(cfg.MAX_ROBOTS)
     max_steps = int(cfg.MAX_STEPS if max_steps is None else max_steps)
     g_step = float(gamma) ** (1.0 / max(1, A))
@@ -101,7 +106,9 @@ def run_episode(model, cfg, act_fn: Optional[ActFn], *, gamma: float,
     d = -1
     off = robot_action.encode((0.0, 0.0), "off")
     for step in range(max_steps):
-        if step % A == 0:
+        if (pending is None or pending.hold >= K
+                or (on_events and any(getattr(rb, "decision_event", None)
+                                      for rb in model.robots[:R]))):
             rec = history.record(model)
             d += 1
             if pending is not None and emit is not None:

@@ -67,6 +67,10 @@ class ContinuousRenderer:
         show_robot_heading: bool = False,
         agent_heading_scale: float = 1.5,
         robot_heading_scale: float = 4,
+        # ===== Waypoint plan (ROBOT_ACTION_MODE = "waypoint") =====
+        # The current target as a cross and the route the robot will take to
+        # it as a dashed line.
+        show_robot_waypoint: bool = True,
 
         agent_heading_color: str | Dict[int, str] | None = None,
         agent_heading_linewidth: float = 1.0,
@@ -213,6 +217,7 @@ class ContinuousRenderer:
         self.show_robot_heading = show_robot_heading
         self.agent_heading_scale = agent_heading_scale
         self.robot_heading_scale = robot_heading_scale
+        self.show_robot_waypoint = show_robot_waypoint
 
         # ===== Filtering =====
         self.hide_dead = hide_dead
@@ -718,6 +723,9 @@ class ContinuousRenderer:
 
         self._draw_robot_signal(robot, x, y, step=step)
 
+        if self.show_robot_waypoint:
+            self._draw_robot_waypoint(robot, rcol)
+
         # (선택) 로봇 heading 화살표도 동일 velocity 소스로 통일
         if self.show_robot_heading:
             vx, vy = self._get_velocity(robot)
@@ -739,6 +747,21 @@ class ContinuousRenderer:
             # 라벨
             if self.annotate_robot_path:
                 self._annotate_robot_trail(trail, color=rcol)
+
+    def _draw_robot_waypoint(self, robot, color):
+        """The robot's current waypoint and its planned route to it. Nothing
+        under "velocity", where a robot has no waypoint."""
+        plan = getattr(robot, "planned_path", None)
+        pts = plan() if callable(plan) else []
+        if len(pts) < 2:
+            return
+        xs, ys = zip(*pts)
+        self.ax.plot(xs, ys, color=color, linewidth=1.6, alpha=0.85,
+                     linestyle=(0, (4, 3)), zorder=3.3)
+        gx, gy = pts[-1]
+        self.ax.plot([gx], [gy], marker="X", markersize=9, color=color,
+                     markeredgecolor="white", markeredgewidth=0.8,
+                     linestyle="none", zorder=3.4)
 
     def _plot_trail(self, pts: List[Tuple[float,float]], alpha_base: float,
                     color: str, style: str, linewidth: float = 1.0):

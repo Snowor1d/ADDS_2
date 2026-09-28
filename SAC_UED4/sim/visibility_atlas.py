@@ -268,7 +268,7 @@ class VisibilityAtlas:
         close enough for a pedestrian's attention but not for a robot's
         measurement: from the region centre a person behind a corner can be
         in view while the robot itself, two metres away, cannot see them.
-        A robot measures at most every ACTION_SCALE steps, so casting from its
+        A robot measures once per team decision, so casting from its
         own position costs little. Same obstacle index, same ray solver.
         """
         if radius not in self._radii:
