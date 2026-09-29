@@ -183,8 +183,13 @@ class ResolvedConfig:
             "action_schema_version": self.ACTION_SCHEMA_VERSION,
         }
 
+    def gamma(self) -> float:
+        """Discount per ACTION_SCALE steps for the ROBOT_ACTION_MODE in use."""
+        return float(self.GAMMA_WAYPOINT if self.ROBOT_ACTION_MODE == "waypoint"
+                     else self.GAMMA_VELOCITY)
+
     def gamma_per_step(self, gamma_per_decision: Optional[float] = None) -> float:
-        g = float(self.GAMMA_START if gamma_per_decision is None
+        g = float(self.gamma() if gamma_per_decision is None
                   else gamma_per_decision)
         return g ** (1.0 / max(1, int(self.ACTION_SCALE)))
 
@@ -466,6 +471,9 @@ def validate_config(cfg: ResolvedConfig, check_data: bool = True) -> None:
            f"ROBOT_DECISION_MAX_S={cfg.ROBOT_DECISION_MAX_S} must be a "
            f"positive whole number of ROBOT_TIME_STEP="
            f"{cfg.ROBOT_TIME_STEP}", p)
+    for name in ("GAMMA_VELOCITY", "GAMMA_WAYPOINT"):
+        _check(0.0 < float(cfg[name]) < 1.0,
+               f"{name}={cfg[name]} must be in (0, 1)", p)
     _check(isinstance(cfg.ROBOT_DECISION_ON_EVENTS, bool),
            f"ROBOT_DECISION_ON_EVENTS={cfg.ROBOT_DECISION_ON_EVENTS!r} must "
            "be True or False", p)

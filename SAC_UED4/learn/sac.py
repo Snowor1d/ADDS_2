@@ -48,7 +48,7 @@ class SACAgent:
         self.cfg = cfg
         self.device = torch.device(device)
         self.action_dim = robot_action.ACTION_DIM
-        self.gamma = float(cfg.GAMMA_START)
+        self.gamma = cfg.gamma()
         self.tau = 0.995
         self.batch_size = int(cfg.BATCH_SIZE)
         # Entropy temperature, learned when ALPHA_AUTO. Optimised in log space

@@ -259,7 +259,7 @@ def worker_process(worker_id: int, cfg, transition_queue, stats_queue,
             try:
                 res = run_episode(model, cfg,
                                   lambda obs, rec: act(obs, rec, eps),
-                                  gamma=float(cfg.GAMMA_START),
+                                  gamma=cfg.gamma(),
                                   seed=rng.randrange(1 << 30), static=static,
                                   emit=emit, task_metrics=tm,
                                   on_step=(recorder.step if recorder else None))

@@ -26,6 +26,18 @@ def load_real_level(site: str, size: int):
     levels = load_levels()
     for lv in levels:
         if lv.site_key == site and int(lv.width) == int(size):
+            # The stored headcount is the export's, under whatever density
+            # and CROWD_SIZE_LIMIT held then. Draw it again the way training
+            # does (learn/training_maps.py), so the viewer runs the current
+            # CROWD_DENSITY_RANGE and CROWD_SIZE_LIMIT.
+            import random as _random
+
+            from config import DATASET_DENSITY_BY_SIZE
+            from sim.crowd_density import crowd_size_for_level
+            rng = _random.Random(SIM_SEED) if SIM_SEED is not None else None
+            lv.crowd_size, lv.crowd_density = crowd_size_for_level(
+                lv.width, lv.height, lv.obstacles, rng=rng,
+                table=DATASET_DENSITY_BY_SIZE)
             return lv
     by_site = {}
     for l in levels:

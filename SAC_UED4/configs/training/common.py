@@ -27,11 +27,15 @@ INTRINSIC_ETA = 0.1              # intrinsic reward
 START_BATCH_TIMES = 1
 START_UPDATE_EPISODE = 500
 DEVICE = "cuda"
-# Discount per decision interval of ACTION_SCALE simulation steps. The
-# learner converts it to a per-step factor gamma ** (1 / ACTION_SCALE), sums a
-# held action's rewards with that factor and bootstraps with its k-th power,
-# so a shortened last interval is discounted for the steps it actually lasted.
-GAMMA_START = 0.99
+# Discount per ACTION_SCALE simulation steps (2 s), one per
+# ROBOT_ACTION_MODE; `cfg.gamma()` picks the one in use. Per 2 s rather than
+# per decision, because a decision's length varies (ROBOT_DECISION_MAX_S):
+# the learner converts it to a per-step factor gamma ** (1 / ACTION_SCALE),
+# sums a held action's rewards with that factor and bootstraps with its k-th
+# power, so every transition is discounted for the steps it actually lasted.
+GAMMA_VELOCITY = 0.99
+GAMMA_WAYPOINT = 0.997
+# Not read anywhere.
 GAMMA_END = 0.99
 GAMMA_SCHEDULE_STEP = 1000
 WD_Q = 3e-4                      # weight decay
@@ -113,7 +117,7 @@ N_ENVS = 12
 # 0.18 s on the GPU, while 12 workers on the generated 0.6/0.3/0.1 size mix produce
 # roughly 11 decision instants a second. 1.0 made the learner the bottleneck
 # and stalled the workers on a full queue.
-UPDATES_PER_TRANSITION = 0.25
+UPDATES_PER_TRANSITION = 0.5
 POLICY_BROADCAST_INTERVAL = 10
 FiLM_USE = True
 EGO_USE = True
@@ -285,7 +289,7 @@ WANDB_GROUP = None                  # None = EXPERIMENT_ID
 # "outdoor-madrl-v2-dataset-100m-0924-1530". A run started from a checkpoint
 # as a new run (see the resume rule in learn/metrics_logger.py) gets
 # "-resume<episode>" appended either way; a run that carries on keeps its name.
-WANDB_RUN_NAME = "260928-waypoint-all-stored"
+WANDB_RUN_NAME = "260928-velocity-all-stored-UPT0.5"
 # Only models chosen on validation are uploaded, never the replay buffer or
 # every periodic checkpoint.
 WANDB_UPLOAD_CHECKPOINTS = "selected"   # "none" | "selected"

@@ -149,7 +149,7 @@ EVAC_SPECIFIC_FLOW = 1.2
 # claim: a clamped level records the lower density it actually ran at. See
 # docs/crowd_density.md and crowd_density.py.
 CROWD_DENSITY_RANGE = (0.04, 0.05)
-CROWD_SIZE_LIMIT = (10, 5000)
+CROWD_SIZE_LIMIT = (10, 100000)
 # Measured episode cost at the 200 m Soho crop, 2000 steps, no rendering:
 # 800 pedestrians is 263 ms per step and 8.8 minutes. Cost grows faster than
 # linearly, so the current ceiling of 5000 is hours per episode rather than
@@ -337,7 +337,7 @@ ROBOT_MODES = ("off", "guide", "direct") if USE_DIRECT else ("off", "guide")
 # through a passage 1.5-2.5 m wide. The speed makes the action one number
 # longer, so the networks and the action schema change: checkpoints trained
 # under one are refused under the other. Set it here, not as a run override.
-ROBOT_ACTION_MODE = "waypoint"       # "velocity" | "waypoint"
+ROBOT_ACTION_MODE = "velocity"       # "velocity" | "waypoint"
 ROBOT_WAYPOINT_RANGE_M = 20.0
 
 # When the team takes its next decision. A decision (every robot's move and
@@ -351,8 +351,9 @@ ROBOT_WAYPOINT_RANGE_M = 20.0
 # at a decision.
 # ROBOT_DECISION_MAX_S = ACTION_SCALE * ROBOT_TIME_STEP (2 s) with
 # ROBOT_DECISION_ON_EVENTS = False is the fixed interval used before. It must
-# be a whole number of ROBOT_TIME_STEP. GAMMA_START stays a discount per
-# ACTION_SCALE steps; each transition is discounted by the steps it lasted.
+# be a whole number of ROBOT_TIME_STEP. GAMMA_VELOCITY and GAMMA_WAYPOINT
+# stay discounts per ACTION_SCALE steps; each transition is discounted by the
+# steps it lasted.
 ROBOT_DECISION_MAX_S = 30
 ROBOT_DECISION_ON_EVENTS = True
 

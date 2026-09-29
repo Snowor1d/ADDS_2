@@ -180,7 +180,7 @@ def evaluate_level(agent, level, seed: int, condition: str, cfg,
     if condition == "policy":
         act_fn = lambda obs, rec: agent.act(obs, deterministic=True)
     tm = EpisodeMetrics().start(model)
-    gamma = agent.gamma if agent is not None else float(cfg.GAMMA_START)
+    gamma = agent.gamma if agent is not None else cfg.gamma()
     model.should_finish = lambda: False
     res = run_episode(model, cfg, act_fn, gamma=gamma, max_steps=max_steps,
                       seed=seed, task_metrics=tm,

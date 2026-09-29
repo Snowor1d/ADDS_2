@@ -25,10 +25,10 @@ SIM_MORPHOLOGY = None            # None = drawn at random from the seven
 SIM_ROBOTS = 2
 SIM_SEED = None                  # None = a new level every run
 # For "real". `python3 -m cli.ADDS_AS_osm_pipeline status` lists what is exported.
-SIM_REAL_SITE = "shibuya"
+SIM_REAL_SITE = "dotonbori"
 # Must be one of SUPPORTED_CROP_SIZES_M. It was 150, which the corpus has
 # never exported; the lookup then failed only when the viewer opened.
-SIM_REAL_SIZE = 200              # 100, 200 or 400 m
+SIM_REAL_SIZE = 400              # 100, 200 or 400 m
 #
 # The 26 usable sites and the morphology tag each carries. The tag is what the
 # generator's per-morphology tables were fitted to, so it is also how a
