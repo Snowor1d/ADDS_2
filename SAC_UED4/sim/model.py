@@ -2674,13 +2674,13 @@ class FightingModel(Model):
 
     def _policy_decision_due(self) -> bool:
         """The same rule as learn/rollout.py: the first step, the longest
-        decision used up, or (ROBOT_DECISION_ON_EVENTS) a robot arrived or
+        decision used up, or (ROBOT_DECISION_ON_EVENTS_<MODE>) a robot arrived or
         was blocked on the last move."""
-        from configs import decision_max_steps
+        from configs import decision_max_steps, decision_on_events
         cfg = self._policy_cfg
         return (self._policy_hold is None
                 or self._policy_hold >= decision_max_steps(cfg)
-                or (bool(cfg.ROBOT_DECISION_ON_EVENTS)
+                or (decision_on_events(cfg)
                     and any(getattr(rb, "decision_event", None)
                             for rb in self.robots)))
 

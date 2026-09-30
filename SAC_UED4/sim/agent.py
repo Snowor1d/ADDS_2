@@ -101,6 +101,13 @@ class CrowdAgent(Agent):
         # does not become uninformed merely because they crossed the zone.
         self.post_safe_intent = None  # depart | pause | continue
         self._safe_pause_until = 0
+        # Re-entry after clearing. `_outside_after_clear` is set when an
+        # acting pedestrian clears the zone and consumed when it walks back
+        # in; see _on_reentry. Having walked back into a hazard once, it
+        # stops following neighbours for the rest of the episode.
+        self._outside_after_clear = False
+        self._no_neighbour_follow = False
+        self.reentries = 0
         self.outflow_reason = None
         self.ever_acted = False
 
@@ -1316,6 +1323,50 @@ class CrowdAgent(Agent):
         if len(self.hazard_memory) > HAZARD_MEMORY_MAX_POINTS:
             del self.hazard_memory[:-HAZARD_MEMORY_MAX_POINTS]
 
+    def _on_reentry(self) -> None:
+        """Walked back into the hazard after clearing it.
+
+        Onward goals are chosen against the pedestrian's own sightings by
+        straight line (od.choose_onward_destination), and the routed path to
+        them can cross the zone. Keeping the same destination sent it back
+        across the boundary on every clearing: 88 of 638 pedestrians on a
+        200 m Soho crop were circulating on the edge after 1000 steps, a
+        median of 27 crossings each. So the spot where it walked back in
+        becomes a sighting, the destination is dropped so the next one is
+        chosen against it, and a neighbour it was following into the zone is
+        let go. Robot-led pedestrians never get here: an instruction that
+        leads into the zone is the robot's to answer for, through the reward.
+        """
+        # Diagnostic only; the reward counts entries itself (sim/rewards.py).
+        # Includes jostles across the line by someone standing on the edge.
+        self.reentries = getattr(self, "reentries", 0) + 1
+        self._remember_hazard(self.xy, 0.0)
+        self.now_pointing_mesh = None
+        self._flee_target = None
+        self._dwell_until = 0
+        self._dwelling = False
+        self._no_neighbour_follow = True
+        if self.type == 2:
+            self.type = 1
+            self.follow_agent_id = None
+            self.decision_flag = self.decision_period
+
+    def _release_from_robot(self) -> None:
+        """Stop following a robot and decide for itself again.
+
+        The trip destination held from before the robot took over is stale:
+        the robot may have led the pedestrian across the zone from where that
+        destination was chosen, and resuming it walks straight back through.
+        Dropping it makes the next trip be chosen from here, against what it
+        now remembers.
+        """
+        if self.type == 0:
+            self.now_pointing_mesh = None
+            self._flee_target = None
+        self.type = 1
+        self.following_robot_id = None
+        self.robot_lead_mode = None
+
     def _social_cue(self, neighbors) -> int:
         """How many visible neighbours are already acting.
 
@@ -1535,10 +1586,8 @@ class CrowdAgent(Agent):
         if lead is None and self.type == 0:
             # An accepted instruction cannot guide someone who can no longer
             # see its source. Retain only the encounter memory for a short gap.
-            self.type = 1
+            self._release_from_robot()
             self.decision_flag = 0
-            self.following_robot_id = None
-            self.robot_lead_mode = None
         if lead is not None or self.decision_flag == 0:
 
             if lead is not None:
@@ -1554,9 +1603,7 @@ class CrowdAgent(Agent):
                     self.robot_lead_mode = mode
                     self.now_goal = self._robot_led_goal(lead, mode)
                 else:
-                    self.type = 1
-                    self.following_robot_id = None
-                    self.robot_lead_mode = None
+                    self._release_from_robot()
                     # A refusal is not repeatedly retried every 0.5 s.
 
             else :
@@ -1564,7 +1611,11 @@ class CrowdAgent(Agent):
                 for n in neighbors:
                     if (n.type != 2): #서로가 서로를 따라갈 수는 없음
                         followable_neighbors.append(n)
-                if(len(followable_neighbors) == 0): ########## 이 경우는 마지막 agent에만 해당되는 거?
+                if getattr(self, "_no_neighbour_follow", False):
+                    # Walked back into the hazard once already following
+                    # someone; it goes its own way now.
+                    self.type = 1
+                elif(len(followable_neighbors) == 0): ########## 이 경우는 마지막 agent에만 해당되는 거?
                     #print(f"Agent{self.unique_id} 는 주위에 아무것도 없습니다. - My Way")
                     self.type = 1 #따라갈 군중이 없으니 my-way
                 else: # 따라갈 군중이 있음
@@ -1625,6 +1676,9 @@ class CrowdAgent(Agent):
                     lead, "mode", "guide")
                 self.now_goal = self._robot_led_goal(lead, mode)
                 self.following_robot_id = lead.unique_id
+                # Where a robot leads it is not its own re-entry; see
+                # _on_reentry.
+                self._outside_after_clear = False
                 # Somebody visibly following an instruction is a cue to the
                 # people around them, and a credible one: this is how a
                 # responder's guidance spreads past the handful of people who
@@ -1643,9 +1697,7 @@ class CrowdAgent(Agent):
                 # The robot stopped signalling or went out of range. Fall back
                 # to deciding for itself rather than walking to where a robot
                 # used to be.
-                self.type = 1
-                self.following_robot_id = None
-                self.robot_lead_mode = None
+                self._release_from_robot()
 
         # ── 로봇이 없으면 자기가 아는 것에서 도망친다 ──
         #
@@ -1673,6 +1725,16 @@ class CrowdAgent(Agent):
             cleared = (signed_gap >= DANGER_SAFE_MARGIN_M or
                        (self.post_safe_intent is not None
                         and signed_gap >= -self.body_radius))
+            # Out and back in by the same test `cleared` uses. A wider band
+            # (out only past DANGER_SAFE_MARGIN_M) missed the people pacing
+            # the edge a metre or two either side, and left four times as
+            # many inside on the same crops. A jostle across the line on the
+            # boundary also counts; _on_reentry is harmless to repeat there.
+            if cleared:
+                self._outside_after_clear = True
+            elif getattr(self, "_outside_after_clear", False):
+                self._outside_after_clear = False
+                self._on_reentry()
             if cleared and self._post_safe_goal():
                 return
             fx, fy = self.hazard_repulsion()
@@ -2269,7 +2331,7 @@ class RobotAgent(CrowdAgent):
         """Why this robot needs a new decision after the move from (x0, y0)
         at commanded velocity (vx, vy), or None: "arrived" at its waypoint,
         or "blocked" by a wall. Whether the rollout acts on it is
-        ROBOT_DECISION_ON_EVENTS."""
+        ROBOT_DECISION_ON_EVENTS_<MODE>."""
         x, y = float(self.xy[0]), float(self.xy[1])
         wp = getattr(self, "_waypoint", None)
         if ROBOT_ACTION_MODE == "waypoint" and wp is not None:

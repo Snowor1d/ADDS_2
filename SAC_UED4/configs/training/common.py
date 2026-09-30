@@ -29,7 +29,7 @@ START_UPDATE_EPISODE = 500
 DEVICE = "cuda"
 # Discount per ACTION_SCALE simulation steps (2 s), one per
 # ROBOT_ACTION_MODE; `cfg.gamma()` picks the one in use. Per 2 s rather than
-# per decision, because a decision's length varies (ROBOT_DECISION_MAX_S):
+# per decision, because a decision's length varies (ROBOT_DECISION_MAX_S_<MODE>):
 # the learner converts it to a per-step factor gamma ** (1 / ACTION_SCALE),
 # sums a held action's rewards with that factor and bootstraps with its k-th
 # power, so every transition is discounted for the steps it actually lasted.
@@ -117,7 +117,7 @@ N_ENVS = 12
 # 0.18 s on the GPU, while 12 workers on the generated 0.6/0.3/0.1 size mix produce
 # roughly 11 decision instants a second. 1.0 made the learner the bottleneck
 # and stalled the workers on a full queue.
-UPDATES_PER_TRANSITION = 0.5
+UPDATES_PER_TRANSITION = 0.25
 POLICY_BROADCAST_INTERVAL = 10
 FiLM_USE = True
 EGO_USE = True
@@ -289,7 +289,7 @@ WANDB_GROUP = None                  # None = EXPERIMENT_ID
 # "outdoor-madrl-v2-dataset-100m-0924-1530". A run started from a checkpoint
 # as a new run (see the resume rule in learn/metrics_logger.py) gets
 # "-resume<episode>" appended either way; a run that carries on keeps its name.
-WANDB_RUN_NAME = "260928-velocity-all-stored-UPT0.5"
+WANDB_RUN_NAME = "260930(NewEnv)-velocity-all-stored-UPT0.25"
 # Only models chosen on validation are uploaded, never the replay buffer or
 # every periodic checkpoint.
 WANDB_UPLOAD_CHECKPOINTS = "selected"   # "none" | "selected"

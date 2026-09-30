@@ -1,3 +1,4 @@
+import math
 import os
 import random
 import time
@@ -2705,6 +2706,54 @@ class CrowdFlowTest(unittest.TestCase):
         finally:
             A.CROWD_POSTSAFE_INTENT_WEIGHTS = old_weights
             A.CROWD_SAFE_PAUSE_STEPS = old_pause
+
+    def test_walking_back_in_drops_the_destination_and_the_leader(self):
+        """Keeping the onward destination sent people back across the
+        boundary on every clearing, dozens of times each."""
+        fm = self._model(seed=12)
+        zone = fm.danger_zone
+        person, leader = fm.crowds[0], fm.crowds[1]
+        person.awareness = "acting"
+        person.post_safe_intent = "continue"
+        person._outside_after_clear = True
+        person.type = 2
+        person.follow_agent_id = leader.unique_id
+        stale = fm.mesh[0]
+        person.now_pointing_mesh = stale
+        person.xy = [float(zone.cx), float(zone.cy)]
+        person.decision_flag = 5
+        person.which_goal_agent_want([])
+        self.assertEqual(person.reentries, 1)
+        # Dropped, and chosen again from here if it chose at all.
+        self.assertNotEqual(person.now_pointing_mesh, stale)
+        self.assertEqual(person.type, 1)
+        self.assertTrue(person._no_neighbour_follow)
+        self.assertTrue(any(math.hypot(mx - zone.cx, my - zone.cy) < 1.0
+                            for mx, my in person.hazard_memory))
+        # Once only per excursion: still inside is not a second re-entry.
+        person.which_goal_agent_want([])
+        self.assertEqual(person.reentries, 1)
+        # It no longer takes up following a neighbour.
+        person.decision_flag = 0
+        person.which_goal_agent_want([leader])
+        self.assertEqual(person.type, 1)
+
+    def test_release_from_a_robot_drops_the_stale_destination(self):
+        fm = self._model(seed=13)
+        person = fm.crowds[0]
+        person.type = 0
+        person.following_robot_id = 7
+        person.now_pointing_mesh = fm.mesh[0]
+        person._release_from_robot()
+        self.assertEqual(person.type, 1)
+        self.assertIsNone(person.now_pointing_mesh)
+        self.assertIsNone(person.following_robot_id)
+        # Declining an instruction it never followed keeps its own trip.
+        other = fm.crowds[1]
+        other.type = 1
+        other.now_pointing_mesh = fm.mesh[0]
+        other._release_from_robot()
+        self.assertEqual(other.now_pointing_mesh, fm.mesh[0])
 class ZoneClippingTest(unittest.TestCase):
     def test_the_wash_does_not_cover_blocks(self):
         """Red over masonry hides which red is ground somebody can stand on."""
@@ -3466,6 +3515,7 @@ class WedgedPedestrianTest(unittest.TestCase):
         agent._signalling_robot = lambda neighbors: None
         agent._robot_instruction_choice = lambda lead: False
         agent.hazard_repulsion = lambda: (1.0, 0.0)
+        agent.hazard_memory = []
         onward = []
         def onward_goal():
             onward.append(gap[0])

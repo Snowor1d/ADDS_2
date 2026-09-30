@@ -196,12 +196,27 @@ class ResolvedConfig:
     def decision_max_steps(self) -> int:
         return decision_max_steps(self)
 
+    def decision_on_events(self) -> bool:
+        return decision_on_events(self)
+
+
+def _decision_suffix(cfg) -> str:
+    return ("WAYPOINT" if getattr(cfg, "ROBOT_ACTION_MODE", "velocity")
+            == "waypoint" else "VELOCITY")
+
 
 def decision_max_steps(cfg) -> int:
-    """Simulation steps a decision is held at most: ROBOT_DECISION_MAX_S in
-    ROBOT_TIME_STEP. Takes a ResolvedConfig or the `config` module."""
-    return max(1, int(round(float(cfg.ROBOT_DECISION_MAX_S)
-                            / float(cfg.ROBOT_TIME_STEP))))
+    """Simulation steps a decision is held at most under the action mode in
+    use: ROBOT_DECISION_MAX_S_<MODE> in ROBOT_TIME_STEP. Takes a
+    ResolvedConfig or the `config` module."""
+    max_s = getattr(cfg, "ROBOT_DECISION_MAX_S_" + _decision_suffix(cfg))
+    return max(1, int(round(float(max_s) / float(cfg.ROBOT_TIME_STEP))))
+
+
+def decision_on_events(cfg) -> bool:
+    """Whether a decision ends early on an arrival or a wall block under the
+    action mode in use (ROBOT_DECISION_ON_EVENTS_<MODE>)."""
+    return bool(getattr(cfg, "ROBOT_DECISION_ON_EVENTS_" + _decision_suffix(cfg)))
 
 
 def collect() -> Tuple[Dict[str, Any], Dict[str, str]]:
@@ -466,17 +481,18 @@ def validate_config(cfg: ResolvedConfig, check_data: bool = True) -> None:
     _check(float(cfg.ROBOT_WAYPOINT_RANGE_M) > 0.0,
            f"ROBOT_WAYPOINT_RANGE_M={cfg.ROBOT_WAYPOINT_RANGE_M} must be "
            "positive", p)
-    k = float(cfg.ROBOT_DECISION_MAX_S) / float(cfg.ROBOT_TIME_STEP)
-    _check(k >= 1.0 - 1e-9 and abs(k - round(k)) < 1e-6,
-           f"ROBOT_DECISION_MAX_S={cfg.ROBOT_DECISION_MAX_S} must be a "
-           f"positive whole number of ROBOT_TIME_STEP="
-           f"{cfg.ROBOT_TIME_STEP}", p)
+    for mode in ("VELOCITY", "WAYPOINT"):
+        name = "ROBOT_DECISION_MAX_S_" + mode
+        k = float(cfg[name]) / float(cfg.ROBOT_TIME_STEP)
+        _check(k >= 1.0 - 1e-9 and abs(k - round(k)) < 1e-6,
+               f"{name}={cfg[name]} must be a positive whole number of "
+               f"ROBOT_TIME_STEP={cfg.ROBOT_TIME_STEP}", p)
+        name = "ROBOT_DECISION_ON_EVENTS_" + mode
+        _check(isinstance(cfg[name], bool),
+               f"{name}={cfg[name]!r} must be True or False", p)
     for name in ("GAMMA_VELOCITY", "GAMMA_WAYPOINT"):
         _check(0.0 < float(cfg[name]) < 1.0,
                f"{name}={cfg[name]} must be in (0, 1)", p)
-    _check(isinstance(cfg.ROBOT_DECISION_ON_EVENTS, bool),
-           f"ROBOT_DECISION_ON_EVENTS={cfg.ROBOT_DECISION_ON_EVENTS!r} must "
-           "be True or False", p)
     want_schema = (("act-v1-move2-signal2-mode3" if cfg.USE_DIRECT
                     else "act-v2-move2-mode2")
                    + ("-waypoint-speed"

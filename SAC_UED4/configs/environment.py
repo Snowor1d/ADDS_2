@@ -340,22 +340,27 @@ ROBOT_MODES = ("off", "guide", "direct") if USE_DIRECT else ("off", "guide")
 ROBOT_ACTION_MODE = "velocity"       # "velocity" | "waypoint"
 ROBOT_WAYPOINT_RANGE_M = 20.0
 
-# When the team takes its next decision. A decision (every robot's move and
-# mode) is held until either
-#   - ROBOT_DECISION_MAX_S has passed since it was taken, or
-#   - with ROBOT_DECISION_ON_EVENTS, some robot reached its waypoint (under
-#     "waypoint") or a wall stopped more than half of its commanded move,
+# When the team takes its next decision, one pair per ROBOT_ACTION_MODE;
+# `cfg.decision_max_steps()` and `cfg.decision_on_events()` pick the pair in
+# use. A decision (every robot's move and mode) is held until either
+#   - ROBOT_DECISION_MAX_S_<MODE> has passed since it was taken, or
+#   - with ROBOT_DECISION_ON_EVENTS_<MODE>, some robot reached its waypoint
+#     (waypoint only) or a wall stopped more than half of its commanded move,
 # checked after every simulation step. The team decides together: a
 # transition is one joint action scored by a team critic, so one robot cannot
 # keep its old action while the others take new ones. The mode changes only
 # at a decision.
-# ROBOT_DECISION_MAX_S = ACTION_SCALE * ROBOT_TIME_STEP (2 s) with
-# ROBOT_DECISION_ON_EVENTS = False is the fixed interval used before. It must
-# be a whole number of ROBOT_TIME_STEP. GAMMA_VELOCITY and GAMMA_WAYPOINT
-# stay discounts per ACTION_SCALE steps; each transition is discounted by the
-# steps it lasted.
-ROBOT_DECISION_MAX_S = 30
-ROBOT_DECISION_ON_EVENTS = True
+# Separate per mode because one shared value leaked a waypoint setting into
+# velocity training: a velocity command held for up to 30 s is a straight
+# line of up to 60 m with the guide/off mode frozen, and that run did not
+# improve at all in 1500 episodes. 2 s without events is the fixed interval
+# used before. Each must be a whole number of ROBOT_TIME_STEP. GAMMA_VELOCITY
+# and GAMMA_WAYPOINT stay discounts per ACTION_SCALE steps; each transition
+# is discounted by the steps it lasted.
+ROBOT_DECISION_MAX_S_VELOCITY = 2.0
+ROBOT_DECISION_ON_EVENTS_VELOCITY = False
+ROBOT_DECISION_MAX_S_WAYPOINT = 30.0
+ROBOT_DECISION_ON_EVENTS_WAYPOINT = True
 
 ACTION_SCHEMA_VERSION = (("act-v1-move2-signal2-mode3" if USE_DIRECT
                           else "act-v2-move2-mode2")

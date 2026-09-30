@@ -23,6 +23,17 @@ def _cfg(**over):
     return resolve_config(over or None, check_data=False)
 
 
+def _dmax(seconds):
+    """The longest decision, for whichever action mode the config sets."""
+    return {"ROBOT_DECISION_MAX_S_VELOCITY": seconds,
+            "ROBOT_DECISION_MAX_S_WAYPOINT": seconds}
+
+
+def _devents(on):
+    return {"ROBOT_DECISION_ON_EVENTS_VELOCITY": on,
+            "ROBOT_DECISION_ON_EVENTS_WAYPOINT": on}
+
+
 def _level(size=80, robots=2, seed=3, difficulty=3):
     from ued.level import generate_random_level
     lv = generate_random_level(random.Random(seed), difficulty=difficulty,
@@ -382,7 +393,7 @@ class TeamIntentTest(unittest.TestCase):
 class RewardTimeTest(unittest.TestCase):
     def test_first_and_cut_short_decisions_are_recorded(self):
         from learn.rollout import run_episode
-        cfg = _cfg(ROBOT_DECISION_MAX_S=2.0)
+        cfg = _cfg(**_dmax(2.0))
         m = _model(_level(robots=1))
         got = []
         from sim.robot_action import encode
@@ -398,7 +409,7 @@ class RewardTimeTest(unittest.TestCase):
 
     def test_task_termination_marks_the_last_transition_terminal(self):
         from learn.rollout import run_episode
-        cfg = _cfg(ROBOT_DECISION_MAX_S=2.0)
+        cfg = _cfg(**_dmax(2.0))
         m = _model(_level(robots=1))
         # The robots also ask should_finish, so decide by the step count.
         m.should_finish = lambda: m.step_count >= 6
@@ -461,7 +472,7 @@ class ReplayTest(unittest.TestCase):
         from learn.replay import ReplayBuffer, StaticStore
         from learn.sac import SACAgent
         # Pinned so the short episodes hold enough decisions to check.
-        self.cfg = _cfg(BATCH_SIZE=8, ROBOT_DECISION_MAX_S=2.0)
+        self.cfg = _cfg(BATCH_SIZE=8, **_dmax(2.0))
         self.tmp = tempfile.TemporaryDirectory()
         self.store = StaticStore(self.tmp.name)
         self.buf = ReplayBuffer(self.cfg, 400, self.store)
@@ -725,7 +736,7 @@ class DirectModeSwitchTest(unittest.TestCase):
 
 
 class DecisionTimingTest(unittest.TestCase):
-    """A team decision is held up to ROBOT_DECISION_MAX_S, and ends early
+    """A team decision is held up to ROBOT_DECISION_MAX_S_<MODE>, and ends early
     when a robot arrives at its waypoint or is blocked by a wall."""
 
     def setUp(self):
@@ -760,15 +771,34 @@ class DecisionTimingTest(unittest.TestCase):
         return [t.hold for t in got if t.action is not None]
 
     def test_the_longest_decision_is_the_configured_time(self):
-        cfg = _cfg(ROBOT_DECISION_MAX_S=4.0)
+        cfg = _cfg(**_dmax(4.0))
         self.assertEqual(cfg.decision_max_steps(), 8)
         m = _model(_level(robots=1))
         self.assertEqual(self._holds(m, cfg, (0.0, 0.0), 20), [8, 8, 4])
 
+    def test_decision_timing_follows_the_action_mode(self):
+        """A waypoint setting must not leak into velocity training."""
+        from configs import decision_max_steps, decision_on_events
+        cfg = _cfg(ROBOT_DECISION_MAX_S_VELOCITY=2.0,
+                   ROBOT_DECISION_ON_EVENTS_VELOCITY=False,
+                   ROBOT_DECISION_MAX_S_WAYPOINT=30.0,
+                   ROBOT_DECISION_ON_EVENTS_WAYPOINT=True)
+        from types import SimpleNamespace
+        base = dict(cfg._values)
+        vel = SimpleNamespace(**{**base, "ROBOT_ACTION_MODE": "velocity"})
+        wp = SimpleNamespace(**{**base, "ROBOT_ACTION_MODE": "waypoint"})
+        self.assertEqual((decision_max_steps(vel), decision_on_events(vel)),
+                         (4, False))
+        self.assertEqual((decision_max_steps(wp), decision_on_events(wp)),
+                         (60, True))
+        want = (60, True) if cfg.ROBOT_ACTION_MODE == "waypoint" else (4, False)
+        self.assertEqual((cfg.decision_max_steps(), cfg.decision_on_events()),
+                         want)
+
     def test_the_longest_decision_is_whole_steps(self):
         from configs import ConfigError
         with self.assertRaises(ConfigError):
-            _cfg(ROBOT_DECISION_MAX_S=1.2)
+            _cfg(**_dmax(1.2))
 
     def test_arrival_ends_the_decision(self):
         from config import ROBOT_WAYPOINT_RANGE_M
@@ -776,8 +806,7 @@ class DecisionTimingTest(unittest.TestCase):
         for on_events, want in ((True, 3), (False, 8)):
             # Resolved before the simulator is switched, which the config
             # check would otherwise refuse.
-            cfg = _cfg(ROBOT_DECISION_MAX_S=4.0,
-                       ROBOT_DECISION_ON_EVENTS=on_events)
+            cfg = _cfg(**_dmax(4.0), **_devents(on_events))
             self._A.ROBOT_ACTION_MODE = "waypoint"
             m = self._model_with_wall()
             m.robots[0].xy = [10.0, 10.0]
@@ -789,7 +818,7 @@ class DecisionTimingTest(unittest.TestCase):
         m = self._model_with_wall()
         rb = m.robots[0]
         rb.xy = [10.0, 27.0]
-        cfg = _cfg(ROBOT_DECISION_MAX_S=4.0)
+        cfg = _cfg(**_dmax(4.0), **_devents(True))
         holds = self._holds(m, cfg, (0.0, 1.0), 8)
         self.assertLess(holds[0], 8)
         self.assertEqual(rb.decision_event, "blocked")
@@ -797,8 +826,8 @@ class DecisionTimingTest(unittest.TestCase):
     def test_a_replay_saved_with_shorter_decisions_still_loads(self):
         from learn.replay import ReplayBuffer, StaticStore
         from learn.sac import SACAgent
-        cfg = _cfg(ROBOT_DECISION_MAX_S=2.0)
-        longer = _cfg(ROBOT_DECISION_MAX_S=4.0)
+        cfg = _cfg(**_dmax(2.0))
+        longer = _cfg(**_dmax(4.0))
         with tempfile.TemporaryDirectory() as tmp:
             store = StaticStore(tmp)
             buf = ReplayBuffer(cfg, 200, store)

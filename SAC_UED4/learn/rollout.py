@@ -5,7 +5,8 @@ all run episodes through `run_episode`, so they measure, observe, act and
 account reward identically.
 
 Time (docs/outdoor_madrl_redesign.md section 5.4): a team decision is held
-until ROBOT_DECISION_MAX_S has passed, or, with ROBOT_DECISION_ON_EVENTS,
+until ROBOT_DECISION_MAX_S_<MODE> has passed, or, with
+ROBOT_DECISION_ON_EVENTS_<MODE>,
 until some robot arrives at its waypoint or is blocked by a wall (checked after
 every step), or until the episode ends. The transition for that decision
 carries
@@ -28,7 +29,7 @@ from typing import Callable, Dict, List, Optional
 
 import numpy as np
 
-from configs import decision_max_steps
+from configs import decision_max_steps, decision_on_events
 from sim import robot_action
 from sim.observation import (DecisionRecord, ObservationHistory, StaticLayers,
                              build_static_layers)
@@ -84,7 +85,7 @@ def run_episode(model, cfg, act_fn: Optional[ActFn], *, gamma: float,
     """
     A = int(cfg.ACTION_SCALE)
     K = decision_max_steps(cfg)
-    on_events = bool(cfg.ROBOT_DECISION_ON_EVENTS)
+    on_events = decision_on_events(cfg)
     R = int(cfg.MAX_ROBOTS)
     max_steps = int(cfg.MAX_STEPS if max_steps is None else max_steps)
     g_step = float(gamma) ** (1.0 / max(1, A))
