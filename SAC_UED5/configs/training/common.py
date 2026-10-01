@@ -59,7 +59,7 @@ DECAY_MODE = 'episode'
 # clobbering each other's logs, checkpoints or tensorboard port.
 # It was "Log_SAC_UED3", the same folder a SAC_UED3 run on this machine
 # writes to, so a SAC_UED4 run would have resumed from and overwritten it.
-LOG_DIR = "Log_SAC_UED4_madrl"
+LOG_DIR = "Log_SAC_UED5_madrl"
 PORT_NUM = 9000
 
 # --------------- NETWORK ---------------
