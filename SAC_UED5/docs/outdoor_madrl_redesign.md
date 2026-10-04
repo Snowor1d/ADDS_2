@@ -110,4 +110,4 @@
 | W3 | W&B, [Offline mode](https://docs.wandb.ai/ja/support/models/articles/can-i-run-wandb-offline) | 네트워크 없는 실행 후 동기화. |
 | W4 | W&B, [Resume parameter](https://docs.wandb.ai/models/support/resume_parameter) | run ID를 이용한 재개. 카운터 일관성 규칙은 프로젝트의 추가 안전 정책. |
 
-정확한 채널 수, 해상도, 보상 가중치, 메모리 상한, 통신 지연, 최종 제로샷 위험구역 시드 목록은 **문헌에서 측정된 값이 아니라 구현·사전등록 시 확정할 설계값**이다. 사람 행동에 관한 실외 보정과 적용 한계는 `docs/outdoor_human_calibration.md`, 위험 인지 후 이동은 `docs/outdoor_post_safety_mobility.md`에 연결하여 기록한다.
+정확한 채널 수, 해상도, 보상 가중치, 메모리 상한, 통신 지연, 최종 제로샷 위험구역 시드 목록은 **문헌에서 측정된 값이 아니라 구현·사전등록 시 확정할 설계값**이다. 사람 행동에 관한 실외 보정과 적용 한계는 `docs/outdoor_human_calibration.md`, 군중 행동 모델(위험 인지 후 이동 포함)은 `docs/behavior_model_design.md`에 기록한다.

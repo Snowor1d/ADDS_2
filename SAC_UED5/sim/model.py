@@ -1124,7 +1124,8 @@ class FightingModel(Model):
             return False
         agent.dead = True
         agent.outflow_reason = (
-            "evacuation_departure" if agent.post_safe_intent == "depart"
+            "followed_departure" if getattr(agent, "_leaving_with_flow", False)
+            else "evacuation_departure" if agent.post_safe_intent == "depart"
             else "informed_trip" if agent.ever_acted
             else "background_trip")
         try:
@@ -2019,11 +2020,23 @@ class FightingModel(Model):
         # every direction and the robot never moved. Another 2 of 120 landed
         # in courtyards with no walking route to the rest of the crop.
         fits = lambda x, y: self.robot_spawn_ok(x, y, float(ROBOT_BODY_RADIUS))
-        want_outside = (ROBOT_START == "outside"
-                        and getattr(self, "danger_zone", None) is not None)
+        zone = getattr(self, "danger_zone", None)
+        want_near = ROBOT_START == "near" and zone is not None
+        want_outside = (ROBOT_START in ("near", "outside")
+                        and zone is not None)
+        lo, hi = (float(v) for v in ROBOT_START_RING_M)
         for idx in range(int(n_robots)):
             x = y = None
-            if want_outside:
+            if want_near:
+                try:
+                    x, y = _sample_safe_pos(
+                        self, padding=padding,
+                        accept=lambda px, py: (
+                            lo <= zone.signed_distance(px, py) <= hi
+                            and fits(px, py)))
+                except ValueError:
+                    x = y = None
+            if x is None and want_outside:
                 # A bounded search rather than a rejection loop without one:
                 # a hazard covering most of the walkable ground would spin
                 # forever, and the fallback of placing anywhere is better than

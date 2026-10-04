@@ -18,9 +18,12 @@ MAP_H = 100
 MAP_W = 100
 
 ACTION_SCALE = 4
-# Steps per episode. 2000, down from 6000: clearing takes tens to hundreds of
-# steps, so the rest was the robots holding an already-empty zone.
-MAX_STEPS = 2000
+# Steps per episode (500 s). 2000, down from 6000: clearing takes tens to
+# hundreds of steps, so the rest was the robots holding an already-empty zone.
+# 1000 since 2026-10-04: with scripted robots the reward they move came between
+# 50 and 300 s and nothing after 350 s, so the second half added only noise
+# and cost.
+MAX_STEPS = 1000
 ROBOT_BODY_RADIUS = 0.5          # m; 1 m diameter
 # Pedestrian body radius. 0.25 m is a shoulder width of about half a metre,
 # which is what the measurements the fundamental diagram and the bottleneck
@@ -211,7 +214,7 @@ PERCEPTIBILITY_SENSORY_FLOOR = 0.25
 #
 # Recorded with every checkpoint and replay buffer; results from another
 # behaviour model are refused rather than mixed.
-BEHAVIOR_MODEL_VERSION = "beh-v3-belief-route"
+BEHAVIOR_MODEL_VERSION = "beh-v3.1-flow-departure"
 # Per-step probability of noticing by direct perception at perceptibility 1.0,
 # scaled by how far perceptibility sits above the floor. Standing in smoke is
 # not the same as seeing it across a street. [sensitivity] 0.2-0.5, 0.02-0.1.
@@ -303,6 +306,20 @@ CROWD_SHELTER_REPLAN_STEPS = 60
 # headings agree at least this much (length of the mean unit heading, 0-1).
 # Otherwise it keeps its trip. [sensitivity] 0.1-0.6.
 CROWD_FLOW_FOLLOW_MIN_ALIGNMENT = 0.3
+# A followed flow whose goal reaches the edge band is leaving the crop; the
+# follower leaves with it through the street mouth whose triangle centre is
+# nearest that goal, if one is within this distance. A matching tolerance for
+# triangles up to NAVMESH_SEGMENT_STEP_M across, not a behavioural value.
+FLOW_EXIT_GATE_REACH_M = 15.0
+# Chance that someone told of the hazard, following a flow that walks out of
+# the crop, goes out with it; drawn once, on first meeting such a flow. The
+# rest stop following and go back to their own way (PADM's "continue normal
+# activities"). Observed shares following a crowd: 48-79% into floodwater
+# (Arshaghi et al. 2026, NHESS 26:981, VR), 76% evacuating with one active
+# bystander (Kinateder & Warren 2016), 78% following the crowd over a robot
+# (Nayyar et al. 2020). Those are short route or start-to-evacuate choices,
+# so carrying them to leaving a district is an analogy. [sensitivity] 0.5-0.8.
+CROWD_FOLLOW_DEPART_PROB = 0.7
 
 # --------------- WHERE PEOPLE ARE GOING BEFORE ANYTHING HAPPENS ---------------
 # A pedestrian who does not know about the hazard is not wandering: it is on
@@ -493,9 +510,18 @@ DANGER_PIXEL_VALUE = 200
 # centralised critic), and a shorter team is carried by a mask. Raising it
 # invalidates saved checkpoints.
 MAX_ROBOTS = 3
-# Where the team starts. "outside" is the realistic posture: responders arrive
-# from outside a danger area. "anywhere" exists so the choice can be measured.
-ROBOT_START = "outside"          # "outside" | "anywhere"
+# Where the team starts.
+#   "near"      outside the hazard, between ROBOT_START_RING_M metres from its
+#               boundary: responders arriving at the scene. Most of the reward
+#               a robot can move comes in the first few minutes, so a team
+#               that starts across the crop spends it walking.
+#   "outside"   anywhere outside the hazard.
+#   "anywhere"  anywhere walkable, the hazard included; exists so the choice
+#               can be measured.
+# "near" falls back to "outside" when the ring has no room, and "outside" to
+# "anywhere".
+ROBOT_START = "near"             # "near" | "outside" | "anywhere"
+ROBOT_START_RING_M = (20.0, 40.0)
 
 # --------------- crowd evacuation parameter -----------------
 K1 = 1                           # distance weight

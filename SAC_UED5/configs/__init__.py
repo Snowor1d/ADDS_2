@@ -497,8 +497,15 @@ def validate_config(cfg: ResolvedConfig, check_data: bool = True) -> None:
         name = "ROBOT_DECISION_ON_EVENTS_" + mode
         _check(isinstance(cfg[name], bool),
                f"{name}={cfg[name]!r} must be True or False", p)
+    _check(cfg.ROBOT_START in ("near", "outside", "anywhere"),
+           f"ROBOT_START={cfg.ROBOT_START!r}; expected 'near', 'outside' or "
+           "'anywhere'", p)
+    _lo, _hi = (float(v) for v in cfg.ROBOT_START_RING_M)
+    _check(0.0 <= _lo < _hi, f"ROBOT_START_RING_M={cfg.ROBOT_START_RING_M!r} "
+           "must be (inner, outer) with 0 <= inner < outer", p)
     # Crowd behaviour (docs/behavior_model_design.md).
     for name in ("CROWD_NONRESPONSE_FRACTION", "CROWD_DEPART_PROB",
+                 "CROWD_FOLLOW_DEPART_PROB",
                  "CROWD_FLOW_FOLLOW_MIN_ALIGNMENT", "ROBOT_SIGNAL_P_MAX",
                  "ROBOT_GUIDE_BASE_COMPLIANCE",
                  "ROBOT_DIRECT_BASE_COMPLIANCE"):

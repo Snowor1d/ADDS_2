@@ -106,6 +106,7 @@ def episode_metrics(cfg, res, level, model) -> Dict[str, float]:
         "episode/outflows": t.get("outflows"),
         "episode/inflows": t.get("inflows"),
         "episode/evacuation_departures": t.get("evacuation_departures"),
+        "episode/followed_departures": t.get("followed_departures"),
         "episode/informed_trip_outflows": t.get("informed_trip_outflows"),
         "episode/background_departures": t.get("background_departures"),
         "episode/stuck_releases": t.get("stuck_releases"),

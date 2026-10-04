@@ -1,6 +1,6 @@
 # 실외 MADRL 재설계 구현 기록 (2026-09-23)
 
-`docs/outdoor_madrl_redesign.md`의 구현 기록이다. 재설계 직전 상태는 `docs/redesign_baseline.md`, 계측 결과는 `docs/replay_memory_budget.md`에 있다.
+`docs/outdoor_madrl_redesign.md`의 구현 기록이다. 재설계 직전 기준선 기록(`redesign_baseline.md`)은 2026-10-04에 삭제했고 git 이력에 있다. 계측 결과는 `docs/replay_memory_budget.md`에 있다.
 
 ## 파일
 
@@ -45,7 +45,7 @@
    - 탐험은 7차원이다.
    - 저장 모델 실행 시 모든 로봇을 구동한다.
    - 1·2·3대 팀이 섞인 버퍼에서 갱신이 동작한다.
-   - "기존 모델·새 코드 비교 실행"은 하지 않았다. 이 폴더에는 학습된 체크포인트가 없고, 새 스키마는 옛 체크포인트를 거부하기 때문이다. 옛 목적함수와의 차이는 `docs/redesign_baseline.md`에 적었다.
+   - "기존 모델·새 코드 비교 실행"은 하지 않았다. 이 폴더에는 학습된 체크포인트가 없고, 새 스키마는 옛 체크포인트를 거부하기 때문이다. 옛 목적함수와의 차이는 삭제된 `redesign_baseline.md`(git 이력)에 적었다.
 3. **보상·시간** (`RewardTimeTest`)
    - 첫 행동 구간과 짧게 끝난 마지막 구간을 기록하고, k는 실제 유지 스텝 수다.
    - 과제 종료만 terminal로 표시한다.

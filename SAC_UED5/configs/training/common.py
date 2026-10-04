@@ -43,12 +43,17 @@ WD_PI = 0.0
 SCALE_CHECK = 0                  # want to check reward scale?
 
 # --------------- EPSILON-EXPLORATION ------------------
+# Uniform random actions only while the buffer warms up, before the first
+# update; after that SAC explores through its own stochastic policy and
+# entropy bonus. A long linear decay (3000 episodes) kept 74% of actions
+# random at episode 1346, so the logged returns measured random robots and
+# the policy's own effect could not show (2026-10-04).
 EPSILON_MIN = 0
 START_EPSILON = 1
 SCHEDULER_TYPE = "l"
 DECAY_VALUE = 0
-LINEARLY_DECAY_STEP = 3000
-START_DECAY_STEP = 500
+LINEARLY_DECAY_STEP = 1
+START_DECAY_STEP = START_UPDATE_EPISODE
 EXPLORATION_TYPE = 0
 LONG_EPSILON_MIN = 0
 START_LONG_EPSILON = 0
@@ -289,7 +294,7 @@ WANDB_GROUP = None                  # None = EXPERIMENT_ID
 # "outdoor-madrl-v2-dataset-100m-0924-1530". A run started from a checkpoint
 # as a new run (see the resume rule in learn/metrics_logger.py) gets
 # "-resume<episode>" appended either way; a run that carries on keeps its name.
-WANDB_RUN_NAME = "261002(NewEnv)-velocity-all-stored-UPT0.25"
+WANDB_RUN_NAME = "261004(NewEnv)-NotEpsilon-NearRobot"
 # Only models chosen on validation are uploaded, never the replay buffer or
 # every periodic checkpoint.
 WANDB_UPLOAD_CHECKPOINTS = "selected"   # "none" | "selected"

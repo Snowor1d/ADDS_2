@@ -98,6 +98,12 @@ class CrowdAgent(Agent):
         # Once outside the ground it believes dangerous: leave the crop or
         # resume trips, drawn once (see _belief_route_goal).
         self.post_safe_intent = None  # depart | continue
+        # Leaving the crop with a departing flow it followed (M4), having
+        # been told of the hazard but not having sensed it.
+        self._leaving_with_flow = False
+        # Decided once, on first meeting a flow that leaves the crop:
+        # None (not yet), True (goes with it), False (stays, stops following).
+        self._flow_departure_choice = None
         # Heading for the way out of believed danger (M3 rule 1).
         self._escaping = False
         # Visibly responding this step: following a robot, leaving ground it
@@ -1813,16 +1819,68 @@ class CrowdAgent(Agent):
             if self.hazard_memory:
                 self._belief_route_goal()
                 return
-            heading = self._flow_heading(neighbors)
+            import sim.od as od
+            if (self._leaving_with_flow and self.now_pointing_mesh is not None
+                    and od.is_gate_mesh(self.model, self.now_pointing_mesh)):
+                # Committed: walk out through the street mouth the flow took.
+                self.responding = True
+                self._trip_goal()
+                return
+            # Declined to leave with a departing flow: back to its own way.
+            heading = (None if self._flow_departure_choice is False
+                       else self._flow_heading(neighbors))
             if heading is not None:
                 goal = self._flow_goal(heading)
                 if goal is not None:
+                    gate = self._flow_exit_gate(goal)
+                    if gate is not None and self._flow_departure_choice is None:
+                        self._flow_departure_choice = (
+                            random.random() < float(CROWD_FOLLOW_DEPART_PROB))
+                    if gate is not None and not self._flow_departure_choice:
+                        self._trip_goal()
+                        return
+                    if gate is not None:
+                        self._leaving_with_flow = True
+                        self.now_pointing_mesh = gate
+                        self._dwell_until = 0
+                        self.responding = True
+                        self._trip_goal()
+                        return
                     self._dwelling = False
                     self.now_goal = goal
                     self.responding = True
                     return
 
         self._trip_goal()
+
+    def _flow_exit_gate(self, goal):
+        """The street mouth a followed flow is leaving the crop through, or
+        None when the flow is not heading out.
+
+        A flow whose goal reaches the edge band is people walking out of the
+        district. Somebody told of the hazard who has been following them
+        goes out with them rather than stopping at the edge: people who do
+        not know where a hazard is follow the crowd, more so the less clear
+        the situation (Arshaghi et al. 2026, NHESS 26:981). Not all of them:
+        whether to go is drawn once with CROWD_FOLLOW_DEPART_PROB. On their
+        own they still do not leave (no gate is ever chosen for them
+        otherwise).
+        """
+        m = self.model
+        if not m.allow_crowd_departure():
+            return None
+        gx, gy = float(goal[0]), float(goal[1])
+        if min(gx, gy, m.width - gx, m.height - gy) > CROWD_OUTFLOW_MARGIN_M:
+            return None
+        import sim.od as od
+        best, best_d = None, FLOW_EXIT_GATE_REACH_M
+        for t in od.gate_mesh_set(m):
+            cx = (t[0][0] + t[1][0] + t[2][0]) / 3.0
+            cy = (t[0][1] + t[1][1] + t[2][1]) / 3.0
+            d = math.hypot(cx - gx, cy - gy)
+            if d < best_d and not self._believes_dangerous(cx, cy):
+                best, best_d = t, d
+        return best
 
     def _belief_route_goal(self) -> None:
         """M3 for an acting pedestrian that has sensed the hazard.

@@ -2,7 +2,7 @@
 
 상태: **구현됨(SAC_UED5, 2026-09-30).** 검증 결과는 11장. 작성 2026-09-30, 개정 2026-09-30(6장 결정 반영, M5·M6를 단서 통합 선택 모형(C안)으로 확정).
 
-이 문서는 SAC_UED5에서 군중 행동 모델을 다시 짜기 전에, 무엇을 남기고 무엇을 없애며 각 메커니즘을 무엇으로 정당화하는지를 고정합니다. 구현은 이 문서에 합의한 뒤 시작합니다. 현재 구현의 상세와 선행 연구 비교는 [crowd_behavior_model.md](crowd_behavior_model.md), 외부 검토 의견은 [deep-research-report.md](deep-research-report.md)에 있습니다.
+이 문서는 SAC_UED5에서 군중 행동 모델을 다시 짜기 전에, 무엇을 남기고 무엇을 없애며 각 메커니즘을 무엇으로 정당화하는지를 고정합니다. 구현은 이 문서에 합의한 뒤 시작합니다. 선행 연구 지형과 검증 방법은 부록 A, 인지 모델 이전 판에서 이어지는 결정은 부록 B에 있습니다. 이전 구현 문서(`crowd_behavior_model.md`)와 외부 검토 의견(`deep-research-report.md`)은 2026-10-04에 삭제했고 git 이력에 남아 있습니다.
 
 표기: 이 문서에서 **[민감도]**는 실측 근거가 없어 값을 고정해 주장하지 않고, 범위를 두고 민감도 분석과 UED 무작위화 대상으로 삼는 파라미터를 뜻합니다. 근거가 있는 것은 근거를, 없는 것은 "근거 없음"을 그대로 적습니다.
 
@@ -65,14 +65,14 @@
 | 로봇 | p_R(d) (M5) | 신호를 켠 로봇이 보일 때 |
 
 - 주변 사람 경로의 포화 형태(인원이 늘수록 효과가 선형으로 늘지 않음)는 사회적 영향 모델의 일반적 가정입니다. 포화 인원 N_S = 4는 기존 코드의 값이며 근거 없음, [민감도].
-- "눈에 띄게 대응 중"(`responding`): 로봇을 따르는 중, 자신이 아는 위험 영역을 빠져나가는 중, 맵을 떠나는 중, 근거 있는 흐름을 따르는 중. 경고를 들었지만 평소처럼 걷는 사람은 해당하지 않는다. 근거: 사회적 신호는 남들이 대피하는 모습을 보는 것(Kinateder & Warren, 2016). 처음 구현에서는 "행동 중"인 사람 누구나 신호원이 되어, 미리 경고받은 사람에게서 시작된 연쇄가 맵 전체를 인지 상태로 만들었다(2026-10-01 측정, 12장).
+- "눈에 띄게 대응 중"(`responding`): 로봇을 따르는 중, 자신이 아는 위험 영역을 빠져나가는 중, 맵을 떠나는 중, 근거 있는 흐름을 따르는 중. 경고를 들었지만 평소처럼 걷는 사람은 해당하지 않는다. 근거: 사회적 신호는 남들의 보호 행동을 관찰하는 것(PADM; Kinateder & Warren, 2016은 대피하는 방관자 1명이 대피율을 52%에서 76%로 올림). 처음 구현에서는 "행동 중"인 사람 누구나 신호원이 되어, 미리 경고받은 사람에게서 시작된 연쇄가 맵 전체를 인지 상태로 만들었다(2026-10-01 측정, 12장).
 
 비행동:
 
 - 간접 신호(주변 사람, 미리 받은 경고, 로봇)를 처음 받는 순간, 확률 p_N으로 그 사람은 "비행동자"가 된다. 비행동자는 망설임으로 넘어가지 않고 평소 이동을 계속한다. 다만 위험을 직접 감지한 지점은 기억하고(M2) 그 지점을 지나는 경로는 피한다.
-- 위험을 직접 감지한 경우는 비행동 대상이 아니다. 비행동자도 위험을 직접 감지하면 망설임으로 넘어간다. 근거: PADM에서 환경 신호(직접 본 위험)가 위협 인식에 가장 강하게 작용한다.
+- 위험을 직접 감지한 경우는 비행동 대상이 아니다. 비행동자도 위험을 직접 감지하면 망설임으로 넘어간다. 근거: PADM은 환경 신호(위험을 직접 보고 듣는 것)를 경고·사회 신호와 별도의 입력으로 두고, 토네이도처럼 신호가 명확하면 위협이 "오해 없이" 인식된다고 설명한다. 환경 신호가 가장 강하다는 정량 비교는 원문에 없다.
 - 비행동자도 로봇 지시는 받을 수 있다(M5). 로봇 지시를 수락하면 행동으로 넘어간다.
-- 근거: PADM에서 신호를 받아도 위협을 낮게 평가하거나 정보를 더 찾다가 보호 행동을 하지 않는 경우가 존재. 비율은 근거 없음, 기본값 0.1, [민감도].
+- 근거: PADM에서 사람은 보호 행동과 "평소 활동 계속" 중 하나를 고르며, 정보가 부족하면 정보 탐색으로 행동을 미룬다(Lindell & Perry 2012, 3.3절). 비율은 근거 없음, 기본값 0.1, [민감도].
 
 망설임:
 
@@ -81,7 +81,7 @@
 - 현재 구현의 "로봇이 가까우면 스텝당 +4"는 없앤다. 로봇 효과가 f_R과 이중으로 계산되고 근거가 없다.
 - d ≤ 0이면 행동으로 넘어간다.
 
-근거: PADM(Lindell & Perry, 2012)의 신호 → 판단 → 행동 구조를 단순화. 행동 전 지연의 로그정규 형태는 Lovreglio 등(2019) 데이터베이스와 대피 모델 관행. 이웃 행동이 개시를 앞당기는 방향은 Kinateder & Warren(2016). 배수 f_R과 가속 a_S의 크기는 근거 없음, [민감도] (a_S 0~2).
+근거: PADM(Lindell & Perry, 2012)의 신호 → 판단 → 행동 구조를 단순화. 행동 전 지연을 양의 값만 갖는 오른쪽 꼬리 분포로 두는 근거는 Lovreglio 등(2019). 이 데이터베이스는 감마·로그정규·로그로지스틱·와이블 네 분포를 맞추고 R²로 고르게 하며, 로그정규가 가장 낫다고 하지는 않는다. 이웃 행동이 개시를 앞당기는 방향은 Kinateder & Warren(2016). 배수 f_R과 가속 a_S의 크기는 근거 없음, [민감도] (a_S 0~2).
 
 ### M2. 위험 지식
 
@@ -94,7 +94,7 @@ r_A와 간격 δ, 최대 개수가 함께 A_i의 모양을 정합니다. δ와 �
 
 실제 구역이 A_i보다 크면, 사람은 A_i를 벗어난 뒤에도 실제 구역 안에 있을 수 있습니다. 그 경우 구역 안 감지(스텝당 0.35 × s)로 새 지점이 추가되어 A_i가 넓어지고 다시 이동합니다. 즉 실제 구역을 벗어나는 과정이 "감지하며 조금씩 물러나는" 형태로 나옵니다. 이 동작은 구현 후 P2로 확인합니다.
 
-근거: 부분 공간 지식 모델(Andresen 등, 2016), 위험을 국소적이고 개인적인 지식으로 판단한다는 관찰(PADM, Kuligowski). r_A의 크기는 근거 없음, [민감도].
+근거: 보행자마다 부정확하고 불완전한 공간 지식을 따로 갖는 모델(Andresen 등, 2016), 사람마다 받은 신호가 다르고 그에 따라 위협을 따로 판단한다는 구조(PADM). Kuligowski(2009)는 행동 전 인지·해석 과정이 있다는 보조 근거다. r_A의 크기는 근거 없음, [민감도].
 
 ### M3. 경로 선택 (전술 판단의 단일 규칙)
 
@@ -124,7 +124,7 @@ r_A와 간격 δ, 최대 개수가 함께 A_i의 모양을 정합니다. δ와 �
 
 이 규칙 하나가 지금의 도망 반발력, 막힘 우회, 갇힘 정지, 떠남·멈춤·계속 3분할, `_on_reentry`, `_release_from_robot`을 모두 대체합니다. 자신이 아는 위험을 다시 지나는 경로는 선택되지 않으므로 재진입 순환과 경계 맴돌기가 구조적으로 생기지 않습니다. 모든 출구가 막힌 사람은 대기하게 되고, 이 사람들을 다른 길로 데려가는 것이 로봇의 과제가 됩니다.
 
-근거: 위험을 경로 비용에 넣는 경로 선택(Haghani & Sarvi의 출구 선택 연구 계열, 김현철·한순흥 2018). 위험을 가로지르기보다 안전한 곳에서 기다리는 선택은 대피 행동 연구에서 보고되는 대기 행동과 방향이 같으나 정량 근거는 약하다. p_D와 T_R은 근거 없음, [민감도].
+근거: 출구 선택에 거리·밀도와 함께 출구의 위험이 주요 요인으로 들어간다는 다인원 VR 관찰(Adv. Eng. Inform. 2025), 출구 선택을 이산 선택으로 모형화하는 계열(Haghani & Sarvi, 2017). 김현철·한순흥(2018)은 위험을 경로 비용에 넣은 시뮬레이션 선례이나 관찰 데이터로 검증되지 않았다. 위험을 가로지르기보다 안전한 곳에서 기다리는 선택은 대피 행동 연구에서 보고되는 대기 행동과 방향이 같으나 정량 근거는 약하다. p_D와 T_R은 근거 없음, [민감도].
 
 ### M4. 사회적 영향
 
@@ -136,7 +136,10 @@ r_A와 간격 δ, 최대 개수가 함께 A_i의 모양을 정합니다. δ와 �
 
 한 사람을 끝까지 따라가는 방식은 연쇄 추종과 재진입 순환의 3분의 2를 만들었습니다. 평균 방향은 여러 사람의 움직임을 합치므로 한 사람의 실수를 따라가지 않습니다.
 
-근거: 정보가 없을 때 남의 움직임을 따르는 경향(Kinateder & Warren, 2016), 사회적 상호작용 모델의 단순화 비판과 흐름 방향 기반 영향(Templeton 등 리뷰). 기준 ε는 근거 없음, [민감도].
+근거: 정보가 불분명할수록 군중을 더 따르고, 군중을 따라 홍수 물 속으로 들어가기도 한다는 VR 관찰(Arshaghi 등, 2026), 다수 군중의 경로를 따르는 경향(Frontiers in Psychology 2025 도서관 화재 VR), 사회적 상호작용 모델이 지나치게 단순하다는 리뷰(Templeton 등, 2023). Kinateder & Warren(2016)은 방관자 1명 실험이라 이 규칙의 직접 근거가 아니다. 기준 ε는 근거 없음, [민감도].
+
+떠나는 흐름 (beh-v3.1, 2026-10-04): 따라가는 흐름의 목표가 맵 경계 띠(`CROWD_OUTFLOW_MARGIN_M`)에 닿으면, 그 흐름은 지역을 떠나는 사람들이다. 처음 이런 흐름을 만났을 때 `CROWD_FOLLOW_DEPART_PROB`로 한 번 정한다. "예"면 흐름이 향하는 가장 가까운 street mouth로 함께 떠나고(유출 사유 `followed_departure`), "아니오"면 흐름 따르기를 그만두고 원래 이동으로 돌아간다. 이전에는 이들이 gate를 목표로 갖지 않아 경계에 붙어 맴돌았다(경계 5 m 안 인원의 21–28%). 확률 없이 모두 따라 나가게 했을 때는 500 s 안에 인원의 98–99%가 떠났다.
+근거: 군중을 따르는 비율은 일부다. 위험한 군중을 따라 물 속 경로를 고른 비율 48–79%(Arshaghi 등, 2026), 대피하는 방관자 1명이 있을 때 대피 76%(Kinateder & Warren, 2016), 로봇보다 군중을 따른 비율 78%(Nayyar 등, 2020). 따르지 않은 사람이 평소 활동을 계속하는 것은 PADM. 이 관찰들은 짧은 경로 선택이나 대피 개시라서, 지역을 떠나는 결정에 옮긴 것은 유추다. 값 0.7은 관찰 범위의 중간, [민감도] 0.5–0.8.
 
 ### M5. 로봇 한 대와의 상호작용
 
@@ -163,12 +166,13 @@ r_A와 간격 δ, 최대 개수가 함께 A_i의 모양을 정합니다. δ와 �
 
 근거(행동 관찰 연구만):
 
-- Cao 등(2026, 가상 유도자 VR): 수락은 유도자 지시, 군중 움직임, 자신의 공간 지식의 일치에 따라 달라짐 → 효용에 군중 일치 항, 자신이 아는 위험으로 가는 로봇 제외.
-- Frontiers 2025 도서관 화재 VR(162명): 다수 군중의 경로를 따름, 충돌 정보가 길찾기를 방해 → β_C.
-- Nayyar & Wagner(가상 실험): 한 로봇이 끝까지 데려갈 때가 인계보다 따를 가능성이 높음 → 인계는 새 판단(로봇을 놓치면 재선택).
-- Liao 등(다인원 VR): 출구 선택을 바꾸는 사람은 소수, 위험할수록 덜 바꿈(유추) → β_H.
-- 경쟁 안내 VR(Expert Syst. Appl. 2024): 여러 단서가 섞인 선택을 이산 선택으로 예측 → 모형 형태.
-- Robinette 등(2016, 26명 전원 추종), Mayr & Köster(2022, 약 20%로도 효과) → b의 범위.
+- Cao 등(2025, CASA, 가상 유도자 VR): 수락은 유도자 지시, 군중 움직임, 자신의 공간 지식의 일치에 따라 달라짐 → 효용에 군중 일치 항, 자신이 아는 위험으로 가는 로봇 제외.
+- Frontiers in Psychology 2025 도서관 화재 VR(162명): 다수 군중의 경로를 따름(성비가 그 효과를 약화) → β_C.
+- Nayyar 등(2020, 온라인 가상 실험): 로봇 지시가 군중과 다르면 설명이 없을 때 77.97%가 군중을 따름 → β_C.
+- Nayyar & Wagner(가상 실험, Wagner 2021 리뷰 수치): 한 로봇이 출구까지 데려가면 75%가 따르지만 로봇 간 인계 방식은 27%, 반대 방향 군중이 있으면 각각 45%와 2% → 인계는 새 판단(로봇을 놓치면 재선택), β_C.
+- Adv. Eng. Inform. 2025 다인원 VR(초록 기준, 저자 원문 미확인): 출구 선택 변경은 드묾 → β_H(출구 선택에서 유추). "위험할수록 덜 바꾼다"는 초록에서 확인되지 않음.
+- 경쟁 안내 VR(Zhang 등, Expert Syst. Appl. 2025, 20명): 끌어당기는 단서보다 막는 단서가 선택에 더 강하게 작용 → 자신이 아는 위험으로 가는 로봇 제외의 보조 근거. 이 연구는 랜덤 포레스트를 썼으므로 로짓 모형 형태의 근거는 아니다. 형태의 근거는 출구 선택 이산 선택 계열(Haghani & Sarvi, 2017).
+- Robinette 등(2016, 실제 연기·경보 상황, 26명 전원 추종) → b의 상한. Mayr & Köster(2022)는 교통 허브 혼잡 회피 시뮬레이션에서 따르는 사람이 약 20%면 안내가 효과를 낸다는 결과라, 관찰된 수락률이 아니다. b의 하한은 관찰 근거가 없다.
 - 대피 시간 같은 결과 지표는 행동 규칙의 근거로 쓰지 않는다.
 - 계수 b, β_C, β_H의 크기는 근거 없음, [민감도]. 이산 선택 모형이라 향후 실험 데이터로 추정할 수 있는 구조다.
 
@@ -225,10 +229,10 @@ CROWD_THROUGH_TRIP_SHARE	평소 이동에서 볼일 목적 이동 대신 도로 
 | --- | --- | --- | --- | --- | --- |
 | `AWARENESS_P_INSIDE` | M1 | 0.35 | 0.2–0.5 | 근거 없음 | [민감도] |
 | `AWARENESS_P_VISIBLE` | M1 | 0.06 | 0.02–0.1 | 근거 없음 | [민감도] |
-| `AWARENESS_P_SOCIAL` | M1 | 0.12 | 0.05–0.25 | 방향만 (Kinateder & Warren) | [민감도] |
+| `AWARENESS_P_SOCIAL` | M1 | 0.12 | 0.05–0.25 | 방향만 (Kinateder & Warren, 방관자 1명) | [민감도] |
 | `AWARENESS_SOCIAL_SATURATION` N_S | M1, M4 | 4 | 1–8 | 포화 형태만 일반 가정, 값은 근거 없음 | [민감도] |
 | `CROWD_NONRESPONSE_FRACTION` p_N | M1 | 0.1 | 0–0.3 | 존재는 PADM, 비율은 근거 없음 | B, [민감도] |
-| `PREMOVEMENT_MEDIAN_STEPS` m | M1 | 16.7 (약 8초) | 8–64 (4–32초) | 야외 홍수 VR 잠정치, Lovreglio 2019(건물) | [민감도] |
+| `PREMOVEMENT_MEDIAN_STEPS` m | M1 | 16.7 (약 8초) | 8–64 (4–32초) | 야외 홍수 VR 잠정치(Arshaghi 등 2026, VR1 12명), 분포 형태 Lovreglio 2019(건물) | [민감도] |
 | `PREMOVEMENT_SIGMA` | M1 | 0.7 | 0.5–1.0 | 로그정규 관행 | [민감도] |
 | `MILLING_SOCIAL_SPEEDUP` a_S | M1 | 0.0 | 0–2 | 방향만 (Kinateder & Warren). 기준 지연에 군중 효과가 이미 포함 | [민감도] |
 | `MILLING_ROBOT_SPEEDUP` f_R | M1, M5 | 0.25 | 0.1–1.0 | 근거 없음 | R, [민감도] |
@@ -239,13 +243,14 @@ CROWD_THROUGH_TRIP_SHARE	평소 이동에서 볼일 목적 이동 대신 도로 
 | `CROWD_DEPART_PROB` p_D | M3 | 0.5 | 0.3–0.9 | 근거 없음 | B, [민감도] |
 | `CROWD_SHELTER_REPLAN_STEPS` T_R | M3 | 60 | 20–240 | 근거 없음 | B, [민감도] |
 | `CROWD_FLOW_FOLLOW_MIN_ALIGNMENT` ε | M4 | 0.3 | 0.1–0.6 | 근거 없음 | B, [민감도] |
+| `CROWD_FOLLOW_DEPART_PROB` | M4 | 0.7 | 0.5–0.8 | 군중 추종 비율 48–79% (Arshaghi 2026, Kinateder & Warren 2016, Nayyar 2020), 지역 이탈로의 적용은 유추 | B, [민감도] |
 | `ROBOT_SIGNAL_RADIUS_M` R_S | M5 | 10 | 5–15 | 표지 판독 거리 개념, 값은 근거 없음 | R, [민감도] |
 | `ROBOT_SIGNAL_P_MAX` p_max | M5 | 1.0 | 0.3–1.0 | 근거 없음 | B, R, [민감도] |
-| `ROBOT_GUIDE_BASE_COMPLIANCE` b | M5 | 0.75 | 0.2–1.0 | 상한 Robinette, 하한 Mayr & Köster | R, [민감도] |
+| `ROBOT_GUIDE_BASE_COMPLIANCE` b | M5 | 0.75 | 0.2–1.0 | 상한 Robinette. 하한은 관찰 근거 없음(Mayr & Köster는 필요 수락률 시뮬레이션) | R, [민감도] |
 | `ROBOT_COMPLIANCE_PERSON_FACTOR_RANGE` | M5 | (2/3, 4/3) | 고정 | 개인차 존재, 폭은 근거 없음 | 고정 |
-| `ROBOT_CHOICE_CROWD_BETA` β_C | M5 | 1.5 | 0–3 | 방향만 (Cao 등, Frontiers 2025, Nayyar & Wagner) | B, R, [민감도] |
+| `ROBOT_CHOICE_CROWD_BETA` β_C | M5 | 1.5 | 0–3 | 방향만 (Cao 등 2025, Frontiers in Psychology 2025, Nayyar 등 2020, Nayyar & Wagner) | B, R, [민감도] |
 | `ROBOT_FOLLOW_STANDOFF_M` | M5 | 3.0 | 1.5–5 | 개인 공간 거리(Hall 1966), 로봇 추종에서의 값은 근거 없음 | B, R, [민감도] |
-| `ROBOT_CHOICE_INERTIA_BETA` β_H | M5, M6 | 2.0 | 0–4 | 유지 경향은 Liao 등(출구 선택, 유추), 인계 시 추종 감소는 Nayyar & Wagner. 크기는 근거 없음 | B, R, [민감도] |
+| `ROBOT_CHOICE_INERTIA_BETA` β_H | M5, M6 | 2.0 | 0–4 | 유지 경향은 Adv. Eng. Inform. 2025(출구 선택 변경 드묾, 유추), 인계 시 추종 감소는 Nayyar & Wagner. 크기는 근거 없음 | B, R, [민감도] |
 | `ROBOT_SIGNAL_REENCOUNTER_GAP_STEPS` | M5 | 10 | 고정 | 모델링 경계 | 고정 |
 | `CROWD_THROUGH_TRIP_SHARE` | 배경 | 0.7 | 0.5–0.9 | 근거 없음 | [민감도] 후보 |
 
@@ -312,7 +317,7 @@ dotonbori, kreuzberg, hongdae(경계 맴돌기 재현 맵)와 soho_nyc, eixample
 6. M5·M6: 인지 기억, 이벤트 기반 선택, 효용(기본률·군중 일치·관성·개인 계수), 위험으로 이끄는 로봇 제외.
 7. M1: `cued` 상태 제거, 비행동자 추가, 로봇 근접 망설임 가속 제거.
 8. 테스트: 기존 행동 테스트 정리, P4·P5·P8 단위 테스트, 8장 측정 스크립트를 `validation/`에 모듈로 추가.
-9. 문서: 이 문서의 상태를 "구현됨"으로 바꾸고 측정 결과를 추가, [crowd_behavior_model.md](crowd_behavior_model.md) 1장 갱신.
+9. 문서: 이 문서의 상태를 "구현됨"으로 바꾸고 측정 결과를 추가.
 
 행동이 바뀌므로 기존 체크포인트와 리플레이 버퍼는 쓸 수 없습니다. 새 LOG_DIR로 학습을 다시 시작합니다.
 
@@ -402,20 +407,288 @@ dotonbori, kreuzberg, hongdae(경계 맴돌기 재현 맵)와 soho_nyc, eixample
 - 48로 정했다. 표현 해상도이므로 민감도 대상이 아니다. 무제한은 400 m 맵이나 긴 에피소드에서 계속 늘 수 있어 상한을 남긴다.
 - 실제 위험구역 재진입(위험을 아는 사람이 구역 밖 2 m 이상에서 20스텝 이상 있다가 1 m 이상 다시 들어감)은 상한과 무관하게 1500스텝당 맵마다 약 11건이다. 잊어서가 아니라 본 적 없는 다른 면으로 들어가는 경우로, 부분 지식(M2)의 의도된 결과다.
 
-## 참고 문헌
+## 부록 A. 선행 연구 지형과 검증 방법
 
-- Lindell, M. K., & Perry, R. W. (2012). The Protective Action Decision Model: Theoretical modifications and additional evidence. *Risk Analysis*. https://onlinelibrary.wiley.com/doi/abs/10.1111/j.1539-6924.2011.01647.x
+2026-10-04에 `crowd_behavior_model.md`(beh-v3 이전 문서)에서 옮겼다. 이전 모델을 평가하던 문장과 비교표는 지금 코드와 맞지 않아 뺐고, 선행 연구 설명과 검증 방법만 남겼다. 여기 인용된 문헌 가운데 위 참고 문헌 절에 없는 것은 원문을 확인하지 않았다.
+
+### A.1 분석 틀
+
+- 3단계 구분(Hoogendoorn & Bovy, 2004): 전략(무엇을 하고 어디로 갈지), 전술(어떤 경로로), 운영(한 걸음씩 어떻게 움직일지).
+- 심리 층 구조(Vadere 그룹, Köster 등): 자극을 지각하고, 인지 층에서 해석하고, 행동 층에서 실행합니다. 우리 모델의 `update_awareness` → `which_goal_agent_want` → social force가 정확히 이 형태입니다.
+- 어느 층이 가장 중요한가(Haghani & Sarvi, 2021): 대피 시간 추정은 이동 층, 특히 병목 유출률 파라미터에 압도적으로 민감합니다. "If a model does not produce bottleneck flowrates accurately, efforts to refine other aspects of simulation might be in vain."
+
+### A.2 운영 층: 이동 모델
+
+| 계열 | 대표 | 특징 |
+| --- | --- | --- |
+| 힘 기반 | Social force (Helbing), 일반화 원심력 모델 (Chraibi 등) | 가장 널리 쓰임. 파라미터 보정이 핵심 |
+| 속도 기반 | Collision-free speed model (Tordeux 등, JuPedSim) | 충돌이 원천적으로 없고 파라미터가 적음 |
+| 걸음 기반 | Optimal Steps Model (Seitz & Köster, Vadere) | 원형 영역 안에서 다음 발 위치를 최적화 |
+| 인지 휴리스틱 | Moussaïd, Helbing & Theraulaz (2011) | 시선 방향별 장애물 거리로 속도·방향을 정하는 두 규칙 |
+| 속도 장애물 | RVO / ORCA | 로봇·그래픽스에서 주로 사용 |
+| 데이터 기반 | 궤적 예측 신경망 | 학습한 장면 밖에서 일반화가 약함 |
+
+### A.3 정보 전파와 사회적 영향
+
+- 체계적 리뷰(Templeton, Xie, Gwynne, Hunt, Thompson & Köster, 2023): 70편 분석, 사회적 상호작용 8종 분류, 의사소통 모델 17편은 공간 반경·소셜 네트워크·외부 통신으로 정보를 전달. 결론은 "assumed reasons for interactions and portrayal of them may be overly simple".
+- 정보 기반 대피 모델(Zhao 등, 2026, 실내 가스 누출): 모름 / 직접 인지 / 전달받음 상태, 정보 수용 = 인지 능력 × 신뢰도 × 전달 감쇠. 저·중밀도에서는 정보 전파 범위가 대피를 크게 앞당기고, 고밀도에서는 혼잡이 지배해 효과가 줄어듭니다. 우리 모델과 구조가 가장 가깝습니다.
+- 군집 추종과 패닉 신화 논쟁: Helbing, Farkas & Vicsek(2000)은 개인 판단과 군집 추종의 혼합이 최적이라고 봤고, 사회심리학(Drury 등)은 집단 패닉이 근거 없는 신화이며 실제로는 공동의 정체성과 돕기 행동이 흔하다고 비판합니다. 이를 반영한 모델로 von Sivers 등(2016)이 있습니다.
+- 감정 전염: Durupinar 등(2016), Tsai의 ESCAPES(2011). 주로 그래픽스 쪽이고 검증이 약합니다.
+
+### A.4 전략 층: 도시 규모와 안전 이후 행동
+
+도시 규모 대피 ABM은 쓰나미(와이키키, 이키케), 홍수, 지진 연구가 많고, 대부분 "모두가 대피소로 간다"는 목적지 고정 구조입니다.
+
+### A.5 유도, 수락, 로봇
+
+- 리더-추종 모델: 유도자의 영향 범위 안에서 확률적으로 따라가며, 유도자 수에는 최적값이 있습니다.
+- Mayr & Köster(2022, Vadere): 수락을 모두에게 같은 단일 확률로 두고 한계로 인정. 혼잡이 적은 경로를 추천하는 전략에서는 약 20% 수락률로도 혼잡을 막았습니다.
+- 로봇 과신(Robinette 등, 2016): 연기와 경보 속에서 26명 전원이 로봇을 따랐습니다. 절반은 몇 분 전 로봇의 안내 실패를 봤습니다.
+- 로봇 대 군중 충돌(Nayyar & Wagner): 로봇 지시와 반대로 군중이 뛰어가면 군중을 따르는 경우가 많았습니다. 설명을 덧붙이면(내용이 없어도) 따르는 비율이 올랐습니다. 실제 실험 14명으로 로봇을 따르는 대피자의 궤적 모델도 학습했습니다(평균 오차 9.9 cm, 다른 환경에서는 크게 증가).
+- 로봇이 흐름을 바꾸는 방식: Zheng 등(2023/24)은 social force에 로봇 힘을 넣은 미시 모델과 밀도 방정식의 거시 모델을 함께 씁니다. Wan 등(2020)은 병목 앞에서 흐름을 조절하는 로봇을 심층 강화학습으로 학습했습니다. Chen·Jiang·Guo의 실험에서는 로봇이 있으면 보행 속도가 느려지고 로봇이 빠를수록 더 느려졌습니다.
+
+### A.6 새로운 흐름
+
+- 강화학습 기반 대피: 대부분 보행자 에이전트나 경로 계획을 학습합니다(리더·추종자 두 층, 계층형 강화학습 등). 로봇이 군중을 유도하는 다중 에이전트 강화학습은 드물어 이 프로젝트의 차별점입니다.
+- LLM 에이전트: LLM을 개별 에이전트의 의사결정기로 쓰는 대피 ABM(2025), 대화를 이동 결정에 연결한 연구(Liu 등, 2025). 공통 한계는 계산 비용과 정량 검증 부족이며, 수백만 스텝이 필요한 강화학습 환경에는 아직 맞지 않습니다.
+
+### A.7 검증: 문헌이 쓰는 방법
+
+1. 검증(verification)과 타당성 확인(validation)의 구분: 모델이 설계대로 동작하는가 vs 실제 사람과 닮았는가. NIST TN 1822(Ronchi, Kuligowski 등, 2013)가 구성 요소 테스트, 창발 현상 테스트, 불확실성 분석을 묶은 절차를 제안했고, ISO 20414가 이런 절차를 표준화했습니다.
+2. 표준 테스트 케이스: RiMEA 14개 시나리오, IMO MSC.1/Circ.1533 12개 테스트(직선 복도 속도, 모퉁이, 행동 전 지연 분포, 출구 선택, 병목 등).
+3. 이동 층의 정량 비교: 기본도(Weidmann 1993, Seyfried 등 2005), 병목 유량, 차선 형성과 faster-is-slower 같은 창발 현상. 율리히 연구소의 공개 궤적 데이터 아카이브가 공용 기준이며, Wolinski 등(2014)은 실측 궤적에 맞게 파라미터를 자동 추정한 뒤 모델을 같은 지표로 비교하는 틀을 제안했습니다.
+4. 행동 층: 행동 전 시간 분포(Lovreglio 등 2019), VR 실험(Kinateder & Warren 2016은 대피 시작의 긍정적 사회 영향이 실제와 비슷하게 나왔지만 경보 반응과 부정적 영향은 VR에서 약했다고 보고), 실제 사고 재구성(뒤스부르크 러브 퍼레이드: Pretorius 등 2015, 2020년 J. R. Soc. Interface 연구, 하지 순례: Helbing 등 2007), 생존자 인터뷰(von Sivers 등 2016이 런던 테러 생존자 연구를 근거로 규칙 설정).
+5. 방법론 원칙: 패턴 중심 모델링(Grimm 등, 2005, 여러 규모의 여러 패턴을 동시에 재현하는지로 구조와 파라미터를 거름), 불확실성과 민감도 분석, 이동 층부터 보정(Haghani & Sarvi, 2021).
+6. 로봇 유도 연구: 제가 본 문헌에서는 대부분 기존 social force 계열을 그대로 쓰고 군중 모델을 따로 검증하지 않았으며(Wan 등 2020, Zheng 등 2023/24), 사람의 반응은 소규모 실험으로 보완했습니다(Robinette 등 26명, Nayyar 등 14명).
+
+
+### A.8 패턴 중심 검증의 논리
+
+행동 층은 개인의 반응 시각을 맞출 데이터가 없습니다. 그래서 현실에서 반복적으로 관찰된 모양을 재현하는지 봅니다. 여러 패턴을 동시에 통과할수록 우연이 아니라 구조가 맞을 가능성이 커집니다.
+
+- 주장할 수 있는 것: 모델이 알려진 패턴과 모순되지 않고, 근거 없는 파라미터를 흔들어도 결론(로봇 정책 > 기준선)이 유지된다.
+- 주장할 수 없는 것: 모델이 현실을 정확히 예측한다.
+
+이 과제의 주장은 "군중을 정확히 예측한다"가 아니라 "로봇이 대피를 개선한다"이므로, 행동 층은 절대 정확도보다 결론의 견고성을 보이는 편이 설득력이 큽니다. 각 패턴에는 민감도 분석이 짝으로 붙습니다.
+
+
+### A.9 부록 A의 참고 문헌 (원문 미확인)
+이동 층과 보정
+
+- Hoogendoorn, S. P., & Bovy, P. H. L. (2004). Pedestrian route-choice and activity scheduling theory and models. *Transportation Research Part B*, 38, 169–190. https://www.sciencedirect.com/science/article/abs/pii/S0191261503000079
+- Haghani, M., & Sarvi, M. (2021). Calibrating parameters of crowd evacuation simulation at strategic, tactical and operational levels: Which one matters most? https://arxiv.org/abs/2109.02885
+- Moussaïd, M., Helbing, D., & Theraulaz, G. (2011). How simple rules determine pedestrian behavior and crowd disasters. *PNAS*, 108(17), 6884–6888. https://www.pnas.org/doi/full/10.1073/pnas.1016507108
+- Seyfried, A., Steffen, B., Klingsch, W., & Boltes, M. (2005). The fundamental diagram of pedestrian movement revisited. *J. Stat. Mech.*, P10002. https://arxiv.org/pdf/physics/0506170
+- Tordeux, A., Chraibi, M., & Seyfried, A. Collision-free speed model for pedestrian dynamics. https://arxiv.org/pdf/1512.05597
+- Chraibi, M., Seyfried, A., & Schadschneider, A. Generalized centrifugal-force model for pedestrian dynamics. https://www.semanticscholar.org/paper/Generalized-centrifugal-force-model-for-pedestrian-Chraibi-Seyfried/3e2b54825c7b71fa1fbf0dedfe3c7e95cf996acc
+- Optimal Steps Model. https://pedestriandynamics.org/models/optimal_steps_model/
+- Kleinmeier, B. 등. Vadere: An open-source simulation framework. https://arxiv.org/pdf/1907.09520
+- Shirvani, M., Kesserwani, G., & Richmond, P. (2020). Agent-based modelling of pedestrian responses during flood emergency. *Journal of Hydroinformatics*, 22(5), 1078–1092. https://arxiv.org/abs/2004.10589
+
+인지, 결정, 사회적 영향
+
+- Lindell, M. K., & Perry, R. W. (2012). The Protective Action Decision Model. *Risk Analysis*. https://onlinelibrary.wiley.com/doi/abs/10.1111/j.1539-6924.2011.01647.x
 - Kuligowski, E. The Process of Human Behavior in Fires. NIST. https://www.nist.gov/publications/process-human-behavior-fires
 - Lovreglio, R., Kuligowski, E., Gwynne, S., & Boyce, K. (2019). A pre-evacuation database for use in egress simulations. *Fire Safety Journal*. https://www.nist.gov/publications/pre-evacuation-database-use-egress-simulations
-- Kinateder, M., & Warren, W. H. (2016). Social influence on evacuation behavior in real and virtual environments. *Frontiers in Robotics and AI*. https://www.frontiersin.org/journals/robotics-and-ai/articles/10.3389/frobt.2016.00043/full
-- Templeton, A. 등. Agent-based models of social behaviour and communication in evacuations: A systematic review. *Safety Science*. https://arxiv.org/abs/2310.15761
+- Templeton, A., Xie, H., Gwynne, S., Hunt, A., Thompson, P., & Köster, G. (2023). Agent-based models of social behaviour and communication in evacuations: A systematic review. *Safety Science*. https://arxiv.org/abs/2310.15761
+- Zhao, D. 등 (2026). Information-driven behavioural dynamics in indoor gas-leak evacuation. *Physica A*, 688. https://www.sciencedirect.com/science/article/abs/pii/S0378437126001457
+- Helbing, D., Farkas, I., & Vicsek, T. (2000). Simulating dynamical features of escape panic. *Nature*, 407, 487–490.
+- Representing crowd behaviour in emergency planning guidance: 'mass panic' or collective resilience? https://www.tandfonline.com/doi/full/10.1080/21693293.2013.765740
+- von Sivers, I. 등 (2016). Modelling social identification and helping in evacuation simulation. *Safety Science*. https://arxiv.org/abs/1602.00805
+- Durupinar, F. 등 (2016). Psychological parameters for crowd simulation: From audiences to mobs.
+- Tsai, J. 등 (2011). ESCAPES. https://www.researchgate.net/publication/221455296
 - Andresen, E., Haensel, D., Chraibi, M., & Seyfried, A. (2016). Wayfinding and cognitive maps for pedestrian models. https://arxiv.org/abs/1602.01971
 - Haghani, M., & Sarvi, M. (2017). Stated and revealed exit choices of pedestrian crowd evacuees. https://sciencedirect.com/science/article/abs/pii/S0191261516306762
-- 김현철, 한순흥 (2018). 인간 특성에 기초한 실시간 능동 경로 선택모델과 전산유체역학 데이터를 적용한 군중 대피 시뮬레이션. 한국방재학회논문집 18(1). (원문 미확인, deep-research-report.md에서 인용)
+
+유도와 로봇
+
+- Mayr, C. M., & Köster, G. (2022). Guiding crowds when facing limited compliance: Simulating strategies. *PLOS ONE*. https://journals.plos.org/plosone/article?id=10.1371%2Fjournal.pone.0276229
 - Robinette, P., Li, W., Allen, R., Howard, A. M., & Wagner, A. R. (2016). Overtrust of robots in emergency evacuation scenarios. *HRI 2016*.
 - Nayyar, M., & Wagner, A. R. Exploring the effect of explanations during robot-guided emergency evacuation. https://link.springer.com/chapter/10.1007/978-3-030-62056-1_2
-- Nayyar, M., & Wagner, A. R. 로봇 간 인계(handoff)와 shepherding 비교 가상 실험. Effective Robot Evacuation Strategies in Emergencies. https://www.researchgate.net/publication/338591204_Effective_Robot_Evacuation_Strategies_in_Emergencies ; 요약은 Robot-Guided Evacuation as a Paradigm for Human-Robot Interaction Research (Frontiers, 2021) https://www.frontiersin.org/journals/robotics-and-ai/articles/10.3389/frobt.2021.701938/full (원문 세부 수치 미확인)
-- Liao 등. 다인원 가상 대피 실험의 출구 선택 변경. Adaptive exit choices of pedestrians during emergency evacuation: A study combining virtual experiments, survey and modelling (2025). https://www.sciencedirect.com/science/article/abs/pii/S1474034625001958 (검색 요약 기준, 원문 미확인)
-- Virtual Guides and Crowd Behaviors: Understanding Evacuation Decision-Making. https://link.springer.com/chapter/10.1007/978-981-95-0100-7_9 (검색 요약 기준, 원문 미확인)
-- Mayr, C. M., & Köster, G. (2022). Guiding crowds when facing limited compliance: Simulating strategies. *PLOS ONE*. https://journals.plos.org/plosone/article?id=10.1371%2Fjournal.pone.0276229
+- Nayyar, M. 등 (2023). Learning evacuee models from robot-guided emergency evacuation experiments. https://arxiv.org/abs/2306.17824
+- Evacuee behavior modeling during robot-guided evacuations (2025). *International Journal of Social Robotics*. https://link.springer.com/article/10.1007/s12369-025-01259-w
 - Zheng, T. 등 (2023/24). Multi-robot-guided crowd evacuation: Two-scale modeling and control. https://arxiv.org/abs/2302.14752
+- Wan, Z. 등 (2020). Robot-assisted pedestrian regulation based on deep reinforcement learning. *IEEE Trans. Cybernetics*, 50(4), 1669–1682. https://pubmed.ncbi.nlm.nih.gov/30475740/
+- Pedestrian-robot interaction experiments in an exit corridor. https://arxiv.org/pdf/1802.05730
+- Sakour, I., & Hu, H. (2017). Robot-assisted crowd evacuation under emergency situations: A survey. *Robotics*, 6(2), 8. https://doi.org/10.3390/robotics6020008
+
+새로운 흐름
+
+- When agents learn to think: LLM-enhanced agent-based modeling for crowd evacuation (2025). *Reliability Engineering & System Safety*. https://www.sciencedirect.com/science/article/abs/pii/S0951832025012554
+- Liu, Y., Shatzel, L., Haworth, B., & Schneider, T. (2025). Emergent crowd dynamics from language-driven multi-agent interactions. https://arxiv.org/abs/2508.15047
+
+검증
+
+- Ronchi, E., Kuligowski, E. D., Reneke, P. A., Peacock, R. D., & Nilsson, D. (2013). The process of verification and validation of building fire evacuation models. NIST TN 1822. https://www.nist.gov/publications/process-verification-and-validation-building-fire-evacuation-models?pub_id=913642
+- IMO MSC.1/Circ.1533 (2016). https://www.traffgo-ht.com/downloads/pedestrians/downloads/documents/MSC.1,Circ.1533,2016.pdf
+- RiMEA: A way to define a standard for evacuation calculations. https://www.researchgate.net/publication/300661139
+- Wolinski, D. 등 (2014). Parameter estimation and comparative evaluation of crowd simulations. *Computer Graphics Forum*, 33, 303–312. https://onlinelibrary.wiley.com/doi/10.1111/cgf.12328
+- Jülich Pedestrian Dynamics Data Archive. https://www.re3data.org/repository/r3d100013370
+- Grimm, V. 등 (2005). Pattern-oriented modeling of agent-based complex systems. *Science*, 310, 987–991. https://www.science.org/doi/10.1126/science.1116681
+- Kinateder, M., & Warren, W. H. (2016). Social influence on evacuation behavior in real and virtual environments. *Frontiers in Robotics and AI*. https://www.frontiersin.org/journals/robotics-and-ai/articles/10.3389/frobt.2016.00043/full
+- Analysis of the use of behavioral data from virtual reality for calibration of agent-based evacuation models (2023). *Heliyon*. https://pmc.ncbi.nlm.nih.gov/articles/PMC10015235/
+- Pretorius, M. 등 (2015). Large crowd modelling: An analysis of the Duisburg Love Parade disaster. *Fire and Materials*. https://onlinelibrary.wiley.com/doi/abs/10.1002/fam.2214
+- Assessing crowd management strategies for the 2010 Love Parade disaster (2020). *J. R. Soc. Interface*. https://royalsocietypublishing.org/doi/10.1098/rsif.2020.0116
+
+## 부록 B. 인지 모델 이전 판에서 이어지는 결정
+
+2026-10-04에 `crowd_awareness_design.md`, `crowd_awareness_implementation.md`에서 옮겼다. beh-v3에서도 유효한 결정만 남겼다.
+
+### B.1 지각 가능성은 확률이 아니라 문턱이다 (`PERCEPTIBILITY_SENSORY_FLOOR`)
+
+처음에는 선형으로 구현했다. 지각 가능성 0.05에 스텝당 0.0175를 주는 형태였다.
+측정해보니 800스텝 에피소드에서 감지가 거의 확실했고, 지각 가능성 0.05와 0.90의
+최종 상태가 같았다. 축의 낮은 쪽이 통째로 높은 쪽으로 붕괴했다.
+
+물리적으로도 틀렸다. 부취제를 넣지 않은 가스 누출은 낮은 확률로 냄새가 나는
+것이 아니라 냄새가 나지 않는다. 확률이 아니라 채널의 유무다.
+
+문턱을 넣은 뒤 800스텝에서 27명 중 지각 가능성 0.05는 17명이 구역 안에
+남고 0.90은 1명이 남는다. 인지 절반 도달 시각도 135스텝과 36스텝으로
+갈린다.
+
+**근거**
+
+Jin, T. (1978). Visibility through fire smoke. *Journal of Fire and
+Flammability*, 9, 135-155.
+
+Frantzich, H., & Nilsson, D. (2003). 연기 속 이동 실측.
+
+연기는 시야와 보행 속도를 직접 떨어뜨린다. 위험이 감각에 도달하는 정도가
+위험마다 다르다는 것의 대표 사례다. 반대편 사례인 무취 가스나 구조적 붕괴
+위험에는 감각 경로가 없다.
+
+PADM(Lindell & Perry 2012)도 방사선과 일부 유독 물질처럼 환경 신호가 전혀 없는 위험을 명시한다. Jin(1978)과 Frantzich & Nilsson(2003)은 원문 미확인.
+
+### B.2 측지 탈출장은 로봇의 것이다
+
+**구현**
+
+`which_goal_agent_want`는 `nearest_safe_goal`도 `mesh_danger`도 호출하지
+않는다. 테스트가 소스를 검사해 이를 고정한다.
+
+**이유**
+
+이전 구현에서 군중이 측지 탈출장을 내려갔고, 그 결과 로봇 없이도 6회 중 6회가
+스스로 비워졌다. 정책이 자기가 하지 않은 일로 채점되는 상태였다. 측지장은
+전체 배치에 대한 시뮬레이터의 지식이고 군중이 가질 수 없는 것이다.
+
+**확인**
+
+`test_the_crowd_never_uses_the_geodesic_escape_field`.
+
+### B.3 UED 설계 공간과 퇴화 감시
+
+`UED_DANGER_PERCEPTIBILITY = (0.05, 0.95)`와
+`UED_PRIOR_INFORMED_FRACTION = (0.0, 0.3)`이 커리큘럼 변수다. 위험의 속성이지
+보행자의 속성이 아니므로 SAMPLR의 CICS 논증이 보호하는 고정 배포 분포에 속하지
+않는다.
+
+감시가 필요하다. 커리큘럼은 기하를 어렵게 만드는 대신 정보를 굶겨서 난이도를
+올릴 수 있다. 개체군의 `perceptibility` 분포가 하한으로 몰리면 그렇게 하고
+있다는 뜻이다. 이 분포를 텐서보드에 올리고, 몰리면 범위를 좁히거나 축을 닫는다.
+
+Jiang, M., Dennis, M., Parker-Holder, J., Foerster, J., Grefenstette, E., &
+Rocktäschel, T. (2022). Grounding Aleatoric Uncertainty for Unsupervised
+Environment Design. *NeurIPS*. (SAMPLR, CICS)
+
+### B.4 로봇 관측에 인지 상태를 넣지 않는 이유
+
+실제 유도 로봇은 누가 아직 모르는지 볼 수 없다. 보는 것은 사람들의 위치와
+움직임뿐이고, 누가 아직 반응하지 않았는지는 거기서 추론해야 한다. 관측에
+넣으면 현장에 없는 센서를 가정하게 되고 제로샷 전이 주장이 그만큼 약해진다.
+
+## 참고 문헌
+
+2026-10-02에 원문 또는 공개 초록을 직접 확인했다. "확인 범위"는 확인한 자료의 수준이다. 요약은 이 모델과 관련된 내용만 적었다.
+
+### 인지와 행동 개시 (M1)
+
+- **Lindell, M. K., & Perry, R. W. (2012). The Protective Action Decision Model: Theoretical modifications and additional evidence. *Risk Analysis*, 32(4), 616–632.** https://doi.org/10.1111/j.1539-6924.2011.01647.x
+  - 확인 범위: 원문 전체.
+  - 요약: 호 행동 결정은 환경 신호(위험을 직접 보고 듣는 것), 사회 신호(남의 행동 관찰), 경고에서 시작한다. 이를 받고 주의하고 해석하는 사전 과정을 거쳐 위협 인식이 생긴다. 사람은 보호 행동과 "평소 활동 계속" 중 하나를 고르며, 행동을 지금 해야 하는지 판단해 미루기도 한다. 정보가 부족하면 정보 탐색을 한다. 방사선이나 일부 유독 물질처럼 환경 신호가 전혀 없는 위험도 있다.
+  - 이 모델에서 뒷받침하는 것: M1의 신호 → 판단 → 행동 구조, 무반응자의 존재(비율은 근거 없음), 감지 불가능한 위험(`PERCEPTIBILITY_SENSORY_FLOOR`), 사회 신호를 남의 보호 행동 관찰로 정의한 것.
+- **Kuligowski, E. D. (2009). The Process of Human Behavior in Fires. NIST.** https://www.nist.gov/publications/process-human-behavior-fires
+  - 확인 범위: 공개 초록.
+  - 요약: 대피 행동 전에 단서를 인지하고 해석하고 결정하는 과정이 있다. 당시 대피 모델이 이를 반영하지 않는다고 지적한다.
+  - 이 모델에서 뒷받침하는 것: M1 단계 구조의 보조 근거. 이 문서의 다른 구체 주장(위험을 개인 지식으로 판단 등)은 초록에서 확인되지 않는다.
+- **Lovreglio, R., Kuligowski, E., Gwynne, S., & Boyce, K. (2019). A pre-evacuation database for use in egress simulations. *Fire Safety Journal*, 105.** https://www.nist.gov/publications/pre-evacuation-database-use-egress-simulations
+  - 확인 범위: 원문 전체.
+  - 요약: 16개국의 화재 9건과 대피 훈련 103건, 13,591명의 행동 전 지연을 용도별로 모았다. 감마·로그정규·로그로지스틱·와이블 네 분포를 맞추고, 사용자가 R²와 그림을 보고 고르게 한다. 대상은 건물 실내다.
+  - 이 모델에서 뒷받침하는 것: 행동 전 지연을 양의 값만 갖는 오른쪽 꼬리 분포로 둔 것. 로그정규를 특별히 권하지는 않으므로 로그정규 선택 자체는 관행이다.
+- **Kinateder, M., & Warren, W. H. (2016). Social influence on evacuation behavior in real and virtual environments. *Frontiers in Robotics and AI*, 3:43.** https://doi.org/10.3389/frobt.2016.00043
+  - 확인 범위: 원문 전체.
+  - 요약: 150명, 실제와 VR × 방관자 조건(없음/대피/무시). 화재 경보에 대피한 비율은 혼자일 때 52%, 대피하는 방관자가 있을 때 76%, 무시하는 방관자가 있을 때 18%. 대피 방관자의 효과는 실제와 VR이 비슷했고, 무시하는 방관자의 효과는 VR에서 약했다. 방관자는 1명뿐이라 사람 수에 따른 포화는 다루지 않았다.
+  - 이 모델에서 뒷받침하는 것: 대피하는 이웃이 대피 개시를 촉진한다는 방향(`AWARENESS_P_SOCIAL`). 포화(`AWARENESS_SOCIAL_SATURATION`)와 정보 없는 사람이 흐름을 따르는 M4 규칙의 근거는 아니다. 무시하는 이웃이 대피를 억제하는 효과는 모델에 없다.
+- **Arshaghi, B., Lawson, G., Briganti, R., & Siebers, P.-O. (2026). Human decision-making in crowds in a virtual flood scenario. *Natural Hazards and Earth System Sciences*, 26, 981–1000.** https://doi.org/10.5194/nhess-26-981-2026
+  - 확인 범위: 공개 원문 페이지.
+  - 요약: VR 실험 4개, 84명. 군중 행동이 경로 선택과 대피 지연을 강하게 결정했다. 행동 전 지연은 안전한 군중 7.5 s, 위험한 군중 13.8 s, 군중 없음 7.08 s(VR1, 12명). 참가자의 58–79%가 위험한 군중을 따라 물 속 경로를 골랐다. 물이 매우 깊으면 0%로 떨어졌다. 군중이 크거나 목적지가 불분명하면 사회 정보에 더 의존했다.
+  - 이 모델에서 뒷받침하는 것: `PREMOVEMENT_MEDIAN_STEPS`(두 조건의 중간점, 잠정), M4 흐름 따르기, 위험이 분명하면 군중보다 감지가 우선한다는 방향.
+
+### 위험 기억과 경로 (M2–M4)
+
+- **Andresen, E., Haensel, D., Chraibi, M., & Seyfried, A. (2016). Wayfinding and cognitive maps for pedestrian models. TGF'15.** https://arxiv.org/abs/1602.01971
+  - 확인 범위: 초록.
+  - 요약: 보행자는 출구와 경로에 대한 정보를 전혀 또는 일부만 가진다. 보행자마다 부정확하고 불확실한 개별 지식 표현을 두고, 지식에 기반한 탐색 전략으로 경로를 고른다.
+  - 이 모델에서 뒷받침하는 것: M2의 사람별 위험 기억과, 실제 위험이 아니라 자기 믿음으로 경로를 판단하는 구조. 회피 반경 값은 근거 없음.
+- **Haghani, M., & Sarvi, M. (2017). Stated and revealed exit choices of pedestrian crowd evacuees. *Transportation Research Part B*, 95, 238–259.** https://doi.org/10.1016/j.trb.2016.10.019
+  - 확인 범위: 초록.
+  - 요약: 가상 설문(stated)으로 얻은 출구 선택 결과가 실제 선택(revealed)과 맞는지 검증하려고, 두 자료로 출구 선택 모형을 추정해 비교한다.
+  - 이 모델에서 뒷받침하는 것: 경로·출구 선택을 이산 선택으로 모형화하는 계열, 즉 M5 로짓 형태의 방법론적 근거. 위험을 경로 비용에 넣는 근거는 초록에서 확인되지 않는다.
+- **(저자 원문 미확인) (2025). Adaptive exit choices of pedestrians during emergency evacuation: A study combining virtual experiments, survey and modelling. *Advanced Engineering Informatics*, 65, 103302.** https://www.sciencedirect.com/science/article/abs/pii/S1474034625001958
+  - 확인 범위: 검색으로 얻은 초록 요약. 원문과 저자는 확인하지 못했다. 이전 판에서 "Liao 등"으로 적었으나 확인되지 않았다.
+  - 요약: 여러 명이 동시에 참여하는 가상 대피 실험(평상시/화재)이다. 출구 선택에는 거리, 밀도, 출구의 위험이 주요 요인이었고, 선택 변경은 관찰되었으나 드물었다.
+  - 이 모델에서 뒷받침하는 것: M3의 위험을 경로 비용에 넣는 것, `ROBOT_CHOICE_INERTIA_BETA`(출구 선택에서 유추).
+- **김현철, 한순흥 (2018). 인간 특성에 기초한 실시간 능동 경로 선택모델과 전산유체역학 데이터를 적용한 군중 대피 시뮬레이션. 한국방재학회논문집, 18(1), 79–90.** https://www.j-kosham.or.kr/journal/view.php?viewtype=pubreader&number=614
+  - 확인 범위: 원문 페이지.
+  - 요약: 시야 기반으로 연기·열·유독가스를 감지하고, CFD 값을 경로 비용에 넣어 A*로 경로를 다시 찾는 행위자 모델이다. 근접 범위에서 위험 정보를 공유하고, 병목에서는 개인 특성에 따라 기다릴지 우회할지 정한다. IMO 시험 항목으로 검증했으며 관찰 자료와 비교하지 않았다.
+  - 이 모델에서 뒷받침하는 것: M3의 시뮬레이션 선례. 관찰 근거는 아니다.
+- **Templeton, A., Xie, H., Gwynne, S., Hunt, A., Thompson, P., & Köster, G. (2023). Agent-based models of social behaviour and communication in evacuations: A systematic review. *Safety Science*.** https://arxiv.org/abs/2310.15761
+  - 확인 범위: 초록.
+  - 요약: 논문 70편을 검토했다. 사회적 상호작용을 충돌 회피부터 사회적 관계 강도에 따른 영향까지 8가지로 분류했고, 정보 전달 방식은 4가지(공간 반경·흔적, 사회 연결망, 외부 통신)였다. 상호작용의 가정된 이유와 표현이 지나치게 단순할 수 있다고 결론짓는다.
+  - 이 모델에서 뒷받침하는 것: 단순한 무리 짓기 대신 정보원과 흐름을 구분하는 M1·M4 설계 방향, 정보 전달을 반경 기반으로 모델링하는 관행.
+
+### 로봇 추종 (M5–M6)
+
+- **Robinette, P., Li, W., Allen, R., Howard, A. M., & Wagner, A. R. (2016). Overtrust of robots in emergency evacuation scenarios. *HRI 2016*.** https://dblp.org/rec/conf/hri/RobinetteLAHW16.html
+  - 확인 범위: 서지와 공개 요약.
+  - 요약: 실제 건물에서 인공 연기와 경보를 쓴 실험이다. 참가자 26명 전원이 비상 시 로봇을 따랐다. 절반은 몇 분 전 같은 로봇이 길 안내를 잘못하는 것을 보았고, 대부분은 들어온 길로 안전하게 나가지 않았다.
+  - 이 모델에서 뒷받침하는 것: `ROBOT_GUIDE_BASE_COMPLIANCE`의 상한.
+- **Nayyar, M., Zoloty, Z., McFarland, C., & Wagner, A. R. (2020). Exploring the effect of explanations during robot-guided emergency evacuation. *ICSR 2020*, LNCS 12483.** https://par.nsf.gov/servlets/purl/10294705
+  - 확인 범위: 원문 전체.
+  - 요약: 온라인(Mechanical Turk) 가상 건물에서 로봇의 대피 지시가 군중(NPC)의 이동 방향과 다를 때를 실험했다. 설명이 없으면 77.97%가 군중을 따랐다. 설명을 주면 의미 없는 설명이어도 로봇을 따르는 비율이 늘었다.
+  - 이 모델에서 뒷받침하는 것: `ROBOT_CHOICE_CROWD_BETA`(지시와 군중이 다를 때 군중 쪽이 우세).
+- **Nayyar & Wagner, 로봇 인계와 shepherding 비교. 수치는 Wagner, A. R. (2021). Robot-guided evacuation as a paradigm for human-robot interaction research. *Frontiers in Robotics and AI*, 8:701938에서 인용.** https://doi.org/10.3389/frobt.2021.701938
+  - 확인 범위: 리뷰 원문 전체. 1차 논문 원문은 미확인.
+  - 요약: 한 로봇이 출구까지 데려가면(shepherding) 75%가 따랐다. 로봇의 이전 실수가 있으면 60%, 반대 방향 군중이 있으면 45%, 둘 다 있으면 12% 미만이었다. 로봇 간 인계 방식은 같은 네 조건에서 27%, 19%, 2%, 3%였다.
+  - 이 모델에서 뒷받침하는 것: 인계를 새 판단으로 둔 것, `ROBOT_CHOICE_INERTIA_BETA`(인계 시 추종 감소), `ROBOT_CHOICE_CROWD_BETA`.
+- **Cao 등 (2025). Virtual guides and crowd behaviors: Understanding evacuation decision-making in virtual reality. *CASA 2025*, Springer.** https://link.springer.com/chapter/10.1007/978-981-95-0100-7_9
+  - 확인 범위: 검색으로 얻은 초록 요약. 원문은 유료라 미확인. 이전 판의 "Cao 등(2026)"과 같은 문헌이다.
+  - 요약: VR에서 대피자는 가상 유도자를 맹목적으로 따르지 않고 공간·사회 단서를 통합한다. 수락은 유도자 지시, 군중 이동, 사전 공간 지식의 일치에 달려 있고, 고르지 않은 군중 분포가 친숙함보다 강한 영향을 준다.
+  - 이 모델에서 뒷받침하는 것: M5 효용의 군중 일치 항, 자기가 아는 위험으로 가는 로봇을 제외하는 규칙.
+- **(저자 원문 미확인) (2025). Analysis of pedestrian wayfinding under herd effect in VR fire evacuation at indoor library: gender difference considered. *Frontiers in Psychology*, 16:1558115.** https://doi.org/10.3389/fpsyg.2025.1558115
+  - 확인 범위: 공개 초록.
+  - 요약: 162명, 몰입형 VR 도서관 화재, 16개 시나리오. 대피자는 다수 군중이 고른 경로를 따르는 경향이 있었고, 군중의 성비가 이 효과를 약화했다.
+  - 이 모델에서 뒷받침하는 것: `ROBOT_CHOICE_CROWD_BETA`, M4 흐름 따르기.
+- **Zhang 등 (2025). Modeling competing guidance on evacuation choices under time pressure using virtual reality and machine learning. *Expert Systems with Applications*.** https://www.sciencedirect.com/science/article/abs/pii/S0957417424024497
+  - 확인 범위: 공개 초록.
+  - 요약: 20명, 2,125개 선택. 두 출구 중 하나를 시간 압박 속에서 고르는 실험이다. 끌어당기는 단서("EXIT", 음성)보다 막는 단서("DO NOT ENTER", 콘)가 선택에 더 강하게 작용했고, 랜덤 포레스트로 75% 이상 예측했다.
+  - 이 모델에서 뒷받침하는 것: 자기가 아는 위험으로 가는 로봇을 제외하는 규칙의 보조 근거. 로짓 형태의 근거는 아니다.
+- **Mayr, C. M., & Köster, G. (2022). Guiding crowds when facing limited compliance: Simulating strategies. *PLOS ONE*, 17(11), e0276229.** https://doi.org/10.1371/journal.pone.0276229
+  - 확인 범위: 원문 페이지.
+  - 요약: 교통 허브의 혼잡 회피 안내를 Vadere로 시뮬레이션했다. 수락률을 0–100%로 바꿔 보니 최소 밀도 전략은 약 20%, 고정 순서 전략은 약 28%만 따라도 혼잡이 줄었다. 대피 상황도 아니고 수락률을 관찰한 연구도 아니다.
+  - 이 모델에서 뒷받침하는 것: 수락률이 낮아도 안내가 의미 있다는 설계 참고. `ROBOT_GUIDE_BASE_COMPLIANCE` 하한의 관찰 근거는 아니다.
+- **Zheng, T., Yuan, Z., Nayyar, M., Wagner, A. R., Zhu, M., & Lin, H. (2023/24). Multi-robot-guided crowd evacuation: Two-scale modeling and control. arXiv:2302.14752.** https://arxiv.org/abs/2302.14752
+  - 확인 범위: 초록.
+  - 요약: 소수 로봇이 큰 군중을 유도하는 문제를 거시(밀도)와 미시(사회력 모델) 두 수준으로 모델링하고 제어기를 설계해 시뮬레이션으로 평가했다. 인간 반응은 가정된 사회력 모델이고 관찰 검증은 없다.
+  - 이 모델에서 뒷받침하는 것: 없음. 관련 연구(비교 대상)로만 둔다.
+
+### 확인 결과 바뀐 점 (2026-10-02)
+
+- Kinateder & Warren(2016)은 방관자 1명 실험이다. 포화와 흐름 따르기 근거에서 빼고, 흐름 따르기는 Arshaghi 등(2026)과 Frontiers in Psychology(2025)로 바꿨다.
+- Lovreglio 등(2019)은 로그정규를 권하지 않는다. 분포 형태(양수, 오른쪽 꼬리)의 근거로만 쓴다.
+- Mayr & Köster(2022)는 관찰된 수락률이 아니다. `ROBOT_GUIDE_BASE_COMPLIANCE`의 하한은 관찰 근거가 없다.
+- Expert Syst. Appl. 경쟁 안내 연구는 랜덤 포레스트를 썼다. 로짓 형태의 근거는 Haghani & Sarvi(2017) 계열이다.
+- "Liao 등"과 "위험할수록 덜 바꾼다"는 확인되지 않았다. 해당 문헌은 저자 미확인으로 표기하고, 확인된 것(변경이 드묾)만 쓴다.
+- Cao 등은 2025년(CASA 2025)이다.
+- 아직 원문을 확인하지 못한 것: Adv. Eng. Inform. 2025와 Cao 등 2025의 본문, Nayyar & Wagner 인계 실험 1차 논문.

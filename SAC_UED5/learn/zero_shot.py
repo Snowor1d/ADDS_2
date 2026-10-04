@@ -37,6 +37,8 @@ class EpisodeMetrics:
     outflows: int = 0
     informed_departures: int = 0
     evacuation_departures: int = 0
+    # Told of the hazard, never sensed it, left with a departing flow (M4).
+    followed_departures: int = 0
     informed_trip_outflows: int = 0
     background_departures: int = 0
     stuck_releases: int = 0
@@ -69,6 +71,9 @@ class EpisodeMetrics:
             reason = getattr(person, "outflow_reason", None)
             if reason == "evacuation_departure":
                 self.evacuation_departures += 1
+                self.informed_departures += 1
+            elif reason == "followed_departure":
+                self.followed_departures += 1
                 self.informed_departures += 1
             elif reason == "informed_trip":
                 self.informed_trip_outflows += 1
@@ -286,7 +291,8 @@ def validation_seed(name: str) -> int:
 SUMMARY_KEYS = ("hazard_person_steps", "reentries", "reentries_after_clear",
                 "held_clear_success", "clear_step_censored", "mean_occupancy",
                 "mean_active_occupancy", "final_occupancy", "outflows",
-                "inflows", "evacuation_departures", "informed_trip_outflows",
+                "inflows", "evacuation_departures", "followed_departures",
+                "informed_trip_outflows",
                 "background_departures", "stuck_releases", "actual_density",
                 "inference_ms_mean", "total_reward", "command_norm_mean",
                 "robot_speed_mean", "mode_switch_rate")

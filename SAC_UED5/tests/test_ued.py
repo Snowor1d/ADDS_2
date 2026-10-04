@@ -2056,6 +2056,30 @@ class MultiRobotTest(unittest.TestCase):
                 self.assertTrue(fm.is_safe(rb.xy),
                                 f"robot {i} started inside the hazard")
 
+    def test_robots_start_in_the_ring_round_the_hazard(self):
+        """ROBOT_START = "near": outside the hazard, within the configured
+        ring of its boundary, whenever the ring has room."""
+        import sim.model as M
+        from ued.level import generate_city_level
+
+        self.assertEqual(M.ROBOT_START, "near")
+        lo, hi = M.ROBOT_START_RING_M
+        inside = total = 0
+        for seed in range(6):
+            lv = generate_city_level(random.Random(800 + seed), difficulty=6,
+                                     crowd_size=30, width=140, height=140,
+                                     morphology="grid", robot_num=3)
+            fm = M.FightingModel(number_agents=30, width=140, height=140,
+                                 level=lv)
+            for rb in fm.robots:
+                d = fm.danger_zone.signed_distance(float(rb.xy[0]),
+                                                   float(rb.xy[1]))
+                total += 1
+                inside += lo <= d <= hi
+        # A ring with no walkable room falls back to "outside"; on these
+        # grid levels that should be rare.
+        self.assertGreaterEqual(inside, int(0.8 * total))
+
     def test_observation_carries_the_hazard(self):
         """Without these terms the robot cannot see what it is being asked to do."""
         import sim.model as M
@@ -2270,7 +2294,7 @@ class TerminationModeTest(unittest.TestCase):
     def test_episode_budget_is_the_configured_one(self):
         from config import MAX_STEPS
 
-        self.assertEqual(MAX_STEPS, 2000)
+        self.assertEqual(MAX_STEPS, 1000)
 
 
     def test_defend_mode_bounds_the_tail(self):
@@ -2666,6 +2690,49 @@ class CrowdFlowTest(unittest.TestCase):
             self.assertEqual(informed.outflow_reason, "informed_trip")
         finally:
             M.CROWD_ALLOW_INFLOW, M.CROWD_ALLOW_OUTFLOW = old_in, old_out
+
+    def test_told_follower_leaves_with_a_departing_flow(self):
+        """M4: someone told of the hazard, following a flow that walks out of
+        the crop, leaves with it through the mouth nearest where the flow is
+        going; a flow that stays inside does not take it out."""
+        from sim import od
+        fm = self._model(seed=9)
+        gate_mesh = od.gates(fm)[0].meshes[0]
+        edge = od.gate_edge_goal(fm, gate_mesh, (fm.width / 2.0, fm.height / 2.0))
+        person = fm.crowds[0]
+        person.awareness = "acting"
+        person.hazard_memory = []
+        self.assertIsNotNone(person._flow_exit_gate(edge))
+        self.assertIsNone(person._flow_exit_gate((fm.width / 2.0,
+                                                  fm.height / 2.0)))
+        person._leaving_with_flow = True
+        person.xy = list(edge)
+        self.assertTrue(fm.arrive_at_destination(person, gate_mesh))
+        self.assertEqual(person.outflow_reason, "followed_departure")
+
+    def test_flow_departure_is_decided_once(self):
+        """Somebody who declines to leave with a departing flow stops
+        following it; somebody who accepts walks to the mouth."""
+        import sim.agent as A
+        from sim import od
+        fm = self._model(seed=9)
+        gate_mesh = od.gates(fm)[0].meshes[0]
+        edge = od.gate_edge_goal(fm, gate_mesh, (fm.width / 2.0, fm.height / 2.0))
+        old = A.CROWD_FOLLOW_DEPART_PROB
+        try:
+            for prob, leaves in ((0.0, False), (1.0, True)):
+                A.CROWD_FOLLOW_DEPART_PROB = prob
+                p = fm.crowds[2 if leaves else 1]
+                p.awareness, p.hazard_memory, p.type = "acting", [], 1
+                p._flow_heading = lambda nbs: (1.0, 0.0)
+                p._flow_goal = lambda heading, e=edge: list(e)
+                p.which_goal_agent_want(neighbors=[])
+                self.assertIs(p._flow_departure_choice, leaves)
+                self.assertEqual(p._leaving_with_flow, leaves)
+                p.which_goal_agent_want(neighbors=[])
+                self.assertIs(p._flow_departure_choice, leaves)
+        finally:
+            A.CROWD_FOLLOW_DEPART_PROB = old
 
     def test_informed_departure_intent_targets_a_reachable_gate(self):
         """Leaving goes to a street mouth whose route stays out of believed
@@ -4201,9 +4268,11 @@ class RobotSignalTest(unittest.TestCase):
         checked = 0
         for a in led:
             rb = by_id[a.following_robot_id]
+            # Keeping pace rather than closing in. The goal was set before
+            # this step's movement, so allow one step of drift past the line.
             if math.hypot(a.xy[0] - rb.xy[0],
-                          a.xy[1] - rb.xy[1]) < ROBOT_FOLLOW_STANDOFF_M:
-                continue    # keeping pace rather than closing in
+                          a.xy[1] - rb.xy[1]) < ROBOT_FOLLOW_STANDOFF_M + 1.0:
+                continue
             # The goal is the robot it is recorded as following, not the
             # team's first member.
             self.assertAlmostEqual(

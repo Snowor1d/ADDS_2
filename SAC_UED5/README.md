@@ -1,4 +1,4 @@
-# SAC_UED4
+# SAC_UED5
 
 도심 **실외** 위험 구역에서 군중을 대피시키고 재진입을 막는 다중 로봇 강화학습 프로젝트입니다. 학습 분포는 ACCEL 계열 무감독 환경 설계로 생성합니다. 건물 출구 대피는 현재 과제가 아닙니다.
 
@@ -56,17 +56,13 @@ python3 -m pytest tests/ -q                    # 테스트
 
 | 문서 | 내용 |
 | --- | --- |
-| `docs/crowd_awareness_design.md` | 군중의 위험 인지 모델 설계와 문헌 근거 |
-| `docs/crowd_awareness_implementation.md` | 그 구현 |
+| `docs/behavior_model_design.md` | 군중 행동 모델(beh-v3) 설계, 근거, 검증, 참고 문헌 |
+| `docs/network_sizes.md` | 네트워크 구조와 규모 |
 | `docs/crowd_density.md` | 군중 규모를 밀도로 정의한 근거 |
 | `docs/crowd_od.md` | 위험을 모르는 보행자의 통행 구조 |
 | `docs/crowd_validation.md` | 표준 시험 대비 측정 결과와 보정 |
-| `docs/robot_action.md` | 로봇의 이동과 신호 모드 |
 | `docs/zero_shot_evaluation.md` | 실외 위험 구역 제로샷 지표와 대조군 |
 | `docs/outdoor_human_calibration.md` | 실외 사람 실험에 따른 행동 보정과 인용 |
-| `docs/outdoor_post_safety_mobility.md` | 위험 구역 이탈 후 이동·도시 유출입의 근거와 미보정 가정 |
 | `docs/outdoor_madrl_redesign.md` | 실외 MADRL 재설계안(관측·보상·설정·로깅) |
 | `docs/outdoor_madrl_implementation.md` | 그 구현과 각 단계의 통과 조건 확인 결과 |
-| `docs/redesign_baseline.md` | 재설계 직전 기준선 |
 | `docs/replay_memory_budget.md` | 크기별 비용·메모리 계측 |
-| `docs/known_issues.md` | 미해결 항목 |

@@ -753,3 +753,5 @@ evacuation_time_80 : 63
 evacuation_time_100: 67
 -----------------------------------------------
 Model saved to /home/amrl_sunny/Log_SAC_UED3/sac_checkpoint_ep_4800.pth
+/usr/lib/python3.10/multiprocessing/resource_tracker.py:224: UserWarning: resource_tracker: There appear to be 52 leaked semaphore objects to clean up at shutdown
+  warnings.warn('resource_tracker: There appear to be %d '

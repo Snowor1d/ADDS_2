@@ -90,7 +90,7 @@
 대조군의 차이**를 함께 보고해야 한다. `outflows` 자체를 로봇
 성과로 해석하지 않는다. 유출 사유의 합계는 `outflows`와
 일치해야 한다. 이동 의도의 가정과 사람 대상 근거는
-`docs/outdoor_post_safety_mobility.md`에 기록했다.
+`docs/behavior_model_design.md`에 기록했다.
 
 ## 근거와 해석 범위
 

@@ -76,8 +76,7 @@ UED_DANGER_SHAPES = ("circle",)
 UED_DANGER_INSIDE_FRACTION = (0.5, 1.0)
 
 # --------------- CROWD HAZARD AWARENESS ---------------
-# Design and justification: docs/crowd_awareness_design.md and
-# docs/crowd_awareness_implementation.md.
+# Design and justification: docs/behavior_model_design.md (M1, appendix B).
 #
 # How detectable the hazard is, 0 to 1: a property of the hazard, so a
 # curriculum variable. Near 1 is a fire, near 0 a gas leak, where the only

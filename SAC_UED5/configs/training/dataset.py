@@ -37,7 +37,7 @@ DATASET_DANGER_SHAPES = ("circle",)
 # Only read when CROWD_SPAWN = "inside_fraction".
 DATASET_DANGER_INSIDE_FRACTION = (0.5, 1.0)
 # How detectable the hazard is (near 1 a fire, near 0 a gas leak); see
-# docs/crowd_awareness_design.md.
+# docs/behavior_model_design.md (M1, appendix B.1).
 DATASET_DANGER_PERCEPTIBILITY = (0.5, 0.5)
 # Share of the crowd already cued when the episode starts.
 DATASET_PRIOR_INFORMED_FRACTION = (0.0, 0.3)
