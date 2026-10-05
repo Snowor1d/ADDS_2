@@ -214,7 +214,7 @@ PERCEPTIBILITY_SENSORY_FLOOR = 0.25
 #
 # Recorded with every checkpoint and replay buffer; results from another
 # behaviour model are refused rather than mixed.
-BEHAVIOR_MODEL_VERSION = "beh-v3.1-flow-departure"
+BEHAVIOR_MODEL_VERSION = "beh-v3.3-open-escape"
 # Per-step probability of noticing by direct perception at perceptibility 1.0,
 # scaled by how far perceptibility sits above the floor. Standing in smoke is
 # not the same as seeing it across a street. [sensitivity] 0.2-0.5, 0.02-0.1.
@@ -301,6 +301,19 @@ CROWD_INFLOW_WARNED_FRACTION = 0.0
 # these for a downtown crop. [sensitivity] 0.3-0.9; 20-240 steps.
 CROWD_DEPART_PROB = 0.5
 CROWD_SHELTER_REPLAN_STEPS = 60
+# Waiting that long in total with no route that avoids believed danger, it
+# takes the route through the least of it (sim/agent.py,
+# _least_exposed_destination). Without a limit, a street whose both ends lie
+# within HAZARD_MEMORY_RADIUS_M of sighted spots held people for the rest of
+# the episode: a quarter of those left at the end, on 9 of 20 training crops.
+# People do cross a hazard they judge mild (Arshaghi et al. 2026); how long
+# they wait first is not measured.  [sensitivity] 120-1200 steps (60-600 s).
+CROWD_SHELTER_MAX_WAIT_STEPS = 240
+# A way out of believed danger is a triangle whose believed-safe ground
+# connects to at least this much more; a notch smaller than this is chosen
+# only when nothing else is reachable (sim/agent.py, _escape_mesh). Roughly a
+# 10 m stretch of a 15 m street. A design value.  [sensitivity] 50-400 m2.
+ESCAPE_MIN_OPEN_AREA_M2 = 150.0
 # Someone acting who has not sensed the hazard (told by a neighbour or a
 # robot) goes the way the acting people it can see are going, when their
 # headings agree at least this much (length of the mean unit heading, 0-1).

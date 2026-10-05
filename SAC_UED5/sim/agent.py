@@ -106,6 +106,10 @@ class CrowdAgent(Agent):
         self._flow_departure_choice = None
         # Heading for the way out of believed danger (M3 rule 1).
         self._escaping = False
+        # Waiting with no route that avoids believed danger: since when, and
+        # whether it has given up waiting and taken the least-exposed route.
+        self._shelter_since = None
+        self._accepting_exposure = False
         # Visibly responding this step: following a robot, leaving ground it
         # believes dangerous, leaving the crop, or going with a grounded
         # flow. Only this is a social cue to others (see _social_cue).
@@ -1576,10 +1580,44 @@ class CrowdAgent(Agent):
             return None
         return pts
 
+    def _open_beyond(self, start, centre) -> bool:
+        """Whether the ground this pedestrian does not believe dangerous,
+        connected to triangle `start`, covers at least
+        ESCAPE_MIN_OPEN_AREA_M2: somewhere it can carry on from rather than a
+        dead-end notch walled in by what it believes."""
+        m = self.model
+        need = float(ESCAPE_MIN_OPEN_AREA_M2)
+
+        def area(t):
+            (ax, ay), (bx, by), (cx, cy) = t[0], t[1], t[2]
+            return abs((bx - ax) * (cy - ay) - (cx - ax) * (by - ay)) / 2.0
+
+        seen = {start}
+        stack = [start]
+        total = 0.0
+        while stack:
+            t = stack.pop()
+            total += area(t)
+            if total >= need:
+                return True
+            for nb in m.adjacent_mesh.get(t, ()):
+                if nb not in seen and not self._believes_dangerous(*centre(nb)):
+                    seen.add(nb)
+                    stack.append(nb)
+        return False
+
     def _escape_mesh(self):
         """The nearest triangle, by walking distance, whose centre this
-        pedestrian does not believe dangerous (M3 rule 1). None if every
-        triangle it can reach is."""
+        pedestrian does not believe dangerous and from which open ground
+        continues (M3 rule 1, _open_beyond). The nearest dead-end one only
+        when there is nothing else; None if every triangle it can reach is
+        believed dangerous.
+
+        Without the open-ground condition a notch beside the hazard, the only
+        ground outside the believed danger near it, drew everyone escaping
+        there to wait (gastown, 2026-10-05). People escaping head for ground
+        they can go on from rather than into a dead end; that is a general
+        wayfinding view, not a measured rule."""
         import heapq
         m = self.model
         now = self._here_mesh()
@@ -1595,13 +1633,17 @@ class CrowdAgent(Agent):
         dist = {now: math.hypot(c0[0] - x, c0[1] - y)}
         heap = [(dist[now], 0, now)]
         tie = 1
+        dead_end = None
         while heap:
             d, _, t = heapq.heappop(heap)
             if d > dist.get(t, math.inf):
                 continue
             ct = centre(t)
             if not self._believes_dangerous(*ct):
-                return t
+                if self._open_beyond(t, centre):
+                    return t
+                if dead_end is None:
+                    dead_end = t
             for nb in m.adjacent_mesh.get(t, ()):
                 cn = centre(nb)
                 nd = d + math.hypot(cn[0] - ct[0], cn[1] - ct[1])
@@ -1609,7 +1651,7 @@ class CrowdAgent(Agent):
                     dist[nb] = nd
                     heapq.heappush(heap, (nd, tie, nb))
                     tie += 1
-        return None
+        return dead_end
 
     def _social_cue(self, neighbors) -> int:
         """How many visible neighbours are visibly responding.
@@ -1890,7 +1932,9 @@ class CrowdAgent(Agent):
         either case only by routes that do not re-enter believed danger; if
         there is none, wait and look again (see _trip_goal).
         """
-        if self._believes_dangerous(*self.xy):
+        on_accepted = (self._accepting_exposure
+                       and self.now_pointing_mesh is not None)
+        if self._believes_dangerous(*self.xy) and not on_accepted:
             self.responding = True
             if (self._plan_version != self._memory_version
                     or not self._escaping or self.now_pointing_mesh is None):
@@ -1920,7 +1964,7 @@ class CrowdAgent(Agent):
             # whose route now re-enters believed danger is dropped, and a
             # wait is cut short so it can look again.
             self._plan_version = self._memory_version
-            if (self.now_pointing_mesh is not None
+            if (self.now_pointing_mesh is not None and not on_accepted
                     and self._safe_route(self.now_pointing_mesh) is None):
                 self.now_pointing_mesh = None
             self._dwell_until = min(self._dwell_until,
@@ -1955,7 +1999,13 @@ class CrowdAgent(Agent):
                              for a, b in zip(pts, pts[1:]))
                 if best is None or length < best[0]:
                     best = (length, mesh)
-            return best[1] if best else None
+            if best:
+                return best[1]
+            return self._least_exposed_destination(
+                [min(g.meshes, key=lambda t: math.hypot(
+                    self.xy[0] - (t[0][0] + t[1][0] + t[2][0]) / 3.0,
+                    self.xy[1] - (t[0][1] + t[1][1] + t[2][1]) / 3.0))
+                 for g in od.gates(self.model)], gates=True)
         if not remembered:
             return od.choose_destination(self.model, self.xy)
         for _ in range(12):
@@ -1979,7 +2029,43 @@ class CrowdAgent(Agent):
         for mesh in candidates:
             if self._safe_route(mesh) is not None:
                 return mesh
-        return None
+        return self._least_exposed_destination(candidates)
+
+    def _least_exposed_destination(self, candidates, gates: bool = False):
+        """After waiting CROWD_SHELTER_MAX_WAIT_STEPS with no route that
+        avoids believed danger, the candidate whose route passes through
+        the least of it (then the shortest). None while still within the
+        wait, or when nothing is routable.
+
+        Waiting is the right first response; waiting for ever is not. People
+        do cross a hazard they judge mild when they have to (48-79% followed
+        a crowd through shallow floodwater, Arshaghi et al. 2026), and PADM
+        has protective decisions revisited as time passes. Without this, a
+        narrow street whose both ends lie within HAZARD_MEMORY_RADIUS_M of
+        sighted spots held a quarter of the people left at the end of an
+        episode (2026-10-05, 9 of 20 training crops).
+        """
+        import sim.od as od
+        since = self._shelter_since
+        step = int(getattr(self.model, "step_count", 0))
+        if since is None or step - since < int(CROWD_SHELTER_MAX_WAIT_STEPS):
+            return None
+        best = None
+        for mesh in candidates:
+            end = (od.gate_edge_goal(self.model, mesh, self.xy) if gates
+                   else None)
+            pts = self._route_points(mesh, end)
+            if pts is None:
+                continue
+            exposure = self._reexposure(pts)
+            length = sum(math.hypot(b[0] - a[0], b[1] - a[1])
+                         for a, b in zip(pts, pts[1:]))
+            if best is None or (exposure, length) < best[0]:
+                best = ((exposure, length), mesh)
+        if best is None:
+            return None
+        self._accepting_exposure = True
+        return best[1]
 
     def _trip_goal(self) -> None:
         """Travel to the current destination; arrive, dwell, choose the next.
@@ -2013,6 +2099,7 @@ class CrowdAgent(Agent):
             if reached:
                 arrived = self.now_pointing_mesh
                 self.now_pointing_mesh = None
+                self._accepting_exposure = False
                 if self.model.arrive_at_destination(self, arrived):
                     return          # walked out of the crop
                 lo, hi = CROWD_DWELL_STEPS
@@ -2028,12 +2115,16 @@ class CrowdAgent(Agent):
         self._dwelling = False
 
         if self.now_pointing_mesh is None:
+            self._accepting_exposure = False
             self.now_pointing_mesh = self._next_destination(now_mesh)
             if self.now_pointing_mesh is None:
+                if self._shelter_since is None:
+                    self._shelter_since = step
                 self._dwell_until = step + int(CROWD_SHELTER_REPLAN_STEPS)
                 self._dwelling = True
                 self.now_goal = [self.xy[0], self.xy[1]]
                 return
+            self._shelter_since = None
 
         self.now_goal = self._explore_randomly(now_mesh)
 

@@ -497,6 +497,8 @@ def validate_config(cfg: ResolvedConfig, check_data: bool = True) -> None:
         name = "ROBOT_DECISION_ON_EVENTS_" + mode
         _check(isinstance(cfg[name], bool),
                f"{name}={cfg[name]!r} must be True or False", p)
+    _check(int(cfg.CROWD_SHELTER_MAX_WAIT_STEPS) >= int(cfg.CROWD_SHELTER_REPLAN_STEPS),
+           "CROWD_SHELTER_MAX_WAIT_STEPS must be at least CROWD_SHELTER_REPLAN_STEPS", p)
     _check(cfg.ROBOT_START in ("near", "outside", "anywhere"),
            f"ROBOT_START={cfg.ROBOT_START!r}; expected 'near', 'outside' or "
            "'anywhere'", p)

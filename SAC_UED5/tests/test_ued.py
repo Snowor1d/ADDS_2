@@ -2734,6 +2734,52 @@ class CrowdFlowTest(unittest.TestCase):
         finally:
             A.CROWD_FOLLOW_DEPART_PROB = old
 
+    def test_waiting_ends_on_the_least_exposed_route(self):
+        """No route avoids believed danger: wait first, and after
+        CROWD_SHELTER_MAX_WAIT_STEPS take the least-exposed one."""
+        import sim.agent as A
+        fm = self._model(seed=10)
+        person = fm.crowds[0]
+        person.awareness = "acting"
+        person.post_safe_intent = "continue"
+        x, y = float(person.xy[0]), float(person.xy[1])
+        # Sightings all round it, so every way on re-enters believed danger.
+        import math
+        r = float(A.HAZARD_MEMORY_RADIUS_M) + 1.0
+        for k in range(16):
+            ang = 2 * math.pi * k / 16
+            person.hazard_memory.append((x + r * math.cos(ang),
+                                         y + r * math.sin(ang)))
+        now = fm.find_mesh(person.xy) or person.choice_safe_mesh(person.xy)
+        fm.step_count = 1000
+        person._shelter_since = 1000
+        self.assertIsNone(person._next_destination(now))
+        self.assertFalse(person._accepting_exposure)
+        person._shelter_since = 1000 - int(A.CROWD_SHELTER_MAX_WAIT_STEPS)
+        mesh = person._next_destination(now)
+        self.assertIsNotNone(mesh)
+        self.assertTrue(person._accepting_exposure)
+
+    def test_escape_prefers_open_ground_to_a_notch(self):
+        """A triangle walled in by believed danger is not open ground; with
+        nothing else reachable it is still the way out."""
+        import math
+        import sim.agent as A
+        fm = self._model(seed=10)
+        person = fm.crowds[0]
+        here = fm.find_mesh(person.xy) or person.choice_safe_mesh(person.xy)
+        centre = lambda t: ((t[0][0] + t[1][0] + t[2][0]) / 3.0,
+                            (t[0][1] + t[1][1] + t[2][1]) / 3.0)
+        self.assertTrue(person._open_beyond(here, centre))
+        x, y = float(person.xy[0]), float(person.xy[1])
+        r = float(A.HAZARD_MEMORY_RADIUS_M) + 1.0
+        for k in range(16):
+            ang = 2 * math.pi * k / 16
+            person.hazard_memory.append((x + r * math.cos(ang),
+                                         y + r * math.sin(ang)))
+        self.assertFalse(person._open_beyond(here, centre))
+        self.assertIsNotNone(person._escape_mesh())
+
     def test_informed_departure_intent_targets_a_reachable_gate(self):
         """Leaving goes to a street mouth whose route stays out of believed
         danger (M3)."""
