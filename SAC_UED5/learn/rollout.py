@@ -49,6 +49,10 @@ class Transition:
     # these with its own gamma, so a gamma schedule cannot put the worker and
     # the learner out of step.
     step_rewards: List[float] = field(default_factory=list)
+    # Per step, one 0/1 per robot: which robots hit a wall. Under rew-v3 the
+    # collision term is not in `step_rewards` but charged to each robot from
+    # these; under rew-v2 it stays in `step_rewards` and these are unused.
+    robot_collisions: List[List[int]] = field(default_factory=list)
 
 
 @dataclass
@@ -143,7 +147,10 @@ def run_episode(model, cfg, act_fn: Optional[ActFn], *, gamma: float,
         comps = reward.step(model)
         r = sum(comps.values())
         pending.reward += g_acc * r
-        pending.step_rewards.append(float(r))
+        own_collision = cfg.REWARD_VERSION == "rew-v3-own-collision"
+        pending.step_rewards.append(
+            float(r - comps["collision"]) if own_collision else float(r))
+        pending.robot_collisions.append(list(reward.last_robot_collisions))
         pending.hold += 1
         for c, v in comps.items():
             pending.components[c] += v

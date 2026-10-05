@@ -556,6 +556,10 @@ def validate_config(cfg: ResolvedConfig, check_data: bool = True) -> None:
            "'stored' or 'current'", p)
     _check(isinstance(cfg.ALPHA_AUTO, bool),
            f"ALPHA_AUTO={cfg.ALPHA_AUTO!r} must be True or False", p)
+    _check(0.0 < float(cfg.ALPHA_MIN) <= float(cfg.ALPHA_START),
+           f"ALPHA_MIN={cfg.ALPHA_MIN} must be in (0, ALPHA_START]", p)
+    _check(cfg.REWARD_VERSION in ("rew-v2-person-time", "rew-v3-own-collision"),
+           f"REWARD_VERSION={cfg.REWARD_VERSION!r} is not implemented", p)
     _check(float(cfg.ALPHA_START) > 0.0,
            f"ALPHA_START={cfg.ALPHA_START} must be positive", p)
     _check(float(cfg.ALPHA_LR) > 0.0,

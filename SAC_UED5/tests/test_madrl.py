@@ -72,7 +72,8 @@ def _fill(cfg, buffer, store, agent, episodes=((1, 40), (2, 40), (3, 40)),
 
         def emit(tr, uid=uid, st=st):
             buffer.push(uid, tr.step, tr.record, st.key, tr.action,
-                        tr.step_rewards, tr.terminal)
+                        tr.step_rewards, tr.terminal,
+                     tr.robot_collisions)
 
         run_episode(m, cfg, act, gamma=0.99, max_steps=steps, seed=uid,
                     static=st, emit=emit)
@@ -255,6 +256,43 @@ class AlphaAutoTest(unittest.TestCase):
             self.assertAlmostEqual(float(again.alpha), float(agent.alpha),
                                    places=6)
 
+    def test_own_collision_is_charged_to_the_robot_that_hit(self):
+        """rew-v3: a collision lowers only the colliding robot's target."""
+        import torch
+        with tempfile.TemporaryDirectory() as tmp:
+            agent, buf = ActorUpdateModeTest._run(self, tmp)
+            if not agent.own_collision:
+                self.skipTest("REWARD_VERSION is not rew-v3")
+            b = buf.sample(4, np.random.default_rng(0))
+            dev = agent.device
+            batch = {
+                "next_obs": {k: torch.as_tensor(v, device=dev)
+                             for k, v in b["next_obs"].items()},
+                "next_mask": torch.as_tensor(b["next_mask"], device=dev),
+                "step_rewards": torch.as_tensor(b["step_rewards"], device=dev),
+                "hold": torch.as_tensor(b["hold"], device=dev),
+                "terminal": torch.ones(4, device=dev),   # no bootstrap noise
+            }
+            rc = np.zeros_like(b["robot_collisions"])
+            batch["robot_collisions"] = torch.as_tensor(rc, device=dev)
+            y0 = agent.robot_targets(batch)
+            rc[:, 0, 0] = 1.0                           # robot 0, first step
+            batch["robot_collisions"] = torch.as_tensor(rc, device=dev)
+            y1 = agent.robot_targets(batch)
+            d = (y1 - y0).cpu().numpy()
+            np.testing.assert_allclose(d[:, 0], -agent.w_collision, atol=1e-5)
+            np.testing.assert_allclose(d[:, 1:], 0.0, atol=1e-6)
+
+    def test_alpha_never_falls_below_the_floor(self):
+        import torch
+        with tempfile.TemporaryDirectory() as tmp:
+            agent, buf = ActorUpdateModeTest._run(self, tmp)
+            with torch.no_grad():
+                agent.log_alpha.fill_(-20.0)
+            agent.update(buf.sample(8, np.random.default_rng(1)))
+            self.assertGreaterEqual(float(agent.alpha),
+                                    float(agent.cfg.ALPHA_MIN) * (1 - 1e-6))
+
     def test_invalid_settings_are_refused(self):
         from configs import ConfigError
         for bad in ({"ALPHA_START": 0.0}, {"ALPHA_LR": -1.0},
@@ -302,12 +340,14 @@ class ActorUpdateModeTest(unittest.TestCase):
                                    ACTOR_TEAMMATE_ACTIONS="stored")
             batch = buf.sample(8, np.random.default_rng(0))
             calls = {"n": 0}
-            orig = agent._team_q_min
+            # rew-v3 scores each slot by its own value, rew-v2 by the team's.
+            name = "_robot_q_min" if agent.own_collision else "_team_q_min"
+            orig = getattr(agent, name)
 
             def counted(*a, **k):
                 calls["n"] += 1
                 return orig(*a, **k)
-            agent._team_q_min = counted
+            setattr(agent, name, counted)
             agent.update(batch)
             N = int(np.asarray(batch["mask"]).shape[1])
             real_slots = int((np.asarray(batch["mask"]) > 0).any(0).sum())
@@ -549,7 +589,9 @@ class ReplayTest(unittest.TestCase):
         path = os.path.join(self.tmp.name, "ck.pth")
         self.agent.save(path)
         SACAgent(self.cfg).load(path)
-        other = _cfg(REWARD_VERSION="rew-v9")
+        other = _cfg(REWARD_VERSION=("rew-v2-person-time"
+                                     if self.cfg.REWARD_VERSION != "rew-v2-person-time"
+                                     else "rew-v3-own-collision"))
         with self.assertRaises(SchemaMismatch):
             SACAgent(other).load(path)
 

@@ -2,10 +2,15 @@
 
 docs/outdoor_madrl_redesign.md section 5.1 and 5.4:
 
-  * The critic's per-robot outputs are evaluated as the masked team mean.
-    The critic loss, the Bellman target and the actor loss all use that one
-    definition, and in all three the minimum over the two critics is taken
+  * rew-v2: the critic's per-robot outputs are evaluated as the masked team
+    mean. The critic loss, the Bellman target and the actor loss all use that
+    one definition, and in all three the minimum over the two critics is taken
     after averaging over the team.
+  * rew-v3 (own collision): each robot's reward is the team task reward plus
+    its own collisions. Each per-robot output is fitted to that robot's own
+    target, and each robot's actor term reads its own output, so a robot
+    that hits a wall is the one charged for it. The team mean is still what
+    is logged.
   * The actor update keeps the other robots at their stored actions and
     replaces only the sampled robot's: what this robot should have done given
     what its teammates actually did.
@@ -65,6 +70,12 @@ class SACAgent:
                                            lr=float(cfg.ALPHA_LR))
                           if self.alpha_auto else None)
         self.alpha = self.log_alpha.detach().exp()
+        # A floor on the temperature. Without it alpha fell from 0.04 to
+        # 0.001 within 16k updates and the squashed actor settled on the edge
+        # of its range, where its gradient vanishes (2026-10-05).
+        self.log_alpha_min = float(np.log(float(cfg.ALPHA_MIN)))
+        self.own_collision = cfg.REWARD_VERSION == "rew-v3-own-collision"
+        self.w_collision = float(cfg.REWARD_W_COLLISION)
         self.epsilon = float(cfg.START_EPSILON)
         self.replay = replay
         mk_q = lambda: CentralizedCritic(cfg, self.action_dim).to(self.device)
@@ -117,6 +128,34 @@ class SACAgent:
                                             flat["glob"], flat["state"])
         return a.reshape(B, N, -1), logp.reshape(B, N)
 
+    def _collision_return(self, batch, g_step) -> torch.Tensor:
+        """(B, N) discounted own-collision term of each robot."""
+        rc = batch["robot_collisions"]                  # (B, K, N)
+        B, K, N = rc.shape
+        flat = rc.permute(0, 2, 1).reshape(B * N, K)
+        hold = batch["hold"].repeat_interleave(N)
+        return (-self.w_collision
+                * discounted_return(flat, hold, g_step).reshape(B, N))
+
+    def robot_targets(self, batch) -> torch.Tensor:
+        """(B, N) y_i = R_task + R_collision,i + gamma_step^k (1 - terminal)
+        [min_k Q_k,i(s', a') - alpha * log pi(a'_i|s'_i)]."""
+        cfg = self.cfg
+        obs2 = batch["next_obs"]
+        m2 = batch["next_mask"]
+        with torch.no_grad():
+            a2, logp2 = self._per_robot_actions(obs2, m2)
+            q1 = self.q1_target(obs2, a2, m2)
+            q2 = self.q2_target(obs2, a2, m2)
+            v2 = torch.min(q1, q2) - self.alpha * logp2
+            g_step = self.gamma ** (1.0 / max(1, int(cfg.ACTION_SCALE)))
+            r_task = discounted_return(batch["step_rewards"], batch["hold"],
+                                       g_step)
+            boot = (torch.pow(torch.full_like(batch["hold"], g_step),
+                              batch["hold"]) * (1.0 - batch["terminal"]))
+            return (r_task[:, None] + self._collision_return(batch, g_step)
+                    + boot[:, None] * v2)
+
     def targets(self, batch) -> torch.Tensor:
         """y = R + gamma_step^k (1 - terminal) [min_k Q_k,team(s', a')
         - alpha * mean_team log pi(a'|s')]."""
@@ -147,6 +186,10 @@ class SACAgent:
             "action": torch.as_tensor(batch_np["action"], device=dev),
             "step_rewards": torch.as_tensor(batch_np["step_rewards"],
                                             device=dev),
+            "robot_collisions": torch.as_tensor(
+                batch_np["robot_collisions"], device=dev,
+                dtype=torch.float32)
+            if "robot_collisions" in batch_np else None,
             "hold": torch.as_tensor(batch_np["hold"], device=dev),
             "terminal": torch.as_tensor(batch_np["terminal"], device=dev),
             "agent_index": torch.as_tensor(batch_np["agent_index"],
@@ -155,10 +198,21 @@ class SACAgent:
         # Robot-order augmentation: slot identity must not carry meaning.
         batch = permute_robots(batch)
         obs, mask, act = batch["obs"], batch["mask"], batch["action"]
-        y = self.targets(batch)
-        q1 = team_value(self.q1(obs, act, mask), mask)
-        q2 = team_value(self.q2(obs, act, mask), mask)
-        loss_q = F.mse_loss(q1, y) + F.mse_loss(q2, y)
+        if self.own_collision:
+            y_r = self.robot_targets(batch)
+            q1_r = self.q1(obs, act, mask)
+            q2_r = self.q2(obs, act, mask)
+            m = mask.float()
+            denom = m.sum().clamp(min=1.0)
+            loss_q = ((((q1_r - y_r) ** 2) * m).sum()
+                      + (((q2_r - y_r) ** 2) * m).sum()) / denom
+            q1 = team_value(q1_r, mask)
+            y = team_value(y_r, mask)
+        else:
+            y = self.targets(batch)
+            q1 = team_value(self.q1(obs, act, mask), mask)
+            q2 = team_value(self.q2(obs, act, mask), mask)
+            loss_q = F.mse_loss(q1, y) + F.mse_loss(q2, y)
         self.q_opt.zero_grad()
         loss_q.backward()
         self.q_opt.step()
@@ -182,6 +236,8 @@ class SACAgent:
             self.alpha_opt.zero_grad()
             loss_alpha.backward()
             self.alpha_opt.step()
+            with torch.no_grad():
+                self.log_alpha.clamp_(min=self.log_alpha_min)
             self.alpha = self.log_alpha.detach().exp()
 
         self._soft_update(self.q1, self.q1_target)
@@ -200,6 +256,11 @@ class SACAgent:
     def _team_q_min(self, obs, actions, mask):
         return torch.min(team_value(self.q1(obs, actions, mask), mask),
                          team_value(self.q2(obs, actions, mask), mask))
+
+    def _robot_q_min(self, obs, actions, mask, j):
+        """(B,) robot j's own value, the smaller of the two critics."""
+        return torch.min(self.q1(obs, actions, mask)[:, j],
+                         self.q2(obs, actions, mask)[:, j])
 
     def _actor_loss(self, obs, act, mask, agent_index):
         """(loss, log-probabilities of the differentiated actions, flat over
@@ -224,14 +285,21 @@ class SACAgent:
                     pick["ego"], pick["mid"], pick["glob"], pick["state"])
                 mixed = base.clone()
                 mixed[rows, idx] = new_a
-                qn = self._team_q_min(obs, mixed, mask)
+                if self.own_collision:
+                    q1 = self.q1(obs, mixed, mask)[rows, idx]
+                    q2 = self.q2(obs, mixed, mask)[rows, idx]
+                    qn = torch.min(q1, q2)
+                else:
+                    qn = self._team_q_min(obs, mixed, mask)
                 return (self.alpha * logp - qn).mean(), logp
             # Every real robot.
             new_all, logp_all = self._per_robot_actions(obs, mask)
             real = mask > 0
-            if cfg.ACTOR_TEAMMATE_ACTIONS == "current":
+            if cfg.ACTOR_TEAMMATE_ACTIONS == "current" and not self.own_collision:
                 # All re-drawn together: one critic pass differentiates the
                 # team value with respect to every robot's action.
+                # (rew-v3 goes through the per-slot loop below instead, so
+                # each robot's action is judged by its own value only.)
                 mixed = torch.where(real.unsqueeze(-1), new_all, base)
                 qn = self._team_q_min(obs, mixed, mask)
                 ent = team_value(logp_all, mask.float())
@@ -246,7 +314,9 @@ class SACAgent:
                     continue
                 mixed = base.clone()
                 mixed[:, j] = new_all[:, j]
-                qn = self._team_q_min(obs, mixed, mask)
+                qn = (self._robot_q_min(obs, mixed, mask, j)
+                      if self.own_collision
+                      else self._team_q_min(obs, mixed, mask))
                 term = self.alpha * logp_all[:, j] - qn
                 total = total + (term * valid.float()).sum()
             return total / count, logp_all[real]
@@ -377,6 +447,11 @@ def permute_robots(batch):
     out["mask"] = perm(mask)
     out["next_mask"] = perm(batch["next_mask"])
     out["action"] = perm(batch["action"])
+    rc = batch.get("robot_collisions")
+    if rc is not None:
+        # (B, K, N): robots on the last axis.
+        out["robot_collisions"] = rc.gather(
+            2, perms.unsqueeze(1).expand(B, rc.shape[1], N))
     inv = torch.argsort(perms, dim=1)
     out["agent_index"] = inv.gather(1, batch["agent_index"].unsqueeze(1)
                                     ).squeeze(1)

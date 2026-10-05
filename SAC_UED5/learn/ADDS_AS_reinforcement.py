@@ -61,10 +61,14 @@ class TransitionMsg:
     static_key: str
     level_id: int = -1
     is_replay: bool = False
+    robot_collisions: Optional[List[List[int]]] = None
+    # The team collision term when it is not inside step_rewards (rew-v3),
+    # so `reward` is the same team total under either version.
+    collision_reward: float = 0.0
 
     @property
     def reward(self) -> float:
-        return float(sum(self.step_rewards))
+        return float(sum(self.step_rewards)) + float(self.collision_reward)
 
 
 @dataclass
@@ -237,7 +241,10 @@ def worker_process(worker_id: int, cfg, transition_queue, stats_queue,
                 transition_queue.put(TransitionMsg(
                     worker_id, uid, key, tr.step, tr.record, tr.action,
                     list(tr.step_rewards), bool(tr.terminal), static.key,
-                    level_id, is_replay))
+                    level_id, is_replay, list(tr.robot_collisions),
+                    (float(tr.components.get("collision", 0.0))
+                     if cfg.REWARD_VERSION == "rew-v3-own-collision"
+                     else 0.0)))
 
             # Claim a pending video request, if any: one worker records the
             # next episode it starts.
@@ -552,7 +559,7 @@ def main(overrides: Optional[dict] = None, max_episodes: Optional[int] = None):
                 if ued.should_store(msg):
                     buffer.push(msg.episode_uid, msg.step, msg.record,
                                 msg.static_key, msg.action, msg.step_rewards,
-                                msg.terminal)
+                                msg.terminal, msg.robot_collisions)
                 if msg.action is None:
                     buffer.end_episode(msg.episode_uid)
                     statics_by_uid.pop(msg.episode_uid, None)

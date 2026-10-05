@@ -84,7 +84,9 @@ NET_SIZE = "m"                      # "m" | "l" | "xl"
 
 # --------------- SAC ALGORITHM PARAMETER ---------------
 LOG_STD_MAX = 0.5
-LOG_STD_MIN = -20
+# -5 rather than -20: a std of e^-20 is a deterministic actor whose squashed
+# output can sit on the edge of its range with no gradient back (2026-10-05).
+LOG_STD_MIN = -5
 # Entropy temperature. With ALPHA_AUTO the temperature is learned so that
 # the policy's entropy tracks ALPHA_TARGET_ENTROPY (Haarnoja et al. 2018,
 # "Soft Actor-Critic Algorithms and Applications"); ALPHA_START is then only
@@ -97,6 +99,9 @@ ALPHA_AUTO = True
 ALPHA_START = 0.2
 ALPHA_LR = 3e-4
 ALPHA_TARGET_ENTROPY = None
+# Floor on the learned temperature. A design value relative to a reward of a
+# few units per decision; without a floor alpha collapsed to 0.001.
+ALPHA_MIN = 0.05
 
 # --------------- ACTOR UPDATE (multi-robot) ---------------
 # Whose action the actor loss re-draws from the current policy and
@@ -154,7 +159,7 @@ ALLOW_WEIGHT_TRANSFER_FROM = None
 # decentralised execution.
 CRITIC_PRIVILEGED_CROWD = True
 
-# --------------- TASK REWARD (rew-v2) ---------------
+# --------------- TASK REWARD (rew-v2 terms; rew-v3 credit) ---------------
 # Per simulation step, summed over the steps an action is held:
 #
 #   person_time      - persons inside the hazard x AGENT_TIME_STEP / N_ref
@@ -179,7 +184,10 @@ CRITIC_PRIVILEGED_CROWD = True
 #
 # The weights are design values set before any policy was trained on them, not
 # measured quantities.
-REWARD_VERSION = "rew-v2-person-time"
+# rew-v3: the same terms, but each robot is charged only its own collisions
+# (team task reward + own collision); see learn/sac.py. rew-v2 charges the
+# team sum to every robot alike.
+REWARD_VERSION = "rew-v3-own-collision"
 REWARD_W_PERSON_TIME = 5.0
 REWARD_W_REMAINING_PATH = 1.0
 REWARD_W_REENTRY = 2.0
@@ -294,7 +302,7 @@ WANDB_GROUP = None                  # None = EXPERIMENT_ID
 # "outdoor-madrl-v2-dataset-100m-0924-1530". A run started from a checkpoint
 # as a new run (see the resume rule in learn/metrics_logger.py) gets
 # "-resume<episode>" appended either way; a run that carries on keeps its name.
-WANDB_RUN_NAME = "261004(NewEnv)-NotEpsilon-NearRobot"
+WANDB_RUN_NAME = "261005-NotEpsilon-NearRobot-MAXSTEPS1000-SeparatedCollisionReward"
 # Only models chosen on validation are uploaded, never the replay buffer or
 # every periodic checkpoint.
 WANDB_UPLOAD_CHECKPOINTS = "selected"   # "none" | "selected"

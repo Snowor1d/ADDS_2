@@ -182,6 +182,10 @@ class ReplayBuffer:
         self.has_action = np.zeros(C, bool)
         # One column per step of the longest decision (ROBOT_DECISION_MAX_S_<MODE>).
         self.step_rewards = np.zeros((C, decision_max_steps(cfg)), np.float32)
+        # Per step and robot, whether it hit a wall (rew-v3 charges each
+        # robot its own). Same step columns as step_rewards.
+        self.robot_collisions = np.zeros((C, decision_max_steps(cfg), R),
+                                         np.uint8)
         self.hold = np.zeros(C, np.int16)
         self.terminal = np.zeros(C, bool)
         self.episode = np.full(C, -1, np.int64)
@@ -212,13 +216,14 @@ class ReplayBuffer:
 
     def push(self, episode_uid: int, step: int, record: DecisionRecord,
              static_key: str, action: Optional[np.ndarray] = None,
-             step_rewards=(), terminal: bool = False) -> int:
+             step_rewards=(), terminal: bool = False,
+             robot_collisions=None) -> int:
         with self.lock:
             return self._push(episode_uid, step, record, static_key, action,
-                              step_rewards, terminal)
+                              step_rewards, terminal, robot_collisions)
 
     def _push(self, episode_uid, step, record, static_key, action,
-              step_rewards, terminal) -> int:
+              step_rewards, terminal, robot_collisions=None) -> int:
         if static_key not in self.statics:
             raise KeyError(f"static layers {static_key} were never stored")
         i = self.ptr
@@ -247,6 +252,11 @@ class ReplayBuffer:
                              f"({self.step_rewards.shape[1]} steps)")
         self.step_rewards[i] = 0.0
         self.step_rewards[i, :sr.shape[0]] = sr
+        self.robot_collisions[i] = 0
+        if robot_collisions:
+            for k, row in enumerate(robot_collisions[:sr.shape[0]]):
+                row = np.asarray(row, dtype=np.uint8)[:self.robot_collisions.shape[2]]
+                self.robot_collisions[i, k, :row.shape[0]] = row
         self.hold[i] = int(sr.shape[0])
         self.terminal[i] = bool(terminal)
         self.episode[i] = int(episode_uid)
@@ -373,6 +383,7 @@ class ReplayBuffer:
             "mask": s["mask"],
             "action": self.action[chosen].copy(),
             "step_rewards": self.step_rewards[chosen].copy(),
+            "robot_collisions": self.robot_collisions[chosen].astype(np.float32),
             "hold": self.hold[chosen].astype(np.float32),
             "terminal": self.terminal[chosen].astype(np.float32),
             "next_obs": {k: s2[k] for k in ("ego", "mid", "glob", "state",
@@ -386,7 +397,7 @@ class ReplayBuffer:
 
     ARRAYS = ("n_robots", "anchors", "counts", "observed", "pose", "mode",
               "signal", "intent", "avail", "priv", "action", "has_action",
-              "step_rewards",
+              "step_rewards", "robot_collisions",
               "hold", "terminal", "episode", "step", "prev", "next",
               "static_id")
 
@@ -413,7 +424,17 @@ class ReplayBuffer:
                     # Saved before intents were recorded: heading "here".
                     self.intent[:n] = data["pose"]
                     continue
+                if k == "robot_collisions" and k not in data.files:
+                    # Saved before per-robot collisions were stored.
+                    self.robot_collisions[:n] = 0
+                    continue
                 arr = data[k]
+                if (k == "robot_collisions" and arr.ndim == 3
+                        and arr.shape[1] <= self.robot_collisions.shape[1]
+                        and arr.shape[2] == self.robot_collisions.shape[2]):
+                    self.robot_collisions[:n] = 0
+                    self.robot_collisions[:n, :arr.shape[1]] = arr
+                    continue
                 if (k == "step_rewards" and arr.ndim == 2
                         and arr.shape[1] <= self.step_rewards.shape[1]):
                     # Saved under a shorter ROBOT_DECISION_MAX_S_<MODE>: the extra
