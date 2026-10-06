@@ -34,7 +34,7 @@ DEVICE = "cuda"
 # sums a held action's rewards with that factor and bootstraps with its k-th
 # power, so every transition is discounted for the steps it actually lasted.
 GAMMA_VELOCITY = 0.99
-GAMMA_WAYPOINT = 0.997
+GAMMA_WAYPOINT = 0.99
 # Not read anywhere.
 GAMMA_END = 0.99
 GAMMA_SCHEDULE_STEP = 1000
@@ -200,8 +200,8 @@ REWARD_W_COLLISION = 0.05
 #   bystander   per person drawn into following who was at no risk then:
 #               outside the hazard, its own way on not passing through it.
 # Calibrated against the shuttle baseline (docs/outdoor_madrl_redesign.md).
-REWARD_W_GUIDE_USE = 0.2
-REWARD_W_BYSTANDER = 25.0
+REWARD_W_GUIDE_USE = 0
+REWARD_W_BYSTANDER = 0
 REWARD_MIN_REFERENCE_POPULATION = 5
 REWARD_MIN_REFERENCE_DISTANCE_M = 5.0
 
@@ -312,7 +312,7 @@ WANDB_GROUP = None                  # None = EXPERIMENT_ID
 # "outdoor-madrl-v2-dataset-100m-0924-1530". A run started from a checkpoint
 # as a new run (see the resume rule in learn/metrics_logger.py) gets
 # "-resume<episode>" appended either way; a run that carries on keeps its name.
-WANDB_RUN_NAME = "261006(NewEnv)-waypoint-UPT1.0"
+WANDB_RUN_NAME = "261007(NewEnv)-waypoint-UPT1.0"
 # Only models chosen on validation are uploaded, never the replay buffer or
 # every periodic checkpoint.
 WANDB_UPLOAD_CHECKPOINTS = "selected"   # "none" | "selected"

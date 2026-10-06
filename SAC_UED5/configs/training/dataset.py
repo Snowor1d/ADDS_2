@@ -33,7 +33,7 @@ DATASET_DENSITY_BY_SIZE = {100: None, 200: None}
 # Hazard area as a share of the crop, and its shape. A tuple of "circle" and
 # "rect"; "street" is refused on OSM crops, which have no street plan to lay
 # it along. A one-element tuple needs its comma.
-DATASET_DANGER_AREA_RANGE = (0.2, 0.4)
+DATASET_DANGER_AREA_RANGE = (0.1, 0.3)
 DATASET_DANGER_SHAPES = ("circle",)
 # Only read when CROWD_SPAWN = "inside_fraction".
 DATASET_DANGER_INSIDE_FRACTION = (0.5, 1.0)
