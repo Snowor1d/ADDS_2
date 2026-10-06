@@ -16,13 +16,14 @@ Constants only; importing this module has no side effects.
 """
 
 # --------------- WHICH MAPS ---------------
-DATASET_SITES = (
-    "dotonbori", "hongdae", "gangnam_superblock", "nanjing_road", "khao_san",
-    "covent_garden", "kreuzberg", "mitte", "eixample", "gracia", "la_latina",
-    "trastevere", "grachtengordel", "sultanahmet", "soho_nyc",
-    "french_quarter", "gastown", "centro_historico_cdmx", "maboneng",
-    "vila_madalena",
-)
+# DATASET_SITES = (
+#     "dotonbori", "hongdae", "gangnam_superblock", "nanjing_road", "khao_san",
+#     "covent_garden", "kreuzberg", "mitte", "eixample", "gracia", "la_latina",
+#     "trastevere", "grachtengordel", "sultanahmet", "soho_nyc",
+#     "french_quarter", "gastown", "centro_historico_cdmx", "maboneng",
+#     "vila_madalena",
+# )
+DATASET_SITES = ("dotonbori", "covent_garden", "hongdae")
 DATASET_SIZES_M = (200,)
 # Persons per square metre of walkable ground per size. None means the
 # environment's CROWD_DENSITY_RANGE.
@@ -32,7 +33,7 @@ DATASET_DENSITY_BY_SIZE = {100: None, 200: None}
 # Hazard area as a share of the crop, and its shape. A tuple of "circle" and
 # "rect"; "street" is refused on OSM crops, which have no street plan to lay
 # it along. A one-element tuple needs its comma.
-DATASET_DANGER_AREA_RANGE = (0.04, 0.2)
+DATASET_DANGER_AREA_RANGE = (0.2, 0.4)
 DATASET_DANGER_SHAPES = ("circle",)
 # Only read when CROWD_SPAWN = "inside_fraction".
 DATASET_DANGER_INSIDE_FRACTION = (0.5, 1.0)

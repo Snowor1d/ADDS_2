@@ -74,8 +74,10 @@ class SACAgent:
         # 0.001 within 16k updates and the squashed actor settled on the edge
         # of its range, where its gradient vanishes (2026-10-05).
         self.log_alpha_min = float(np.log(float(cfg.ALPHA_MIN)))
-        self.own_collision = cfg.REWARD_VERSION == "rew-v3-own-collision"
-        self.w_collision = float(cfg.REWARD_W_COLLISION)
+        from sim.rewards import PER_ROBOT_VERSIONS
+        # Robot-charged terms (collision; under rew-v4 also guide use and
+        # bystanders) go to the robot that incurred them.
+        self.own_collision = cfg.REWARD_VERSION in PER_ROBOT_VERSIONS
         self.epsilon = float(cfg.START_EPSILON)
         self.replay = replay
         mk_q = lambda: CentralizedCritic(cfg, self.action_dim).to(self.device)
@@ -129,13 +131,13 @@ class SACAgent:
         return a.reshape(B, N, -1), logp.reshape(B, N)
 
     def _collision_return(self, batch, g_step) -> torch.Tensor:
-        """(B, N) discounted own-collision term of each robot."""
-        rc = batch["robot_collisions"]                  # (B, K, N)
-        B, K, N = rc.shape
-        flat = rc.permute(0, 2, 1).reshape(B * N, K)
+        """(B, N) discounted robot-charged terms of each robot (collision,
+        and under rew-v4 guide use and bystanders), already weighted."""
+        rp = batch["robot_penalties"]                   # (B, K, N)
+        B, K, N = rp.shape
+        flat = rp.permute(0, 2, 1).reshape(B * N, K)
         hold = batch["hold"].repeat_interleave(N)
-        return (-self.w_collision
-                * discounted_return(flat, hold, g_step).reshape(B, N))
+        return discounted_return(flat, hold, g_step).reshape(B, N)
 
     def robot_targets(self, batch) -> torch.Tensor:
         """(B, N) y_i = R_task + R_collision,i + gamma_step^k (1 - terminal)
@@ -186,10 +188,10 @@ class SACAgent:
             "action": torch.as_tensor(batch_np["action"], device=dev),
             "step_rewards": torch.as_tensor(batch_np["step_rewards"],
                                             device=dev),
-            "robot_collisions": torch.as_tensor(
-                batch_np["robot_collisions"], device=dev,
+            "robot_penalties": torch.as_tensor(
+                batch_np["robot_penalties"], device=dev,
                 dtype=torch.float32)
-            if "robot_collisions" in batch_np else None,
+            if "robot_penalties" in batch_np else None,
             "hold": torch.as_tensor(batch_np["hold"], device=dev),
             "terminal": torch.as_tensor(batch_np["terminal"], device=dev),
             "agent_index": torch.as_tensor(batch_np["agent_index"],
@@ -447,10 +449,10 @@ def permute_robots(batch):
     out["mask"] = perm(mask)
     out["next_mask"] = perm(batch["next_mask"])
     out["action"] = perm(batch["action"])
-    rc = batch.get("robot_collisions")
+    rc = batch.get("robot_penalties")
     if rc is not None:
         # (B, K, N): robots on the last axis.
-        out["robot_collisions"] = rc.gather(
+        out["robot_penalties"] = rc.gather(
             2, perms.unsqueeze(1).expand(B, rc.shape[1], N))
     inv = torch.argsort(perms, dim=1)
     out["agent_index"] = inv.gather(1, batch["agent_index"].unsqueeze(1)

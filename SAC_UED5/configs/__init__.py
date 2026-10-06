@@ -499,6 +499,10 @@ def validate_config(cfg: ResolvedConfig, check_data: bool = True) -> None:
                f"{name}={cfg[name]!r} must be True or False", p)
     _check(int(cfg.CROWD_SHELTER_MAX_WAIT_STEPS) >= int(cfg.CROWD_SHELTER_REPLAN_STEPS),
            "CROWD_SHELTER_MAX_WAIT_STEPS must be at least CROWD_SHELTER_REPLAN_STEPS", p)
+    _check(0.0 < float(cfg.ROBOT_INFORM_RADIUS_M) <= float(cfg.ROBOT_SIGNAL_RADIUS_M),
+           "ROBOT_INFORM_RADIUS_M must be in (0, ROBOT_SIGNAL_RADIUS_M]", p)
+    _check(float(cfg.ROBOT_INFORM_TIME_S) > 0.0,
+           "ROBOT_INFORM_TIME_S must be positive", p)
     _check(cfg.ROBOT_START in ("near", "outside", "anywhere"),
            f"ROBOT_START={cfg.ROBOT_START!r}; expected 'near', 'outside' or "
            "'anywhere'", p)
@@ -507,7 +511,7 @@ def validate_config(cfg: ResolvedConfig, check_data: bool = True) -> None:
            "must be (inner, outer) with 0 <= inner < outer", p)
     # Crowd behaviour (docs/behavior_model_design.md).
     for name in ("CROWD_NONRESPONSE_FRACTION", "CROWD_DEPART_PROB",
-                 "CROWD_FOLLOW_DEPART_PROB",
+                 "CROWD_FOLLOW_DEPART_PROB", "ROBOT_INFORM_PROB",
                  "CROWD_FLOW_FOLLOW_MIN_ALIGNMENT", "ROBOT_SIGNAL_P_MAX",
                  "ROBOT_GUIDE_BASE_COMPLIANCE",
                  "ROBOT_DIRECT_BASE_COMPLIANCE"):
@@ -560,7 +564,10 @@ def validate_config(cfg: ResolvedConfig, check_data: bool = True) -> None:
            f"ALPHA_AUTO={cfg.ALPHA_AUTO!r} must be True or False", p)
     _check(0.0 < float(cfg.ALPHA_MIN) <= float(cfg.ALPHA_START),
            f"ALPHA_MIN={cfg.ALPHA_MIN} must be in (0, ALPHA_START]", p)
-    _check(cfg.REWARD_VERSION in ("rew-v2-person-time", "rew-v3-own-collision"),
+    _check(float(cfg.REWARD_W_GUIDE_USE) >= 0.0 and float(cfg.REWARD_W_BYSTANDER) >= 0.0,
+           "REWARD_W_GUIDE_USE and REWARD_W_BYSTANDER must be non-negative", p)
+    _check(cfg.REWARD_VERSION in ("rew-v2-person-time", "rew-v3-own-collision",
+                                  "rew-v4-robot-costs"),
            f"REWARD_VERSION={cfg.REWARD_VERSION!r} is not implemented", p)
     _check(float(cfg.ALPHA_START) > 0.0,
            f"ALPHA_START={cfg.ALPHA_START} must be positive", p)

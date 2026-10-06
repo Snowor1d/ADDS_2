@@ -73,7 +73,7 @@ def _fill(cfg, buffer, store, agent, episodes=((1, 40), (2, 40), (3, 40)),
         def emit(tr, uid=uid, st=st):
             buffer.push(uid, tr.step, tr.record, st.key, tr.action,
                         tr.step_rewards, tr.terminal,
-                     tr.robot_collisions)
+                     tr.robot_penalties)
 
         run_episode(m, cfg, act, gamma=0.99, max_steps=steps, seed=uid,
                     static=st, emit=emit)
@@ -273,14 +273,15 @@ class AlphaAutoTest(unittest.TestCase):
                 "hold": torch.as_tensor(b["hold"], device=dev),
                 "terminal": torch.ones(4, device=dev),   # no bootstrap noise
             }
-            rc = np.zeros_like(b["robot_collisions"])
-            batch["robot_collisions"] = torch.as_tensor(rc, device=dev)
+            rc = np.zeros_like(b["robot_penalties"])
+            batch["robot_penalties"] = torch.as_tensor(rc, device=dev)
             y0 = agent.robot_targets(batch)
-            rc[:, 0, 0] = 1.0                           # robot 0, first step
-            batch["robot_collisions"] = torch.as_tensor(rc, device=dev)
+            w = float(agent.cfg.REWARD_W_COLLISION)
+            rc[:, 0, 0] = -w                            # robot 0, first step
+            batch["robot_penalties"] = torch.as_tensor(rc, device=dev)
             y1 = agent.robot_targets(batch)
             d = (y1 - y0).cpu().numpy()
-            np.testing.assert_allclose(d[:, 0], -agent.w_collision, atol=1e-5)
+            np.testing.assert_allclose(d[:, 0], -w, atol=1e-5)
             np.testing.assert_allclose(d[:, 1:], 0.0, atol=1e-6)
 
     def test_alpha_never_falls_below_the_floor(self):
@@ -591,7 +592,7 @@ class ReplayTest(unittest.TestCase):
         SACAgent(self.cfg).load(path)
         other = _cfg(REWARD_VERSION=("rew-v2-person-time"
                                      if self.cfg.REWARD_VERSION != "rew-v2-person-time"
-                                     else "rew-v3-own-collision"))
+                                     else "rew-v4-robot-costs"))
         with self.assertRaises(SchemaMismatch):
             SACAgent(other).load(path)
 

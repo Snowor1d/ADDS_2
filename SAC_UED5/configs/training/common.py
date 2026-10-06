@@ -187,11 +187,21 @@ CRITIC_PRIVILEGED_CROWD = True
 # rew-v3: the same terms, but each robot is charged only its own collisions
 # (team task reward + own collision); see learn/sac.py. rew-v2 charges the
 # team sum to every robot alike.
-REWARD_VERSION = "rew-v3-own-collision"
+REWARD_VERSION = "rew-v4-robot-costs"
 REWARD_W_PERSON_TIME = 5.0
 REWARD_W_REMAINING_PATH = 1.0
 REWARD_W_REENTRY = 2.0
 REWARD_W_COLLISION = 0.05
+# rew-v4 only. Both are per N_ref like the task terms, so their meaning holds
+# across crop sizes; read them in person-steps inside the hazard (a person in
+# it costs REWARD_W_PERSON_TIME * AGENT_TIME_STEP = 2.5 per step / N_ref).
+#   guide_use   per robot-step in guide mode. Signalling has a cost: it pulls
+#               people off their way and spends their trust.
+#   bystander   per person drawn into following who was at no risk then:
+#               outside the hazard, its own way on not passing through it.
+# Calibrated against the shuttle baseline (docs/outdoor_madrl_redesign.md).
+REWARD_W_GUIDE_USE = 0.2
+REWARD_W_BYSTANDER = 25.0
 REWARD_MIN_REFERENCE_POPULATION = 5
 REWARD_MIN_REFERENCE_DISTANCE_M = 5.0
 
@@ -302,7 +312,7 @@ WANDB_GROUP = None                  # None = EXPERIMENT_ID
 # "outdoor-madrl-v2-dataset-100m-0924-1530". A run started from a checkpoint
 # as a new run (see the resume rule in learn/metrics_logger.py) gets
 # "-resume<episode>" appended either way; a run that carries on keeps its name.
-WANDB_RUN_NAME = "261005-NotEpsilon-NearRobot-MAXSTEPS1000-SeparatedCollisionReward"
+WANDB_RUN_NAME = "261005(NewEnv)-waypoint-SeparatedCollisionReward"
 # Only models chosen on validation are uploaded, never the replay buffer or
 # every periodic checkpoint.
 WANDB_UPLOAD_CHECKPOINTS = "selected"   # "none" | "selected"

@@ -106,6 +106,12 @@ class CrowdAgent(Agent):
         self._flow_departure_choice = None
         # Heading for the way out of believed danger (M3 rule 1).
         self._escaping = False
+        # Being told where the hazard is by a robot (M7): steps spent close
+        # to each signalling robot, and robots whose message has already had
+        # its one chance of getting through.
+        self._inform_exposure = {}
+        self._inform_drawn = set()
+        self.informed_by_robot = False
         # Waiting with no route that avoids believed danger: since when, and
         # whether it has given up waiting and taken the least-exposed route.
         self._shelter_since = None
@@ -967,6 +973,8 @@ class CrowdAgent(Agent):
         # Whom to follow, decided after awareness so a robot that has just
         # warned somebody can also be followed by them (M5, M6).
         self._robot_step(near_agents, perceived, new_ids)
+        # Told where the hazard is, after long enough close to a robot (M7).
+        self._robot_inform(perceived)
 
         self.which_goal_agent_want(near_agents)
         # Straight-line goals (fleeing along a remembered bearing, following
@@ -1403,8 +1411,39 @@ class CrowdAgent(Agent):
             return
         self._start_following(options[pick])
 
+    def _not_at_risk(self) -> bool:
+        """Whether this pedestrian, about to follow a robot, was at no risk:
+        outside the hazard, and its own way on (the destination it was
+        heading for) does not pass through it. Judged against the true zone,
+        because it feeds the reward, not the pedestrian's behaviour."""
+        zone = getattr(self.model, "danger_zone", None)
+        if zone is None:
+            return True
+        x, y = float(self.xy[0]), float(self.xy[1])
+        if zone.signed_distance(x, y) < 0.0:
+            return False
+        dest = self.now_pointing_mesh
+        if dest is None:
+            return True
+        pts = self._route_points(dest)
+        if not pts:
+            return True
+        for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+            n = max(1, int(math.ceil(math.hypot(x1 - x0, y1 - y0) / 2.0)))
+            for k in range(n + 1):
+                if zone.signed_distance(x0 + (x1 - x0) * k / n,
+                                        y0 + (y1 - y0) * k / n) < 0.0:
+                    return False
+        return True
+
     def _start_following(self, rb) -> None:
         """Accepting an instruction is acting on it: milling ends here."""
+        if self.type != 0:
+            # A newly recruited follower, not a hand-off between robots:
+            # counted for rew-v4's bystander cost when it was at no risk.
+            events = getattr(self.model, "bystander_events", None)
+            if events is not None and self._not_at_risk():
+                events.append(rb.unique_id)
         self.type = 0
         self.is_effected_by_robot = 1
         self.following_robot_id = rb.unique_id
@@ -1682,6 +1721,84 @@ class CrowdAgent(Agent):
         """
         return max(1.0, random.lognormvariate(
             math.log(max(1.0, PREMOVEMENT_MEDIAN_STEPS)), PREMOVEMENT_SIGMA))
+
+    # ---- being told where the hazard is (M7) --------------------------------
+
+    def _robot_inform(self, perceived) -> None:
+        """A signalling robot can tell this pedestrian where the hazard is
+        and how far it reaches, but only once they have been close enough to
+        talk for long enough.
+
+        Time within ROBOT_INFORM_RADIUS_M of a noticed, signalling robot in
+        sight is added up per robot. When it first reaches
+        ROBOT_INFORM_TIME_S the message gets one chance, ROBOT_INFORM_PROB,
+        of being understood and believed; it is never drawn again for that
+        robot, so switching the signal off and on cannot buy more chances.
+        Following and being informed are independent. See
+        docs/behavior_model_design.md, M7.
+        """
+        if not perceived:
+            return
+        r = float(ROBOT_INFORM_RADIUS_M)
+        need = max(1, int(round(float(ROBOT_INFORM_TIME_S)
+                                / float(AGENT_TIME_STEP))))
+        for rb in perceived:
+            rid = rb.unique_id
+            if rid in self._inform_drawn:
+                continue
+            if math.hypot(self.xy[0] - rb.xy[0], self.xy[1] - rb.xy[1]) > r:
+                continue
+            got = self._inform_exposure.get(rid, 0) + 1
+            self._inform_exposure[rid] = got
+            if got < need:
+                continue
+            self._inform_drawn.add(rid)
+            if random.random() < float(ROBOT_INFORM_PROB):
+                self._receive_hazard_extent()
+
+    def _receive_hazard_extent(self) -> None:
+        """Remember the hazard's extent as told: spots on a grid over the
+        zone pulled in from its edge, so that the believed area (spots plus
+        HAZARD_MEMORY_RADIUS_M) is about the zone itself rather than the
+        zone grown by the radius, as a sighting from the edge gives."""
+        zone = getattr(self.model, "danger_zone", None)
+        if zone is None:
+            return
+        r_a = float(HAZARD_MEMORY_RADIUS_M)
+        # Square grid of this spacing is covered by disks of radius r_a
+        # (half-diagonal 0.71 * spacing < r_a); spots at least r_a - s/2
+        # inside the edge leave at most s/2 believed beyond it.
+        s = 1.15 * r_a
+        inset = r_a - s / 2.0
+        if zone.shape == "circle":
+            ext = float(zone.radius)
+        else:
+            ext = math.hypot(float(zone.half_w), float(zone.half_h))
+        pts = []
+        n = int(math.ceil(ext / s))
+        for i in range(-n, n + 1):
+            for j in range(-n, n + 1):
+                x = float(zone.cx) + i * s
+                y = float(zone.cy) + j * s
+                if zone.signed_distance(x, y) <= -inset:
+                    pts.append((x, y))
+        if not pts:
+            pts = [(float(zone.cx), float(zone.cy))]
+        spacing = r_a / 3.0
+        added = False
+        for p in pts:
+            if all(math.hypot(p[0] - q[0], p[1] - q[1]) > spacing
+                   for q in self.hazard_memory):
+                self.hazard_memory.append(p)
+                added = True
+        if len(self.hazard_memory) > HAZARD_MEMORY_MAX_POINTS:
+            del self.hazard_memory[:-HAZARD_MEMORY_MAX_POINTS]
+        if added:
+            self._memory_version += 1
+        self.informed_by_robot = True
+        # Being told is a cue like any other warning (M1); a nonresponder
+        # keeps not acting but now avoids what it has been told about.
+        self.receive_cue("robot")
 
     def receive_cue(self, source: str) -> None:
         """First warning of any kind (M1): a robot, a sensed hazard, acting

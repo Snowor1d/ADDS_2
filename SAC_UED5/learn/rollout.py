@@ -33,7 +33,8 @@ from configs import decision_max_steps, decision_on_events
 from sim import robot_action
 from sim.observation import (DecisionRecord, ObservationHistory, StaticLayers,
                              build_static_layers)
-from sim.rewards import COMPONENTS, TaskReward
+from sim.rewards import (COMPONENTS, PER_ROBOT_VERSIONS, ROBOT_TERMS,
+                         TaskReward)
 
 
 @dataclass
@@ -49,10 +50,11 @@ class Transition:
     # these with its own gamma, so a gamma schedule cannot put the worker and
     # the learner out of step.
     step_rewards: List[float] = field(default_factory=list)
-    # Per step, one 0/1 per robot: which robots hit a wall. Under rew-v3 the
-    # collision term is not in `step_rewards` but charged to each robot from
-    # these; under rew-v2 it stays in `step_rewards` and these are unused.
-    robot_collisions: List[List[int]] = field(default_factory=list)
+    # Per step, one value per robot: its own share of the robot-charged
+    # terms (sim/rewards.ROBOT_TERMS), already weighted and negative. Under
+    # PER_ROBOT_VERSIONS those terms are not in `step_rewards` but charged to
+    # each robot from these; under rew-v2 they are and these are unused.
+    robot_penalties: List[List[float]] = field(default_factory=list)
 
 
 @dataclass
@@ -147,10 +149,12 @@ def run_episode(model, cfg, act_fn: Optional[ActFn], *, gamma: float,
         comps = reward.step(model)
         r = sum(comps.values())
         pending.reward += g_acc * r
-        own_collision = cfg.REWARD_VERSION == "rew-v3-own-collision"
-        pending.step_rewards.append(
-            float(r - comps["collision"]) if own_collision else float(r))
-        pending.robot_collisions.append(list(reward.last_robot_collisions))
+        if cfg.REWARD_VERSION in PER_ROBOT_VERSIONS:
+            pending.step_rewards.append(
+                float(r - sum(comps[t] for t in ROBOT_TERMS)))
+        else:
+            pending.step_rewards.append(float(r))
+        pending.robot_penalties.append(list(reward.last_robot_penalties))
         pending.hold += 1
         for c, v in comps.items():
             pending.components[c] += v

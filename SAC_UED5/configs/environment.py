@@ -214,7 +214,7 @@ PERCEPTIBILITY_SENSORY_FLOOR = 0.25
 #
 # Recorded with every checkpoint and replay buffer; results from another
 # behaviour model are refused rather than mixed.
-BEHAVIOR_MODEL_VERSION = "beh-v3.3-open-escape"
+BEHAVIOR_MODEL_VERSION = "beh-v3.4-robot-inform"
 # Per-step probability of noticing by direct perception at perceptibility 1.0,
 # scaled by how far perceptibility sits above the floor. Standing in smoke is
 # not the same as seeing it across a street. [sensitivity] 0.2-0.5, 0.02-0.1.
@@ -309,6 +309,21 @@ CROWD_SHELTER_REPLAN_STEPS = 60
 # People do cross a hazard they judge mild (Arshaghi et al. 2026); how long
 # they wait first is not measured.  [sensitivity] 120-1200 steps (60-600 s).
 CROWD_SHELTER_MAX_WAIT_STEPS = 240
+# ---- Being told where the hazard is (M7, docs/behavior_model_design.md) ----
+# A signalling robot can tell a pedestrian the hazard's location and extent
+# (a map on its screen, or "fire around X, keep away"): warning research
+# finds location specificity is what lets people understand and personalise
+# a warning (Mileti & Sorensen 1990; Sutton et al., text-and-map warnings).
+# It takes being close and some time. Within this distance, Hall's (1966)
+# social distance, the upper end of conversation.  [sensitivity] 2-5 m.
+ROBOT_INFORM_RADIUS_M = 3.5
+# Time close to the robot before the message can have got across, added up.
+# Hearing a 20-25 word message once at a normal speaking rate (~150 words a
+# minute) takes about 10 s; not measured.  [sensitivity] 5-30 s.
+ROBOT_INFORM_TIME_S = 10.0
+# Then one chance per pedestrian and robot of understanding and believing it.
+# No measured value.  [sensitivity] 0.2-1.0.
+ROBOT_INFORM_PROB = 0.5
 # A way out of believed danger is a triangle whose believed-safe ground
 # connects to at least this much more; a notch smaller than this is chosen
 # only when nothing else is reachable (sim/agent.py, _escape_mesh). Roughly a

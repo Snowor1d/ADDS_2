@@ -2780,6 +2780,56 @@ class CrowdFlowTest(unittest.TestCase):
         self.assertFalse(person._open_beyond(here, centre))
         self.assertIsNotNone(person._escape_mesh())
 
+    def test_robot_tells_the_hazard_extent_only_after_time_close_by(self):
+        """M7: no message from a robot passed by; after ROBOT_INFORM_TIME_S
+        within ROBOT_INFORM_RADIUS_M, one chance; the believed area is about
+        the zone itself."""
+        import math
+        from types import SimpleNamespace
+        import sim.agent as A
+        fm = self._model(seed=10)
+        zone = fm.danger_zone
+        need = int(round(A.ROBOT_INFORM_TIME_S / A.AGENT_TIME_STEP))
+        old = A.ROBOT_INFORM_PROB
+        try:
+            A.ROBOT_INFORM_PROB = 1.0
+            p = fm.crowds[0]
+            p.hazard_memory = []
+            rb = SimpleNamespace(unique_id=999, xy=[p.xy[0] + 1.0, p.xy[1]])
+            for _ in range(need - 1):
+                p._robot_inform([rb])
+            self.assertEqual(p.hazard_memory, [])
+            p._robot_inform([rb])
+            self.assertTrue(p.informed_by_robot)
+            self.assertTrue(p._believes_dangerous(float(zone.cx),
+                                                  float(zone.cy)))
+            # Not believed far beyond the edge.
+            ang = 0.3
+            far = zone.radius + float(A.HAZARD_MEMORY_RADIUS_M)
+            self.assertFalse(p._believes_dangerous(
+                zone.cx + far * math.cos(ang), zone.cy + far * math.sin(ang)))
+            # Too far from the robot: nothing accumulates.
+            q = fm.crowds[1]
+            q.hazard_memory = []
+            far_rb = SimpleNamespace(unique_id=998,
+                                     xy=[q.xy[0] + A.ROBOT_INFORM_RADIUS_M + 1, q.xy[1]])
+            for _ in range(need * 3):
+                q._robot_inform([far_rb])
+            self.assertFalse(q.informed_by_robot)
+            # One chance per robot: failed once, never again.
+            A.ROBOT_INFORM_PROB = 0.0
+            w = fm.crowds[2]
+            w.hazard_memory = []
+            rb2 = SimpleNamespace(unique_id=997, xy=[w.xy[0], w.xy[1] + 1.0])
+            for _ in range(need):
+                w._robot_inform([rb2])
+            A.ROBOT_INFORM_PROB = 1.0
+            for _ in range(need * 3):
+                w._robot_inform([rb2])
+            self.assertFalse(w.informed_by_robot)
+        finally:
+            A.ROBOT_INFORM_PROB = old
+
     def test_informed_departure_intent_targets_a_reachable_gate(self):
         """Leaving goes to a street mouth whose route stays out of believed
         danger (M3)."""

@@ -72,7 +72,7 @@ def measure(size: int, steps: int, batch: int, density=None, level=None,
         def emit(tr):
             buf.push(0, tr.step, tr.record, static.key, tr.action,
                      tr.step_rewards, tr.terminal,
-                     tr.robot_collisions)
+                     tr.robot_penalties)
 
         t0 = time.perf_counter()
         res = run_episode(model, cfg,
