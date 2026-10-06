@@ -430,7 +430,7 @@ ROBOT_MODES = ("off", "guide", "direct") if USE_DIRECT else ("off", "guide")
 # through a passage 1.5-2.5 m wide. The speed makes the action one number
 # longer, so the networks and the action schema change: checkpoints trained
 # under one are refused under the other. Set it here, not as a run override.
-ROBOT_ACTION_MODE = "velocity"       # "velocity" | "waypoint"
+ROBOT_ACTION_MODE = "waypoint"       # "velocity" | "waypoint"
 ROBOT_WAYPOINT_RANGE_M = 20.0
 
 # When the team takes its next decision, one pair per ROBOT_ACTION_MODE;
