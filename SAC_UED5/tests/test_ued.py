@@ -4451,7 +4451,13 @@ class RobotSignalTest(unittest.TestCase):
 
 
 class RobotWallMotionTest(unittest.TestCase):
-    """A robot command must not become a wall-induced reverse impulse."""
+    """A robot command must not become a wall-induced reverse impulse.
+
+    These test the mover, `_move_robot_with_walls`, which both action modes
+    drive: velocity mode with the commanded velocity, waypoint mode with the
+    velocity its planner chose. So they drive it directly, whatever
+    ROBOT_ACTION_MODE is, the way RobotAgent.move does under velocity mode.
+    """
 
     def _robot_at_wall(self):
         from ued.level import Level
@@ -4466,15 +4472,30 @@ class RobotWallMotionTest(unittest.TestCase):
         robot.robot_initialized = 1
         return env, robot
 
+    @staticmethod
+    def _drive(robot, command):
+        """One step of the mover under a velocity command, as RobotAgent.move
+        applies it in velocity mode (a unit-capped direction at full speed)."""
+        import math
+        import config
+        ax, ay = float(command[0]), float(command[1])
+        n = math.hypot(ax, ay)
+        if n > 1.0:
+            ax, ay = ax / n, ay / n
+        dt = float(config.ROBOT_TIME_STEP)
+        x0, y0 = robot.xy
+        robot.xy = robot._move_robot_with_walls(
+            config.ROBOT_SPEED_MAX * ax, config.ROBOT_SPEED_MAX * ay, dt)
+        robot.vel = [(robot.xy[0] - x0) / dt, (robot.xy[1] - y0) / dt]
+
     def test_wall_approach_stops_without_bouncing_back(self):
         import math
 
         env, robot = self._robot_at_wall()
-        robot.receive_action([1.0, 0.0])
         xs = [robot.xy[0]]
         for _ in range(20):
             before = tuple(robot.xy)
-            robot.robot_policy_Q()
+            self._drive(robot, (1.0, 0.0))
             xs.append(robot.xy[0])
             self.assertLessEqual(math.dist(before, robot.xy), 1.0 + 1e-9)
             self.assertTrue(env.is_free_point(
@@ -4487,9 +4508,8 @@ class RobotWallMotionTest(unittest.TestCase):
     def test_diagonal_wall_command_slides_along_wall(self):
         env, robot = self._robot_at_wall()
         robot.xy = [4.4, 10.0]
-        robot.receive_action([1.0, 1.0])
         for _ in range(5):
-            robot.robot_policy_Q()
+            self._drive(robot, (1.0, 1.0))
             self.assertTrue(env.is_free_point(
                 *robot.xy, padding=robot.body_radius))
         self.assertLessEqual(robot.xy[0], 4.5)
@@ -4499,8 +4519,7 @@ class RobotWallMotionTest(unittest.TestCase):
     def test_exact_wall_contact_can_retreat(self):
         env, robot = self._robot_at_wall()
         robot.xy = [4.5, 10.0]
-        robot.receive_action([-1.0, 0.0])
-        robot.robot_policy_Q()
+        self._drive(robot, (-1.0, 0.0))
         self.assertLess(robot.xy[0], 4.0)
         self.assertTrue(env.is_free_point(
             *robot.xy, padding=robot.body_radius))
@@ -4508,16 +4527,14 @@ class RobotWallMotionTest(unittest.TestCase):
     def test_idle_at_exact_contact_is_not_a_collision(self):
         _, robot = self._robot_at_wall()
         robot.xy = [4.5, 10.0]
-        robot.receive_action([0.0, 0.0])
-        robot.robot_policy_Q()
+        self._drive(robot, (0.0, 0.0))
         self.assertEqual(robot.xy, [4.5, 10.0])
         self.assertEqual(robot.collision_check, 0)
 
     def test_map_edge_stops_without_rebound(self):
         _, robot = self._robot_at_wall()
         robot.xy = [0.7, 10.0]
-        robot.receive_action([-1.0, 0.0])
-        robot.robot_policy_Q()
+        self._drive(robot, (-1.0, 0.0))
         self.assertGreaterEqual(robot.xy[0], robot.body_radius)
         self.assertLess(robot.xy[0], 0.7)
         self.assertEqual(robot.collision_check, 1)
@@ -4525,10 +4542,31 @@ class RobotWallMotionTest(unittest.TestCase):
     def test_open_command_is_speed_limited(self):
         _, robot = self._robot_at_wall()
         robot.xy = [2.0, 10.0]
-        robot.receive_action([-10.0, 0.0])
-        robot.robot_policy_Q()
+        self._drive(robot, (-10.0, 0.0))
         self.assertAlmostEqual(robot.xy[0], 1.0, places=6)
         self.assertEqual(robot.collision_check, 0)
+
+    def test_waypoint_behind_a_wall_is_reached_round_it(self):
+        """Waypoint mode: a target on the far side of the wall is reached
+        by going round its end, without touching it."""
+        import config
+        if config.ROBOT_ACTION_MODE != "waypoint":
+            self.skipTest("ROBOT_ACTION_MODE is not waypoint")
+        env, robot = self._robot_at_wall()
+        robot.xy = [3.0, 10.0]
+        # 6 m due +x lands behind the wall (x 5-7).
+        robot.receive_action([2.0 * 6.0 / config.ROBOT_WAYPOINT_RANGE_M, 0.0],
+                             speed_fraction=1.0)
+        hits = 0
+        for _ in range(80):
+            robot.move()
+            hits += int(bool(robot.collision_check))
+            (gx, gy), _ = robot._waypoint
+            if abs(robot.xy[0] - gx) + abs(robot.xy[1] - gy) < 0.5:
+                break
+        self.assertLess(abs(robot.xy[0] - gx) + abs(robot.xy[1] - gy), 0.5)
+        self.assertGreater(robot.xy[0], 7.0)
+        self.assertEqual(hits, 0)
 
 
 class RenderBodySizeTest(unittest.TestCase):

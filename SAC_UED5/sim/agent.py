@@ -2703,12 +2703,16 @@ class RobotAgent(CrowdAgent):
         if d_goal < self.WAYPOINT_ARRIVAL_M:
             return 0.0, 0.0
         aim = (gx, gy)
-        if not m.is_free_segment(x, y, gx, gy, padding=r):
+        # Planned with a safety margin round the body; the mover still only
+        # needs the body itself to fit, so a passage too narrow for the margin
+        # is crossed at its widest point rather than refused.
+        rp = r + float(ROBOT_NAV_CLEARANCE_M)
+        if not m.is_free_segment(x, y, gx, gy, padding=rp):
             now = m.find_mesh(self.xy)
             if now is not None and goal_tri is not None and now != goal_tri:
                 nxt = m.next_mesh_from_to(now, goal_tri)
                 if nxt is not None:
-                    aim = m.portal_point(now, nxt, (x, y), (gx, gy), r)
+                    aim = m.portal_point(now, nxt, (x, y), (gx, gy), rp)
                     # Standing on the portal the containment test can still
                     # name the triangle being left, and the portal would then
                     # be a target at the robot's feet. Aim into the next one.
@@ -2752,14 +2756,15 @@ class RobotAgent(CrowdAgent):
         cur = (float(self.xy[0]), float(self.xy[1]))
         pts = [cur]
         tri = m.find_mesh(cur)
+        rp = r + float(ROBOT_NAV_CLEARANCE_M)
         for _ in range(max_points):
             if (tri is None or goal_tri is None or tri == goal_tri
-                    or m.is_free_segment(cur[0], cur[1], gx, gy, padding=r)):
+                    or m.is_free_segment(cur[0], cur[1], gx, gy, padding=rp)):
                 break
             nxt = m.next_mesh_from_to(tri, goal_tri)
             if nxt is None:
                 break
-            cur = tuple(m.portal_point(tri, nxt, cur, (gx, gy), r))
+            cur = tuple(m.portal_point(tri, nxt, cur, (gx, gy), rp))
             pts.append(cur)
             tri = nxt
         pts.append((float(gx), float(gy)))

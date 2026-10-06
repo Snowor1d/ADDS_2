@@ -432,6 +432,13 @@ ROBOT_MODES = ("off", "guide", "direct") if USE_DIRECT else ("off", "guide")
 # under one are refused under the other. Set it here, not as a run override.
 ROBOT_ACTION_MODE = "waypoint"       # "velocity" | "waypoint"
 ROBOT_WAYPOINT_RANGE_M = 20.0
+# Waypoint steering keeps this much room between the robot's body and walls
+# when it picks a line or a crossing point, as a navigation stack's obstacle
+# inflation does. Without it routes grazed building corners: 12-25% of the
+# time within 0.5 m of a wall (2026-10-06). Only the choice of aim uses it;
+# the mover needs just the body to fit, so a narrower passage is still
+# crossed, at its widest point.
+ROBOT_NAV_CLEARANCE_M = 0.5
 
 # When the team takes its next decision, one pair per ROBOT_ACTION_MODE;
 # `cfg.decision_max_steps()` and `cfg.decision_on_events()` pick the pair in

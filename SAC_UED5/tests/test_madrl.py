@@ -388,13 +388,20 @@ class TeamIntentTest(unittest.TestCase):
         a, b = m.robots[0], m.robots[1]
         a.action[0], a.action[1] = 0.0, 0.0
         b.action[0], b.action[1] = 1.0, 0.0      # due +x
-        rec = record_decision(m, cfg, 0, CommChannel(cfg, 2, seed=0))
         import config
-        from configs import decision_max_steps
-        reach = (config.ROBOT_SPEED_MAX * config.ROBOT_TIME_STEP
-                 * decision_max_steps(config))
-        self.assertAlmostEqual(float(rec.intent[1, 0]),
-                               float(b.xy[0]) + reach, places=4)
+        if config.ROBOT_ACTION_MODE == "waypoint":
+            # Heading for its waypoint: where the action put it.
+            b._waypoint = m.nearest_main_ground(
+                float(b.xy[0]) + 0.5 * config.ROBOT_WAYPOINT_RANGE_M,
+                float(b.xy[1]), b.body_radius)
+            want_x = float(b._waypoint[0][0])
+        else:
+            from configs import decision_max_steps
+            reach = (config.ROBOT_SPEED_MAX * config.ROBOT_TIME_STEP
+                     * decision_max_steps(config))
+            want_x = float(b.xy[0]) + reach
+        rec = record_decision(m, cfg, 0, CommChannel(cfg, 2, seed=0))
+        self.assertAlmostEqual(float(rec.intent[1, 0]), want_x, places=4)
         self.assertAlmostEqual(float(rec.intent[0, 0]), float(a.xy[0]),
                                places=4)
         st = build_static_layers(m, cfg)
@@ -434,7 +441,10 @@ class TeamIntentTest(unittest.TestCase):
 class RewardTimeTest(unittest.TestCase):
     def test_first_and_cut_short_decisions_are_recorded(self):
         from learn.rollout import run_episode
-        cfg = _cfg(**_dmax(2.0))
+        # Fixed-length decisions: under waypoint mode a robot standing on
+        # its own waypoint "arrives" every step, which is an event, not the
+        # timing this test is about.
+        cfg = _cfg(**_dmax(2.0), **_devents(False))
         m = _model(_level(robots=1))
         got = []
         from sim.robot_action import encode
@@ -450,7 +460,7 @@ class RewardTimeTest(unittest.TestCase):
 
     def test_task_termination_marks_the_last_transition_terminal(self):
         from learn.rollout import run_episode
-        cfg = _cfg(**_dmax(2.0))
+        cfg = _cfg(**_dmax(2.0), **_devents(False))
         m = _model(_level(robots=1))
         # The robots also ask should_finish, so decide by the step count.
         m.should_finish = lambda: m.step_count >= 6
@@ -742,7 +752,9 @@ class DirectModeSwitchTest(unittest.TestCase):
         cfg = _cfg()
         self.assertFalse(cfg.USE_DIRECT)
         self.assertEqual(tuple(cfg.ROBOT_MODES), ("off", "guide"))
-        self.assertEqual((ra.CONT_DIM, ra.ACTION_DIM), (2, 4))
+        # Move (2), plus a speed share under waypoint mode, then the modes.
+        want = (3, 5) if cfg.ROBOT_ACTION_MODE == "waypoint" else (2, 4)
+        self.assertEqual((ra.CONT_DIM, ra.ACTION_DIM), want)
         self.assertIsNone(ra.SIGNAL)
         self.assertNotIn("signal_x", own_state_layout(cfg))
         self.assertNotIn("mode_direct", teammate_state_layout(cfg))
@@ -815,7 +827,7 @@ class DecisionTimingTest(unittest.TestCase):
         return [t.hold for t in got if t.action is not None]
 
     def test_the_longest_decision_is_the_configured_time(self):
-        cfg = _cfg(**_dmax(4.0))
+        cfg = _cfg(**_dmax(4.0), **_devents(False))
         self.assertEqual(cfg.decision_max_steps(), 8)
         m = _model(_level(robots=1))
         self.assertEqual(self._holds(m, cfg, (0.0, 0.0), 20), [8, 8, 4])
@@ -865,7 +877,12 @@ class DecisionTimingTest(unittest.TestCase):
         cfg = _cfg(**_dmax(4.0), **_devents(True))
         holds = self._holds(m, cfg, (0.0, 1.0), 8)
         self.assertLess(holds[0], 8)
-        self.assertEqual(rb.decision_event, "blocked")
+        # Velocity: driving into the wall is "blocked". Waypoint: a target in
+        # the wall is moved to the nearest ground, reached, and "arrived".
+        import config
+        self.assertEqual(rb.decision_event,
+                         "arrived" if config.ROBOT_ACTION_MODE == "waypoint"
+                         else "blocked")
 
     def test_a_replay_saved_with_shorter_decisions_still_loads(self):
         from learn.replay import ReplayBuffer, StaticStore
@@ -1032,12 +1049,41 @@ class WaypointActionTest(unittest.TestCase):
                         or tri in m.main_walkable_component())
         self.assertFalse(28.0 < y < 32.0 and x < 40.0)
 
+    def test_the_signal_holds_for_the_whole_decision(self):
+        """Whatever mode a decision sets is the mode every step of it runs
+        with, however long the decision lasts (waypoint decisions end on
+        arrival, a block or the time limit)."""
+        from learn.rollout import run_episode
+        from sim import robot_action as ra
+        cfg = _cfg()
+        m = _model(_level(robots=2, seed=4))
+        rng = np.random.default_rng(0)
+        said = []
+
+        def act(o, r):
+            modes = ["guide" if rng.random() < 0.5 else "off"
+                     for _ in m.robots]
+            said.append(modes)
+            return np.stack([ra.encode((1.5, -0.5), md) for md in modes])
+        seen = []
+        run_episode(m, cfg, act, gamma=0.99, max_steps=120, needs_obs=False,
+                    on_step=lambda model, k: seen.append(
+                        (len(said) - 1, [rb.mode for rb in model.robots])))
+        self.assertGreater(len(said), 1)
+        for d, modes in seen:
+            self.assertEqual(modes, said[d][:len(modes)])
+
     def test_the_action_schema_follows_the_mode(self):
         from configs import ConfigError
+        import config
+        other = ("velocity" if config.ROBOT_ACTION_MODE == "waypoint"
+                 else "waypoint")
+        other_schema = ("act-v2-move2-mode2-waypoint-speed"
+                        if other == "waypoint" else "act-v2-move2-mode2")
         with self.assertRaises(ConfigError):
-            _cfg(ACTION_SCHEMA_VERSION="act-v2-move2-mode2-waypoint-speed")
+            _cfg(ACTION_SCHEMA_VERSION=other_schema)
         with self.assertRaises(ConfigError):
-            _cfg(ROBOT_ACTION_MODE="waypoint")   # the simulator disagrees
+            _cfg(ROBOT_ACTION_MODE=other)        # the simulator disagrees
 
 
 class RobotStuckTest(unittest.TestCase):

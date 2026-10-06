@@ -127,7 +127,7 @@ N_ENVS = 12
 # 0.18 s on the GPU, while 12 workers on the generated 0.6/0.3/0.1 size mix produce
 # roughly 11 decision instants a second. 1.0 made the learner the bottleneck
 # and stalled the workers on a full queue.
-UPDATES_PER_TRANSITION = 0.25
+UPDATES_PER_TRANSITION = 1.0
 POLICY_BROADCAST_INTERVAL = 10
 FiLM_USE = True
 EGO_USE = True
@@ -281,7 +281,7 @@ FINAL_ZERO_SHOT_DENSITY_BAND = (0.035, 0.055)
 # --------------- LOGGING ---------------
 # One structured event per episode and per logging interval of updates, from
 # the main process only. JSONL is the source of record; the TXT files are kept
-# for older analysis scripts; TensorBoard and W&B receive the same values on the
+# for older analysis scripts; TensorBoard nd W&B receive the same values on the
 # same axes (global_episode for episode metrics, global_update for learner
 # metrics).
 EXPERIMENT_ID = "outdoor-madrl-v2"
@@ -312,7 +312,7 @@ WANDB_GROUP = None                  # None = EXPERIMENT_ID
 # "outdoor-madrl-v2-dataset-100m-0924-1530". A run started from a checkpoint
 # as a new run (see the resume rule in learn/metrics_logger.py) gets
 # "-resume<episode>" appended either way; a run that carries on keeps its name.
-WANDB_RUN_NAME = "261006(NewEnv)-waypoint"
+WANDB_RUN_NAME = "261006(NewEnv)-waypoint-UPT1.0"
 # Only models chosen on validation are uploaded, never the replay buffer or
 # every periodic checkpoint.
 WANDB_UPLOAD_CHECKPOINTS = "selected"   # "none" | "selected"
