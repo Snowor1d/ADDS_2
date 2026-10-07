@@ -187,7 +187,7 @@ CRITIC_PRIVILEGED_CROWD = True
 # rew-v3: the same terms, but each robot is charged only its own collisions
 # (team task reward + own collision); see learn/sac.py. rew-v2 charges the
 # team sum to every robot alike.
-REWARD_VERSION = "rew-v4-robot-costs"
+REWARD_VERSION = "rew-v5-projection"
 REWARD_W_PERSON_TIME = 5.0
 REWARD_W_REMAINING_PATH = 1.0
 REWARD_W_REENTRY = 2.0
@@ -202,6 +202,15 @@ REWARD_W_COLLISION = 0.05
 # Calibrated against the shuttle baseline (docs/outdoor_madrl_redesign.md).
 REWARD_W_GUIDE_USE = 0
 REWARD_W_BYSTANDER = 0
+# rew-v5 only, waypoint mode. Per decision, the distance the requested target
+# was moved to reach walkable, reachable ground, over ROBOT_WAYPOINT_RANGE_M:
+# at most this much. 79% of random 20 m targets on dotonbori were moved
+# (median 9.8 m), and every target in one building moves to the same point, a
+# flat stretch the actor gets no gradient from. This gives it one, so it
+# learns to ask for ground it can reach; the projection still keeps every
+# target reachable. Kept small: short targets are moved less often, and a
+# large weight would bias the robot towards timid steps. A design value.
+REWARD_W_PROJECTION = 0.2
 REWARD_MIN_REFERENCE_POPULATION = 5
 REWARD_MIN_REFERENCE_DISTANCE_M = 5.0
 

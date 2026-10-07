@@ -566,8 +566,10 @@ def validate_config(cfg: ResolvedConfig, check_data: bool = True) -> None:
            f"ALPHA_MIN={cfg.ALPHA_MIN} must be in (0, ALPHA_START]", p)
     _check(float(cfg.REWARD_W_GUIDE_USE) >= 0.0 and float(cfg.REWARD_W_BYSTANDER) >= 0.0,
            "REWARD_W_GUIDE_USE and REWARD_W_BYSTANDER must be non-negative", p)
+    _check(float(cfg.REWARD_W_PROJECTION) >= 0.0,
+           "REWARD_W_PROJECTION must be non-negative", p)
     _check(cfg.REWARD_VERSION in ("rew-v2-person-time", "rew-v3-own-collision",
-                                  "rew-v4-robot-costs"),
+                                  "rew-v4-robot-costs", "rew-v5-projection"),
            f"REWARD_VERSION={cfg.REWARD_VERSION!r} is not implemented", p)
     _check(float(cfg.ALPHA_START) > 0.0,
            f"ALPHA_START={cfg.ALPHA_START} must be positive", p)

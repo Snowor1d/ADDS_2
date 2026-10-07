@@ -556,7 +556,9 @@ MAX_ROBOTS = 3
 # "near" falls back to "outside" when the ring has no room, and "outside" to
 # "anywhere".
 ROBOT_START = "near"             # "near" | "outside" | "anywhere"
-ROBOT_START_RING_M = (20.0, 40.0)
+# 5-15 m since 2026-10-07: from 20-40 m the team spent the first minute
+# arriving while most of the crowd had already left on its own.
+ROBOT_START_RING_M = (5.0, 15.0)
 
 # --------------- crowd evacuation parameter -----------------
 K1 = 1                           # distance weight

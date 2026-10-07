@@ -39,9 +39,9 @@ DATASET_DANGER_SHAPES = ("circle",)
 DATASET_DANGER_INSIDE_FRACTION = (0.5, 1.0)
 # How detectable the hazard is (near 1 a fire, near 0 a gas leak); see
 # docs/behavior_model_design.md (M1, appendix B.1).
-DATASET_DANGER_PERCEPTIBILITY = (0.5, 0.5)
+DATASET_DANGER_PERCEPTIBILITY = (0.05, 0.3)
 # Share of the crowd already cued when the episode starts.
-DATASET_PRIOR_INFORMED_FRACTION = (0.0, 0.3)
+DATASET_PRIOR_INFORMED_FRACTION = (0.0, 0.0)
 # Robots per episode, inclusive, capped by MAX_ROBOTS.
 DATASET_ROBOT_RANGE = (3, 3)
 # Geometric augmentation: whether each episode's crop is rotated or reflected.

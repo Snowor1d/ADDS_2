@@ -26,12 +26,13 @@ import math
 from typing import Dict
 
 COMPONENTS = ("person_time", "remaining_path", "reentry", "collision",
-              "guide_use", "bystander")
+              "guide_use", "bystander", "projection")
 # The terms charged to one robot rather than the team, and the versions that
 # do so. Under these, a robot's learning reward is the team's task terms plus
 # its own share of these (learn/sac.py); the logged team total is unchanged.
-ROBOT_TERMS = ("collision", "guide_use", "bystander")
-PER_ROBOT_VERSIONS = ("rew-v3-own-collision", "rew-v4-robot-costs")
+ROBOT_TERMS = ("collision", "guide_use", "bystander", "projection")
+PER_ROBOT_VERSIONS = ("rew-v3-own-collision", "rew-v4-robot-costs",
+                      "rew-v5-projection")
 
 
 def reference_scales(model, cfg):
@@ -66,7 +67,8 @@ class TaskReward:
     def __init__(self, model, cfg):
         if cfg.REWARD_VERSION not in ("rew-v2-person-time",
                                       "rew-v3-own-collision",
-                                      "rew-v4-robot-costs"):
+                                      "rew-v4-robot-costs",
+                                      "rew-v5-projection"):
             raise ValueError(f"unsupported REWARD_VERSION {cfg.REWARD_VERSION}")
         self.cfg = cfg
         self.n_ref, self.d_ref = reference_scales(model, cfg)
@@ -79,9 +81,16 @@ class TaskReward:
         }
         # rew-v4 only: guiding costs a little per robot-step, and so does
         # each person drawn into following who was not at risk.
-        v4 = cfg.REWARD_VERSION == "rew-v4-robot-costs"
+        v4 = cfg.REWARD_VERSION in ("rew-v4-robot-costs", "rew-v5-projection")
+        v5 = cfg.REWARD_VERSION == "rew-v5-projection"
         self.weights["guide_use"] = float(cfg.REWARD_W_GUIDE_USE) if v4 else 0.0
         self.weights["bystander"] = float(cfg.REWARD_W_BYSTANDER) if v4 else 0.0
+        # rew-v5: a waypoint asked for in a building or off the network is
+        # moved; the distance moved, over ROBOT_WAYPOINT_RANGE_M, once per
+        # decision.
+        self.weights["projection"] = (float(cfg.REWARD_W_PROJECTION) if v5
+                                      else 0.0)
+        self.waypoint_range = float(cfg.ROBOT_WAYPOINT_RANGE_M)
         self._clear = self._clear_ids(model)
         self.last_raw: Dict[str, float] = {}
         self.last_robot_penalties = []
@@ -132,11 +141,19 @@ class TaskReward:
         drawn = [sum(1 for rid in events if rid == rb.unique_id)
                  for rb in robots]
         model.bystander_events = []
+        moved = []
+        for rb in robots:
+            d = getattr(rb, "projection_pending", None)
+            rb.projection_pending = None
+            # Capped at 1: a target clamped to the crop and then moved to a
+            # far triangle can be moved further than the range itself.
+            moved.append(0.0 if d is None
+                         else min(1.0, float(d) / self.waypoint_range))
         w = self.weights
         self.last_robot_penalties = [
             -w["collision"] * h - w["guide_use"] * g / self.n_ref
-            - w["bystander"] * b / self.n_ref
-            for h, g, b in zip(hit, guiding, drawn)]
+            - w["bystander"] * b / self.n_ref - w["projection"] * p
+            for h, g, b, p in zip(hit, guiding, drawn, moved)]
         collisions = sum(hit)
         raw = {
             "person_time": -n_inside * self.dt / self.n_ref,
@@ -145,6 +162,7 @@ class TaskReward:
             "collision": -float(collisions),
             "guide_use": -float(sum(guiding)) / self.n_ref,
             "bystander": -float(sum(drawn)) / self.n_ref,
+            "projection": -float(sum(moved)),
         }
         self.last_raw = {"inside": n_inside, "entries": entries,
                          "collisions": collisions, "path_fraction_sum": path,

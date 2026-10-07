@@ -1049,6 +1049,33 @@ class WaypointActionTest(unittest.TestCase):
                         or tri in m.main_walkable_component())
         self.assertFalse(28.0 < y < 32.0 and x < 40.0)
 
+    def test_a_target_in_a_building_is_charged_once_to_its_robot(self):
+        """rew-v5: the distance a requested waypoint was moved to reachable
+        ground, over ROBOT_WAYPOINT_RANGE_M, once per decision, to that robot
+        alone; a target on open ground costs nothing."""
+        import math
+        import config
+        from sim.rewards import TaskReward
+        if config.ROBOT_ACTION_MODE != "waypoint":
+            self.skipTest("ROBOT_ACTION_MODE is not waypoint")
+        cfg = _cfg(REWARD_VERSION="rew-v5-projection", REWARD_W_PROJECTION=0.2)
+        m = _model(_level(robots=2, seed=4))
+        task = TaskReward(m, cfg)
+        a, b = m.robots[0], m.robots[1]
+        a.receive_action([0.0, 0.0])            # its own spot: reachable
+        b.receive_action([2.0, 2.0])            # 20 m diagonally: may be moved
+        total_a = total_b = total_comp = 0.0
+        for _ in range(6):                      # the robots move from step 2
+            m.step()
+            comps = task.step(m)
+            total_a += task.last_robot_penalties[0]
+            total_b += task.last_robot_penalties[1]
+            total_comp += comps["projection"]
+        self.assertAlmostEqual(total_a, 0.0, places=6)
+        self.assertLessEqual(total_b, 0.0)
+        self.assertGreaterEqual(total_b, -0.2 - 1e-9)   # one charge, capped
+        self.assertAlmostEqual(total_comp, total_b, places=6)
+
     def test_the_signal_holds_for_the_whole_decision(self):
         """Whatever mode a decision sets is the mode every step of it runs
         with, however long the decision lasts (waypoint decisions end on

@@ -2696,8 +2696,15 @@ class RobotAgent(CrowdAgent):
             ax = max(-2.0, min(2.0, float(self.action[0]))) / 2.0
             ay = max(-2.0, min(2.0, float(self.action[1]))) / 2.0
             rng = float(ROBOT_WAYPOINT_RANGE_M)
-            self._waypoint = m.nearest_main_ground(x + ax * rng, y + ay * rng,
-                                                   r)
+            want = (x + ax * rng, y + ay * rng)
+            self._waypoint = m.nearest_main_ground(want[0], want[1], r)
+            # How far the requested target had to be moved to walkable,
+            # reachable ground; charged once per decision under rew-v5
+            # (sim/rewards.py), so the policy learns to ask for ground it can
+            # reach instead of leaning on the projection.
+            got = self._waypoint[0]
+            self.projection_pending = math.hypot(got[0] - want[0],
+                                                 got[1] - want[1])
         (gx, gy), goal_tri = self._waypoint
         d_goal = math.hypot(gx - x, gy - y)
         if d_goal < self.WAYPOINT_ARRIVAL_M:
