@@ -64,7 +64,7 @@ DECAY_MODE = 'episode'
 # clobbering each other's logs, checkpoints or tensorboard port.
 # It was "Log_SAC_UED3", the same folder a SAC_UED3 run on this machine
 # writes to, so a SAC_UED4 run would have resumed from and overwritten it.
-LOG_DIR = "Log_SAC_UED6_madrl"
+LOG_DIR = "Log_SAC_UED5_madrl"
 PORT_NUM = 9000
 
 # --------------- NETWORK ---------------
@@ -313,7 +313,7 @@ VIDEO_DPI = 100
 # later `wandb sync`, "disabled" turns it off. A W&B failure never stops
 # training: local logs continue and the failure is reported once, loudly.
 WANDB_MODE = "online"               # "online" | "offline" | "disabled"
-WANDB_PROJECT = "adds-sac-ued6"
+WANDB_PROJECT = "adds-sac-ued5"
 WANDB_ENTITY = None                 # None = the account's default entity
 WANDB_GROUP = None                  # None = EXPERIMENT_ID
 # The run's name in the W&B run list. None builds one from the experiment,

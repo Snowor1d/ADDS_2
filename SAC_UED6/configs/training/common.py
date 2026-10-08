@@ -64,8 +64,8 @@ DECAY_MODE = 'episode'
 # clobbering each other's logs, checkpoints or tensorboard port.
 # It was "Log_SAC_UED3", the same folder a SAC_UED3 run on this machine
 # writes to, so a SAC_UED4 run would have resumed from and overwritten it.
-LOG_DIR = "Log_SAC_UED5_madrl"
-PORT_NUM = 9000
+LOG_DIR = "Log_SAC_UED6_madrl"
+PORT_NUM = 9001
 
 # --------------- NETWORK ---------------
 # Encoder family and size for the actor and the critic (learn/networks.py).
@@ -325,7 +325,7 @@ VIDEO_DPI = 100
 # later `wandb sync`, "disabled" turns it off. A W&B failure never stops
 # training: local logs continue and the failure is reported once, loudly.
 WANDB_MODE = "online"               # "online" | "offline" | "disabled"
-WANDB_PROJECT = "adds-sac-ued5"
+WANDB_PROJECT = "adds-sac-ued6"
 WANDB_ENTITY = None                 # None = the account's default entity
 WANDB_GROUP = None                  # None = EXPERIMENT_ID
 # The run's name in the W&B run list. None builds one from the experiment,
@@ -333,7 +333,7 @@ WANDB_GROUP = None                  # None = EXPERIMENT_ID
 # "outdoor-madrl-v2-dataset-100m-0924-1530". A run started from a checkpoint
 # as a new run (see the resume rule in learn/metrics_logger.py) gets
 # "-resume<episode>" appended either way; a run that carries on keeps its name.
-WANDB_RUN_NAME = "261007(NewEnv)-waypoint-UPT1.0"
+WANDB_RUN_NAME = "261008-waypoint-UPT1.0"
 # Only models chosen on validation are uploaded, never the replay buffer or
 # every periodic checkpoint.
 WANDB_UPLOAD_CHECKPOINTS = "selected"   # "none" | "selected"
