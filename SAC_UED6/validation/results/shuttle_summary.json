@@ -1,0 +1,46 @@
+{
+ "pairs": 60,
+ "total_reward": {
+  "mean": 74.22558320586397,
+  "ci95": 25.217710431616524,
+  "n": 60,
+  "better": 50
+ },
+ "components.person_time": {
+  "mean": 67.37376844887442,
+  "ci95": 22.13129383191471,
+  "n": 60,
+  "better": 51
+ },
+ "components.remaining_path": {
+  "mean": 9.987694960589517,
+  "ci95": 2.3732904563352633,
+  "n": 60,
+  "better": 52
+ },
+ "components.reentry": {
+  "mean": -0.1592135369343234,
+  "ci95": 0.2684299328700953,
+  "n": 60,
+  "better": 31
+ },
+ "components.collision": {
+  "mean": -2.9766666666666737,
+  "ci95": 2.8258618534199367,
+  "n": 60,
+  "better": 0
+ },
+ "hazard_person_steps_reduction": {
+  "mean": 2193.9666666666667,
+  "ci95": 973.0487490371083,
+  "n": 60,
+  "better": 51
+ },
+ "relative_person_time_change": {
+  "mean": 0.10200191763465564,
+  "ci95": 0.0408623542673784,
+  "n": 60,
+  "better": 51
+ },
+ "off_total_reward_sd_across_pairs": 245.1803006324428
+}

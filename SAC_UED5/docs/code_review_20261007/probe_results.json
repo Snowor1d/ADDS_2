@@ -1,0 +1,129 @@
+{
+  "configuration": {
+    "default": {
+      "TRAIN_MAP_SOURCE": "dataset",
+      "DATASET_SITES": [
+        "dotonbori",
+        "covent_garden",
+        "hongdae"
+      ],
+      "DATASET_SIZES_M": [
+        200
+      ],
+      "DATASET_DANGER_PERCEPTIBILITY": [
+        0.05,
+        0.3
+      ],
+      "DATASET_PRIOR_INFORMED_FRACTION": [
+        0.0,
+        0.0
+      ],
+      "ROBOT_ACTION_MODE": "waypoint",
+      "PERIODIC_VALIDATION": false,
+      "BUFFER_SIZE": 1000000,
+      "UPDATES_PER_TRANSITION": 1.0,
+      "REWARD_VERSION": "rew-v5-projection"
+    },
+    "override": {
+      "requested_source": "ued",
+      "actual_ued_enabled": false,
+      "requested_inform_seconds": 5.0,
+      "actual_inform_seconds": 10.0,
+      "requested_start_ring": [
+        1.0,
+        2.0
+      ],
+      "actual_start_ring": [
+        5.0,
+        15.0
+      ]
+    },
+    "changed_reward_not_distinguished_by_load_checks": {
+      "versions_equal": true,
+      "observation_schemas_equal": true,
+      "fingerprints_equal": false
+    }
+  },
+  "agent_ids": {
+    "people": 1001,
+    "robots": 3,
+    "all_agents": 1004,
+    "scheduled_agents": 1003,
+    "duplicate_ids": [
+      1000
+    ],
+    "person_1000_scheduled": false,
+    "person_1000_in_space": false
+  },
+  "squash": [
+    {
+      "mean": 5.0,
+      "current_logp_without_normal_constant": 3.8047168254852295,
+      "stable_logp_without_normal_constant": 3.8047080039978027,
+      "current_mean_gradient": 0.9890270233154297,
+      "stable_mean_gradient": 0.9890273809432983
+    },
+    {
+      "mean": 20.0,
+      "current_logp_without_normal_constant": 18.400680541992188,
+      "stable_logp_without_normal_constant": 18.793704986572266,
+      "current_mean_gradient": 0.0,
+      "stable_mean_gradient": 1.0
+    },
+    {
+      "mean": 40.0,
+      "current_logp_without_normal_constant": 18.400680541992188,
+      "stable_logp_without_normal_constant": 38.793704986572266,
+      "current_mean_gradient": 0.0,
+      "stable_mean_gradient": 1.0
+    }
+  ],
+  "geometry": {
+    "rotated_rectangle_disagreeing_cells": 640
+  },
+  "curriculum": {
+    "same_trace_score_before_other_easy_level": 0.0,
+    "same_trace_score_after_other_easy_level": 100.0,
+    "hybrid_raw_scores": [
+      0.12244897959183677,
+      10.0
+    ],
+    "hybrid_rank_weights": [
+      0.3333333333333333,
+      0.6666666666666666
+    ],
+    "trace_recreated_after_summary": true
+  },
+  "budget": {
+    "replay_bytes_per_record": 7013,
+    "configured_dynamic_replay_gib": 6.531365215778351,
+    "gamma_per_step": 0.9974905699336811,
+    "discount_half_life_seconds": 137.93512787305815,
+    "discount_weight_at_300_seconds": 0.22145178723886405,
+    "observation_shapes": {
+      "ego": [
+        11,
+        25,
+        25
+      ],
+      "mid": [
+        6,
+        64,
+        64
+      ],
+      "glob": [
+        4,
+        64,
+        64
+      ],
+      "state": [
+        18
+      ],
+      "priv": [
+        1,
+        64,
+        64
+      ]
+    }
+  }
+}

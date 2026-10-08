@@ -64,7 +64,7 @@ DECAY_MODE = 'episode'
 # clobbering each other's logs, checkpoints or tensorboard port.
 # It was "Log_SAC_UED3", the same folder a SAC_UED3 run on this machine
 # writes to, so a SAC_UED4 run would have resumed from and overwritten it.
-LOG_DIR = "Log_SAC_UED6_madrl"
+LOG_DIR = "Log_SAC_UED5_madrl"
 PORT_NUM = 9000
 
 # --------------- NETWORK ---------------
@@ -213,6 +213,18 @@ REWARD_W_BYSTANDER = 0
 REWARD_W_PROJECTION = 0.2
 REWARD_MIN_REFERENCE_POPULATION = 5
 REWARD_MIN_REFERENCE_DISTANCE_M = 5.0
+# What the terms are divided by.
+#   "episode"  N_ref and D_ref of this episode, as above: every episode weighs
+#              the same however many people its hazard held, so one person's
+#              second counts more in a small incident than in a large one.
+#   "fixed"    the constants below for every episode: the objective is then
+#              plain person-seconds (and metres) inside the hazard, scaled.
+# The defaults keep the reward near its "episode" size on the current
+# training crops (200 m, hazard 0.2-0.4 of the crop: about 150-250 people
+# inside, tens of metres to walk out).
+REWARD_REFERENCE = "episode"       # "episode" | "fixed"
+REWARD_FIXED_N_REF = 200.0
+REWARD_FIXED_D_REF = 50.0
 
 # --------------- REPLAY STORAGE ---------------
 # Static layers (buildings, hazard, path fields) are stored once per map
@@ -313,7 +325,7 @@ VIDEO_DPI = 100
 # later `wandb sync`, "disabled" turns it off. A W&B failure never stops
 # training: local logs continue and the failure is reported once, loudly.
 WANDB_MODE = "online"               # "online" | "offline" | "disabled"
-WANDB_PROJECT = "adds-sac-ued6"
+WANDB_PROJECT = "adds-sac-ued5"
 WANDB_ENTITY = None                 # None = the account's default entity
 WANDB_GROUP = None                  # None = EXPERIMENT_ID
 # The run's name in the W&B run list. None builds one from the experiment,
@@ -321,7 +333,7 @@ WANDB_GROUP = None                  # None = EXPERIMENT_ID
 # "outdoor-madrl-v2-dataset-100m-0924-1530". A run started from a checkpoint
 # as a new run (see the resume rule in learn/metrics_logger.py) gets
 # "-resume<episode>" appended either way; a run that carries on keeps its name.
-WANDB_RUN_NAME = "261008-waypoint-UPT1.0"
+WANDB_RUN_NAME = "261007(NewEnv)-waypoint-UPT1.0"
 # Only models chosen on validation are uploaded, never the replay buffer or
 # every periodic checkpoint.
 WANDB_UPLOAD_CHECKPOINTS = "selected"   # "none" | "selected"
