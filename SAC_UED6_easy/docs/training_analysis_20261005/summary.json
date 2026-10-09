@@ -1,0 +1,70 @@
+{
+  "cutoff_episode": 2891,
+  "episode_count": 2891,
+  "random_1_500": {
+    "n": 500,
+    "total_reward": -613.1390065280484,
+    "reward/person_time": -523.0981988736422,
+    "reward/remaining_path": -54.33978196178067,
+    "reward/reentry": -3.488125692625961,
+    "reward/collision": -32.21290000000009,
+    "held_clear_success": 0.35,
+    "first_empty_step": 651.62,
+    "robot_speed_mean": 1.5948875291198155,
+    "command_norm_mean": 1.5300545120702227
+  },
+  "recent_2501_2891": {
+    "n": 391,
+    "total_reward": -682.0140419795715,
+    "reward/person_time": -524.0273887810505,
+    "reward/remaining_path": -53.98668836864019,
+    "reward/reentry": -3.4887116329505483,
+    "reward/collision": -100.51125319693155,
+    "held_clear_success": 0.3375959079283887,
+    "first_empty_step": 673.0920716112532,
+    "robot_speed_mean": 0.7675602969756598,
+    "command_norm_mean": 2.027661565798082
+  },
+  "observational_adjustment": {
+    "total_reward": {
+      "recent_minus_random": -71.7754974221196,
+      "approx_HC3_95_interval": [
+        -99.3484701221886,
+        -44.2025247220506
+      ]
+    },
+    "reward/person_time": {
+      "recent_minus_random": -3.3282177121922953,
+      "approx_HC3_95_interval": [
+        -27.6014545878314,
+        20.945019163446812
+      ]
+    },
+    "reward/collision": {
+      "recent_minus_random": -68.40943191642384,
+      "approx_HC3_95_interval": [
+        -72.13768703110397,
+        -64.68117680174372
+      ]
+    }
+  },
+  "replay": {
+    "records": 728681,
+    "blocks": {
+      "first_125000": {
+        "actions": 124505,
+        "axis_abs_gt_1_9": 0.049909642183044854,
+        "command_norm_gt_1": 0.8032930404401429,
+        "displacement_lt_0_1_m": 0.05787719368700052,
+        "mean_displacement_m": 3.1832547187805176
+      },
+      "last_125500": {
+        "actions": 124999,
+        "axis_abs_gt_1_9": 0.23541788334306674,
+        "command_norm_gt_1": 0.8992471939775518,
+        "displacement_lt_0_1_m": 0.47793237163331653,
+        "mean_displacement_m": 1.6166918277740479
+      }
+    }
+  }
+}

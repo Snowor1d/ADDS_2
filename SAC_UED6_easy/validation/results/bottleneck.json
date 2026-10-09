@@ -1,0 +1,32 @@
+[
+  {
+    "door_width_m": 0.8,
+    "n": 80,
+    "crossed": 13,
+    "speed_scale": 1.0,
+    "steady_window_steps": 868,
+    "flow_ps": 0.027649769585253458,
+    "specific_flow_pms": 0.03456221198156682,
+    "t90_steps": 949
+  },
+  {
+    "door_width_m": 1.2,
+    "n": 80,
+    "crossed": 79,
+    "speed_scale": 1.0,
+    "steady_window_steps": 601,
+    "flow_ps": 0.21963394342762063,
+    "specific_flow_pms": 0.18302828618968386,
+    "t90_steps": 566
+  },
+  {
+    "door_width_m": 2.0,
+    "n": 80,
+    "crossed": 80,
+    "speed_scale": 1.0,
+    "steady_window_steps": 159,
+    "flow_ps": 0.8176100628930818,
+    "specific_flow_pms": 0.4088050314465409,
+    "t90_steps": 177
+  }
+]

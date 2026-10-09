@@ -1,0 +1,13 @@
+{
+  "center_lat": 37.5608977,
+  "center_lon": 126.9863762,
+  "size_m": 400,
+  "bounds": {
+    "west": 126.98411257013737,
+    "east": 126.98863982986262,
+    "south": 37.55909570594747,
+    "north": 37.562699694052526
+  },
+  "source": "SAC_UED5/osm_corpus/data/levels/real_levels.json",
+  "osm_url": "https://www.openstreetmap.org/#map=18/37.5608977/126.9863762"
+}
