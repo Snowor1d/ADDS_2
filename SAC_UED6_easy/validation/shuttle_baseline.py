@@ -32,15 +32,15 @@ import numpy as np
 # Walking pace while guiding, as a fraction of ROBOT_SPEED_MAX (2 m/s):
 # 0.6 is 1.2 m/s, a little under the crowd's 1.5 m/s mean, so followers keep up.
 GUIDE_SPEED_FRACTION = 0.6
-# Waiting at the exit point, in decisions (2 s each): 10 s.
-EXIT_WAIT_DECISIONS = 5
+# Measured in simulation seconds, independent of decision duration.
+EXIT_WAIT_SECONDS = 10.0
 # Entry points sit this far from the hazard centre, as a share of its radius.
 ENTRY_RADIUS_SHARE = 0.5
 # Ground counts as outside once its triangle centre is this far past the edge.
 EXIT_MARGIN_M = 3.0
 ARRIVE_M = 2.5
 # No progress over this many decisions: give up the leg and start the next.
-STALL_DECISIONS = 10
+STALL_SECONDS = 20.0
 
 
 def _centre(t) -> Tuple[float, float]:
@@ -51,7 +51,11 @@ def _centre(t) -> Tuple[float, float]:
 class ShuttlePolicy:
     """act(obs, record) for run_episode; one state machine per robot."""
 
-    def __init__(self, model, n_robots: int):
+    def __init__(self, model, n_robots: int, cfg=None):
+        if cfg is None:
+            from configs import resolve_config
+            cfg = resolve_config(check_data=False)
+        self.cfg = cfg
         from sim import robot_action as ra
         self.ra = ra
         self.m = model
@@ -59,8 +63,9 @@ class ShuttlePolicy:
         self.inside = [t for t in model.pure_mesh
                        if self.zone.signed_distance(*_centre(t)) < -1.0]
         self.entries = [self._entry_mesh(i, n_robots) for i in range(n_robots)]
-        self.state = [{"phase": "in", "target": None, "wait": 0,
-                       "best": math.inf, "stall": 0} for _ in range(n_robots)]
+        self.state = [{"phase": "in", "target": None, "wait_until": 0.0,
+                       "best": math.inf, "last_progress": None}
+                      for _ in range(n_robots)]
 
     # ------------------------------------------------------------- targets
 
@@ -132,12 +137,12 @@ class ShuttlePolicy:
         ra = self.ra
         s = self.state[i]
         x, y = float(rb.xy[0]), float(rb.xy[1])
+        now = float(self.m.step_count) * float(self.cfg.AGENT_TIME_STEP)
 
         if s["phase"] == "wait":
-            s["wait"] -= 1
-            if s["wait"] <= 0:
-                self._start(s, "in", self.entries[i])
-            return ra.encode((0.0, 0.0), "guide")
+            if now < s["wait_until"]:
+                return ra.encode((0.0, 0.0), "guide")
+            self._start(s, "in", self.entries[i])
 
         if s["target"] is None:
             if s["phase"] == "in":
@@ -148,31 +153,40 @@ class ShuttlePolicy:
         tx, ty = _centre(s["target"])
         d = math.hypot(tx - x, ty - y)
         if d < s["best"] - 0.5:
-            s["best"], s["stall"] = d, 0
-        else:
-            s["stall"] += 1
+            s["best"], s["last_progress"] = d, now
+        stalled = (s["last_progress"] is not None
+                   and now - s["last_progress"] >= STALL_SECONDS)
         arrived = d < ARRIVE_M or (
             self.m.find_mesh((x, y)) == s["target"] and d < 6.0)
-        if arrived or s["stall"] >= STALL_DECISIONS:
+        if arrived or stalled:
             if s["phase"] == "in":
                 self._start(s, "out", self._exit_mesh(self.m.find_mesh((x, y))))
             else:
-                s["phase"], s["wait"], s["target"] = ("wait",
-                                                      EXIT_WAIT_DECISIONS, None)
+                s["phase"], s["wait_until"], s["target"] = (
+                    "wait", now + EXIT_WAIT_SECONDS, None)
                 return ra.encode((0.0, 0.0), "guide")
             if s["target"] is None:
                 return ra.encode((0.0, 0.0), "off")
 
-        hx, hy = self._heading(rb, s["target"])
-        if s["phase"] == "in":
-            return ra.encode((hx, hy), "off")
-        k = GUIDE_SPEED_FRACTION
-        return ra.encode((hx * k, hy * k), "guide")
+        return self._command(rb, s["target"],
+                             "off" if s["phase"] == "in" else "guide")
+
+    def _command(self, rb, target, mode):
+        speed = GUIDE_SPEED_FRACTION if mode == "guide" else 1.0
+        if self.cfg.ROBOT_ACTION_MODE == "waypoint":
+            tx, ty = _centre(target)
+            dx, dy = tx - float(rb.xy[0]), ty - float(rb.xy[1])
+            limit = float(self.cfg.ROBOT_WAYPOINT_RANGE_M)
+            scale = max(1.0, abs(dx) / limit, abs(dy) / limit)
+            move = (2.0 * dx / (limit * scale), 2.0 * dy / (limit * scale))
+            return self.ra.encode(move, mode, speed=speed)
+        hx, hy = self._heading(rb, target)
+        return self.ra.encode((hx * speed, hy * speed), mode)
 
     @staticmethod
     def _start(s, phase, target):
         s["phase"], s["target"] = phase, target
-        s["best"], s["stall"] = math.inf, 0
+        s["best"], s["last_progress"] = math.inf, None
 
 
 # ------------------------------------------------------------------ runner

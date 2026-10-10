@@ -20,6 +20,11 @@ Judge it with paired evaluation on fixed seeds (learned policy vs. robots off
 vs. the shuttle baseline, `validation/shuttle_baseline.py`), not with the
 episode-reward curve, whose seed-to-seed spread is far larger than the effect.
 
+Since 2026-10-10, periodic validation is enabled every 500 episodes and compares
+off, shuttle, stochastic policy, and deterministic policy. Mode learning uses
+exact categorical expectations by default; `SAC_MODE_ESTIMATOR="gumbel"`
+selects the previous estimator. See [configuration and metrics](docs/hybrid_sac_validation.md).
+
 If it learns, put the difficulties back in this order, one per run:
 1. fixed 4 s decisions -> event-driven (`ROBOT_DECISION_ON_EVENTS_WAYPOINT`, `ROBOT_DECISION_MAX_S_WAYPOINT`)
 2. full -> partial observation (`ACTOR_GLOBAL_CROWD_TRUTH`, and the LOG_DIR/EXPERIMENT_ID back)

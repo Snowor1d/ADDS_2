@@ -1,0 +1,465 @@
+{
+  "run_name": "easy-sanity-fullinfo-3robots-fixed4s",
+  "state": "running",
+  "config": {
+    "K1": 1,
+    "K2": 1e-06,
+    "K3": 1,
+    "LR": 0.0001,
+    "WD_Q": 0.0003,
+    "MAP_H": 100,
+    "MAP_W": 100,
+    "SF_CN": 1000,
+    "SF_KN": 80000,
+    "WD_PI": 0,
+    "DEVICE": "cuda",
+    "N_ENVS": 12,
+    "EGO_USE": true,
+    "LOG_DIR": "Log_SAC_UED6_easy_fullinfo",
+    "SF_MU_T": 250000,
+    "ALPHA_LR": 0.0003,
+    "NET_SIZE": "m",
+    "PORT_NUM": 9001,
+    "SIM_SEED": null,
+    "SIM_SIZE": 200,
+    "ALPHA_MIN": 0.05,
+    "GAMMA_END": 0.99,
+    "MAX_STEPS": 1000,
+    "UED_SCORE": "hybrid",
+    "VIDEO_DPI": 100,
+    "VIDEO_FPS": 20,
+    "ALPHA_AUTO": true,
+    "BATCH_SIZE": 128,
+    "DECAY_MODE": "episode",
+    "MAX_ROBOTS": 3,
+    "SF_K_AGENT": 40,
+    "SF_WALL_CN": 1000,
+    "SF_WALL_KN": 180000,
+    "SIM_ROBOTS": 3,
+    "SIM_SOURCE": "real",
+    "UED_METHOD": "accel",
+    "USE_DIRECT": false,
+    "WANDB_MODE": "online",
+    "ALPHA_START": 0.2,
+    "BUFFER_SIZE": 1000000,
+    "CROWD_SPAWN": "uniform",
+    "DECAY_VALUE": 0,
+    "EPSILON_MIN": 0,
+    "LOG_STD_MAX": 0.5,
+    "LOG_STD_MIN": -5,
+    "NET_ENCODER": "cnn",
+    "RESUME_MODE": "latest_compatible",
+    "ROBOT_MODES": [
+      "off",
+      "guide"
+    ],
+    "ROBOT_START": "near",
+    "SCALE_CHECK": 0,
+    "SF_LAMBDA_A": 0.3,
+    "WANDB_GROUP": null,
+    "ACTION_SCALE": 4,
+    "AGENT_VISION": 10,
+    "EGO_MAP_SIZE": 25,
+    "ENABLE_TIMER": true,
+    "OBS_MID_SIZE": 64,
+    "ROBOT_VISION": 10,
+    "SF_WALL_MU_T": 250000,
+    "UED_POP_SIZE": 200,
+    "WANDB_ENTITY": null,
+    "DANGER_ZORDER": 1.5,
+    "DATASET_SITES": [
+      "dotonbori",
+      "covent_garden",
+      "hongdae"
+    ],
+    "EXPERIMENT_ID": "outdoor-madrl-v2-easy-fullinfo",
+    "HUMANPLAY_DPI": 200,
+    "INTRINSIC_ETA": 0.1,
+    "OBS_EGO_RES_M": 1,
+    "OBS_MID_RES_M": 2,
+    "OSM_CACHE_DIR": "/home/juna/.cache/adds-osm",
+    "SF_ANISOTROPY": 0.2,
+    "SIM_REAL_SITE": "dotonbori",
+    "SIM_REAL_SIZE": 400,
+    "START_EPSILON": 1,
+    "UED_GENERATOR": "citygen",
+    "UED_P_NEW_END": 0.1,
+    "UED_SUCCESS_K": 5,
+    "VIDEO_SPEEDUP": 40,
+    "WANDB_PROJECT": "adds-sac-ued6",
+    "ZSG_ITERATION": 1,
+    "ZSG_REAL_SIZE": 100,
+    "ZSG_ROBOT_NUM": [
+      3
+    ],
+    "COMM_DROP_PROB": 0,
+    "GAMMA_VELOCITY": 0.99,
+    "GAMMA_WAYPOINT": 0.99,
+    "LOG_TXT_COMPAT": true,
+    "OSM_SIMPLIFY_M": 1,
+    "REWARD_VERSION": "rew-v5-projection",
+    "SCHEDULER_TYPE": "l",
+    "SF_WALL_SOFT_K": 300,
+    "SIM_CHECKPOINT": null,
+    "SIM_DIFFICULTY": 5,
+    "SIM_MORPHOLOGY": null,
+    "SIM_RENDER_FPS": 20,
+    "UED_MAP_SQUARE": true,
+    "UED_MIN_TRIALS": 5,
+    "WANDB_RUN_NAME": "easy-sanity-fullinfo-1robot-fixed4s",
+    "ZSG_REAL_SITES": [],
+    "AGENT_TIME_STEP": 0.5,
+    "DATASET_SIZES_M": [
+      200
+    ],
+    "OBS_GLOBAL_SIZE": 64,
+    "OSM_OPEN_GROUND": false,
+    "ROBOT_SPEED_MAX": 2,
+    "ROBOT_TIME_STEP": 0.5,
+    "SIM_SPEED_RANGE": [
+      0.25,
+      48
+    ],
+    "UED_MAP_SIZES_M": [
+      100,
+      200,
+      400
+    ],
+    "UED_P_NEW_START": 0.5,
+    "UED_ROBOT_RANGE": [
+      1,
+      3
+    ],
+    "AGENT_SPEED_MEAN": 1.5,
+    "CROWD_GATE_GAP_M": 6,
+    "CROWD_MIN_TRIP_M": 25,
+    "CROWD_SIZE_LIMIT": [
+      10,
+      100000
+    ],
+    "EXPLORATION_TYPE": 0,
+    "HUMANPLAY_SCREEN": [
+      1000,
+      1000
+    ],
+    "LONG_EPSILON_MIN": 0,
+    "REWARD_REFERENCE": "episode",
+    "REWARD_W_REENTRY": 2,
+    "SF_WALL_MARGIN_M": 0.15,
+    "START_DECAY_STEP": 500,
+    "TRAIN_MAP_SOURCE": "dataset",
+    "UED_AUGMENTATION": true,
+    "AGENT_BODY_RADIUS": 0.25,
+    "CROWD_DEPART_PROB": 0.5,
+    "CROWD_DWELL_STEPS": [
+      10,
+      60
+    ],
+    "DANGER_EDGE_COLOR": "#b00020",
+    "DANGER_FILL_ALPHA": 0.22,
+    "DANGER_FILL_COLOR": "#d62728",
+    "HUMANPLAY_BITRATE": 8000,
+    "HUMANPLAY_MP4_FPS": 20,
+    "HUMANPLAY_SIM_FPS": 10,
+    "PREMOVEMENT_SIGMA": 0.7,
+    "RENDER_BODY_SCALE": 1,
+    "REPLAY_STATIC_DIR": "replay_static",
+    "ROBOT_ACTION_MODE": "waypoint",
+    "ROBOT_BODY_RADIUS": 0.5,
+    "ROBOT_INFORM_PROB": 0.5,
+    "SIM_ROBOT_CONTROL": "RL",
+    "SIM_VIEW_TIMESTEP": 0.25,
+    "START_BATCH_TIMES": 1,
+    "TEAM_SHARE_INTENT": false,
+    "UED_DANGER_SHAPES": [
+      "circle"
+    ],
+    "UED_TRIAL_HISTORY": 10,
+    "UED_TRIAL_MAX_AGE": 3000,
+    "AWARENESS_P_INSIDE": 0.35,
+    "AWARENESS_P_SOCIAL": 0.12,
+    "CROWD_ALLOW_INFLOW": true,
+    "DANGER_PIXEL_VALUE": 200,
+    "DANGER_TERMINATION": "none",
+    "EVAC_SPECIFIC_FLOW": 1.2,
+    "HUMANPLAY_EPISODES": 3,
+    "HUMANPLAY_EXP_NAME": "humanplay",
+    "HUMANPLAY_VIS_MODE": "mp4",
+    "MAP_SIZE_REFERENCE": 100,
+    "OSM_TRAVERSABILITY": "roads",
+    "REWARD_FIXED_D_REF": 50,
+    "REWARD_FIXED_N_REF": 200,
+    "REWARD_W_BYSTANDER": 0,
+    "REWARD_W_COLLISION": 0.05,
+    "REWARD_W_GUIDE_USE": 0,
+    "ROBOT_SIGNAL_P_MAX": 1,
+    "ROBOT_START_RING_M": [
+      5,
+      15
+    ],
+    "START_LONG_EPSILON": 0,
+    "UED_MAP_SIZE_RANGE": [
+      70,
+      140
+    ],
+    "UED_STALENESS_COEF": 0.2,
+    "VALIDATION_SIZES_M": [
+      100,
+      200,
+      400
+    ],
+    "ACTOR_UPDATE_ROBOTS": "all",
+    "AWARENESS_P_VISIBLE": 0.06,
+    "CROWD_ALLOW_OUTFLOW": true,
+    "CROWD_DENSITY_RANGE": [
+      0.04,
+      0.05
+    ],
+    "DANGER_DEFEND_STEPS": 400,
+    "DATASET_ROBOT_RANGE": [
+      3,
+      3
+    ],
+    "DOWNSAMPLE_MAP_SIZE": 50,
+    "EXIT_CONFIRM_RADIUS": 10,
+    "GAMMA_SCHEDULE_STEP": 1000,
+    "LINEARLY_DECAY_STEP": 1,
+    "PERIODIC_VALIDATION": false,
+    "REWARD_W_PROJECTION": 0,
+    "ROBOT_DIRECT_GOAL_M": 12,
+    "ROBOT_INFORM_TIME_S": 10,
+    "SF_WALL_LOOKAHEAD_M": 1.5,
+    "UED_DENSITY_BY_SIZE": {
+      "100": null,
+      "200": null,
+      "400": null
+    },
+    "UED_PRODUCER_TARGET": 64,
+    "UED_WARMUP_EPISODES": 500,
+    "USING_TRAINED_MODEL": true,
+    "ALPHA_TARGET_ENTROPY": null,
+    "COMM_DELAY_DECISIONS": 0,
+    "DANGER_SAFE_MARGIN_M": 2,
+    "DATASET_AUGMENTATION": false,
+    "FINAL_ZERO_SHOT_SITE": "myeongdong",
+    "HUMANPLAY_RENDER_FPS": 30,
+    "HUMANPLAY_SAVE_EVERY": 1,
+    "REWARD_W_PERSON_TIME": 5,
+    "START_UPDATE_EPISODE": 500,
+    "UED_DIFFICULTY_RANGE": [
+      0,
+      6
+    ],
+    "UED_LEVEL_QUEUE_SIZE": 4,
+    "UED_MAP_SIZE_WEIGHTS": [
+      0.6,
+      0.3,
+      0.1
+    ],
+    "UED_MUTATE_MAX_TRIES": 40,
+    "UED_MUTATE_THRESHOLD": 0.75,
+    "VALIDATION_SEED_BASE": 950000,
+    "VIDEO_EVERY_EPISODES": 200,
+    "ACTION_SCHEMA_VERSION": "act-v2-move2-mode2-waypoint-speed",
+    "DATASET_DANGER_SHAPES": [
+      "circle"
+    ],
+    "HUMANPLAY_PANEL_WIDTH": 200,
+    "MILLING_ROBOT_SPEEDUP": 0.25,
+    "OBS_HISTORY_DECISIONS": 4,
+    "ROBOT_INFORM_RADIUS_M": 3.5,
+    "ROBOT_NAV_CLEARANCE_M": 0.5,
+    "ROBOT_SIGNAL_RADIUS_M": 10,
+    "SHOW_CONTROLLED_CROWD": false,
+    "UED_DANGER_AREA_RANGE": [
+      0.04,
+      0.3
+    ],
+    "UED_SCORE_MAX_EPSILON": 0.25,
+    "UED_SCORE_TEMPERATURE": 1,
+    "UED_SNAPSHOT_EPISODES": 200,
+    "ACTOR_TEAMMATE_ACTIONS": "stored",
+    "BEHAVIOR_MODEL_VERSION": "beh-v3.4-robot-inform",
+    "CROWD_OUTFLOW_MARGIN_M": 3,
+    "FINAL_ZERO_SHOT_SIZE_M": 200,
+    "FLOW_EXIT_GATE_REACH_M": 15,
+    "HAZARD_MEMORY_RADIUS_M": 12,
+    "MILLING_SOCIAL_SPEEDUP": 0,
+    "NAVMESH_SEGMENT_STEP_M": 20,
+    "OBS_DENSITY_SATURATION": 2,
+    "ROBOT_WAYPOINT_RANGE_M": 20,
+    "SUPPORTED_CROP_SIZES_M": [
+      100,
+      200,
+      400
+    ],
+    "UED_MORPHOLOGY_WEIGHTS": null,
+    "UPDATES_PER_TRANSITION": 1,
+    "CRITIC_PRIVILEGED_CROWD": true,
+    "DANGER_CLEAR_HOLD_STEPS": 60,
+    "DATASET_DENSITY_BY_SIZE": {
+      "100": null,
+      "200": null
+    },
+    "ESCAPE_MIN_OPEN_AREA_M2": 150,
+    "FINAL_ZERO_SHOT_CONTROL": "off_zero_command",
+    "FINAL_ZERO_SHOT_DENSITY": 0.045,
+    "LOG_TRAIN_EVERY_UPDATES": 200,
+    "OSM_MAX_UNBUILT_BLOCKED": 0.7,
+    "REWARD_W_REMAINING_PATH": 1,
+    "ROBOT_CHOICE_CROWD_BETA": 1.5,
+    "ROBOT_FOLLOW_STANDOFF_M": 3,
+    "TEAM_SHARE_OBSERVATIONS": true,
+    "UED_MUTATIONS_PER_CHILD": [
+      1,
+      3
+    ],
+    "UED_REPLAY_ONLY_UPDATES": false,
+    "VALIDATION_DIFFICULTIES": [
+      2,
+      4,
+      6
+    ],
+    "VALIDATION_ROBOT_COUNTS": [
+      1,
+      2,
+      3
+    ],
+    "ACTOR_GLOBAL_CROWD_TRUTH": true,
+    "CROWD_FOLLOW_DEPART_PROB": 0.7,
+    "CROWD_THROUGH_TRIP_SHARE": 0.7,
+    "HAZARD_MEMORY_MAX_POINTS": 48,
+    "PREMOVEMENT_MEDIAN_STEPS": 16.7,
+    "UED_P_NEW_DECAY_EPISODES": 5000,
+    "VALIDATION_CYCLE_EPISODE": 5000,
+    "WANDB_UPLOAD_CHECKPOINTS": "selected",
+    "CROWD_OUTFLOW_STUCK_STEPS": 40,
+    "DATASET_DANGER_AREA_RANGE": [
+      0.04,
+      0.1
+    ],
+    "EXIT_CONFIRM_RADIUS_BONUS": 0,
+    "OBS_TEAM_DISTANCE_SCALE_M": 100,
+    "PERCEPTIBILITY_GLOBAL_CUE": 0.7,
+    "POLICY_BROADCAST_INTERVAL": 10,
+    "ROBOT_CHOICE_INERTIA_BETA": 2,
+    "UED_DANGER_PERCEPTIBILITY": [
+      0.05,
+      0.95
+    ],
+    "VALIDATION_SEEDS_PER_CELL": 1,
+    "ALLOW_WEIGHT_TRANSFER_FROM": null,
+    "CROWD_INFLOW_PER_100_STEPS": 4,
+    "CROWD_NONRESPONSE_FRACTION": 0.1,
+    "CROWD_OUTFLOW_STUCK_MOVE_M": 0.5,
+    "CROWD_SHELTER_REPLAN_STEPS": 60,
+    "OBSERVATION_SCHEMA_VERSION": "obs-v4-lean",
+    "TRAIN_RESERVED_SEED_RANGES": [
+      [
+        950000,
+        960000
+      ],
+      [
+        970000,
+        980000
+      ]
+    ],
+    "UED_DANGER_INSIDE_FRACTION": [
+      0.5,
+      1
+    ],
+    "UED_MAX_CHILDREN_PER_LEVEL": 3,
+    "AWARENESS_SOCIAL_SATURATION": 4,
+    "BASEMAP_PANEL_BOTTOM_MARGIN": 120,
+    "FINAL_ZERO_SHOT_CROWD_SEEDS": [
+      971001,
+      971002
+    ],
+    "REPLAY_STATIC_CACHE_ENTRIES": 256,
+    "ROBOT_GUIDE_BASE_COMPLIANCE": 0.75,
+    "ROBOT_LIDAR_ANGULAR_RES_DEG": 0.25,
+    "ROBOT_SIGNAL_REQUIRES_SIGHT": true,
+    "UED_AUGMENTATION_TRANSFORMS": [
+      "identity",
+      "rotate_90",
+      "rotate_180",
+      "rotate_270",
+      "reflect",
+      "reflect_rotate_90",
+      "reflect_rotate_180",
+      "reflect_rotate_270"
+    ],
+    "UED_PRIOR_INFORMED_FRACTION": [
+      0,
+      0.3
+    ],
+    "CROWD_INFLOW_WARNED_FRACTION": 0,
+    "CROWD_SHELTER_MAX_WAIT_STEPS": 240,
+    "FINAL_ZERO_SHOT_DENSITY_BAND": [
+      0.035,
+      0.055
+    ],
+    "FINAL_ZERO_SHOT_HAZARD_SEEDS": [
+      970001,
+      970002,
+      970003,
+      970004,
+      970005,
+      970006
+    ],
+    "FINAL_ZERO_SHOT_ROBOT_COUNTS": [
+      1,
+      2,
+      3
+    ],
+    "PERCEPTIBILITY_SENSORY_FLOOR": 0.25,
+    "ROBOT_COMPLIANCE_FORM_FACTOR": 1,
+    "ROBOT_DIRECT_BASE_COMPLIANCE": 0.75,
+    "ROBOT_LIDAR_PERSON_OCCLUSION": false,
+    "DATASET_DANGER_PERCEPTIBILITY": [
+      0.05,
+      0.3
+    ],
+    "FINAL_ZERO_SHOT_HAZARD_SHAPES": [
+      "circle",
+      "rect"
+    ],
+    "ROBOT_DECISION_MAX_S_VELOCITY": 2,
+    "ROBOT_DECISION_MAX_S_WAYPOINT": 4,
+    "DATASET_DANGER_INSIDE_FRACTION": [
+      0.5,
+      1
+    ],
+    "CROWD_FLOW_FOLLOW_MIN_ALIGNMENT": 0.3,
+    "DATASET_AUGMENTATION_TRANSFORMS": [
+      "identity",
+      "rotate_90",
+      "rotate_180",
+      "rotate_270",
+      "reflect",
+      "reflect_rotate_90",
+      "reflect_rotate_180",
+      "reflect_rotate_270"
+    ],
+    "DATASET_PRIOR_INFORMED_FRACTION": [
+      0,
+      0
+    ],
+    "FINAL_ZERO_SHOT_MIN_WALKABLE_M2": 400,
+    "REWARD_MIN_REFERENCE_DISTANCE_M": 5,
+    "REWARD_MIN_REFERENCE_POPULATION": 5,
+    "ROBOT_COMPLIANCE_SCENARIO_FACTOR": 1,
+    "ROBOT_LIDAR_MIN_VISIBLE_FRACTION": 0.5,
+    "FINAL_ZERO_SHOT_HAZARD_AREA_RANGE": [
+      0.04,
+      0.2
+    ],
+    "ROBOT_DECISION_ON_EVENTS_VELOCITY": false,
+    "ROBOT_DECISION_ON_EVENTS_WAYPOINT": false,
+    "ROBOT_SIGNAL_REENCOUNTER_GAP_STEPS": 10,
+    "ROBOT_COMPLIANCE_PERSON_FACTOR_RANGE": [
+      0.6666666666666666,
+      1.3333333333333333
+    ]
+  }
+}

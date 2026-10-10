@@ -1,0 +1,774 @@
+{
+  "episode_rows": 3462,
+  "train_rows": 1863,
+  "last_episode": 3462,
+  "blocks": {
+    "1-500": {
+      "n": 500,
+      "episode/total_reward": {
+        "mean": -1035.6398800417053,
+        "sd": 637.2940815457065,
+        "median": -908.3937228154841
+      },
+      "episode/hazard_person_steps": {
+        "mean": 19316.02,
+        "sd": 15499.732103607468,
+        "median": 15159.5
+      },
+      "episode/initial_inside": {
+        "mean": 49.002,
+        "sd": 26.010728478841187,
+        "median": 46.0
+      },
+      "episode/perceptibility": {
+        "mean": 0.1732726405724439,
+        "sd": 0.0713272846639336,
+        "median": 0.16639223794774236
+      },
+      "episode/robot_speed_mean": {
+        "mean": 0.9432240050125078,
+        "sd": 0.03679924893088264,
+        "median": 0.9438919052411294
+      },
+      "episode/mode_share/guide": {
+        "mean": 0.500352,
+        "sd": 0.02545354999034734,
+        "median": 0.49866666666666665
+      },
+      "episode/mode_switch_rate": {
+        "mean": 0.5002043010752688,
+        "sd": 0.026360843912942546,
+        "median": 0.5013440860215054
+      },
+      "episode/held_clear_success": {
+        "mean": 0.272,
+        "sd": 0.44498988752554813,
+        "median": 0.0
+      },
+      "episode/reentries_after_clear": {
+        "mean": 203.63,
+        "sd": 142.0555000695151,
+        "median": 176.5
+      },
+      "episode/evac_time_100": {
+        "mean": 879.436,
+        "sd": 247.3929544348424,
+        "median": 1000.0
+      }
+    },
+    "501-1000": {
+      "n": 500,
+      "episode/total_reward": {
+        "mean": -966.5380347439536,
+        "sd": 621.754569327512,
+        "median": -860.1012902981324
+      },
+      "episode/hazard_person_steps": {
+        "mean": 16578.798,
+        "sd": 13696.216826160282,
+        "median": 12733.5
+      },
+      "episode/initial_inside": {
+        "mean": 46.674,
+        "sd": 24.405977218706077,
+        "median": 44.0
+      },
+      "episode/perceptibility": {
+        "mean": 0.1694415303783802,
+        "sd": 0.0715304224966955,
+        "median": 0.16874651201963395
+      },
+      "episode/robot_speed_mean": {
+        "mean": 0.750461519713918,
+        "sd": 0.27289150791138866,
+        "median": 0.7382864194367136
+      },
+      "episode/mode_share/guide": {
+        "mean": 0.6522239999999999,
+        "sd": 0.22368039014431085,
+        "median": 0.688
+      },
+      "episode/mode_switch_rate": {
+        "mean": 0.21881182795698925,
+        "sd": 0.12350141107454266,
+        "median": 0.20967741935483872
+      },
+      "episode/held_clear_success": {
+        "mean": 0.282,
+        "sd": 0.449973332543163,
+        "median": 0.0
+      },
+      "episode/reentries_after_clear": {
+        "mean": 172.554,
+        "sd": 115.74948416299746,
+        "median": 146.5
+      },
+      "episode/evac_time_100": {
+        "mean": 881.732,
+        "sd": 233.31938662700105,
+        "median": 1000.0
+      }
+    },
+    "1001-1500": {
+      "n": 500,
+      "episode/total_reward": {
+        "mean": -782.2604337443132,
+        "sd": 436.0136974208074,
+        "median": -710.4534135697904
+      },
+      "episode/hazard_person_steps": {
+        "mean": 14020.996,
+        "sd": 11437.914429124918,
+        "median": 10759.0
+      },
+      "episode/initial_inside": {
+        "mean": 48.218,
+        "sd": 25.771427511878343,
+        "median": 46.0
+      },
+      "episode/perceptibility": {
+        "mean": 0.17182990996528064,
+        "sd": 0.07253196514435155,
+        "median": 0.16913783015154696
+      },
+      "episode/robot_speed_mean": {
+        "mean": 0.6751527331671907,
+        "sd": 0.2493005848881522,
+        "median": 0.6856643375796255
+      },
+      "episode/mode_share/guide": {
+        "mean": 0.863344,
+        "sd": 0.12443849305134198,
+        "median": 0.8986666666666666
+      },
+      "episode/mode_switch_rate": {
+        "mean": 0.1391774193548387,
+        "sd": 0.11095004482435152,
+        "median": 0.11290322580645161
+      },
+      "episode/held_clear_success": {
+        "mean": 0.382,
+        "sd": 0.4858765275252551,
+        "median": 0.0
+      },
+      "episode/reentries_after_clear": {
+        "mean": 148.03,
+        "sd": 105.35882070334691,
+        "median": 122.5
+      },
+      "episode/evac_time_100": {
+        "mean": 834.708,
+        "sd": 262.3775728525592,
+        "median": 1000.0
+      }
+    },
+    "1501-2000": {
+      "n": 500,
+      "episode/total_reward": {
+        "mean": -805.6039050232876,
+        "sd": 522.554406026922,
+        "median": -740.9429543334838
+      },
+      "episode/hazard_person_steps": {
+        "mean": 14021.61,
+        "sd": 11659.32741241535,
+        "median": 10971.5
+      },
+      "episode/initial_inside": {
+        "mean": 46.276,
+        "sd": 26.833930461264895,
+        "median": 43.0
+      },
+      "episode/perceptibility": {
+        "mean": 0.17379178353583385,
+        "sd": 0.07367010701488076,
+        "median": 0.17653089939702596
+      },
+      "episode/robot_speed_mean": {
+        "mean": 0.6840941419820429,
+        "sd": 0.27225176878756735,
+        "median": 0.6846478404277793
+      },
+      "episode/mode_share/guide": {
+        "mean": 0.8772000000000001,
+        "sd": 0.11333187450041483,
+        "median": 0.9093333333333333
+      },
+      "episode/mode_switch_rate": {
+        "mean": 0.13009139784946236,
+        "sd": 0.10464052000256725,
+        "median": 0.10887096774193548
+      },
+      "episode/held_clear_success": {
+        "mean": 0.388,
+        "sd": 0.4872945721019269,
+        "median": 0.0
+      },
+      "episode/reentries_after_clear": {
+        "mean": 151.368,
+        "sd": 111.93530531516855,
+        "median": 129.0
+      },
+      "episode/evac_time_100": {
+        "mean": 811.59,
+        "sd": 297.6603263789113,
+        "median": 1000.0
+      }
+    },
+    "2001-2500": {
+      "n": 500,
+      "episode/total_reward": {
+        "mean": -722.0098532096066,
+        "sd": 440.47944545907194,
+        "median": -624.4595144844116
+      },
+      "episode/hazard_person_steps": {
+        "mean": 12679.436,
+        "sd": 11442.660689800427,
+        "median": 9392.5
+      },
+      "episode/initial_inside": {
+        "mean": 45.856,
+        "sd": 26.03127472867973,
+        "median": 42.0
+      },
+      "episode/perceptibility": {
+        "mean": 0.1721341598046934,
+        "sd": 0.06867388245743748,
+        "median": 0.17185113252061432
+      },
+      "episode/robot_speed_mean": {
+        "mean": 0.7645174145477719,
+        "sd": 0.27199649130483355,
+        "median": 0.7712400562433973
+      },
+      "episode/mode_share/guide": {
+        "mean": 0.8803466666666667,
+        "sd": 0.13086344638591788,
+        "median": 0.9413333333333334
+      },
+      "episode/mode_switch_rate": {
+        "mean": 0.12938709677419355,
+        "sd": 0.11668483134939457,
+        "median": 0.08602150537634409
+      },
+      "episode/held_clear_success": {
+        "mean": 0.438,
+        "sd": 0.496141108959941,
+        "median": 0.0
+      },
+      "episode/reentries_after_clear": {
+        "mean": 137.532,
+        "sd": 103.74463348048418,
+        "median": 107.0
+      },
+      "episode/evac_time_100": {
+        "mean": 799.194,
+        "sd": 285.3104350773031,
+        "median": 1000.0
+      }
+    },
+    "2501-3000": {
+      "n": 500,
+      "episode/total_reward": {
+        "mean": -713.6207394587901,
+        "sd": 403.59905522955614,
+        "median": -646.427599322715
+      },
+      "episode/hazard_person_steps": {
+        "mean": 13383.168,
+        "sd": 11217.863385501536,
+        "median": 10419.0
+      },
+      "episode/initial_inside": {
+        "mean": 48.244,
+        "sd": 26.60406856103028,
+        "median": 45.0
+      },
+      "episode/perceptibility": {
+        "mean": 0.17393905417460634,
+        "sd": 0.07118292141612044,
+        "median": 0.18141048274773067
+      },
+      "episode/robot_speed_mean": {
+        "mean": 0.7826409978666828,
+        "sd": 0.2567038631107741,
+        "median": 0.7791965575943565
+      },
+      "episode/mode_share/guide": {
+        "mean": 0.9024213333333333,
+        "sd": 0.12003571427056385,
+        "median": 0.9533333333333334
+      },
+      "episode/mode_switch_rate": {
+        "mean": 0.11463978494623654,
+        "sd": 0.11377761398693534,
+        "median": 0.07526881720430108
+      },
+      "episode/held_clear_success": {
+        "mean": 0.408,
+        "sd": 0.49146312170904544,
+        "median": 0.0
+      },
+      "episode/reentries_after_clear": {
+        "mean": 141.542,
+        "sd": 103.32041538824744,
+        "median": 118.5
+      },
+      "episode/evac_time_100": {
+        "mean": 827.808,
+        "sd": 266.43422290689307,
+        "median": 1000.0
+      }
+    },
+    "3001-4000": {
+      "n": 462,
+      "episode/total_reward": {
+        "mean": -729.5841607053628,
+        "sd": 440.0527412449092,
+        "median": -659.2987628952319
+      },
+      "episode/hazard_person_steps": {
+        "mean": 13296.004329004329,
+        "sd": 11824.463004014795,
+        "median": 9661.0
+      },
+      "episode/initial_inside": {
+        "mean": 47.798701298701296,
+        "sd": 26.961905112912625,
+        "median": 45.0
+      },
+      "episode/perceptibility": {
+        "mean": 0.17859206327518384,
+        "sd": 0.07341976371873793,
+        "median": 0.18210066891074903
+      },
+      "episode/robot_speed_mean": {
+        "mean": 0.7637303115620628,
+        "sd": 0.254114824623429,
+        "median": 0.7759605721354627
+      },
+      "episode/mode_share/guide": {
+        "mean": 0.8924848484848484,
+        "sd": 0.13003494419296888,
+        "median": 0.9426666666666667
+      },
+      "episode/mode_switch_rate": {
+        "mean": 0.12384210771307542,
+        "sd": 0.11483670222801248,
+        "median": 0.08333333333333334
+      },
+      "episode/held_clear_success": {
+        "mean": 0.41774891774891776,
+        "sd": 0.4931883610432486,
+        "median": 0.0
+      },
+      "episode/reentries_after_clear": {
+        "mean": 142.8181818181818,
+        "sd": 105.86376043442624,
+        "median": 121.0
+      },
+      "episode/evac_time_100": {
+        "mean": 806.939393939394,
+        "sd": 283.04801385116133,
+        "median": 1000.0
+      }
+    }
+  },
+  "by_site": {
+    "0": {
+      "early": {
+        "n": 186,
+        "episode/total_reward": {
+          "mean": -746.6999620783533,
+          "sd": 348.6647926952735,
+          "median": -665.7335966448246
+        },
+        "episode/hazard_person_steps": {
+          "mean": 12787.18817204301,
+          "sd": 10007.928163236647,
+          "median": 9263.5
+        },
+        "episode/initial_inside": {
+          "mean": 46.3494623655914,
+          "sd": 21.43761704206258,
+          "median": 42.5
+        },
+        "episode/perceptibility": {
+          "mean": 0.17296627438925288,
+          "sd": 0.07180256100989861,
+          "median": 0.17721524799526606
+        },
+        "episode/robot_speed_mean": {
+          "mean": 0.7897634845467605,
+          "sd": 0.2723105796640743,
+          "median": 0.7839004043755856
+        },
+        "episode/mode_share/guide": {
+          "mean": 0.6065089605734767,
+          "sd": 0.22827645521021248,
+          "median": 0.5946666666666667
+        },
+        "episode/mode_switch_rate": {
+          "mean": 0.24908949011446407,
+          "sd": 0.11783920597287195,
+          "median": 0.25
+        },
+        "episode/held_clear_success": {
+          "mean": 0.41397849462365593,
+          "sd": 0.49254471940402283,
+          "median": 0.0
+        },
+        "episode/reentries_after_clear": {
+          "mean": 136.89247311827958,
+          "sd": 84.79081944188074,
+          "median": 116.0
+        },
+        "episode/evac_time_100": {
+          "mean": 843.2204301075269,
+          "sd": 230.61852272415356,
+          "median": 1000.0
+        }
+      },
+      "late": {
+        "n": 156,
+        "episode/total_reward": {
+          "mean": -579.6382597682659,
+          "sd": 253.80102936640913,
+          "median": -540.9643920559774
+        },
+        "episode/hazard_person_steps": {
+          "mean": 10003.660256410256,
+          "sd": 7735.172659383353,
+          "median": 7342.5
+        },
+        "episode/initial_inside": {
+          "mean": 44.55769230769231,
+          "sd": 21.160328260933326,
+          "median": 44.5
+        },
+        "episode/perceptibility": {
+          "mean": 0.17469904603494088,
+          "sd": 0.07325432235056992,
+          "median": 0.18701606603922663
+        },
+        "episode/robot_speed_mean": {
+          "mean": 0.8134220301150693,
+          "sd": 0.24149805359039753,
+          "median": 0.8029850295981704
+        },
+        "episode/mode_share/guide": {
+          "mean": 0.8481025641025639,
+          "sd": 0.1207799476254694,
+          "median": 0.888
+        },
+        "episode/mode_switch_rate": {
+          "mean": 0.18050385993934379,
+          "sd": 0.11301386769845848,
+          "median": 0.15994623655913978
+        },
+        "episode/held_clear_success": {
+          "mean": 0.5576923076923077,
+          "sd": 0.49666044500557527,
+          "median": 1.0
+        },
+        "episode/reentries_after_clear": {
+          "mean": 111.32692307692308,
+          "sd": 75.99976075042794,
+          "median": 93.5
+        },
+        "episode/evac_time_100": {
+          "mean": 748.8269230769231,
+          "sd": 280.38764748984846,
+          "median": 835.5
+        }
+      }
+    },
+    "1": {
+      "early": {
+        "n": 167,
+        "episode/total_reward": {
+          "mean": -1026.7668502554793,
+          "sd": 448.5266671349989,
+          "median": -992.6097925275775
+        },
+        "episode/hazard_person_steps": {
+          "mean": 16807.844311377245,
+          "sd": 11029.889526635025,
+          "median": 14802.0
+        },
+        "episode/initial_inside": {
+          "mean": 44.51497005988024,
+          "sd": 19.828261535949785,
+          "median": 45.0
+        },
+        "episode/perceptibility": {
+          "mean": 0.16441312643468825,
+          "sd": 0.06827900989002263,
+          "median": 0.1580615567370688
+        },
+        "episode/robot_speed_mean": {
+          "mean": 0.7191459144975939,
+          "sd": 0.26405807434848955,
+          "median": 0.7099089269946721
+        },
+        "episode/mode_share/guide": {
+          "mean": 0.6695728542914172,
+          "sd": 0.20470304307284612,
+          "median": 0.7066666666666667
+        },
+        "episode/mode_switch_rate": {
+          "mean": 0.21242997875217307,
+          "sd": 0.11620796642259079,
+          "median": 0.20161290322580644
+        },
+        "episode/held_clear_success": {
+          "mean": 0.16167664670658682,
+          "sd": 0.3681539197350754,
+          "median": 0.0
+        },
+        "episode/reentries_after_clear": {
+          "mean": 177.4191616766467,
+          "sd": 90.00873738967147,
+          "median": 161.0
+        },
+        "episode/evac_time_100": {
+          "mean": 945.8443113772455,
+          "sd": 163.60972900693713,
+          "median": 1000.0
+        }
+      },
+      "late": {
+        "n": 162,
+        "episode/total_reward": {
+          "mean": -784.1873540303283,
+          "sd": 383.11658841904716,
+          "median": -730.902610756169
+        },
+        "episode/hazard_person_steps": {
+          "mean": 12934.586419753086,
+          "sd": 9051.823056707364,
+          "median": 10744.5
+        },
+        "episode/initial_inside": {
+          "mean": 45.32098765432099,
+          "sd": 20.968422561164473,
+          "median": 44.0
+        },
+        "episode/perceptibility": {
+          "mean": 0.17909209275644408,
+          "sd": 0.07373652378321228,
+          "median": 0.18087394073994312
+        },
+        "episode/robot_speed_mean": {
+          "mean": 0.7670961863143126,
+          "sd": 0.24714646101398408,
+          "median": 0.7770201416333709
+        },
+        "episode/mode_share/guide": {
+          "mean": 0.9307818930041152,
+          "sd": 0.07784609275829718,
+          "median": 0.9573333333333334
+        },
+        "episode/mode_switch_rate": {
+          "mean": 0.09091663347935751,
+          "sd": 0.08397794152886849,
+          "median": 0.06451612903225806
+        },
+        "episode/held_clear_success": {
+          "mean": 0.30864197530864196,
+          "sd": 0.46193301071283227,
+          "median": 0.0
+        },
+        "episode/reentries_after_clear": {
+          "mean": 142.09259259259258,
+          "sd": 82.32739561401846,
+          "median": 124.5
+        },
+        "episode/evac_time_100": {
+          "mean": 899.074074074074,
+          "sd": 194.15456346177277,
+          "median": 1000.0
+        }
+      }
+    },
+    "2": {
+      "early": {
+        "n": 147,
+        "episode/total_reward": {
+          "mean": -1176.277281855361,
+          "sd": 907.3393337783103,
+          "median": -985.88155513711
+        },
+        "episode/hazard_person_steps": {
+          "mean": 21116.136054421768,
+          "sd": 18283.03603549932,
+          "median": 17674.0
+        },
+        "episode/initial_inside": {
+          "mean": 49.53741496598639,
+          "sd": 31.3727365736609,
+          "median": 44.0
+        },
+        "episode/perceptibility": {
+          "mean": 0.17069419073602807,
+          "sd": 0.07441544018122698,
+          "median": 0.1709356310103421
+        },
+        "episode/robot_speed_mean": {
+          "mean": 0.7363087347630161,
+          "sd": 0.27747092772921095,
+          "median": 0.7285130776863514
+        },
+        "episode/mode_share/guide": {
+          "mean": 0.6903582766439909,
+          "sd": 0.22847268068139034,
+          "median": 0.7173333333333334
+        },
+        "episode/mode_switch_rate": {
+          "mean": 0.18775144466388707,
+          "sd": 0.1296027290835301,
+          "median": 0.16129032258064516
+        },
+        "episode/held_clear_success": {
+          "mean": 0.25170068027210885,
+          "sd": 0.4339901471492947,
+          "median": 0.0
+        },
+        "episode/reentries_after_clear": {
+          "mean": 212.14965986394557,
+          "sd": 155.13432203749747,
+          "median": 182.0
+        },
+        "episode/evac_time_100": {
+          "mean": 857.625850340136,
+          "sd": 283.42624833159783,
+          "median": 1000.0
+        }
+      },
+      "late": {
+        "n": 144,
+        "episode/total_reward": {
+          "mean": -830.596960896632,
+          "sd": 590.3037843955026,
+          "median": -738.9646680521141
+        },
+        "episode/hazard_person_steps": {
+          "mean": 17269.305555555555,
+          "sd": 16245.282529039083,
+          "median": 12891.5
+        },
+        "episode/initial_inside": {
+          "mean": 54.09722222222222,
+          "sd": 35.98076635981377,
+          "median": 47.0
+        },
+        "episode/perceptibility": {
+          "mean": 0.18224696545236255,
+          "sd": 0.07303596236337728,
+          "median": 0.17862082221660666
+        },
+        "episode/robot_speed_mean": {
+          "mean": 0.7061110073666916,
+          "sd": 0.26319249257011335,
+          "median": 0.714223495508552
+        },
+        "episode/mode_share/guide": {
+          "mean": 0.8974814814814815,
+          "sd": 0.1667936635495316,
+          "median": 0.972
+        },
+        "episode/mode_switch_rate": {
+          "mean": 0.09949970131421744,
+          "sd": 0.12348778328861897,
+          "median": 0.043010752688172046
+        },
+        "episode/held_clear_success": {
+          "mean": 0.3888888888888889,
+          "sd": 0.4874980215217846,
+          "median": 0.0
+        },
+        "episode/reentries_after_clear": {
+          "mean": 177.75,
+          "sd": 140.63691924795407,
+          "median": 149.5
+        },
+        "episode/evac_time_100": {
+          "mean": 766.2430555555555,
+          "sd": 338.52351482675994,
+          "median": 1000.0
+        }
+      }
+    }
+  },
+  "descriptive_regression": {
+    "coefficients": {
+      "intercept": -780.4943248214524,
+      "episode_per_1000": 90.51676287264203,
+      "site_1": -199.51174520111041,
+      "site_2": -274.2849104692344,
+      "initial_inside": -1.8046856964573355,
+      "hazard_fraction": -2920.9315740649567,
+      "perceptibility": 610.757438017673,
+      "initial_population": 0.24774231100701627
+    },
+    "standard_errors_HC1": {
+      "intercept": 142.82225048443829,
+      "episode_per_1000": 10.589791079682751,
+      "site_1": 18.071483621912268,
+      "site_2": 27.06847878313903,
+      "initial_inside": 0.3780389115529764,
+      "hazard_fraction": 551.5075052467172,
+      "perceptibility": 111.4029052513803,
+      "initial_population": 0.22038103675778498
+    },
+    "r_squared": 0.11144123433326081
+  },
+  "train_early": {
+    "n": 200,
+    "train/alpha": {
+      "mean": 0.0570297730914317,
+      "sd": 0.023846636779705298,
+      "median": 0.05000000074505806
+    },
+    "train/entropy": {
+      "mean": 2.03893401217917,
+      "sd": 0.6034434322106021,
+      "median": 1.918308221101761
+    },
+    "train/loss_q": {
+      "mean": 177.69550686507225,
+      "sd": 78.50414830269696,
+      "median": 157.39792110443116
+    },
+    "train/q_team": {
+      "mean": -169.40182162420663,
+      "sd": 43.87138343506215,
+      "median": -191.63433765411378
+    }
+  },
+  "train_late": {
+    "n": 200,
+    "train/alpha": {
+      "mean": 0.05000000074505806,
+      "sd": 0.0,
+      "median": 0.05000000074505806
+    },
+    "train/entropy": {
+      "mean": 2.14344635835588,
+      "sd": 0.044801698948414646,
+      "median": 2.14264738202095
+    },
+    "train/loss_q": {
+      "mean": 44.25748522775173,
+      "sd": 5.954625702512176,
+      "median": 42.713770856857295
+    },
+    "train/q_team": {
+      "mean": -155.33625908374788,
+      "sd": 1.2504035444957395,
+      "median": -155.4467179107666
+    }
+  },
+  "alpha_floor_fraction": 0.986580783682233
+}

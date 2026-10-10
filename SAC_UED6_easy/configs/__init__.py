@@ -619,6 +619,16 @@ def validate_config(cfg: ResolvedConfig, check_data: bool = True) -> None:
     _check(cfg.ACTOR_TEAMMATE_ACTIONS in ("stored", "current"),
            f"ACTOR_TEAMMATE_ACTIONS={cfg.ACTOR_TEAMMATE_ACTIONS!r}; expected "
            "'stored' or 'current'", p)
+    _check(cfg.SAC_MODE_ESTIMATOR in ("expectation", "gumbel"),
+           "SAC_MODE_ESTIMATOR must be 'expectation' or 'gumbel'", p)
+    allowed_conditions = {"off_zero_command", "shuttle", "policy_stochastic",
+                          "policy_deterministic"}
+    _check(isinstance(cfg.VALIDATION_CONDITIONS, (tuple, list))
+           and bool(cfg.VALIDATION_CONDITIONS)
+           and all(isinstance(c, str) for c in cfg.VALIDATION_CONDITIONS)
+           and set(cfg.VALIDATION_CONDITIONS) <= allowed_conditions
+           and len(set(cfg.VALIDATION_CONDITIONS)) == len(cfg.VALIDATION_CONDITIONS),
+           "VALIDATION_CONDITIONS must contain distinct supported conditions", p)
     _check(isinstance(cfg.ALPHA_AUTO, bool),
            f"ALPHA_AUTO={cfg.ALPHA_AUTO!r} must be True or False", p)
     _check(0.0 < float(cfg.ALPHA_MIN) <= float(cfg.ALPHA_START),

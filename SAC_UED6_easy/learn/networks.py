@@ -219,6 +219,7 @@ class PolicyNetwork(nn.Module):
         self.spec = spec
         self.log_std_min = float(cfg.LOG_STD_MIN)
         self.log_std_max = float(cfg.LOG_STD_MAX)
+        self.mode_estimator = cfg.SAC_MODE_ESTIMATOR
         self.ego = make_encoder(spec, s["ego"][0], s["ego"][1], ego=True)
         self.mid = make_encoder(spec, s["mid"][0], s["mid"][1])
         self.glob = make_encoder(spec, s["glob"][0], s["glob"][1])
@@ -249,14 +250,14 @@ class PolicyNetwork(nn.Module):
         one_hot = F.one_hot(logits.argmax(-1), logits.shape[-1]).float()
         return torch.cat([cont, one_hot], dim=-1)
 
-    def sample_action(self, ego, mid, glob, state, temperature: float = 1.0):
-        """Squashed Gaussian move and heading, straight-through Gumbel mode.
-
-        Same distribution and log-probability as the previous actor.
-        """
+    def sample_hybrid(self, ego, mid, glob, state, temperature: float = 1.0):
+        """Reparameterized continuous action and exact categorical probabilities."""
+        if temperature <= 0:
+            raise ValueError("temperature must be positive")
         mean, log_std, logits = self.forward(ego, mid, glob, state)
+        log_std = log_std + math.log(temperature)
         std = log_std.exp()
-        u = mean + std * torch.randn_like(mean) * temperature
+        u = mean + std * torch.randn_like(mean)
         sig = torch.sigmoid(u)
         cont = 4 * sig - 2
         logp_u = -0.5 * (((u - mean) / (std + 1e-8)) ** 2 + 2 * log_std
@@ -267,7 +268,17 @@ class PolicyNetwork(nn.Module):
         log_det = (math.log(4.0) + F.logsigmoid(u) + F.logsigmoid(-u)).sum(-1)
         logp = logp_u.sum(-1) - log_det
         log_mode = F.log_softmax(logits, dim=-1)
-        one_hot = F.gumbel_softmax(logits, tau=1.0, hard=True, dim=-1)
+        return cont, logp, log_mode.exp(), log_mode
+
+    def sample_action(self, ego, mid, glob, state, temperature: float = 1.0):
+        """Execute a sampled mode; only the legacy estimator relaxes its gradient."""
+        cont, logp, probs, log_mode = self.sample_hybrid(
+            ego, mid, glob, state, temperature)
+        if self.mode_estimator == "gumbel":
+            one_hot = F.gumbel_softmax(log_mode, tau=1.0, hard=True, dim=-1)
+        else:
+            idx = torch.distributions.Categorical(probs=probs).sample()
+            one_hot = F.one_hot(idx, probs.shape[-1]).to(cont.dtype)
         logp = logp + (one_hot * log_mode).sum(-1)
         return torch.cat([cont, one_hot], dim=-1), logp
 
@@ -337,6 +348,10 @@ class CentralizedCritic(nn.Module):
                 mask: torch.Tensor) -> torch.Tensor:
         """obs: ego/mid/glob/state (B, N, ...), priv (B, 1, G, G).
         Returns (B, N) values, zero in padded slots."""
+        return self.values_from_features(self.encode_observation(obs), action, mask)
+
+    def encode_observation(self, obs):
+        """Action-independent features, reusable when enumerating modes."""
         ego, mid, glob, state = obs["ego"], obs["mid"], obs["glob"], obs["state"]
         B, N = state.shape[:2]
         flat = lambda x: x.reshape(B * N, *x.shape[2:])
@@ -355,7 +370,12 @@ class CentralizedCritic(nn.Module):
             p = torch.zeros(B, e.shape[-1], device=e.device)
         p = p.unsqueeze(1).expand(B, N, -1).reshape(B * N, -1)
         vision = torch.cat([e, m, g, p], -1)
-        agent = self.agent(torch.cat([flat(state), flat(action)], -1))
+        return vision, flat(state), B, N
+
+    def values_from_features(self, features, action, mask):
+        vision, state, B, N = features
+        flat = lambda x: x.reshape(B * N, *x.shape[2:])
+        agent = self.agent(torch.cat([state, flat(action)], -1))
         gamma, beta = self.film(agent).chunk(2, -1)
         tok = F.silu(self.film_out((1 + gamma) * vision + beta)) + agent
         tok = tok.reshape(B, N, -1) * mask.unsqueeze(-1)

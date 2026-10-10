@@ -26,6 +26,7 @@ from dataclasses import asdict, dataclass
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
+import torch
 
 
 @dataclass
@@ -150,6 +151,8 @@ def _outside_ids(model) -> set:
 # ------------------------------------------------------------- one episode
 
 CONDITIONS = ("policy", "off_zero_command")
+COMPARISON_CONDITIONS = ("off_zero_command", "shuttle", "policy_stochastic",
+                         "policy_deterministic")
 
 
 def build_eval_model(level, seed: int):
@@ -167,6 +170,18 @@ def build_eval_model(level, seed: int):
 
 def evaluate_level(agent, level, seed: int, condition: str, cfg,
                    max_steps: Optional[int] = None) -> dict:
+    """Seed policy randomness separately from the shared crowd seed."""
+    device = getattr(agent, "device", torch.device("cpu"))
+    devices = [device.index or 0] if device.type == "cuda" else []
+    with torch.random.fork_rng(devices=devices):
+        torch.random.default_generator.manual_seed(seed)
+        if devices:
+            with torch.cuda.device(devices[0]):
+                torch.cuda.manual_seed(seed)
+        return _evaluate_level(agent, level, seed, condition, cfg, max_steps)
+
+
+def _evaluate_level(agent, level, seed, condition, cfg, max_steps):
     """One fixed level for a fixed duration.
 
     Never stopped early, so a re-entry after the first clearing is still
@@ -174,7 +189,7 @@ def evaluate_level(agent, level, seed: int, condition: str, cfg,
     """
     from learn.rollout import run_episode
 
-    if condition not in CONDITIONS:
+    if condition not in CONDITIONS + COMPARISON_CONDITIONS:
         raise ValueError(condition)
     if level.danger is None:
         raise ValueError("evaluation level has no hazard zone")
@@ -182,14 +197,20 @@ def evaluate_level(agent, level, seed: int, condition: str, cfg,
         raise ValueError("invalid robot count")
     model = build_eval_model(level, seed)
     act_fn = None
-    if condition == "policy":
+    if condition in ("policy", "policy_deterministic"):
         act_fn = lambda obs, rec: agent.act(obs, deterministic=True)
+    elif condition == "policy_stochastic":
+        act_fn = lambda obs, rec: agent.act(obs, deterministic=False)
+    elif condition == "shuttle":
+        from validation.shuttle_baseline import ShuttlePolicy
+        act_fn = ShuttlePolicy(model, len(model.robots), cfg=cfg)
     tm = EpisodeMetrics().start(model)
     gamma = agent.gamma if agent is not None else cfg.gamma()
     model.should_finish = lambda: False
     res = run_episode(model, cfg, act_fn, gamma=gamma, max_steps=max_steps,
                       seed=seed, task_metrics=tm,
-                      needs_obs=act_fn is not None)
+                      needs_obs=condition in ("policy", "policy_deterministic",
+                                             "policy_stochastic"))
     walk = _walkable_m2(model)
     out = dict(res.task)
     out.update({
@@ -300,19 +321,25 @@ SUMMARY_KEYS = ("hazard_person_steps", "reentries", "reentries_after_clear",
 
 def paired_records(agent, scenarios, cfg, episode: int, seeds_for,
                    robot_counts, off_cache: Optional[dict] = None,
-                   max_steps: Optional[int] = None) -> List[dict]:
-    """Run policy and control for each scenario, robot count and seed.
+                   max_steps: Optional[int] = None,
+                   conditions=CONDITIONS) -> List[dict]:
+    """Run the requested conditions on matching levels and crowd seeds.
 
-    The control does not depend on the policy, so a cache keyed by level,
-    robot count and seed lets periodic validation compute it once.
+    Cache off/shuttle by geometry, configuration, horizon, robot count and
+    seed. Older cache keys cannot match this baseline implementation.
     """
     records = []
     for name, original in scenarios:
+        from ued.holdout import _serialise
+        level_digest = hashlib.sha256(json.dumps(
+            _serialise([original]), sort_keys=True).encode()).hexdigest()
         for robots in robot_counts:
             for seed in seeds_for(name):
-                for condition in CONDITIONS:
-                    key = (name, int(robots), int(seed), int(max_steps or 0))
-                    if (condition == "off_zero_command"
+                for condition in conditions:
+                    baseline = condition in ("off_zero_command", "shuttle")
+                    key = (name, int(robots), int(seed), int(max_steps or cfg.MAX_STEPS),
+                           condition, cfg.fingerprint, level_digest, "shuttle-v2")
+                    if (baseline
                             and off_cache is not None and key in off_cache):
                         result = off_cache[key]
                     else:
@@ -320,7 +347,7 @@ def paired_records(agent, scenarios, cfg, episode: int, seeds_for,
                         level.robot_num = int(robots)
                         result = evaluate_level(agent, level, seed, condition,
                                                 cfg, max_steps=max_steps)
-                        if (condition == "off_zero_command"
+                        if (baseline
                                 and off_cache is not None):
                             off_cache[key] = result
                     records.append({
@@ -360,26 +387,41 @@ def summarise(records: List[dict], prefix: str) -> Dict[str, float]:
     for r in records:
         by_key.setdefault((r["scenario"], r["robot_num"], r["seed"]),
                           {})[r["condition"]] = r
-    reductions, reentry_diff = [], []
-    per_size: Dict[int, List[float]] = {}
-    for pair in by_key.values():
-        if set(pair) != set(CONDITIONS):
-            continue
-        p, o = pair["policy"], pair["off_zero_command"]
-        red = 1.0 - (float(p["hazard_person_steps"])
-                     / max(1.0, float(o["hazard_person_steps"])))
-        reductions.append(red)
-        per_size.setdefault(int(p["size_m"]), []).append(red)
-        reentry_diff.append(float(p["reentries_after_clear"])
-                            - float(o["reentries_after_clear"]))
-    if reductions:
-        out[f"{prefix}/paired/person_steps_reduction_vs_off"] = float(
-            np.mean(reductions))
-        out[f"{prefix}/paired/reentries_after_clear_minus_off"] = float(
-            np.mean(reentry_diff))
-        for size, vals in sorted(per_size.items()):
-            out[f"{prefix}/paired/{size}m/person_steps_reduction_vs_off"] = \
-                float(np.mean(vals))
+    for condition in ("policy", "policy_deterministic", "policy_stochastic", "shuttle"):
+        for reference, label in (("off_zero_command", "off"), ("shuttle", "shuttle")):
+            if condition == reference:
+                continue
+            pairs = [(pair[condition], pair[reference]) for pair in by_key.values()
+                     if condition in pair and reference in pair]
+            if not pairs:
+                continue
+            base = f"{prefix}/paired/{condition}"
+            # Zero-exposure controls have no meaningful relative reduction.
+            valid = [(p, o) for p, o in pairs if float(o["hazard_person_steps"]) > 0]
+            reductions = [1.0 - float(p["hazard_person_steps"]) /
+                          float(o["hazard_person_steps"]) for p, o in valid]
+            out[f"{base}/person_steps_difference_vs_{label}"] = float(np.mean([
+                float(p["hazard_person_steps"]) - float(o["hazard_person_steps"])
+                for p, o in pairs]))
+            out[f"{base}/relative_pairs_vs_{label}"] = float(len(valid))
+            out[f"{base}/reentries_after_clear_minus_{label}"] = float(np.mean([
+                float(p["reentries_after_clear"]) - float(o["reentries_after_clear"])
+                for p, o in pairs]))
+            if reductions:
+                value = float(np.mean(reductions))
+                out[f"{base}/person_steps_reduction_vs_{label}"] = value
+                if condition in ("policy", "policy_deterministic") and label == "off":
+                    # Preserve the established deterministic selection metric.
+                    out[f"{prefix}/paired/person_steps_reduction_vs_off"] = value
+                    out[f"{prefix}/paired/reentries_after_clear_minus_off"] = \
+                        out[f"{base}/reentries_after_clear_minus_off"]
+                for size in sorted({int(p["size_m"]) for p, _ in valid}):
+                    vals = [1.0 - float(p["hazard_person_steps"]) /
+                            float(o["hazard_person_steps"]) for p, o in valid
+                            if int(p["size_m"]) == size]
+                    out[f"{base}/{size}m/person_steps_reduction_vs_{label}"] = float(np.mean(vals))
+                    if condition in ("policy", "policy_deterministic") and label == "off":
+                        out[f"{prefix}/paired/{size}m/person_steps_reduction_vs_off"] = float(np.mean(vals))
     return out
 
 
@@ -396,7 +438,7 @@ def run_validation(agent, cfg, episode: int, off_cache: Optional[dict] = None,
     records = paired_records(agent, scenarios, cfg, episode,
                              lambda name: (validation_seed(name),),
                              cfg.VALIDATION_ROBOT_COUNTS, off_cache=off_cache,
-                             max_steps=max_steps)
+                             max_steps=max_steps, conditions=cfg.VALIDATION_CONDITIONS)
     if output_dir:
         append_jsonl(os.path.join(output_dir, "validation_metrics.jsonl"),
                      records)

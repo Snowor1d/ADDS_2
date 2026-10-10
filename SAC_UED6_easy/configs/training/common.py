@@ -118,6 +118,10 @@ ALPHA_MIN = 0.05
 #              was. With "all", one critic pass re-draws the whole team.
 ACTOR_UPDATE_ROBOTS = "all"         # "all" | "one"
 ACTOR_TEAMMATE_ACTIONS = "stored"   # "stored" | "current"
+# "expectation": enumerate each actor's modes and the target's joint modes.
+# "gumbel": original hard straight-through Gumbel-Softmax estimator.
+# Rollouts always execute one categorical mode; expectation is for learning.
+SAC_MODE_ESTIMATOR = "expectation"   # "expectation" | "gumbel"
 
 ENABLE_TIMER = True
 N_ENVS = 12
@@ -248,23 +252,21 @@ REPLAY_STATIC_DIR = "replay_static"
 #              parameters in configs/training/ued.py
 TRAIN_MAP_SOURCE = "dataset"        # "dataset" | "ued"
 
-# Validation: generated levels at fixed seeds, per size and difficulty. Models
-# are selected on these and nothing else. Evaluated in a separate process on a
-# frozen copy of the policy, paired with the signal-off control on the same
-# seeds; the control does not depend on the policy and is computed once.
+# Validation: generated levels at fixed seeds, per size and difficulty.
+# A frozen policy is evaluated in a separate process under four conditions;
+# off/shuttle baselines are cached. Best-model selection uses deterministic
+# policy's paired person-time reduction against off.
 VALIDATION_SIZES_M = (100, 200, 400)
 VALIDATION_DIFFICULTIES = (2, 4, 6)
 VALIDATION_SEEDS_PER_CELL = 1
 VALIDATION_SEED_BASE = 950_000
 VALIDATION_ROBOT_COUNTS = (1, 2, 3)
-VALIDATION_CYCLE_EPISODE = 5000
-# Whether training evaluates at all. False skips periodic validation entirely:
-# no evaluation process is started, no validation levels are built, and no
-# best_validation.pth is written (the routine checkpoints every 100 episodes
-# are still saved, so a model can be validated afterwards). The final zero-shot
-# never runs during training in either case; it is run by hand with
-# cli/final_zero_shot.py.
-PERIODIC_VALIDATION = False
+VALIDATION_CYCLE_EPISODE = 500
+VALIDATION_CONDITIONS = ("off_zero_command", "shuttle",
+                         "policy_stochastic", "policy_deterministic")
+# False skips evaluation and best_validation.pth selection. Final zero-shot
+# remains a separate CLI evaluation after model selection.
+PERIODIC_VALIDATION = True
 
 # Generation and hazard seeds training may never draw: the validation block
 # above and the final zero-shot block below.
@@ -333,7 +335,7 @@ WANDB_GROUP = None                  # None = EXPERIMENT_ID
 # "outdoor-madrl-v2-dataset-100m-0924-1530". A run started from a checkpoint
 # as a new run (see the resume rule in learn/metrics_logger.py) gets
 # "-resume<episode>" appended either way; a run that carries on keeps its name.
-WANDB_RUN_NAME = "easy-sanity-fullinfo-1robot-fixed4s"
+WANDB_RUN_NAME = "easy-sanity-fullinfo-3robots-ModeExpectation"
 # Only models chosen on validation are uploaded, never the replay buffer or
 # every periodic checkpoint.
 WANDB_UPLOAD_CHECKPOINTS = "selected"   # "none" | "selected"

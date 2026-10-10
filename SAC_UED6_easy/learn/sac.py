@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import os
 import random
+from itertools import product
 from typing import Dict, Optional
 
 import numpy as np
@@ -139,6 +140,51 @@ class SACAgent:
         hold = batch["hold"].repeat_interleave(N)
         return discounted_return(flat, hold, g_step).reshape(B, N)
 
+    def _per_robot_hybrid(self, obs, mask):
+        B, N = mask.shape
+        flat = {k: obs[k].reshape(B * N, *obs[k].shape[2:]) for k in OBS_KEYS}
+        values = self.policy.sample_hybrid(*(flat[k] for k in OBS_KEYS))
+        return tuple(v.reshape(B, N, *v.shape[1:]) for v in values)
+
+    def _expected_next_value(self, obs, mask, per_robot):
+        """Exact joint categorical expectation, conditional on sampled moves.
+
+        Take the clipped double-Q minimum inside the expectation. In team
+        reward mode, reduce over robots before taking that minimum.
+        """
+        cont, logpc, probs, logpm = self._per_robot_hybrid(obs, mask)
+        B, N, K = probs.shape
+        active = torch.nonzero(mask.any(dim=0), as_tuple=False).flatten().tolist()
+        shape = (B, N) if per_robot else (B,)
+        expected_q = cont.new_zeros(shape)
+        critics = (self.q1_target, self.q2_target)
+        features = [q.encode_observation(obs) if isinstance(q, CentralizedCritic)
+                    else None for q in critics]
+        for modes in product(range(K), repeat=len(active)):
+            indices = torch.zeros(B, N, dtype=torch.long, device=cont.device)
+            for j, mode in zip(active, modes):
+                indices[:, j] = mode
+            one_hot = F.one_hot(indices, K).to(cont.dtype)
+            action = torch.cat((cont, one_hot), dim=-1)
+            selected = probs.gather(-1, indices.unsqueeze(-1)).squeeze(-1)
+            factors = torch.where(mask.bool(), selected, torch.ones_like(selected))
+            for j in active:
+                # A padded slot in a mixed-size batch is still enumerated;
+                # divide out its K identical copies rather than overcounting.
+                factors[:, j] = torch.where(mask[:, j].bool(), selected[:, j],
+                                            torch.full_like(selected[:, j], 1.0 / K))
+            weight = factors.prod(-1)
+            q1, q2 = [q.values_from_features(f, action, mask) if f is not None
+                      else q(obs, action, mask) for q, f in zip(critics, features)]
+            if not per_robot:
+                q1, q2 = team_value(q1, mask), team_value(q2, mask)
+            q = torch.min(q1, q2)
+            expected_q += q * (weight[:, None] if per_robot else weight)
+        expected_logp = logpc + (probs * logpm).sum(-1)
+        if not per_robot:
+            expected_logp = team_value(expected_logp, mask)
+        return expected_q - self.alpha * expected_logp
+
     def robot_targets(self, batch) -> torch.Tensor:
         """(B, N) y_i = R_task + R_collision,i + gamma_step^k (1 - terminal)
         [min_k Q_k,i(s', a') - alpha * log pi(a'_i|s'_i)]."""
@@ -146,10 +192,13 @@ class SACAgent:
         obs2 = batch["next_obs"]
         m2 = batch["next_mask"]
         with torch.no_grad():
-            a2, logp2 = self._per_robot_actions(obs2, m2)
-            q1 = self.q1_target(obs2, a2, m2)
-            q2 = self.q2_target(obs2, a2, m2)
-            v2 = torch.min(q1, q2) - self.alpha * logp2
+            if cfg.SAC_MODE_ESTIMATOR == "expectation":
+                v2 = self._expected_next_value(obs2, m2, per_robot=True)
+            else:
+                a2, logp2 = self._per_robot_actions(obs2, m2)
+                q1 = self.q1_target(obs2, a2, m2)
+                q2 = self.q2_target(obs2, a2, m2)
+                v2 = torch.min(q1, q2) - self.alpha * logp2
             g_step = self.gamma ** (1.0 / max(1, int(cfg.ACTION_SCALE)))
             r_task = discounted_return(batch["step_rewards"], batch["hold"],
                                        g_step)
@@ -165,11 +214,14 @@ class SACAgent:
         obs2 = batch["next_obs"]
         m2 = batch["next_mask"]
         with torch.no_grad():
-            a2, logp2 = self._per_robot_actions(obs2, m2)
-            q1 = team_value(self.q1_target(obs2, a2, m2), m2)
-            q2 = team_value(self.q2_target(obs2, a2, m2), m2)
-            ent = team_value(logp2, m2)
-            v2 = torch.min(q1, q2) - self.alpha * ent
+            if cfg.SAC_MODE_ESTIMATOR == "expectation":
+                v2 = self._expected_next_value(obs2, m2, per_robot=False)
+            else:
+                a2, logp2 = self._per_robot_actions(obs2, m2)
+                q1 = team_value(self.q1_target(obs2, a2, m2), m2)
+                q2 = team_value(self.q2_target(obs2, a2, m2), m2)
+                ent = team_value(logp2, m2)
+                v2 = torch.min(q1, q2) - self.alpha * ent
             g_step = self.gamma ** (1.0 / max(1, int(cfg.ACTION_SCALE)))
             return (discounted_return(batch["step_rewards"], batch["hold"],
                                       g_step)
@@ -256,13 +308,19 @@ class SACAgent:
                    if loss_alpha is not None else {})}
 
     def _team_q_min(self, obs, actions, mask):
-        return torch.min(team_value(self.q1(obs, actions, mask), mask),
-                         team_value(self.q2(obs, actions, mask), mask))
+        return torch.min(team_value(self._actor_q(self.q1, obs, actions, mask), mask),
+                         team_value(self._actor_q(self.q2, obs, actions, mask), mask))
 
     def _robot_q_min(self, obs, actions, mask, j):
         """(B,) robot j's own value, the smaller of the two critics."""
-        return torch.min(self.q1(obs, actions, mask)[:, j],
-                         self.q2(obs, actions, mask)[:, j])
+        return torch.min(self._actor_q(self.q1, obs, actions, mask)[:, j],
+                         self._actor_q(self.q2, obs, actions, mask)[:, j])
+
+    def _actor_q(self, critic, obs, actions, mask):
+        features = getattr(self, "_actor_critic_features", {}).get(id(critic))
+        if features is not None:
+            return critic.values_from_features(features, actions, mask)
+        return critic(obs, actions, mask)
 
     def _actor_loss(self, obs, act, mask, agent_index):
         """(loss, log-probabilities of the differentiated actions, flat over
@@ -275,6 +333,11 @@ class SACAgent:
         for p in critics:
             p.requires_grad_(False)
         try:
+            if cfg.SAC_MODE_ESTIMATOR == "expectation":
+                self._actor_critic_features = {
+                    id(q): q.encode_observation(obs) for q in (self.q1, self.q2)
+                    if isinstance(q, CentralizedCritic)}
+                return self._expected_actor_loss(obs, act, mask, agent_index)
             if cfg.ACTOR_TEAMMATE_ACTIONS == "current":
                 with torch.no_grad():
                     base, _ = self._per_robot_actions(obs, mask)
@@ -323,8 +386,49 @@ class SACAgent:
                 total = total + (term * valid.float()).sum()
             return total / count, logp_all[real]
         finally:
+            self._actor_critic_features = {}
             for p in critics:
                 p.requires_grad_(True)
+
+    def _expected_actor_loss(self, obs, act, mask, agent_index):
+        """Enumerate this robot's modes against fixed teammate actions."""
+        cfg = self.cfg
+        if cfg.ACTOR_TEAMMATE_ACTIONS == "current":
+            with torch.no_grad():
+                base, _ = self._per_robot_actions(obs, mask)
+        else:
+            base = act
+        cont, logpc, probs, logpm = self._per_robot_hybrid(obs, mask)
+        B, N, K = probs.shape
+        real = mask > 0
+        chosen = real.clone()
+        if cfg.ACTOR_UPDATE_ROBOTS == "one":
+            chosen.zero_()
+            chosen.scatter_(1, agent_index.clamp(0, N - 1)[:, None], True)
+            chosen &= real
+        total = cont.new_zeros(())
+        for j in range(N):
+            valid = chosen[:, j]
+            if not bool(valid.any()):
+                continue
+            expected = cont.new_zeros(B)
+            for mode in range(K):
+                one_hot = cont.new_zeros(B, K)
+                one_hot[:, mode] = 1.0
+                mixed = base.clone()
+                mixed[:, j] = torch.cat((cont[:, j], one_hot), dim=-1)
+                q = (self._robot_q_min(obs, mixed, mask, j) if self.own_collision
+                     else self._team_q_min(obs, mixed, mask))
+                # Preserve the original joint-current team objective's Q
+                # gradient scale when averaging all robots' entropy terms.
+                if (not self.own_collision and cfg.ACTOR_UPDATE_ROBOTS == "all"
+                        and cfg.ACTOR_TEAMMATE_ACTIONS == "current"):
+                    q = q * mask.sum(-1)
+                expected += probs[:, j, mode] * (
+                    self.alpha * (logpc[:, j] + logpm[:, j, mode]) - q)
+            total += (expected * valid).sum()
+        expected_logp = logpc + (probs * logpm).sum(-1)
+        return total / chosen.sum().clamp(min=1), expected_logp[chosen]
 
     def _soft_update(self, net, target):
         with torch.no_grad():
@@ -351,6 +455,7 @@ class SACAgent:
             "q2_target": self.q2_target.state_dict(),
             "q_opt": self.q_opt.state_dict(), "pi_opt": self.pi_opt.state_dict(),
             "updates": self.updates, "epsilon": self.epsilon,
+            "sac_mode_estimator": self.cfg.SAC_MODE_ESTIMATOR,
             "log_alpha": float(self.log_alpha.item()),
             "alpha_opt": (self.alpha_opt.state_dict()
                           if self.alpha_opt is not None else None),

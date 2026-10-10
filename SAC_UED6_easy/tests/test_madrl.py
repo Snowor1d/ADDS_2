@@ -83,7 +83,7 @@ def _fill(cfg, buffer, store, agent, episodes=((1, 40), (2, 40), (3, 40)),
 class TeamQTest(unittest.TestCase):
     def test_target_takes_the_minimum_after_the_team_mean(self):
         from learn.sac import SACAgent, discounted_return
-        cfg = _cfg()
+        cfg = _cfg(SAC_MODE_ESTIMATOR="gumbel")
         agent = SACAgent(cfg)
         B, N = 2, cfg.MAX_ROBOTS
         mask = torch.tensor([[1.0, 1.0, 0.0], [1.0, 0.0, 0.0]])
@@ -352,7 +352,9 @@ class ActorUpdateModeTest(unittest.TestCase):
             agent.update(batch)
             N = int(np.asarray(batch["mask"]).shape[1])
             real_slots = int((np.asarray(batch["mask"]) > 0).any(0).sum())
-            self.assertEqual(calls["n"], real_slots)
+            mode_calls = (len(agent.cfg.ROBOT_MODES)
+                          if agent.cfg.SAC_MODE_ESTIMATOR == "expectation" else 1)
+            self.assertEqual(calls["n"], real_slots * mode_calls)
             self.assertLessEqual(real_slots, N)
 
     def test_invalid_settings_are_refused(self):

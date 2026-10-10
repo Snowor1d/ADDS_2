@@ -129,7 +129,9 @@ class ConfigSplitTest(unittest.TestCase):
 
     def test_full_information_actor_needs_its_own_run(self):
         with self.assertRaises(ConfigError):
-            resolve_config({"ACTOR_GLOBAL_CROWD_TRUTH": True},
+            resolve_config({"ACTOR_GLOBAL_CROWD_TRUTH": True,
+                            "LOG_DIR": "Log_SAC_UED6_easy_partial",
+                            "EXPERIMENT_ID": "easy-partial"},
                            check_data=False)
         resolve_config({"ACTOR_GLOBAL_CROWD_TRUTH": True,
                         "EXPERIMENT_ID": "outdoor-madrl-v2-fullinfo",
