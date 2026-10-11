@@ -252,18 +252,24 @@ REPLAY_STATIC_DIR = "replay_static"
 #              parameters in configs/training/ued.py
 TRAIN_MAP_SOURCE = "dataset"        # "dataset" | "ued"
 
-# Validation: generated levels at fixed seeds, per size and difficulty.
-# A frozen policy is evaluated in a separate process under four conditions;
-# off/shuttle baselines are cached. Best-model selection uses deterministic
-# policy's paired person-time reduction against off.
-VALIDATION_SIZES_M = (100, 200, 400)
-VALIDATION_DIFFICULTIES = (2, 4, 6)
-VALIDATION_SEEDS_PER_CELL = 1
+# Validation: OSM crops VALIDATION_SITES x VALIDATION_SIZES_M, each turned
+# into VALIDATION_SEEDS_PER_SITE tasks by the training task sampler
+# (learn/training_maps.py, DATASET_* task ranges) at fixed seeds. None means
+# the training value (DATASET_SITES, DATASET_SIZES_M): same buildings as
+# training, fresh hazards and crowds, so it measures fit, not generalisation.
+# Naming sites outside DATASET_SITES makes it a held-out validation instead.
+# Either way the final zero-shot crop may not be used.
+# A frozen policy is evaluated in a separate process under the conditions
+# below; off/shuttle baselines are cached. Best-model selection uses the
+# deterministic policy's paired person-time reduction against off.
+VALIDATION_SITES = None            # None = DATASET_SITES  #VALIDATION_SITES = ("gangnam_superblock", "kreuzberg")
+VALIDATION_SIZES_M = None          # None = DATASET_SIZES_M
+VALIDATION_SEEDS_PER_SITE = 3
 VALIDATION_SEED_BASE = 950_000
-VALIDATION_ROBOT_COUNTS = (1, 2, 3)
+VALIDATION_ROBOT_COUNTS = (3,)
 VALIDATION_CYCLE_EPISODE = 500
 VALIDATION_CONDITIONS = ("off_zero_command", "shuttle",
-                         "policy_stochastic", "policy_deterministic")
+                         "policy_deterministic")
 # False skips evaluation and best_validation.pth selection. Final zero-shot
 # remains a separate CLI evaluation after model selection.
 PERIODIC_VALIDATION = True
@@ -335,7 +341,7 @@ WANDB_GROUP = None                  # None = EXPERIMENT_ID
 # "outdoor-madrl-v2-dataset-100m-0924-1530". A run started from a checkpoint
 # as a new run (see the resume rule in learn/metrics_logger.py) gets
 # "-resume<episode>" appended either way; a run that carries on keeps its name.
-WANDB_RUN_NAME = "easy-sanity-fullinfo-3robots-ModeExpectation"
+WANDB_RUN_NAME = "261011(NewEnv)-easy-sanity-fullinfo-3robots-ModeExpectation"
 # Only models chosen on validation are uploaded, never the replay buffer or
 # every periodic checkpoint.
 WANDB_UPLOAD_CHECKPOINTS = "selected"   # "none" | "selected"

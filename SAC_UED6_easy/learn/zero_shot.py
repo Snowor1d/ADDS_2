@@ -3,7 +3,8 @@ report and the final zero-shot, all through one episode function.
 
 docs/outdoor_madrl_redesign.md section 7 and docs/zero_shot_evaluation.md.
 
-  validation   generated levels at fixed seeds (VALIDATION_*), 100/200/400 m.
+  validation   OSM crops (VALIDATION_SITES, default the training ones) with
+               fixed-seed tasks (VALIDATION_*).
                The only thing models are selected on.
   auxiliary    the four OSM crops in ZSG_REAL_SITES, a report only.
   final        one pre-registered OSM crop (FINAL_ZERO_SHOT_*), run once on a
@@ -55,6 +56,26 @@ class EpisodeMetrics:
     active_occupancy_step_sum: float = 0.0
     final_occupancy: float = 0.0
     steps: int = 0
+    # Activity stays (docs/crowd_activity_design.md section 5). Person-steps
+    # spent standing at a destination, and of those inside the true hazard;
+    # the re-entry share is stays begun inside it after having acted.
+    activity_dwell_person_steps: int = 0
+    activity_dwell_hazard_person_steps: int = 0
+    reentry_dwell_hazard_person_steps: int = 0
+    shelter_wait_person_steps: int = 0
+    activity_started_initial: int = 0
+    activity_initial_inside: int = 0
+    activity_started_arrival: int = 0
+    activity_started_reentry: int = 0
+    activity_completed: int = 0
+    activity_cancelled: int = 0
+    activity_cancelled_acting: int = 0
+    activity_cancelled_robot_follow: int = 0
+    activity_cancelled_believed_danger: int = 0
+    activity_cancelled_flow_departure: int = 0
+    # Still mid-stay at the last observed step: cut off by the episode end,
+    # not completed.
+    activity_unfinished: int = 0
 
     def observe(self, model, outside_before: set) -> set:
         """Record one post-step state; outflow is not a re-entry."""
@@ -98,11 +119,42 @@ class EpisodeMetrics:
         self.active_occupancy_step_sum += inside / max(1, len(active_ids))
         self.hazard_person_steps += inside
         self.steps += 1
+        self._observe_activity(model, active, zone)
         if inside == 0 and self.first_empty_step is None:
             self.first_empty_step = int(model.step_count)
         if model.is_cleared_and_held() and self.held_clear_step is None:
             self.held_clear_step = int(model.cleared_at() or model.step_count)
         return outside
+
+    def _observe_activity(self, model, active, zone) -> None:
+        dwelling = 0
+        for person in active.values():
+            reason = getattr(person, "_dwell_reason", None)
+            if reason == "shelter":
+                self.shelter_wait_person_steps += 1
+                continue
+            if reason != "activity":
+                continue
+            dwelling += 1
+            self.activity_dwell_person_steps += 1
+            if zone.contains(float(person.xy[0]), float(person.xy[1])):
+                self.activity_dwell_hazard_person_steps += 1
+                if getattr(person, "_activity_reentry", False):
+                    self.reentry_dwell_hazard_person_steps += 1
+        self.activity_unfinished = dwelling
+        counts = getattr(model, "activity_counts", None) or {}
+        self.activity_started_initial = int(counts.get("started_initial", 0))
+        self.activity_initial_inside = int(counts.get("initial_inside", 0))
+        self.activity_started_arrival = int(counts.get("started_arrival", 0))
+        self.activity_started_reentry = int(counts.get("started_reentry", 0))
+        self.activity_completed = int(counts.get("completed", 0))
+        cancelled = 0
+        for reason in ("acting", "robot_follow", "believed_danger",
+                       "flow_departure"):
+            n = int(counts.get(f"cancelled_{reason}", 0))
+            setattr(self, f"activity_cancelled_{reason}", n)
+            cancelled += n
+        self.activity_cancelled = cancelled
 
     # Step interface for learn.rollout.run_episode.
     def start(self, model) -> "EpisodeMetrics":
@@ -239,66 +291,29 @@ def _walkable_m2(model) -> float:
 
 # ----------------------------------------------------------- validation set
 
-VALIDATION_CACHE = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "ued_validation_levels.json")
-VALIDATION_CACHE_VERSION = 1
+def validation_levels(cfg) -> List[Tuple[str, object]]:
+    """The fixed validation levels: every crop in validation_crops(cfg),
+    turned into VALIDATION_SEEDS_PER_SITE tasks by the training sampler at
+    fixed seeds.
 
-
-def _validation_spec(cfg) -> dict:
-    from configs import validation_seeds
-    return {"version": VALIDATION_CACHE_VERSION,
-            "seeds": {f"{s}_{d}_{k}": v
-                      for (s, d, k), v in validation_seeds(cfg).items()},
-            "density": [list(cfg.CROWD_DENSITY_RANGE),
-                        {str(k): v for k, v in
-                         cfg.UED_DENSITY_BY_SIZE.items()}],
-            "crowd_cap": list(cfg.CROWD_SIZE_LIMIT),
-            # The generator draws each validation level's task from the UED
-            # parameters, so a change there is a different validation set.
-            "task": {k: _jsonable(cfg[k]) for k in (
-                "UED_DANGER_AREA_RANGE", "UED_DANGER_SHAPES",
-                "UED_DANGER_INSIDE_FRACTION", "UED_DANGER_PERCEPTIBILITY",
-                "UED_PRIOR_INFORMED_FRACTION", "UED_ROBOT_RANGE",
-                "UED_DIFFICULTY_RANGE", "UED_MORPHOLOGY_WEIGHTS")}}
-
-
-def _jsonable(v):
-    return json.loads(json.dumps(v, default=str))
-
-
-def validation_levels(cfg, rebuild: bool = False) -> List[Tuple[str, object]]:
-    """The fixed generated validation levels, built once and cached.
-
-    A cache built under a different seed list or density band is rebuilt, not
-    reused: the metric names would otherwise refer to a different set.
+    Tasks use the DATASET_* ranges, so a change to them, or to the training
+    sites while VALIDATION_SITES is None, is a change to the validation set.
+    The sampler is deterministic given its seed, so nothing is cached on disk.
     """
-    from configs import validation_seeds
-    from ued.holdout import _deserialise, _serialise
-    from ued.level import generate_city_level
+    from configs import validation_crops, validation_seeds
+    from learn.training_maps import OsmTrainingMaps
 
-    spec = _validation_spec(cfg)
-    if os.path.exists(VALIDATION_CACHE) and not rebuild:
-        try:
-            with open(VALIDATION_CACHE) as fh:
-                payload = json.load(fh)
-            if payload.get("spec") == spec:
-                levels = _deserialise(payload["levels"])
-                return list(zip(payload["names"], levels))
-        except Exception as exc:
-            print(f"[validation] cache unreadable ({exc}); rebuilding")
+    maps = OsmTrainingMaps(cfg, *validation_crops(cfg))
     names, levels = [], []
-    for (size, difficulty, k), seed in sorted(validation_seeds(cfg).items()):
-        lv = generate_city_level(rng=random.Random(seed),
-                                 difficulty=int(difficulty), crowd_size=None,
-                                 width=int(size), height=int(size), seed=seed)
-        lv.augmentation = "identity"
-        names.append(f"val_{size}m_d{difficulty}_{k}")
+    for (site, size, k), seed in sorted(validation_seeds(cfg).items(),
+                                        key=lambda kv: kv[1]):
+        lv = maps.make_level((site, size), random.Random(seed))
+        if lv is None:
+            raise RuntimeError(f"validation seed {seed} could not place a "
+                               f"hazard on {site} {size} m")
+        lv.source_seed = seed
+        names.append(f"val_{site}_{size}m_{k}")
         levels.append(lv)
-    with open(VALIDATION_CACHE + ".tmp", "w") as fh:
-        json.dump({"spec": spec, "names": names,
-                   "levels": _serialise(levels)}, fh)
-    os.replace(VALIDATION_CACHE + ".tmp", VALIDATION_CACHE)
     return list(zip(names, levels))
 
 
@@ -316,7 +331,11 @@ SUMMARY_KEYS = ("hazard_person_steps", "reentries", "reentries_after_clear",
                 "informed_trip_outflows",
                 "background_departures", "stuck_releases", "actual_density",
                 "inference_ms_mean", "total_reward", "command_norm_mean",
-                "robot_speed_mean", "mode_switch_rate")
+                "robot_speed_mean", "mode_switch_rate",
+                "activity_dwell_hazard_person_steps",
+                "reentry_dwell_hazard_person_steps",
+                "activity_initial_inside", "activity_cancelled",
+                "activity_unfinished")
 
 
 def paired_records(agent, scenarios, cfg, episode: int, seeds_for,

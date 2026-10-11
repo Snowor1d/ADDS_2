@@ -18,6 +18,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 from config import *
 import config as _config
+from sim import dwell as _dwell
 from configs import decision_max_steps as _decision_max_steps
 
 # How far choice_safe_mesh will look for a walkable mesh, in grid cells.
@@ -92,9 +93,19 @@ class CrowdAgent(Agent):
         self.robot_lead_mode = None
 
         # Where this pedestrian is going while it knows nothing about the
-        # hazard, and how long it stays when it gets there. See od.py.
-        self._dwell_until = 0
+        # hazard, and how long it stays when it gets there. See od.py and
+        # docs/crowd_activity_design.md. Two different waits, kept apart:
+        # an activity stay at a destination (ended at once by starting to
+        # act on the hazard or following a robot) and waiting for a route
+        # that avoids believed danger (shortened when it learns more).
+        # `_dwelling` is "standing still on purpose this step", either one;
+        # `_dwell_reason` says which.
+        self._activity_until = 0
+        self._shelter_until = 0
+        self._activity_draws = 0        # stays drawn so far (stream index)
+        self._activity_reentry = False  # this stay began inside the hazard after acting
         self._dwelling = False
+        self._dwell_reason = None       # "activity" | "shelter" | None
         # Once outside the ground it believes dangerous: leave the crop or
         # resume trips, drawn once (see _belief_route_goal).
         self.post_safe_intent = None  # depart | continue
@@ -1448,7 +1459,7 @@ class CrowdAgent(Agent):
         self.is_effected_by_robot = 1
         self.following_robot_id = rb.unique_id
         self.robot_lead_mode = getattr(rb, "mode", "guide")
-        self._dwelling = False
+        self._cancel_activity("robot_follow")
         if self.awareness != "acting":
             if self.cued_at is None:
                 self.cued_at = int(getattr(self.model, "step_count", 0))
@@ -1463,7 +1474,8 @@ class CrowdAgent(Agent):
         self.following_robot_id = None
         self.robot_lead_mode = None
         self.now_pointing_mesh = None
-        self._dwell_until = 0
+        self._activity_until = 0
+        self._shelter_until = 0
         self._plan_version = -1
 
     def _sense_hazard(self) -> bool:
@@ -1863,6 +1875,7 @@ class CrowdAgent(Agent):
             if self.act_after <= 0.0:
                 self.awareness = "acting"
                 self.ever_acted = True
+                self._cancel_activity("acting")
 
     def _flow_heading(self, neighbors):
         """The heading of the acting people in sight whose direction has a
@@ -1929,7 +1942,7 @@ class CrowdAgent(Agent):
         scripted = getattr(self, "scripted_goal", None)
         if scripted is not None:
             self.now_goal = [float(scripted[0]), float(scripted[1])]
-            self._dwelling = False
+            self._stand(None)
             return
 
         # The same hook, but routed through the navmesh instead of straight at
@@ -1941,7 +1954,7 @@ class CrowdAgent(Agent):
         target = getattr(self, "scripted_mesh", None)
         if target is not None:
             self.type = 1
-            self._dwelling = False
+            self._stand(None)
             self.now_pointing_mesh = target
             self.now_goal = self._explore_randomly(self._here_mesh())
             return
@@ -1969,7 +1982,7 @@ class CrowdAgent(Agent):
                         vx, vy = getattr(rb, "vel", (0.0, 0.0))
                         self.now_goal = [float(self.xy[0]) + 2.0 * float(vx),
                                          float(self.xy[1]) + 2.0 * float(vy)]
-                self._dwelling = False
+                self._stand(None)
                 self.responding = True
                 return
             self._stop_following()
@@ -2001,11 +2014,12 @@ class CrowdAgent(Agent):
                     if gate is not None:
                         self._leaving_with_flow = True
                         self.now_pointing_mesh = gate
-                        self._dwell_until = 0
+                        self._cancel_activity("flow_departure")
+                        self._shelter_until = 0
                         self.responding = True
                         self._trip_goal()
                         return
-                    self._dwelling = False
+                    self._stand(None)
                     self.now_goal = goal
                     self.responding = True
                     return
@@ -2058,8 +2072,9 @@ class CrowdAgent(Agent):
                 self.now_pointing_mesh = self._escape_mesh()
                 self._plan_version = self._memory_version
                 self._escaping = True
-            self._dwelling = False
-            self._dwell_until = 0
+            self._cancel_activity("believed_danger")
+            self._shelter_until = 0
+            self._stand(None)
             if self.now_pointing_mesh is None:
                 self.now_goal = [self.xy[0], self.xy[1]]
                 return
@@ -2084,8 +2099,8 @@ class CrowdAgent(Agent):
             if (self.now_pointing_mesh is not None and not on_accepted
                     and self._safe_route(self.now_pointing_mesh) is None):
                 self.now_pointing_mesh = None
-            self._dwell_until = min(self._dwell_until,
-                                    int(getattr(self.model, "step_count", 0)))
+            self._shelter_until = min(self._shelter_until,
+                                      int(getattr(self.model, "step_count", 0)))
         self._trip_goal()
         self.responding = (self.post_safe_intent == "depart"
                            and not self._dwelling)
@@ -2184,6 +2199,70 @@ class CrowdAgent(Agent):
         self._accepting_exposure = True
         return best[1]
 
+    # ---- activity stays (docs/crowd_activity_design.md) -------------------
+
+    def _stand(self, reason) -> None:
+        """Set why this pedestrian stands still this step: "activity",
+        "shelter" or None (it is moving)."""
+        self._dwell_reason = reason
+        self._dwelling = reason is not None
+
+    def _count_activity(self, key: str) -> None:
+        counts = getattr(self.model, "activity_counts", None)
+        if counts is not None:
+            counts[key] = counts.get(key, 0) + 1
+
+    def _next_activity_s(self, residual: bool = False) -> float:
+        """Seconds of this pedestrian's next stay, from its own stream."""
+        rng = _dwell.stream(getattr(self.model, "dwell_seed", 0),
+                            self.unique_id, self._activity_draws)
+        self._activity_draws += 1
+        mod = sys.modules[__name__]
+        return (_dwell.sample_residual_s(rng, mod) if residual
+                else _dwell.sample_s(rng, mod))
+
+    def _begin_activity(self, step: int) -> None:
+        """Arrived at a destination: draw this stay once."""
+        secs = self._next_activity_s()
+        self._activity_until = step + _dwell.to_steps(secs, AGENT_TIME_STEP)
+        zone = getattr(self.model, "danger_zone", None)
+        self._activity_reentry = bool(
+            self.ever_acted and zone is not None
+            and zone.contains(float(self.xy[0]), float(self.xy[1])))
+        self._count_activity("started_arrival")
+        if self._activity_reentry:
+            self._count_activity("started_reentry")
+
+    def initial_dweller_draw(self) -> float:
+        """Uniform draw deciding whether this pedestrian starts mid-stay;
+        its own stream, so it does not shift any other draw."""
+        return _dwell.stream(getattr(self.model, "dwell_seed", 0),
+                             self.unique_id, -1).random()
+
+    def begin_initial_activity(self) -> None:
+        """Start the episode partway through a stay, where it stands, with
+        the stationary residual of the dwell distribution left to run."""
+        secs = self._next_activity_s(residual=True)
+        step = int(getattr(self.model, "step_count", 0))
+        self._activity_until = step + max(1, _dwell.to_steps(
+            secs, AGENT_TIME_STEP))
+        self._activity_reentry = False
+        self._stand("activity")
+        self.now_goal = [self.xy[0], self.xy[1]]
+        self._count_activity("started_initial")
+
+    def _cancel_activity(self, reason: str) -> None:
+        """Starting to act on the hazard or following a robot ends a stay
+        at once, whatever the timer says (design section 4.2). The single
+        place a stay is cut short; a timer cancelled here never resumes."""
+        step = int(getattr(self.model, "step_count", 0))
+        if self._activity_until > step or self._dwell_reason == "activity":
+            self._count_activity(f"cancelled_{reason}")
+        self._activity_until = 0
+        self._activity_reentry = False
+        if self._dwell_reason == "activity":
+            self._stand(None)
+
     def _trip_goal(self) -> None:
         """Travel to the current destination; arrive, dwell, choose the next.
 
@@ -2219,17 +2298,24 @@ class CrowdAgent(Agent):
                 self._accepting_exposure = False
                 if self.model.arrive_at_destination(self, arrived):
                     return          # walked out of the crop
-                lo, hi = CROWD_DWELL_STEPS
-                self._dwell_until = step + random.randint(int(lo), int(hi))
+                self._begin_activity(step)
 
-        if step < self._dwell_until:
-            # Standing at a destination or waiting for a safe way on. Exempt
-            # from the wedge release, which exists for pedestrians that cannot
-            # move rather than for ones that are not trying to.
-            self._dwelling = True
+        if step < self._activity_until:
+            # Standing at a destination. Exempt from the wedge release, which
+            # exists for pedestrians that cannot move rather than for ones
+            # that are not trying to.
+            self._stand("activity")
             self.now_goal = [self.xy[0], self.xy[1]]
             return
-        self._dwelling = False
+        if self._dwell_reason == "activity":
+            self._count_activity("completed")
+            self._activity_reentry = False
+        if step < self._shelter_until:
+            # Waiting for a safe way on.
+            self._stand("shelter")
+            self.now_goal = [self.xy[0], self.xy[1]]
+            return
+        self._stand(None)
 
         if self.now_pointing_mesh is None:
             self._accepting_exposure = False
@@ -2237,8 +2323,8 @@ class CrowdAgent(Agent):
             if self.now_pointing_mesh is None:
                 if self._shelter_since is None:
                     self._shelter_since = step
-                self._dwell_until = step + int(CROWD_SHELTER_REPLAN_STEPS)
-                self._dwelling = True
+                self._shelter_until = step + int(CROWD_SHELTER_REPLAN_STEPS)
+                self._stand("shelter")
                 self.now_goal = [self.xy[0], self.xy[1]]
                 return
             self._shelter_since = None

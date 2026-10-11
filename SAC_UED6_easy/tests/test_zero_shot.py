@@ -2,6 +2,8 @@
 
 from types import SimpleNamespace
 
+import pytest
+
 from learn.zero_shot import EpisodeMetrics, validation_levels
 
 
@@ -95,15 +97,23 @@ def test_open_flow_exposure_and_departure_reasons_are_separate():
     assert result["mean_active_occupancy"] == 0.5
 
 
-def test_validation_set_spans_the_trained_sizes():
-    """Models are selected on generated levels at 100, 200 and 400 m, drawn
-    from seeds that training may never draw."""
+def test_validation_set_spans_the_training_crops():
+    """Models are selected on every training crop, each with fixed-seed
+    tasks drawn from seeds that training may never draw."""
     from configs import resolve_config, _reserved_seed
-    cfg = resolve_config(check_data=False)
-    levels = [level for _, level in validation_levels(cfg)]
-    assert {level.width for level in levels} == set(cfg.VALIDATION_SIZES_M)
-    assert {level.difficulty for level in levels} == set(cfg.VALIDATION_DIFFICULTIES)
+    cfg = resolve_config({"VALIDATION_SITES": None, "VALIDATION_SIZES_M": None},
+                         check_data=False)
+    named = validation_levels(cfg)
+    levels = [level for _, level in named]
+    assert {(level.site_key, int(level.width)) for level in levels} == {
+        (s, int(z)) for s in cfg.DATASET_SITES for z in cfg.DATASET_SIZES_M}
+    assert len(levels) == (len(cfg.DATASET_SITES) * len(cfg.DATASET_SIZES_M)
+                           * cfg.VALIDATION_SEEDS_PER_SITE)
     assert all(level.danger is not None for level in levels)
+    again = validation_levels(cfg)
+    assert [n for n, _ in again] == [n for n, _ in named]
+    assert all(a.danger.bounds() == b.danger.bounds() and a.crowd_size == b.crowd_size
+               for (_, a), (_, b) in zip(again, named))
     assert all(_reserved_seed(level.source_seed, cfg.TRAIN_RESERVED_SEED_RANGES)
                for level in levels)
 
@@ -161,7 +171,7 @@ def test_four_conditions_dispatch_cache_and_reproducible_stochastic_policy(monke
     cache={}
     records=z.paired_records(agent,[('fixed',level)],cfg,500,lambda name:(7,),
                             (3,),off_cache=cache,max_steps=8,
-                            conditions=cfg.VALIDATION_CONDITIONS)
+                            conditions=z.COMPARISON_CONDITIONS)
     assert {r['condition'] for r in records}==set(z.COMPARISON_CONDITIONS)
     assert len(cache)==2
     assert any(calls)
@@ -172,7 +182,7 @@ def test_four_conditions_dispatch_cache_and_reproducible_stochastic_policy(monke
         return original(*args,**kwargs)
     monkeypatch.setattr(z,'evaluate_level',counted)
     z.paired_records(agent,[('fixed',level)],cfg,1000,lambda name:(7,),
-                     (3,),off_cache=cache,max_steps=8,conditions=cfg.VALIDATION_CONDITIONS)
+                     (3,),off_cache=cache,max_steps=8,conditions=z.COMPARISON_CONDITIONS)
     assert set(cached_calls)=={'policy_stochastic','policy_deterministic'}
 
 
@@ -198,3 +208,16 @@ def test_shuttle_encodes_waypoint_speed_and_waits_in_seconds():
     policy.m.step_count=24
     move,mode,_=ra.decode(policy._act_one(0,robot))
     assert mode=='off' and move[0]>0  # depart at the next boundary, 12 seconds
+
+
+def test_validation_sites_can_be_named_and_exclude_the_final_site():
+    from configs import ConfigError, resolve_config
+    cfg = resolve_config(check_data=False)
+    site = cfg.DATASET_SITES[0]
+    named = validation_levels(resolve_config({"VALIDATION_SITES": (site,)},
+                                             check_data=False))
+    assert {level.site_key for _, level in named} == {site}
+    for bad in ({"VALIDATION_SITES": site}, {"VALIDATION_SITES": ()},
+                {"VALIDATION_SITES": (cfg.FINAL_ZERO_SHOT_SITE,)}):
+        with pytest.raises(ConfigError):
+            resolve_config(bad, check_data=False)

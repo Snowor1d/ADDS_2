@@ -429,7 +429,7 @@ def run_metadata(cfg, extra: Optional[dict] = None) -> dict:
         "code_version": code_version(),
         "map_split": {
             "train": _train_split(cfg),
-            "validation": {f"{s}m_d{d}_{k}": seed for (s, d, k), seed in
+            "validation": {f"{s}_{z}m_{k}": seed for (s, z, k), seed in
                            validation_seeds(cfg).items()},
             "final_zero_shot": {
                 "site": cfg.FINAL_ZERO_SHOT_SITE,

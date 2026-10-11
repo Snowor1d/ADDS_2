@@ -328,15 +328,25 @@ def _reserved_seed(seed: int, ranges: Iterable[Tuple[int, int]]) -> bool:
     return any(lo <= int(seed) < hi for lo, hi in ranges)
 
 
-def validation_seeds(cfg) -> Dict[Tuple[int, int, int], int]:
-    """(size, difficulty, k) -> generation seed for the validation levels."""
+def validation_crops(cfg) -> Tuple[Tuple[str, ...], Tuple[int, ...]]:
+    """The validation sites and sizes; None follows the training value."""
+    sites = (cfg.DATASET_SITES if cfg.VALIDATION_SITES is None
+             else cfg.VALIDATION_SITES)
+    sizes = (cfg.DATASET_SIZES_M if cfg.VALIDATION_SIZES_M is None
+             else cfg.VALIDATION_SIZES_M)
+    return tuple(str(s) for s in sites), tuple(int(z) for z in sizes)
+
+
+def validation_seeds(cfg) -> Dict[Tuple[str, int, int], int]:
+    """(site, size, k) -> task seed for the validation levels, one block of
+    ten per crop (learn.zero_shot.validation_levels)."""
+    sites, sizes = validation_crops(cfg)
     out = {}
-    for si, size in enumerate(cfg.VALIDATION_SIZES_M):
-        for difficulty in cfg.VALIDATION_DIFFICULTIES:
-            for k in range(int(cfg.VALIDATION_SEEDS_PER_CELL)):
-                out[(int(size), int(difficulty), k)] = (
-                    int(cfg.VALIDATION_SEED_BASE) + si * 1000
-                    + int(difficulty) * 10 + k)
+    for si, site in enumerate(sites):
+        for zi, size in enumerate(sizes):
+            for k in range(int(cfg.VALIDATION_SEEDS_PER_SITE)):
+                out[(str(site), int(size), k)] = (
+                    int(cfg.VALIDATION_SEED_BASE) + si * 100 + zi * 10 + k)
     return out
 
 
@@ -410,13 +420,17 @@ def validate_config(cfg: ResolvedConfig, check_data: bool = True) -> None:
                  "UED_AUGMENTATION_TRANSFORMS", "DATASET_SITES",
                  "DATASET_SIZES_M", "DATASET_DANGER_SHAPES",
                  "DATASET_AUGMENTATION_TRANSFORMS",
-                 "VALIDATION_SIZES_M", "VALIDATION_DIFFICULTIES",
                  "ZSG_REAL_SITES", "FINAL_ZERO_SHOT_HAZARD_SEEDS",
                  "FINAL_ZERO_SHOT_CROWD_SEEDS", "FINAL_ZERO_SHOT_HAZARD_SHAPES",
                  "SUPPORTED_CROP_SIZES_M"):
         if name in cfg and not isinstance(cfg[name], (tuple, list)):
             p.append(f"{name}={cfg[name]!r} must be a tuple (a one-element "
                      "tuple needs a comma)")
+    for name in ("VALIDATION_SITES", "VALIDATION_SIZES_M"):
+        if cfg[name] is not None and not (
+                isinstance(cfg[name], (tuple, list)) and cfg[name]):
+            p.append(f"{name}={cfg[name]!r} must be None or a non-empty "
+                     "tuple (a one-element tuple needs a comma)")
     if p:
         raise ConfigError("invalid configuration:\n  - " + "\n  - ".join(p))
 
@@ -429,8 +443,15 @@ def validate_config(cfg: ResolvedConfig, check_data: bool = True) -> None:
     _check(int(cfg.FINAL_ZERO_SHOT_SIZE_M) in sizes,
            f"FINAL_ZERO_SHOT_SIZE_M={cfg.FINAL_ZERO_SHOT_SIZE_M} is not one "
            f"of {sizes}", p)
-    for s in cfg.VALIDATION_SIZES_M:
-        _check(int(s) in sizes, f"VALIDATION_SIZES_M has {s}, not in {sizes}", p)
+    _check(1 <= int(cfg.VALIDATION_SEEDS_PER_SITE) <= 10,
+           "VALIDATION_SEEDS_PER_SITE must be in 1..10", p)
+    val_sites, val_sizes = validation_crops(cfg)
+    for s in val_sizes:
+        _check(s in sizes, f"VALIDATION_SIZES_M has {s}, not in {sizes}", p)
+    _check(len(val_sizes) <= 10, "at most ten VALIDATION_SIZES_M", p)
+    _check(str(cfg.FINAL_ZERO_SHOT_SITE) not in val_sites,
+           f"the final zero-shot site {cfg.FINAL_ZERO_SHOT_SITE} is also a "
+           "validation site", p)
 
     # Training mode. Each mode's own parameters are checked whichever is
     # active, so switching modes never uncovers a broken file.
@@ -583,6 +604,8 @@ def validate_config(cfg: ResolvedConfig, check_data: bool = True) -> None:
                  "ROBOT_SIGNAL_RADIUS_M", "MILLING_ROBOT_SPEEDUP",
                  "ROBOT_FOLLOW_STANDOFF_M"):
         _check(float(cfg[name]) > 0.0, f"{name}={cfg[name]} must be > 0", p)
+    from sim.dwell import dwell_config_problems
+    p.extend(dwell_config_problems(cfg))
     _check(int(cfg.CROWD_SHELTER_REPLAN_STEPS) >= 1,
            f"CROWD_SHELTER_REPLAN_STEPS={cfg.CROWD_SHELTER_REPLAN_STEPS} "
            "must be >= 1", p)
@@ -745,6 +768,8 @@ def _check_places(cfg: ResolvedConfig, p: list) -> None:
             for s in cfg.ZSG_REAL_SITES]
     used += [(s, int(z), "DATASET_SITES") for s in cfg.DATASET_SITES
              for z in cfg.DATASET_SIZES_M]
+    val_sites, val_sizes = validation_crops(cfg)
+    used += [(s, z, "VALIDATION_SITES") for s in val_sites for z in val_sizes]
     for site, size, owner in used:
         key = (site, size)
         lv = by_key.get(key)

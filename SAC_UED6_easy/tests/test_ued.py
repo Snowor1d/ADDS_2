@@ -2609,6 +2609,10 @@ class CrowdFlowTest(unittest.TestCase):
                     if not a.dead:
                         a.xy = [2.0, 70.0 + a.unique_id % 5]
                         a.vel = [0.0, 0.0]
+                        # Pinned, not staying there on purpose: an activity
+                        # stay (initial or on arrival) is exempt by design.
+                        a._activity_until = 0
+                        a._stand(None)
                 fm.step()
             self.assertTrue(all(a.dead for a in held))
             self.assertTrue(all(a.outflow_reason == "stuck_release"
@@ -2907,7 +2911,8 @@ class CrowdFlowTest(unittest.TestCase):
         person._trip_goal()
         self.assertTrue(person._dwelling)
         self.assertEqual(person.now_goal, [person.xy[0], person.xy[1]])
-        self.assertEqual(person._dwell_until,
+        self.assertEqual(person._dwell_reason, "shelter")
+        self.assertEqual(person._shelter_until,
                          int(fm.step_count) + int(CROWD_SHELTER_REPLAN_STEPS))
     def test_release_from_a_robot_drops_the_stale_destination(self):
         fm = self._model(seed=13)
@@ -3162,7 +3167,8 @@ class StuckOutflowTest(unittest.TestCase):
                     if not a.dead:
                         a.xy = [2.0, held_y[a.unique_id]]
                         a.vel = [0.0, 0.0]
-                        a._dwelling = False
+                        a._activity_until = 0
+                        a._stand(None)
                 # Test the outflow rule itself: normal movement can wander
                 # along the wall or intentionally dwell at a trip endpoint.
                 fm.step_count += 1

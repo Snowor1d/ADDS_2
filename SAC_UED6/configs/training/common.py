@@ -252,7 +252,7 @@ TRAIN_MAP_SOURCE = "dataset"        # "dataset" | "ued"
 # are selected on these and nothing else. Evaluated in a separate process on a
 # frozen copy of the policy, paired with the signal-off control on the same
 # seeds; the control does not depend on the policy and is computed once.
-VALIDATION_SIZES_M = (100, 200, 400)
+VALIDATION_SIZES_M = (200,)
 VALIDATION_DIFFICULTIES = (2, 4, 6)
 VALIDATION_SEEDS_PER_CELL = 1
 VALIDATION_SEED_BASE = 950_000

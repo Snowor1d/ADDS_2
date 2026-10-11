@@ -572,6 +572,16 @@ class FightingModel(Model):
         self.fill_outwalls(self.width, self.height)
         self.mesh_map()
         self.construct_map()
+        # Activity stays (docs/crowd_activity_design.md): each stay draws from
+        # its own stream keyed by this seed, so conditions run from the same
+        # seed (robots off, shuttle, policy) share them. Taken here, before
+        # anything that depends on what the robots do, from a hash of the
+        # generator's state rather than a draw, so every other draw (the crowd
+        # layout included) is what it was before stays existed.
+        import hashlib
+        self.dwell_seed = int(hashlib.sha256(
+            repr(random.getstate()).encode()).hexdigest()[:15], 16)
+        self.activity_counts = {}
         self.random_agent_distribute_outdoor(number_agents, 1)
         if (self.robot_version != 'N'):
             self.make_robot()
@@ -2237,6 +2247,15 @@ class FightingModel(Model):
             # gap between the two is the delay the robots work on.
             if random.random() < float(getattr(self, "danger_prior_informed", 0.0)):
                 a.receive_cue("prior")
+            # Partway through a stay where it was placed, so the starting
+            # layout, and how many start inside the hazard, do not depend on
+            # the dwell settings. Chosen from the pedestrian's own stream.
+            if a.initial_dweller_draw() < float(CROWD_INITIAL_DWELL_FRACTION):
+                a.begin_initial_activity()
+                zone = getattr(self, "danger_zone", None)
+                if zone is not None and zone.contains(float(x), float(y)):
+                    self.activity_counts["initial_inside"] = (
+                        self.activity_counts.get("initial_inside", 0) + 1)
             self.crowds.append(a)
             self.agent_num += 1
             self.schedule.add(a)

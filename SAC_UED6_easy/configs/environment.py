@@ -367,11 +367,28 @@ CROWD_GATE_GAP_M = 6.0
 # A destination nearer than this is not a trip. Without it a pedestrian
 # standing beside a street mouth picks that mouth and arrives immediately.
 CROWD_MIN_TRIP_M = 25.0
-# How long a pedestrian stays at a destination before setting off again, in
-# steps. Drawn uniformly. A dwelling pedestrian holds its position and is
-# exempt from the wedge release, which exists for pedestrians that cannot
-# move rather than for ones that are not trying to.
-CROWD_DWELL_STEPS = (10, 60)
+# Activity dwell: how long a pedestrian stays at a destination before setting
+# off again, in seconds, drawn afresh for every stay from the distribution
+# below truncated to the range (never clipped into it). A dwelling pedestrian
+# holds its position and is exempt from the wedge release, which exists for
+# pedestrians that cannot move rather than for ones that are not trying to.
+# Starting to act on the hazard, or following a robot, ends the stay at once.
+# docs/crowd_activity_design.md. Not measured: 30-600 s is a scenario
+# assumption chosen to give the robots people to move. [sensitivity]
+# The previous behaviour was CROWD_DWELL_STEPS = (10, 60) at 0.5 s a step:
+# CROWD_DWELL_RANGE_S = (5.0, 30.0), "uniform", CROWD_INITIAL_DWELL_FRACTION 0.
+CROWD_DWELL_RANGE_S = (30.0, 600.0)
+CROWD_DWELL_DISTRIBUTION = "uniform"   # "uniform" | "exponential" | "lognormal"
+# Parameters of the distribution before truncation; read only when that
+# distribution is chosen. The truncated sample's mean and median differ.
+CROWD_DWELL_EXP_SCALE_S = None
+CROWD_DWELL_LOGNORMAL_MEDIAN_S = None
+CROWD_DWELL_LOGNORMAL_SIGMA = None
+# Share of the initial crowd already partway through a stay when the episode
+# starts, where it was placed. Their time left is drawn from the stationary
+# residual of the dwell distribution, not the dwell distribution itself.
+# Not measured. [sensitivity]
+CROWD_INITIAL_DWELL_FRACTION = 0.3
 # A through trip ends at a walkable crop-edge street mouth. Outflow is
 # independent of inflow; a finite-cohort experiment with no inflow can drain
 # naturally, so policy scores must be contrasted with the paired off control.

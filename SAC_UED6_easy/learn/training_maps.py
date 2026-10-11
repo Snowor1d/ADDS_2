@@ -27,13 +27,16 @@ HAZARD_TRIES = 30
 
 
 class OsmTrainingMaps:
-    def __init__(self, cfg):
+    def __init__(self, cfg, sites=None, sizes=None):
+        """Crops `sites` x `sizes`, by default the training ones; validation
+        passes its own and keeps the DATASET_* task ranges."""
         from osm_corpus.export import load_levels
         from sim.crowd_density import walkable_area
 
         self.cfg = cfg
-        wanted = {(s, int(z)) for s in cfg.DATASET_SITES
-                  for z in cfg.DATASET_SIZES_M}
+        sites = cfg.DATASET_SITES if sites is None else sites
+        sizes = cfg.DATASET_SIZES_M if sizes is None else sizes
+        wanted = {(s, int(z)) for s in sites for z in sizes}
         self.crops: Dict[Tuple[str, int], object] = {}
         self.walkable: Dict[Tuple[str, int], float] = {}
         for lv in load_levels():
