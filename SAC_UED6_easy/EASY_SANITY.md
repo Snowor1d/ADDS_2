@@ -7,7 +7,7 @@ If it can, add the difficulties back one at a time (see below).
 
 | Setting | SAC_UED6 | Here | File |
 | --- | --- | --- | --- |
-| `DATASET_DANGER_AREA_RANGE` | (0.1, 0.3) | (0.04, 0.1) | configs/training/dataset.py |
+| `DATASET_DANGER_AREA_RANGE` | (0.1, 0.3) | (0.1, 0.2), raised 2026-10-11 from (0.04, 0.1) | configs/training/dataset.py |
 | `DATASET_DANGER_PERCEPTIBILITY` | (0.05, 0.3) | unchanged, already low | configs/training/dataset.py |
 | `DATASET_ROBOT_RANGE` | (3, 3) | (3, 3), kept: see below | configs/training/dataset.py |
 | `ACTOR_GLOBAL_CROWD_TRUTH` | False | True (full information) | configs/environment.py |

@@ -104,6 +104,14 @@ class CrowdAgent(Agent):
         self._shelter_until = 0
         self._activity_draws = 0        # stays drawn so far (stream index)
         self._activity_reentry = False  # this stay began inside the hazard after acting
+        # Strolling about the spot during a stay: where the stay began, the
+        # point it is walking to, until when it stands, and the stay's own
+        # random stream for these.
+        self._wander_anchor = None
+        self._wander_target = None
+        self._wander_pause_until = 0
+        self._wander_deadline = 0
+        self._wander_rng = None
         self._dwelling = False
         self._dwell_reason = None       # "activity" | "shelter" | None
         # Once outside the ground it believes dangerous: leave the crop or
@@ -1009,8 +1017,13 @@ class CrowdAgent(Agent):
             dir_x, dir_y = 0.0, 0.0
 
         # ---- 원하는 속도 → Helbing desired force ----
-        v_des_x = self.desired_speed_a * dir_x
-        v_des_y = self.desired_speed_a * dir_y
+        speed = self.desired_speed_a
+        if getattr(self, "_dwell_reason", None) == "activity" and gd > 0:
+            # Strolling about the spot of a stay: slowly, easing in at the
+            # end rather than overshooting and turning back.
+            speed *= float(CROWD_DWELL_WANDER_SPEED_FACTOR) * min(1.0, gd / 0.5)
+        v_des_x = speed * dir_x
+        v_des_y = speed * dir_y
         F_des_x = self.mass * (v_des_x - self.vel[0]) / tau
         F_des_y = self.mass * (v_des_y - self.vel[1]) / tau
 
@@ -2225,6 +2238,7 @@ class CrowdAgent(Agent):
         """Arrived at a destination: draw this stay once."""
         secs = self._next_activity_s()
         self._activity_until = step + _dwell.to_steps(secs, AGENT_TIME_STEP)
+        self._start_wander(step)
         zone = getattr(self.model, "danger_zone", None)
         self._activity_reentry = bool(
             self.ever_acted and zone is not None
@@ -2248,8 +2262,82 @@ class CrowdAgent(Agent):
             secs, AGENT_TIME_STEP))
         self._activity_reentry = False
         self._stand("activity")
+        self._start_wander(step)
         self.now_goal = [self.xy[0], self.xy[1]]
         self._count_activity("started_initial")
+
+    def _start_wander(self, step: int) -> None:
+        """A stay begins here: stroll about this spot, starting with a pause."""
+        self._wander_anchor = (float(self.xy[0]), float(self.xy[1]))
+        self._wander_target = None
+        self._wander_rng = _dwell.stream(
+            getattr(self.model, "dwell_seed", 0), self.unique_id,
+            self._activity_draws, tag="wander")
+        self._wander_pause_until = step + self._wander_pause_steps()
+
+    def _wander_pause_steps(self) -> int:
+        lo, hi = (float(v) for v in CROWD_DWELL_WANDER_PAUSE_S)
+        return _dwell.to_steps(self._wander_rng.uniform(lo, hi), AGENT_TIME_STEP)
+
+    def _wander_goal(self, step: int):
+        """Where a staying pedestrian is heading this step: standing during
+        a pause, otherwise a point within CROWD_DWELL_WANDER_RADIUS_M of
+        where the stay began, in a straight line it can walk."""
+        here = [float(self.xy[0]), float(self.xy[1])]
+        radius = float(CROWD_DWELL_WANDER_RADIUS_M)
+        if radius <= 0.0 or self._wander_rng is None:
+            return here
+        if step < self._wander_pause_until:
+            return here
+        target = self._wander_target
+        if target is not None:
+            if (math.hypot(target[0] - here[0], target[1] - here[1]) > 0.3
+                    and step < self._wander_deadline):
+                return list(target)
+            # Arrived, or blocked by someone and gave up: stand a while.
+            self._wander_target = None
+            self._wander_pause_until = step + self._wander_pause_steps()
+            return here
+        ax, ay = self._wander_anchor
+        if (math.hypot(here[0] - ax, here[1] - ay) > radius
+                and self.model.is_free_segment(here[0], here[1], ax, ay,
+                                               padding=float(AGENT_BODY_RADIUS))):
+            # Pushed off the spot by people passing: back to it first.
+            target = (ax, ay)
+        else:
+            target = self._pick_wander_point(radius)
+        if target is None:
+            self._wander_pause_until = step + self._wander_pause_steps()
+            return here
+        self._wander_target = target
+        # Long enough to cover the distance at strolling pace, twice over.
+        pace = max(0.1, float(self.desired_speed_a)
+                   * float(CROWD_DWELL_WANDER_SPEED_FACTOR))
+        dist = math.hypot(target[0] - here[0], target[1] - here[1])
+        self._wander_deadline = step + _dwell.to_steps(
+            2.0 * dist / pace + 2.0, AGENT_TIME_STEP)
+        return list(target)
+
+    def _pick_wander_point(self, radius: float):
+        """A point on open ground within `radius` of the stay's spot that it
+        can walk to in a straight line, or None after a few tries."""
+        m = self.model
+        ax, ay = self._wander_anchor
+        x0, y0 = float(self.xy[0]), float(self.xy[1])
+        pad = float(AGENT_BODY_RADIUS)
+        rng = self._wander_rng
+        for _ in range(8):
+            r = radius * math.sqrt(rng.random())
+            th = 2.0 * math.pi * rng.random()
+            x, y = ax + r * math.cos(th), ay + r * math.sin(th)
+            if not (1.0 <= x <= m.width - 1.0 and 1.0 <= y <= m.height - 1.0):
+                continue
+            if not m.is_free_point(x, y, padding=pad):
+                continue
+            if not m.is_free_segment(x0, y0, x, y, padding=pad):
+                continue
+            return (x, y)
+        return None
 
     def _cancel_activity(self, reason: str) -> None:
         """Starting to act on the hazard or following a robot ends a stay
@@ -2260,6 +2348,7 @@ class CrowdAgent(Agent):
             self._count_activity(f"cancelled_{reason}")
         self._activity_until = 0
         self._activity_reentry = False
+        self._wander_target = None
         if self._dwell_reason == "activity":
             self._stand(None)
 
@@ -2305,7 +2394,7 @@ class CrowdAgent(Agent):
             # exists for pedestrians that cannot move rather than for ones
             # that are not trying to.
             self._stand("activity")
-            self.now_goal = [self.xy[0], self.xy[1]]
+            self.now_goal = self._wander_goal(step)
             return
         if self._dwell_reason == "activity":
             self._count_activity("completed")

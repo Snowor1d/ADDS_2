@@ -389,6 +389,15 @@ CROWD_DWELL_LOGNORMAL_SIGMA = None
 # residual of the dwell distribution, not the dwell distribution itself.
 # Not measured. [sensitivity]
 CROWD_INITIAL_DWELL_FRACTION = 0.3
+# Someone staying somewhere is not frozen: they drift about the spot. During a
+# stay a pedestrian strolls to a point within this distance of where the stay
+# began (in sight, on open ground), stands for a pause drawn from the range
+# below, and picks another. 0 makes a stay stand still. A design value for a
+# natural-looking stay, not measured. [sensitivity] radius 0-5 m.
+CROWD_DWELL_WANDER_RADIUS_M = 4.0
+# Stroll speed as a share of the pedestrian's walking speed (1.5 m/s mean).
+CROWD_DWELL_WANDER_SPEED_FACTOR = 0.35
+CROWD_DWELL_WANDER_PAUSE_S = (2.0, 10.0)
 # A through trip ends at a walkable crop-edge street mouth. Outflow is
 # independent of inflow; a finite-cohort experiment with no inflow can drain
 # naturally, so policy scores must be contrasted with the paired off control.

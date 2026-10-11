@@ -1,6 +1,7 @@
 """Activity stays: draws, initial dwellers and the evacuation hand-over
 (docs/crowd_activity_design.md)."""
 
+import math
 import random
 import statistics
 import unittest
@@ -15,7 +16,10 @@ def _cfg(**kw):
                 CROWD_DWELL_EXP_SCALE_S=None,
                 CROWD_DWELL_LOGNORMAL_MEDIAN_S=None,
                 CROWD_DWELL_LOGNORMAL_SIGMA=None,
-                CROWD_INITIAL_DWELL_FRACTION=0.3)
+                CROWD_INITIAL_DWELL_FRACTION=0.3,
+                CROWD_DWELL_WANDER_RADIUS_M=4.0,
+                CROWD_DWELL_WANDER_SPEED_FACTOR=0.35,
+                CROWD_DWELL_WANDER_PAUSE_S=(2.0, 10.0))
     base.update(kw)
     return _Cfg(base)
 
@@ -84,7 +88,10 @@ class DrawTest(unittest.TestCase):
                     "CROWD_DWELL_LOGNORMAL_MEDIAN_S": 60.0},
                    {"CROWD_DWELL_DISTRIBUTION": "exponential",
                     "CROWD_DWELL_EXP_SCALE_S": 0.01},
-                   {"CROWD_INITIAL_DWELL_FRACTION": 1.5}):
+                   {"CROWD_INITIAL_DWELL_FRACTION": 1.5},
+                   {"CROWD_DWELL_WANDER_RADIUS_M": -1.0},
+                   {"CROWD_DWELL_WANDER_SPEED_FACTOR": 0.0},
+                   {"CROWD_DWELL_WANDER_PAUSE_S": (5.0, 2.0)}):
             self.assertTrue(dwell.dwell_config_problems(_cfg(**kw)), kw)
 
 
@@ -218,6 +225,41 @@ class AgentTest(unittest.TestCase):
         a._belief_route_goal()
         self.assertLessEqual(a._shelter_until, fm.step_count)
         self.assertEqual(a._activity_until, fm.step_count + 80)
+
+    def test_staying_people_stroll_about_their_spot(self):
+        """Not frozen: over a minute most initial dwellers move, and none
+        strays far beyond CROWD_DWELL_WANDER_RADIUS_M of where it began."""
+        from config import CROWD_DWELL_WANDER_RADIUS_M
+        fm = self._model()
+        start = {a.unique_id: tuple(a.xy) for a in fm.crowds
+                 if a._dwell_reason == "activity"}
+        moved, far = set(), 0.0
+        for _ in range(120):
+            fm.step()
+            for a in fm.crowds:
+                if (a.unique_id in start and not a.dead
+                        and a._dwell_reason == "activity"):
+                    if math.dist(a.xy, start[a.unique_id]) > 0.5:
+                        moved.add(a.unique_id)
+                    # From the spot of its current stay, which is a new one
+                    # if the first ended and it walked on.
+                    far = max(far, math.dist(a.xy, a._wander_anchor))
+        self.assertGreater(len(moved), len(start) // 2)
+        # Body contact can push a little past the radius.
+        self.assertLess(far, float(CROWD_DWELL_WANDER_RADIUS_M) + 2.0)
+
+    def test_zero_radius_stands_still(self):
+        import sim.agent as A
+        old = A.CROWD_DWELL_WANDER_RADIUS_M
+        try:
+            A.CROWD_DWELL_WANDER_RADIUS_M = 0.0
+            fm = self._model()
+            a = self._dweller(fm)
+            for step in range(40):
+                fm.step_count = step
+                self.assertEqual(a._wander_goal(step), list(map(float, a.xy)))
+        finally:
+            A.CROWD_DWELL_WANDER_RADIUS_M = old
 
     def test_metrics_count_stays_and_their_end(self):
         from learn.zero_shot import EpisodeMetrics

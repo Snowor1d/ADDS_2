@@ -29,12 +29,15 @@ DISTRIBUTIONS = ("uniform", "exponential", "lognormal")
 MIN_MASS = 1e-9
 
 
-def stream(dwell_seed: int, person_id: int, k: int) -> random.Random:
+def stream(dwell_seed: int, person_id: int, k: int,
+           tag: str = "dwell") -> random.Random:
     """The random stream of `person_id`'s k-th stay (k = 0 is the stay an
-    initial dweller is already in when the episode starts)."""
+    initial dweller is already in when the episode starts). `tag` separates
+    streams for different uses of the same stay (its length, the strolling
+    about during it)."""
     # A str seed is hashed with SHA-512, the same in every process and
     # independent of PYTHONHASHSEED.
-    return random.Random(f"dwell:{int(dwell_seed)}:{int(person_id)}:{int(k)}")
+    return random.Random(f"{tag}:{int(dwell_seed)}:{int(person_id)}:{int(k)}")
 
 
 def _params(cfg=None):
@@ -114,6 +117,17 @@ def dwell_config_problems(cfg) -> List[str]:
     frac = cfg.CROWD_INITIAL_DWELL_FRACTION
     if not (isinstance(frac, (int, float)) and 0.0 <= float(frac) <= 1.0):
         p.append(f"CROWD_INITIAL_DWELL_FRACTION={frac!r} must be in [0, 1]")
+    radius = cfg.CROWD_DWELL_WANDER_RADIUS_M
+    if not (isinstance(radius, (int, float)) and float(radius) >= 0.0):
+        p.append(f"CROWD_DWELL_WANDER_RADIUS_M={radius!r} must be >= 0")
+    speed = cfg.CROWD_DWELL_WANDER_SPEED_FACTOR
+    if not (isinstance(speed, (int, float)) and 0.0 < float(speed) <= 1.0):
+        p.append(f"CROWD_DWELL_WANDER_SPEED_FACTOR={speed!r} must be in (0, 1]")
+    pause = cfg.CROWD_DWELL_WANDER_PAUSE_S
+    if not (isinstance(pause, (tuple, list)) and len(pause) == 2
+            and 0.0 <= float(pause[0]) <= float(pause[1])):
+        p.append(f"CROWD_DWELL_WANDER_PAUSE_S={pause!r} must be (low, high) "
+                 "seconds with 0 <= low <= high")
     if p:
         return p
 

@@ -117,7 +117,7 @@ ALPHA_MIN = 0.05
 #              through them: teammates as they are, not as an older policy
 #              was. With "all", one critic pass re-draws the whole team.
 ACTOR_UPDATE_ROBOTS = "all"         # "all" | "one"
-ACTOR_TEAMMATE_ACTIONS = "stored"   # "stored" | "current"
+ACTOR_TEAMMATE_ACTIONS = "current"   # "stored" | "current"
 # "expectation": enumerate each actor's modes and the target's joint modes.
 # "gumbel": original hard straight-through Gumbel-Softmax estimator.
 # Rollouts always execute one categorical mode; expectation is for learning.
@@ -333,7 +333,7 @@ VIDEO_DPI = 100
 # later `wandb sync`, "disabled" turns it off. A W&B failure never stops
 # training: local logs continue and the failure is reported once, loudly.
 WANDB_MODE = "online"               # "online" | "offline" | "disabled"
-WANDB_PROJECT = "adds-sac-ued6"
+WANDB_PROJECT = "adds-sac-ued6-261011ENV"
 WANDB_ENTITY = None                 # None = the account's default entity
 WANDB_GROUP = None                  # None = EXPERIMENT_ID
 # The run's name in the W&B run list. None builds one from the experiment,
@@ -341,7 +341,7 @@ WANDB_GROUP = None                  # None = EXPERIMENT_ID
 # "outdoor-madrl-v2-dataset-100m-0924-1530". A run started from a checkpoint
 # as a new run (see the resume rule in learn/metrics_logger.py) gets
 # "-resume<episode>" appended either way; a run that carries on keeps its name.
-WANDB_RUN_NAME = "261011(NewEnv)-easy-sanity-fullinfo-3robots-ModeExpectation"
+WANDB_RUN_NAME = "sanity-current-fullinfo-ModeExpectation"
 # Only models chosen on validation are uploaded, never the replay buffer or
 # every periodic checkpoint.
 WANDB_UPLOAD_CHECKPOINTS = "selected"   # "none" | "selected"
