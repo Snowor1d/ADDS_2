@@ -449,7 +449,7 @@ ROBOT_MODES = ("off", "guide", "direct") if USE_DIRECT else ("off", "guide")
 #               along the navmesh, through each portal at the point farthest
 #               from the walls, and stops on arrival. The policy decides
 #               where to be and how fast to get there (one more action
-#               number, a share of ROBOT_SPEED_MAX); the route, alleys
+#               number, a share of ROBO_SPEED_MAX); the route, alleys
 #               included, is the robot's.
 # Measured on the twenty 200 m training crops: a robot steered along that
 # route reached 300 of 300 targets 20-60 m away, including every route
@@ -457,7 +457,7 @@ ROBOT_MODES = ("off", "guide", "direct") if USE_DIRECT else ("off", "guide")
 # longer, so the networks and the action schema change: checkpoints trained
 # under one are refused under the other. Set it here, not as a run override.
 ROBOT_ACTION_MODE = "waypoint"       # "velocity" | "waypoint"
-ROBOT_WAYPOINT_RANGE_M = 20.0
+ROBOT_WAYPOINT_RANGE_M = 40.0
 # Waypoint steering keeps this much room between the robot's body and walls
 # when it picks a line or a crossing point, as a navigation stack's obstacle
 # inflation does. Without it routes grazed building corners: 12-25% of the
@@ -485,8 +485,8 @@ ROBOT_NAV_CLEARANCE_M = 0.5
 # is discounted by the steps it lasted.
 ROBOT_DECISION_MAX_S_VELOCITY = 2.0
 ROBOT_DECISION_ON_EVENTS_VELOCITY = False
-ROBOT_DECISION_MAX_S_WAYPOINT = 4.0    # easy sanity run
-ROBOT_DECISION_ON_EVENTS_WAYPOINT = False    # easy sanity run: fixed-length decisions
+ROBOT_DECISION_MAX_S_WAYPOINT = 20.0    # easy sanity run
+ROBOT_DECISION_ON_EVENTS_WAYPOINT = True  # easy sanity run: fixed-length decisions
 
 ACTION_SCHEMA_VERSION = (("act-v1-move2-signal2-mode3" if USE_DIRECT
                           else "act-v2-move2-mode2")

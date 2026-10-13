@@ -117,11 +117,11 @@ ALPHA_MIN = 0.05
 #              through them: teammates as they are, not as an older policy
 #              was. With "all", one critic pass re-draws the whole team.
 ACTOR_UPDATE_ROBOTS = "all"         # "all" | "one"
-ACTOR_TEAMMATE_ACTIONS = "current"   # "stored" | "current"
+ACTOR_TEAMMATE_ACTIONS = "stored"   # "stored" | "current"
 # "expectation": enumerate each actor's modes and the target's joint modes.
 # "gumbel": original hard straight-through Gumbel-Softmax estimator.
 # Rollouts always execute one categorical mode; expectation is for learning.
-SAC_MODE_ESTIMATOR = "expectation"   # "expectation" | "gumbel"
+SAC_MODE_ESTIMATOR = "gumbel"   # "expectation" | "gumbel"
 
 ENABLE_TIMER = True
 N_ENVS = 12
@@ -341,7 +341,7 @@ WANDB_GROUP = None                  # None = EXPERIMENT_ID
 # "outdoor-madrl-v2-dataset-100m-0924-1530". A run started from a checkpoint
 # as a new run (see the resume rule in learn/metrics_logger.py) gets
 # "-resume<episode>" appended either way; a run that carries on keeps its name.
-WANDB_RUN_NAME = "sanity-current-fullinfo-ModeExpectation"
+WANDB_RUN_NAME = "sanity-stored-fullinfo-Gumbel-EventDecision"
 # Only models chosen on validation are uploaded, never the replay buffer or
 # every periodic checkpoint.
 WANDB_UPLOAD_CHECKPOINTS = "selected"   # "none" | "selected"
