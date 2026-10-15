@@ -7,8 +7,9 @@ and W&B from one event).
 
     worker processes   build a level, run it with learn.rollout.run_episode,
                        send the episode's static layers once and one message
-                       per decision instant (the team's DecisionRecord, the
-                       action and the per-step rewards), then an episode summary
+                       per observation frame (the team's DecisionRecord, and
+                       at a decision the action and the per-step rewards),
+                       then an episode summary
     main process       stores records in the replay buffer, updates the
                        agent, logs, checkpoints, feeds the curriculum, and
                        starts periodic validation in a separate process
@@ -66,10 +67,18 @@ class TransitionMsg:
     # The team's robot-charged terms when they are not inside step_rewards
     # (PER_ROBOT_VERSIONS), so `reward` is the same team total either way.
     robot_terms_reward: float = 0.0
+    # A frame taken while a decision was held: history only, no action.
+    frame_only: bool = False
+    # Learning-only shaping inside step_rewards and robot_terms_reward
+    # (rew-v6); `reward` leaves it out.
+    shaping_reward: float = 0.0
 
     @property
     def reward(self) -> float:
-        return float(sum(self.step_rewards)) + float(self.robot_terms_reward)
+        """The task reward over the hold, undiscounted, for the team: what
+        the curriculum's return traces add up."""
+        return (float(sum(self.step_rewards)) + float(self.robot_terms_reward)
+                - float(self.shaping_reward))
 
 
 @dataclass
@@ -140,6 +149,8 @@ def episode_metrics(cfg, res, level, model) -> Dict[str, float]:
         m[f"episode/reward/{k}"] = v
     for k, v in res.mode_share.items():
         m[f"episode/mode_share/{k}"] = v
+    for k, v in res.robots.items():
+        m[f"episode/robots/{k}"] = v
     return {k: v for k, v in m.items() if v is not None}
 
 
@@ -246,7 +257,7 @@ def worker_process(worker_id: int, cfg, transition_queue, stats_queue,
                     (sum(float(tr.components.get(t, 0.0))
                          for t in ROBOT_TERMS)
                      if cfg.REWARD_VERSION in PER_ROBOT_VERSIONS
-                     else 0.0)))
+                     else 0.0), bool(tr.frame_only), float(tr.shaping)))
 
             # Claim a pending video request, if any: one worker records the
             # next episode it starts.
@@ -448,7 +459,7 @@ def run_metadata(cfg, extra: Optional[dict] = None) -> dict:
 def main(overrides: Optional[dict] = None, max_episodes: Optional[int] = None):
     from configs import resolve_config
     from learn.metrics_logger import MetricsLogger, TrainStatsAccumulator
-    from sim.observation import StaticLayers
+    from sim.observation import StaticLayers, strided_window
     from ued import UEDRunner
 
     cfg = resolve_config(overrides)
@@ -520,7 +531,7 @@ def main(overrides: Optional[dict] = None, max_episodes: Optional[int] = None):
     validation_proc = None
     best_score = None
     off_cache_path = os.path.join(val_dir, "off_control_cache.pkl")
-    H = int(cfg.OBS_HISTORY_DECISIONS)
+    span = cfg.history_span_frames()
     stop_at = None if max_episodes is None else global_episode + int(max_episodes)
 
     def write_heartbeat():
@@ -552,21 +563,25 @@ def main(overrides: Optional[dict] = None, max_episodes: Optional[int] = None):
             elif isinstance(msg, TransitionMsg):
                 win = windows.setdefault(msg.episode_uid, [])
                 win.append(msg.record)
-                del win[:-H]
+                del win[:-span]
                 st = statics_by_uid.get(msg.episode_uid)
                 if st is not None and msg.action is not None:
-                    padded = [None] * (H - len(win)) + list(win)
-                    msg.value_sample = (st, padded)
+                    msg.value_sample = (st, strided_window(win, cfg))
                     ued.on_transition(msg)
                 if ued.should_store(msg):
                     buffer.push(msg.episode_uid, msg.step, msg.record,
                                 msg.static_key, msg.action, msg.step_rewards,
-                                msg.terminal, msg.robot_penalties)
-                if msg.action is None:
+                                msg.terminal, msg.robot_penalties,
+                                msg.frame_only)
+                final = msg.action is None and not msg.frame_only
+                if final:
                     buffer.end_episode(msg.episode_uid)
                     statics_by_uid.pop(msg.episode_uid, None)
                     windows.pop(msg.episode_uid, None)
-                if global_episode >= int(cfg.START_UPDATE_EPISODE):
+                # Updates per decision (and per final state), as before the
+                # clock: frames taken during a hold add none.
+                if (not msg.frame_only
+                        and global_episode >= int(cfg.START_UPDATE_EPISODE)):
                     pending_updates += float(cfg.UPDATES_PER_TRANSITION)
                     while pending_updates >= 1.0:
                         pending_updates -= 1.0

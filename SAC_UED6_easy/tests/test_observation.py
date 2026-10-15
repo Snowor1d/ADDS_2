@@ -26,6 +26,12 @@ def _cfg(**over):
     return resolve_config(over or None, check_data=False)
 
 
+def _partial(**over):
+    """The realistic observation these tests are about, whatever the copy's
+    default (SAC_UED6_easy runs the full-information actor)."""
+    return _cfg(**{"ACTOR_GLOBAL_CROWD_TRUTH": False, **over})
+
+
 def _model(cfg, obstacles=(), n_people=6, robots=2, size=100, zone=None):
     from sim.danger import DangerZone
     from ued.level import Level
@@ -58,7 +64,7 @@ def _observe(model, cfg, seed=0):
 
 class PartialObservationTest(unittest.TestCase):
     def setUp(self):
-        self.cfg = _cfg()
+        self.cfg = _partial()
 
     def _two_robots_apart(self, model):
         _place(model, model.robots[0], 20.0, 20.0)
@@ -96,7 +102,7 @@ class PartialObservationTest(unittest.TestCase):
         self.assertGreater(obs2["glob"][0, TEAM_CROWD].sum(), obs1["glob"][0, TEAM_CROWD].sum())
 
     def test_without_sharing_a_teammate_observation_stays_private(self):
-        cfg = _cfg(TEAM_SHARE_OBSERVATIONS=False)
+        cfg = _partial(TEAM_SHARE_OBSERVATIONS=False)
         m = _model(cfg)
         self._two_robots_apart(m)
         _, obs1 = _observe(m, cfg)
@@ -156,7 +162,7 @@ class PartialObservationTest(unittest.TestCase):
         self.assertTrue(bool(rec.observed[0][r, c]))
 
     def test_person_behind_another_person_is_not_measured(self):
-        self.cfg = _cfg(ROBOT_LIDAR_PERSON_OCCLUSION=True)
+        self.cfg = _partial(ROBOT_LIDAR_PERSON_OCCLUSION=True)
         m = _model(self.cfg)
         _place(m, m.robots[0], 20.0, 20.0)
         _place(m, m.robots[1], 80.0, 80.0)
@@ -200,7 +206,7 @@ class PartialObservationTest(unittest.TestCase):
         self.assertGreater(observed.max(), 0.0)
 
     def test_communication_delay_hides_the_newest_message(self):
-        cfg = _cfg(COMM_DELAY_DECISIONS=1)
+        cfg = _partial(COMM_DELAY_FRAMES=1)
         m = _model(cfg)
         self._two_robots_apart(m)
         from sim.observation import ObservationHistory, build_static_layers
@@ -208,16 +214,19 @@ class PartialObservationTest(unittest.TestCase):
         h = ObservationHistory(cfg, st, len(m.robots))
         h.record(m)
         _place(m, m.crowds[0], 82.0, 22.0)
-        h.record(m)
+        for _ in range(cfg.OBS_HISTORY_STRIDE):
+            h.record(m)
         rec = h.records[-1]
-        # Robot 0 holds robot 1's previous record, not the one just taken.
+        # Robot 0 holds robot 1's frame from one window entry back, taken
+        # before the person arrived, not the one just taken.
         self.assertEqual(int(rec.avail[0, 1]) & 1, 0)
         self.assertEqual(int(rec.avail[0, 1]) & 2, 2)
+        self.assertEqual(int(rec.avail[1, 1]) & 1, 1)   # its own, always
         obs = h.team_observations()
         self.assertEqual(obs["glob"][0, TEAM_CROWD].sum(), 0.0)
 
     def test_old_observations_expire(self):
-        cfg = _cfg()
+        cfg = _partial()
         m = _model(cfg)
         self._two_robots_apart(m)
         _place(m, m.crowds[0], 23.0, 21.0)
@@ -226,7 +235,7 @@ class PartialObservationTest(unittest.TestCase):
         h = ObservationHistory(cfg, st, len(m.robots))
         h.record(m)
         _place(m, m.robots[0], 20.0, 60.0)        # walk away
-        for _ in range(cfg.OBS_HISTORY_DECISIONS):
+        for _ in range(cfg.history_span_frames()):
             h.record(m)
         obs = h.team_observations()
         self.assertEqual(obs["glob"][1, TEAM_CROWD].sum(), 0.0)

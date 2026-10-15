@@ -127,5 +127,5 @@
 
 - 실제 학습을 돌리고, 검증으로 모델을 선택한 뒤 `cli.final_zero_shot run`을 한 번 실행해야 한다.
 - W&B `online` 모드는 이 세션에서 실제 동기화까지 확인하지 않았다(`offline`/`disabled`만 확인). 이 기계의 `~/.netrc`에 W&B 항목은 있다.
-- 통신 지연·손실(`COMM_DELAY_DECISIONS`, `COMM_DROP_PROB`)은 구현했지만 기본값은 0이다. 별도 실험축으로 남긴다.
+- 통신 지연·손실(`COMM_DELAY_FRAMES`, `COMM_DROP_PROB`; obs-v5부터 프레임 단위)은 구현했지만 기본값은 0이다. 별도 실험축으로 남긴다.
 - 기존 `from config import *` 호출부는 아직 재내보내기를 거친다. 새 코드(관측·보상·리플레이·로깅·평가)는 `ResolvedConfig`를 명시적으로 받는다. 워커는 설정 파일이 실행 중 바뀌면 시작을 거부한다.

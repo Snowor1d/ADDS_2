@@ -131,6 +131,26 @@ def test_four_condition_summary_and_selection_use_deterministic_policy():
     assert abs(out['eval/validation/paired/policy_deterministic/person_steps_reduction_vs_shuttle']-1/3)<1e-6
 
 
+def test_validation_headline_collects_the_key_numbers_in_order():
+    from learn.zero_shot import summarise, headline_metrics, HEADLINE_KEYS
+    rows = [dict(scenario=s,size_m=200,robot_num=3,seed=9,condition=c,
+                 hazard_person_steps=n,reentries_after_clear=2,
+                 activity_dwell_hazard_person_steps=n/2,robot_speed_mean=1.0,
+                 total_reward=-n)
+            for s in ('a','b')
+            for c,n in [('off_zero_command',100),('shuttle',60),
+                        ('policy_deterministic',40)]]
+    out = summarise(rows,'eval/validation')
+    key = headline_metrics(rows,out,'eval/validation')
+    assert abs(key['key/1_reduction_vs_off']-.6)<1e-6
+    assert abs(key['key/2_reduction_vs_shuttle']-1/3)<1e-6
+    assert abs(key['key/3_shuttle_reduction_vs_off']-.4)<1e-6
+    assert key['key/4_hazard_person_steps']==40 and key['key/8_total_reward']==-40
+    assert 'key/9_stochastic_reduction_vs_off' not in key   # not run
+    names = [f'key/{n}' for n,_,_ in HEADLINE_KEYS if f'key/{n}' in key]
+    assert names == sorted(names) == list(key)
+
+
 def test_zero_exposure_control_does_not_create_relative_score():
     from learn.zero_shot import summarise, selection_score
     rows = [dict(scenario="empty",size_m=200,robot_num=3,seed=1,condition=c,
@@ -198,7 +218,8 @@ def test_shuttle_encodes_waypoint_speed_and_waits_in_seconds():
     robot=SimpleNamespace(xy=[0.,0.])
     triangle=((19.,-1.),(21.,-1.),(20.,2.))  # centre=(20,0)
     action=policy._command(robot,triangle,'guide')
-    np.testing.assert_allclose(action[:2],[2.,0.])
+    # 20 m east, as a share of the waypoint range (clipped at the action bound).
+    np.testing.assert_allclose(action[:2],[min(2.,2.*20./float(cfg.ROBOT_WAYPOINT_RANGE_M)),0.])
     assert abs(ra.speed_fraction(action)-.6)<1e-6
     policy.m=SimpleNamespace(step_count=16,find_mesh=lambda xy:None)
     policy.entries=[triangle]

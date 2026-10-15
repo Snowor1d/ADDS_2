@@ -7,13 +7,18 @@ transition before the new branches. Here:
   * static layers are stored once per (map geometry, hazard placement) key,
     in RAM with a copy on disk, so an entry evicted from RAM can be reloaded
     for as long as the buffer still refers to it;
-  * each decision instant stores the team's DecisionRecord once (the robots'
-    own measurements, poses, modes, message availability, and the critic's
-    true crowd summary), about 6 kB for three robots;
-  * state, next state and the four-instant windows are rebuilt from indices
-    with `sim.observation.build_observations`, the same function the worker
-    acted on. A window never crosses an episode boundary, and a transition
-    whose history has been overwritten is not sampled.
+  * every observation frame stores the team's DecisionRecord once (the
+    robots' own measurements, poses, modes, message availability, and the
+    critic's true crowd summary), about 6 kB for three robots; a frame at
+    which the team decided also stores the action and the per-step rewards
+    of its hold;
+  * state, next state and the history windows (OBS_HISTORY_FRAMES frames
+    OBS_HISTORY_STRIDE apart) are rebuilt from indices with
+    `sim.observation.build_observations`, the same function the worker acted
+    on. Frames link to their predecessor (`prev`) for windows, decisions to
+    the next decision or final frame (`next_dec`) for the transition. A
+    window never crosses an episode boundary, and a transition whose history
+    has been overwritten is not sampled.
 
 Nothing written under one set of schema versions is read under another.
 """
@@ -28,7 +33,7 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
-from configs import decision_max_steps
+from configs import decision_max_steps, frame_steps
 from sim.observation import (DecisionRecord, ObsRequest, StaticLayers,
                              build_observations, critic_privileged,
                              critic_scalars, obs_shapes)
@@ -153,10 +158,11 @@ def joint_observation(cfg, statics: List[StaticLayers],
 class ReplayBuffer:
     """Decision records in a ring, linked into episodes by index.
 
-    Protocol, per episode: `push(record, ...)` for every decision instant in
-    order, the action and its outcome arriving with the record they belong
-    to, and a last `push(final_record, action=None)` carrying the state after
-    the final action. Records from different workers interleave freely.
+    Protocol, per episode: `push(record, ...)` for every observation frame
+    in time order (learn/rollout.py emits them so): a decision frame with its
+    action and outcome, a frame taken during a hold with `frame_only=True`,
+    and a last `push(final_record, action=None)` carrying the state after the
+    final action. Records from different workers interleave freely.
     """
 
     def __init__(self, cfg, capacity: int, static_store: StaticStore):
@@ -186,20 +192,28 @@ class ReplayBuffer:
         # One column per step of the longest decision (ROBOT_DECISION_MAX_S_<MODE>).
         self.step_rewards = np.zeros((C, decision_max_steps(cfg)), np.float32)
         # Per step and robot, its own share of the robot-charged reward terms
-        # (sim/rewards.ROBOT_TERMS), weighted and negative. Same step columns
-        # as step_rewards. float16: the values are small and few distinct.
+        # (sim/rewards.ROBOT_TERMS), weighted. Same step columns as
+        # step_rewards. float32: under rew-v6 they carry the robot's shaping,
+        # whose steps must add up to the potential difference.
         self.robot_penalties = np.zeros((C, decision_max_steps(cfg), R),
-                                        np.float16)
+                                        np.float32)
         self.hold = np.zeros(C, np.int16)
         self.terminal = np.zeros(C, bool)
         self.episode = np.full(C, -1, np.int64)
         self.step = np.full(C, -1, np.int32)
         self.prev = np.full(C, -1, np.int64)
         self.next = np.full(C, -1, np.int64)
+        # From a decision frame to the frame of the next decision (or the
+        # final frame): the transition's next state.
+        self.next_dec = np.full(C, -1, np.int64)
+        self._frames = frame_steps(cfg)
+        self._entries = int(cfg.OBS_HISTORY_FRAMES)
+        self._stride = int(cfg.OBS_HISTORY_STRIDE)
         self.static_id = np.full(C, -1, np.int32)
         self._static_keys: List[str] = []
         self._static_index: Dict[str, int] = {}
         self._last: Dict[int, int] = {}       # episode uid -> newest index
+        self._last_dec: Dict[int, int] = {}   # episode uid -> newest decision
         self.ptr = 0
         self.size = 0
         # Held by push and sample, so a prefetch thread can rebuild a batch
@@ -221,19 +235,23 @@ class ReplayBuffer:
     def push(self, episode_uid: int, step: int, record: DecisionRecord,
              static_key: str, action: Optional[np.ndarray] = None,
              step_rewards=(), terminal: bool = False,
-             robot_penalties=None) -> int:
+             robot_penalties=None, frame_only: bool = False) -> int:
         with self.lock:
             return self._push(episode_uid, step, record, static_key, action,
-                              step_rewards, terminal, robot_penalties)
+                              step_rewards, terminal, robot_penalties,
+                              frame_only)
 
     def _push(self, episode_uid, step, record, static_key, action,
-              step_rewards, terminal, robot_penalties=None) -> int:
+              step_rewards, terminal, robot_penalties=None,
+              frame_only=False) -> int:
         if static_key not in self.statics:
             raise KeyError(f"static layers {static_key} were never stored")
         i = self.ptr
         old_uid = int(self.episode[i])
         if old_uid >= 0 and self._last.get(old_uid) == i:
             del self._last[old_uid]
+        if old_uid >= 0 and self._last_dec.get(old_uid) == i:
+            del self._last_dec[old_uid]
         self.n_robots[i] = record.n_robots
         self.anchors[i] = record.anchors
         self.counts[i] = record.counts
@@ -261,7 +279,7 @@ class ReplayBuffer:
         self.robot_penalties[i] = 0
         if robot_penalties:
             for k, row in enumerate(robot_penalties[:sr.shape[0]]):
-                row = np.asarray(row, dtype=np.float16)[:self.robot_penalties.shape[2]]
+                row = np.asarray(row, dtype=np.float32)[:self.robot_penalties.shape[2]]
                 self.robot_penalties[i, k, :row.shape[0]] = row
         self.hold[i] = int(sr.shape[0])
         self.terminal[i] = bool(terminal)
@@ -269,6 +287,16 @@ class ReplayBuffer:
         self.step[i] = int(step)
         self.static_id[i] = self._static_slot(static_key)
         self.next[i] = -1
+        self.next_dec[i] = -1
+        if not frame_only:
+            # A decision or the final frame closes the previous decision.
+            pd = self._last_dec.get(int(episode_uid), -1)
+            if pd >= 0 and self.episode[pd] == episode_uid:
+                self.next_dec[pd] = i
+            if action is not None:
+                self._last_dec[int(episode_uid)] = i
+            else:
+                self._last_dec.pop(int(episode_uid), None)
         prev = self._last.get(int(episode_uid), -1)
         if prev >= 0 and self.episode[prev] == episode_uid \
                 and self.step[prev] == step - 1:
@@ -284,6 +312,7 @@ class ReplayBuffer:
     def end_episode(self, episode_uid: int) -> None:
         with self.lock:
             self._last.pop(int(episode_uid), None)
+            self._last_dec.pop(int(episode_uid), None)
 
     # ------------------------------------------------------------ reading
 
@@ -304,27 +333,33 @@ class ReplayBuffer:
                 and self.step[b] == self.step[a] + 1)
 
     def window_indices(self, i: int) -> Optional[List[Optional[int]]]:
-        """Indices of the H-instant window ending at i, oldest first, None
-        before the episode's start. None when the history was overwritten."""
-        H = int(self.cfg.OBS_HISTORY_DECISIONS)
+        """Indices of the window ending at frame i (OBS_HISTORY_FRAMES
+        entries OBS_HISTORY_STRIDE frames apart), oldest first, None before
+        the episode's start. None when the history was overwritten."""
         out = [i]
         cur = i
-        for _ in range(H - 1):
-            if self.step[cur] == 0:
-                break
-            p = int(self.prev[cur])
-            if p < 0 or not self._linked(p, cur):
-                return None
-            out.append(p)
-            cur = p
+        for _ in range(self._entries - 1):
+            if int(self.step[cur]) < self._stride:
+                break                      # the episode began in between
+            for _s in range(self._stride):
+                p = int(self.prev[cur])
+                if p < 0 or not self._linked(p, cur):
+                    return None
+                cur = p
+            out.append(cur)
         out.reverse()
-        return [None] * (H - len(out)) + out
+        return [None] * (self._entries - len(out)) + out
 
     def valid_transition(self, i: int) -> bool:
         if not self.has_action[i] or self.episode[i] < 0:
             return False
-        n = int(self.next[i])
-        if n < 0 or not self._linked(i, n):
+        n = int(self.next_dec[i])
+        if n < 0 or self.episode[n] != self.episode[i]:
+            return False
+        # The next decision (or final) frame is as many frames on as the
+        # hold lasted, rounded up for a hold the episode's end cut short.
+        frames = -(-int(self.hold[i]) // self._frames)
+        if int(self.step[n]) - int(self.step[i]) != frames:
             return False
         return (self.window_indices(i) is not None
                 and self.window_indices(n) is not None)
@@ -367,18 +402,24 @@ class ReplayBuffer:
             raise ValueError("empty replay buffer")
         chosen: List[int] = []
         tries = 0
+        # Most frames are not decisions under event-driven timing; draw from
+        # the decision frames only.
+        decisions = np.flatnonzero(self.has_action[:self.size])
+        if decisions.size == 0:
+            raise ValueError("no decision frames to sample")
         while len(chosen) < batch_size:
             tries += 1
             if tries > 50:
                 raise ValueError("not enough valid transitions to sample")
-            cand = rng.integers(0, self.size, size=4 * batch_size)
+            cand = decisions[rng.integers(0, decisions.size,
+                                          size=4 * batch_size)]
             for i in cand:
                 i = int(i)
                 if self.valid_transition(i):
                     chosen.append(i)
                     if len(chosen) == batch_size:
                         break
-        nxt = [int(self.next[i]) for i in chosen]
+        nxt = [int(self.next_dec[i]) for i in chosen]
         arenas = self._arena_sets[self._arena_turn]
         self._arena_turn ^= 1
         s = self._joint(chosen, arenas[0])
@@ -408,7 +449,7 @@ class ReplayBuffer:
               "has_action",
               "step_rewards", "robot_penalties",
               "hold", "terminal", "episode", "step", "prev", "next",
-              "static_id")
+              "next_dec", "static_id")
 
     def save(self, path: str, schema: Dict[str, str]) -> None:
         n = self.size
@@ -464,6 +505,7 @@ class ReplayBuffer:
         self.ptr = int(meta["ptr"]) % self.capacity
         self._static_keys = list(meta["static_keys"])
         self._static_index = {k: i for i, k in enumerate(self._static_keys)}
+        self._last_dec = {}
         missing = [k for k in set(self._static_keys) if k not in self.statics]
         if missing:
             raise KeyError(f"{len(missing)} static layer entries referenced by "

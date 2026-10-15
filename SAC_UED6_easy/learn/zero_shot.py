@@ -274,6 +274,7 @@ def _evaluate_level(agent, level, seed, condition, cfg, max_steps):
         **{f"mode_share_{k}": v for k, v in res.mode_share.items()},
         "inference_ms_mean": res.inference_ms_mean,
         "sim_ms_per_step": res.sim_ms_per_step,
+        **res.robots,
         "actual_density": (out.get("initial_population", 0) / walk
                            if walk > 0 else None),
         "steps": res.steps,
@@ -335,7 +336,10 @@ SUMMARY_KEYS = ("hazard_person_steps", "reentries", "reentries_after_clear",
                 "activity_dwell_hazard_person_steps",
                 "reentry_dwell_hazard_person_steps",
                 "activity_initial_inside", "activity_cancelled",
-                "activity_unfinished")
+                "activity_unfinished",
+                # learn/rollout.ROBOT_KEYS
+                "robot_inside_share", "robot_depth_m", "robot_pair_distance_m",
+                "followers_per_robot")
 
 
 def paired_records(agent, scenarios, cfg, episode: int, seeds_for,
@@ -444,6 +448,43 @@ def summarise(records: List[dict], prefix: str) -> Dict[str, float]:
     return out
 
 
+# The headline of a validation, in the order the W&B section shows it. The
+# section is named by the first key segment ("key"), so these sit apart from
+# the hundred-odd eval/ panels. Policy rows are the deterministic policy, the
+# one models are selected on; reductions are paired means over (scenario,
+# seed, robot count), positive = fewer hazard person-steps than the reference.
+HEADLINE_KEYS = (
+    ("1_reduction_vs_off", "paired", "policy_deterministic/person_steps_reduction_vs_off"),
+    ("2_reduction_vs_shuttle", "paired", "policy_deterministic/person_steps_reduction_vs_shuttle"),
+    ("3_shuttle_reduction_vs_off", "paired", "shuttle/person_steps_reduction_vs_off"),
+    ("4_hazard_person_steps", "mean", "hazard_person_steps"),
+    ("5_dwell_hazard_person_steps", "mean", "activity_dwell_hazard_person_steps"),
+    ("6_reentries_after_clear_minus_off", "paired", "policy_deterministic/reentries_after_clear_minus_off"),
+    ("7_robot_speed_mean", "mean", "robot_speed_mean"),
+    ("8_total_reward", "mean", "total_reward"),
+    ("9_stochastic_reduction_vs_off", "paired", "policy_stochastic/person_steps_reduction_vs_off"),
+)
+
+
+def headline_metrics(records: List[dict], summary: Dict[str, float],
+                     prefix: str, out_prefix: str = "key") -> Dict[str, float]:
+    """A few numbers that say how the policy is doing, under `out_prefix`:
+    paired reductions read from `summary` (summarise's output for the same
+    records), and means over the deterministic policy's episodes of all
+    sizes and robot counts. Keys whose inputs are missing are left out."""
+    policy = [r for r in records if r.get("condition") == "policy_deterministic"]
+    out: Dict[str, float] = {}
+    for name, kind, source in HEADLINE_KEYS:
+        if kind == "paired":
+            v = summary.get(f"{prefix}/paired/{source}")
+        else:
+            vals = [float(r[source]) for r in policy if r.get(source) is not None]
+            v = float(np.mean(vals)) if vals else None
+        if v is not None:
+            out[f"{out_prefix}/{name}"] = float(v)
+    return out
+
+
 def selection_score(summary: Dict[str, float], prefix: str) -> Optional[float]:
     """The single number models are selected on: the mean paired reduction
     in hazard person-steps against the control, over all validation pairs."""
@@ -461,7 +502,9 @@ def run_validation(agent, cfg, episode: int, off_cache: Optional[dict] = None,
     if output_dir:
         append_jsonl(os.path.join(output_dir, "validation_metrics.jsonl"),
                      records)
-    return summarise(records, "eval/validation")
+    out = summarise(records, "eval/validation")
+    out.update(headline_metrics(records, out, "eval/validation"))
+    return out
 
 
 def append_jsonl(path: str, records: List[dict]) -> None:

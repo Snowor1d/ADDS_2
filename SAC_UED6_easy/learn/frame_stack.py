@@ -1,9 +1,9 @@
 """Frame stacks for the legacy single-image view (viewer and human play).
 
-The policy no longer reads these: its history is the last
-OBS_HISTORY_DECISIONS decision records, rebuilt by sim/observation.py. They
-live here, rather than in the trainer, so the simulator can import them
-without importing the whole learner.
+The policy no longer reads these: its history is OBS_HISTORY_FRAMES frames
+taken on the observation clock, rebuilt by sim/observation.py. They live
+here, rather than in the trainer, so the simulator can import them without
+importing the whole learner.
 """
 
 from collections import deque

@@ -73,7 +73,7 @@ def _fill(cfg, buffer, store, agent, episodes=((1, 40), (2, 40), (3, 40)),
         def emit(tr, uid=uid, st=st):
             buffer.push(uid, tr.step, tr.record, st.key, tr.action,
                         tr.step_rewards, tr.terminal,
-                     tr.robot_penalties)
+                        tr.robot_penalties, tr.frame_only)
 
         run_episode(m, cfg, act, gamma=0.99, max_steps=steps, seed=uid,
                     static=st, emit=emit)
@@ -407,7 +407,7 @@ class TeamIntentTest(unittest.TestCase):
         self.assertAlmostEqual(float(rec.intent[0, 0]), float(a.xy[0]),
                                places=4)
         st = build_static_layers(m, cfg)
-        H = int(cfg.OBS_HISTORY_DECISIONS)
+        H = int(cfg.OBS_HISTORY_FRAMES)
         window = [None] * (H - 1) + [rec]
         obs = build_observations([ObsRequest(static=st, window=window,
                                              receiver=0)], cfg)
@@ -520,6 +520,173 @@ class RewardTimeTest(unittest.TestCase):
             self.assertLess(abs(v + cfg.AGENT_TIME_STEP), 0.2)
 
 
+
+class ShapingTest(unittest.TestCase):
+    """rew-v6-pbrs: potential-based shaping for learning only."""
+
+    def _v6(self, **over):
+        return _cfg(**{"REWARD_VERSION": "rew-v6-pbrs", "REWARD_W_SHAPE_APPROACH": 20.0,
+                       "REWARD_W_SHAPE_PROGRESS": 50.0, **over})
+
+    def test_shaping_telescopes_to_the_potential_difference(self):
+        from sim.rewards import TaskReward
+        from sim.robot_action import apply_to, encode
+        cfg = self._v6()
+        m = _model(_level(robots=2, seed=4))
+        task = TaskReward(m, cfg)
+        g = task.g_step
+        phi_p0 = task._phi_prog
+        for rb in m.robots:
+            apply_to(rb, encode((1.0, 0.5), "guide", speed=1.0))
+        sum_p, disc = 0.0, 1.0
+        n = 40
+        for _ in range(n):
+            m.step()
+            c = task.step(m)
+            sum_p += disc * c["shape_progress"]
+            disc *= g
+        w = task.weights
+        self.assertAlmostEqual(sum_p, w["shape_progress"]
+                               * (g ** n * task._phi_prog - phi_p0), places=6)
+
+    def test_robot_shaping_telescopes_per_robot(self):
+        from sim.rewards import TaskReward
+        from sim.robot_action import apply_to, encode
+        cfg = self._v6(REWARD_W_COLLISION=0.0)
+        m = _model(_level(robots=2, seed=4))
+        task = TaskReward(m, cfg)
+        g = task.g_step
+        phi0 = list(task._phi_appr)
+        for rb in m.robots:
+            apply_to(rb, encode((-1.0, 1.0), "off", speed=1.0))
+        total, disc = np.zeros(len(m.robots)), 1.0
+        for _ in range(40):
+            m.step()
+            task.step(m)
+            total += disc * np.array(task.last_robot_penalties)
+            disc *= g
+        want = [task.weights["shape_approach"] * (disc * a - b)
+                for a, b in zip(task._phi_appr, phi0)]
+        np.testing.assert_allclose(total, want, atol=1e-6)
+
+    def test_walking_to_the_unreached_pays_and_walking_away_costs(self):
+        from sim.rewards import TaskReward
+        cfg = self._v6()
+        m = _model(_level(robots=1, seed=4))
+        task = TaskReward(m, cfg)
+        inside = task._inside(m)
+        targets = [a for a in inside if TaskReward.unreached(a)]
+        self.assertGreaterEqual(len(targets), 2)
+        p = targets[0]
+        for a in targets[1:]:                      # one person left to reach
+            a.informed_by_robot = True
+        rb = m.robots[0]
+        phi = {}
+        for d in (60.0, 30.0, 5.0, 0.0):
+            rb.xy = [float(p.xy[0]) + d, float(p.xy[1])]
+            phi[d] = task._phi_approach(m, [rb], inside)[0]
+        self.assertEqual(phi[60.0], 0.0)           # beyond the cap
+        self.assertLess(phi[60.0], phi[30.0])
+        self.assertLess(phi[30.0], phi[5.0])
+        self.assertLess(phi[5.0], phi[0.0])
+        k = float(cfg.REWARD_SHAPE_APPROACH_PEOPLE)
+        self.assertAlmostEqual(phi[0.0], 1.0 - np.exp(-1.0 / k), places=9)
+        # Nobody left to reach: nothing to walk toward.
+        p.informed_by_robot = True
+        self.assertEqual(task._phi_approach(m, [rb], inside), [0.0])
+
+    def test_one_person_moves_the_approach_potential_by_at_most_one_over_kappa(self):
+        """A person stepping into or out of the hazard, noticing it or being
+        reached is not the robot's doing; no single one may jump Phi far."""
+        from sim.rewards import TaskReward
+        cfg = self._v6()
+        m = _model(_level(robots=3, seed=4))
+        task = TaskReward(m, cfg)
+        inside = task._inside(m)
+        targets = [a for a in inside if TaskReward.unreached(a)]
+        self.assertTrue(targets)
+        k = float(cfg.REWARD_SHAPE_APPROACH_PEOPLE)
+        rng = np.random.default_rng(0)
+        for _ in range(20):
+            for rb in m.robots:                    # robots next to the crowd
+                q = targets[int(rng.integers(len(targets)))]
+                rb.xy = [float(q.xy[0]) + rng.uniform(-3, 3),
+                         float(q.xy[1]) + rng.uniform(-3, 3)]
+            before = task._phi_approach(m, m.robots, inside)
+            q = targets[int(rng.integers(len(targets)))]
+            q.informed_by_robot = True
+            after = task._phi_approach(m, m.robots, inside)
+            q.informed_by_robot = False
+            for x, y in zip(before, after):
+                self.assertLessEqual(y, x)
+                self.assertLessEqual(x - y, 1.0 / k + 1e-12)
+
+    def test_task_reward_excludes_shaping(self):
+        from learn.rollout import run_episode
+        from sim.rewards import SHAPING_TERMS
+        from sim.robot_action import encode
+        cfg = self._v6(**_dmax(2.0), **_devents(False))
+        m = _model(_level(robots=2, seed=4))
+        act = np.stack([encode((1.0, 0.0), "guide")] * 2)
+        got = []
+        res = run_episode(m, cfg, lambda o, r: act, gamma=0.99, max_steps=40,
+                          needs_obs=False, emit=got.append)
+        task = sum(v for k, v in res.components.items() if k not in SHAPING_TERMS)
+        self.assertAlmostEqual(res.total_reward, task, places=6)
+        self.assertNotEqual(res.components["shape_approach"], 0.0)
+        shaped = sum(t.shaping for t in got if t.action is not None)
+        self.assertAlmostEqual(shaped, sum(res.components[k] for k in SHAPING_TERMS),
+                               places=6)
+
+    def test_a_terminal_state_has_zero_potential(self):
+        from learn.rollout import run_episode
+        from sim.robot_action import encode
+        cfg = self._v6(**_dmax(2.0), **_devents(False), REWARD_W_COLLISION=0.0)
+        m = _model(_level(robots=1, seed=4))
+        m.should_finish = lambda: m.step_count >= 6
+        from sim.rewards import TaskReward
+        phi0 = TaskReward(m, cfg)                    # same start state
+        start_p, start_a = phi0._phi_prog, list(phi0._phi_appr)
+        got = []
+        act = encode((1.0, 0.0), "guide")[None]
+        run_episode(m, cfg, lambda o, r: act, gamma=0.99, max_steps=100,
+                    emit=got.append, needs_obs=False)
+        acted = [t for t in got if t.action is not None]
+        self.assertTrue(acted[-1].terminal)
+        g = phi0.g_step
+        disc, robot = 1.0, 0.0
+        for t in acted:
+            for k in range(t.hold):
+                robot += disc * t.robot_penalties[k][0]
+                disc *= g
+        # Episode sum of the robot's shaping = Phi(terminal) - Phi(s_0)
+        # = -Phi(s_0), whatever happened in between.
+        self.assertAlmostEqual(robot, -phi0.weights["shape_approach"] * start_a[0],
+                               places=5)
+
+    def test_rollout_reports_where_the_robots_were(self):
+        from learn.rollout import ROBOT_KEYS, run_episode
+        from sim.robot_action import encode
+        cfg = _cfg(**_dmax(2.0), **_devents(False))
+        m = _model(_level(robots=3, seed=4))
+        zone = m.danger_zone
+        for rb in m.robots[:2]:              # two robots inside, one outside
+            rb.xy = [float(zone.cx), float(zone.cy)]
+        m.robots[2].xy = [float(zone.cx) + 1e4, float(zone.cy)]
+        res = run_episode(m, cfg, None, gamma=0.99, max_steps=1,
+                          needs_obs=False)
+        self.assertEqual(set(res.robots), set(ROBOT_KEYS))
+        self.assertAlmostEqual(res.robots["robot_inside_share"], 2.0 / 3.0)
+        self.assertGreater(res.robots["robot_depth_m"], 0.0)
+        self.assertGreater(res.robots["robot_pair_distance_m"], 1e3)
+        self.assertGreaterEqual(res.robots["followers_per_robot"], 0.0)
+
+    def test_shaping_weights_are_part_of_the_reward_fingerprint(self):
+        a, b = self._v6(), self._v6(REWARD_W_SHAPE_APPROACH=10.0)
+        self.assertNotEqual(a.schema_versions()["reward_fingerprint"],
+                            b.schema_versions()["reward_fingerprint"])
+
+
 class ReplayTest(unittest.TestCase):
     def setUp(self):
         from learn.replay import ReplayBuffer, StaticStore
@@ -570,11 +737,11 @@ class ReplayTest(unittest.TestCase):
         valid = [i for i in range(small.size) if small.valid_transition(i)]
         for i in valid:
             self.assertIsNotNone(small.window_indices(i))
-            self.assertIsNotNone(small.window_indices(int(small.next[i])))
+            self.assertIsNotNone(small.window_indices(int(small.next_dec[i])))
         # The oldest surviving records lost their predecessors.
         oldest = int(np.argmin(np.where(small.step[:small.size] >= 0,
                                         small.step[:small.size], 1 << 30)))
-        if small.step[oldest] >= self.cfg.OBS_HISTORY_DECISIONS:
+        if small.step[oldest] >= self.cfg.OBS_HISTORY_STRIDE:
             self.assertFalse(small.valid_transition(oldest))
 
     def test_static_layers_reload_from_disk_after_eviction(self):
@@ -911,7 +1078,9 @@ class DecisionTimingTest(unittest.TestCase):
     def test_arrival_ends_the_decision(self):
         from config import ROBOT_WAYPOINT_RANGE_M
         move = (2.0 * 2.0 / float(ROBOT_WAYPOINT_RANGE_M), 0.0)  # 2 m right
-        for on_events, want in ((True, 3), (False, 8)):
+        F = _cfg().frame_steps()
+        # Arrival comes after 3 steps; the decision waits for the next frame.
+        for on_events, want in ((True, -(-3 // F) * F), (False, 8)):
             # Resolved before the simulator is switched, which the config
             # check would otherwise refuse.
             cfg = _cfg(**_dmax(4.0), **_devents(on_events))
@@ -926,9 +1095,12 @@ class DecisionTimingTest(unittest.TestCase):
         m = self._model_with_wall()
         rb = m.robots[0]
         rb.xy = [10.0, 27.0]
-        cfg = _cfg(**_dmax(4.0), **_devents(True))
-        holds = self._holds(m, cfg, (0.0, 1.0), 8)
-        self.assertLess(holds[0], 8)
+        # Long enough that ending at the first frame after the event is
+        # clearly early: decisions only end on the observation clock.
+        cfg = _cfg(**_dmax(8.0), **_devents(True))
+        holds = self._holds(m, cfg, (0.0, 1.0), 16)
+        self.assertLess(holds[0], cfg.decision_max_steps())
+        self.assertEqual(holds[0] % cfg.frame_steps(), 0)
         # Velocity: driving into the wall is "blocked". Waypoint: a target in
         # the wall is moved to the nearest ground, reached, and "arrived".
         import config
@@ -954,6 +1126,141 @@ class DecisionTimingTest(unittest.TestCase):
             np.testing.assert_array_equal(again.step_rewards[:n, :4],
                                           buf.step_rewards[:n])
             self.assertFalse(again.step_rewards[:n, 4:].any())
+
+
+
+class ObservationClockTest(unittest.TestCase):
+    """obs-v5: frames on a fixed clock, decisions only at frames, history
+    entries a fixed number of seconds apart."""
+
+    def test_frames_are_on_the_clock_and_decisions_wait_for_one(self):
+        from learn.rollout import run_episode
+        from sim.robot_action import encode
+        cfg = _cfg(**_dmax(4.0), **_devents(True))
+        F, K = cfg.frame_steps(), cfg.decision_max_steps()
+        m = _model(_level(robots=2, seed=4))
+        got = []
+        act = np.stack([encode((1.0, -0.4), "guide")] * 2)
+        run_episode(m, cfg, lambda o, r: act, gamma=0.99, max_steps=48,
+                    needs_obs=False, emit=got.append)
+        # Every frame arrives once, in order, the last being the final state.
+        self.assertEqual([t.step for t in got], list(range(48 // F + 1)))
+        self.assertIsNone(got[-1].action)
+        self.assertFalse(got[-1].frame_only)
+        acted = [t for t in got if t.action is not None]
+        for t in acted:
+            self.assertEqual(t.hold % F, 0)
+            self.assertLessEqual(t.hold, K)
+        # A decision's frames: its own, then those taken while it was held.
+        for a, b in zip(acted, acted[1:]):
+            self.assertEqual(b.step - a.step, a.hold // F)
+            between = [t for t in got if a.step < t.step < b.step]
+            self.assertTrue(all(t.frame_only and t.action is None
+                                for t in between))
+
+    def test_window_entries_are_a_fixed_number_of_frames_apart(self):
+        from sim.observation import ObservationHistory, build_static_layers
+        cfg = _cfg()
+        m = _model(_level(robots=2, seed=4))
+        h = ObservationHistory(cfg, build_static_layers(m, cfg), len(m.robots))
+        S, H = int(cfg.OBS_HISTORY_STRIDE), int(cfg.OBS_HISTORY_FRAMES)
+        stamps = {}
+        for t in range(3 * cfg.history_span_frames()):
+            stamps[id(h.record(m))] = t
+            win = h.window()
+            self.assertEqual(len(win), H)
+            real = [stamps[id(w)] for w in win if w is not None]
+            self.assertEqual(real[-1], t)
+            self.assertTrue(all(b - a == S for a, b in zip(real, real[1:])))
+            self.assertEqual(len(real), min(H, t // S + 1))
+
+    def test_replay_rebuilds_what_the_actor_saw_between_sparse_decisions(self):
+        from learn.replay import ReplayBuffer, StaticStore
+        from learn.rollout import run_episode
+        from learn.sac import SACAgent
+        from sim.observation import build_static_layers
+        cfg = _cfg(**_dmax(6.0), **_devents(False))   # a decision every 3rd frame at 2 s
+        agent = SACAgent(cfg)
+        with tempfile.TemporaryDirectory() as tmp:
+            store = StaticStore(tmp)
+            buf = ReplayBuffer(cfg, 400, store)
+            m = _model(_level(robots=2, seed=6), seed=1)
+            st = build_static_layers(m, cfg)
+            store.put(st)
+            seen = []
+            acted = []
+
+            def act(obs, rec):
+                seen.append({k: v.copy() for k, v in obs.items()})
+                return agent.act(obs, epsilon=0.3)
+
+            def emit(tr):
+                i = buf.push(7, tr.step, tr.record, st.key, tr.action,
+                             tr.step_rewards, tr.terminal,
+                             tr.robot_penalties, tr.frame_only)
+                if tr.action is not None:
+                    acted.append(i)
+
+            run_episode(m, cfg, act, gamma=0.99, max_steps=72, seed=1,
+                        static=st, emit=emit)
+            buf.end_episode(7)
+            self.assertEqual(len(acted), len(seen))
+            self.assertGreater(buf.size, len(acted))        # frames between
+            for i, obs in zip(acted, seen):
+                joint = buf._joint([i])
+                n = int(buf.n_robots[i])
+                for k in ("ego", "mid", "glob", "state"):
+                    np.testing.assert_array_equal(joint[k][0, :n], obs[k], k)
+            valid = [i for i in acted if buf.valid_transition(i)]
+            self.assertEqual(valid, acted)
+            for a, b2 in zip(acted, acted[1:]):
+                self.assertEqual(int(buf.next_dec[a]), b2)
+            b = buf.sample(4, np.random.default_rng(0))
+            self.assertEqual(len(b["indices"]), 4)
+            self.assertTrue(all(buf.has_action[int(i)] for i in b["indices"]))
+
+    def test_the_longest_decision_must_be_whole_frames(self):
+        from configs import ConfigError
+        with self.assertRaises(ConfigError):
+            _cfg(**_dmax(3.0), OBS_FRAME_PERIOD_S=2.0)
+
+    def test_ego_history_follows_the_current_pose(self):
+        """A person standing still stays in the same cell of every history
+        frame while the robot walks past, once frames are aligned."""
+        from sim.observation import (ObservationHistory, build_static_layers,
+                                     EGO_STATIC)
+        def run(aligned):
+            cfg = _cfg(OBS_EGO_HISTORY_ALIGNED=aligned)
+            m = _model(_level(robots=1, seed=4))
+            rb = m.robots[0]
+            # A free spot with room to walk 3 m along x.
+            for tri in m.pure_mesh:
+                cx = sum(p[0] for p in tri) / 3.0
+                cy = sum(p[1] for p in tri) / 3.0
+                if all(m.is_free_point(cx + dx, cy, padding=1.0)
+                       for dx in (-1.0, 0.0, 1.0, 2.0, 3.0, 4.0)):
+                    break
+            for a in m.crowds:
+                a.xy = [1.0, 1.0]
+            person = m.crowds[0]
+            person.xy = [cx + 4.0, cy]
+            h = ObservationHistory(cfg, build_static_layers(m, cfg), 1)
+            S = int(cfg.OBS_HISTORY_STRIDE)
+            for k in range(cfg.history_span_frames()):
+                rb.xy = [cx + k / S, cy]          # 1 m per history entry
+                h.record(m)
+            obs = h.team_observations()
+            H = int(cfg.OBS_HISTORY_FRAMES)
+            base = len(EGO_STATIC)
+            cells = []
+            for j in range(H):
+                c = obs["ego"][0, base + 2 * j]
+                cells.append(tuple(np.argwhere(c > 0)[0]) if c.max() > 0 else None)
+            return cells
+        aligned = run(True)
+        self.assertEqual(len(set(aligned)), 1, aligned)
+        unaligned = run(False)
+        self.assertGreater(len(set(unaligned)), 1, unaligned)
 
 
 class WaypointActionTest(unittest.TestCase):

@@ -4,12 +4,13 @@ The training worker, the validation and zero-shot evaluators and the tests
 all run episodes through `run_episode`, so they measure, observe, act and
 account reward identically.
 
-Time (docs/outdoor_madrl_redesign.md section 5.4): a team decision is held
-until ROBOT_DECISION_MAX_S_<MODE> has passed, or, with
-ROBOT_DECISION_ON_EVENTS_<MODE>,
-until some robot arrives at its waypoint or is blocked by a wall (checked after
-every step), or until the episode ends. The transition for that decision
-carries
+Time (docs/outdoor_madrl_redesign.md section 5.4). Every robot is measured on
+a fixed clock, one frame every `cfg.frame_steps()` simulation steps
+(OBS_FRAME_PERIOD_S), and the team decides only on that clock. A decision is
+held until ROBOT_DECISION_MAX_S_<MODE> has passed (a whole number of frames),
+or, with ROBOT_DECISION_ON_EVENTS_<MODE>, until the first frame after some
+robot arrived at its waypoint or was blocked by a wall (checked after every
+step), or until the episode ends. The transition for that decision carries
 
     reward = sum_{i<k} gamma_step^i r_i      hold = k
 
@@ -18,6 +19,12 @@ decision (which used to be skipped) and a decision cut short by the end of the
 episode are recorded like any other. `terminal` is set only when the task
 ended the episode (DANGER_TERMINATION); running out of MAX_STEPS is a time
 limit, and the learner still bootstraps from the final state.
+
+`emit` receives every frame, in time order: a decision frame as its completed
+transition (once its hold has ended), then the frames taken during that hold
+(`frame_only`, no action), and at the end the state after the last action
+(action None, not frame_only). Transition.step is the frame's index in the
+episode; the replay links frames by it to rebuild history windows.
 """
 
 from __future__ import annotations
@@ -29,17 +36,17 @@ from typing import Callable, Dict, List, Optional
 
 import numpy as np
 
-from configs import decision_max_steps, decision_on_events
+from configs import decision_max_steps, decision_on_events, frame_steps
 from sim import robot_action
 from sim.observation import (DecisionRecord, ObservationHistory, StaticLayers,
                              build_static_layers)
 from sim.rewards import (COMPONENTS, PER_ROBOT_VERSIONS, ROBOT_TERMS,
-                         TaskReward)
+                         SHAPING_TERMS, TaskReward)
 
 
 @dataclass
 class Transition:
-    step: int                       # decision index within the episode
+    step: int                       # frame index within the episode
     record: DecisionRecord
     action: Optional[np.ndarray]    # (MAX_ROBOTS, A); None for the final state
     reward: float = 0.0             # discounted with the rollout's gamma
@@ -55,6 +62,12 @@ class Transition:
     # PER_ROBOT_VERSIONS those terms are not in `step_rewards` but charged to
     # each robot from these; under rew-v2 they are and these are unused.
     robot_penalties: List[List[float]] = field(default_factory=list)
+    # A frame taken while a decision was held: history only, no action.
+    frame_only: bool = False
+    # Learning-only shaping (sim/rewards.SHAPING_TERMS) inside step_rewards
+    # and robot_penalties over the hold, undiscounted and summed over the
+    # team: what to take off to get back the task reward.
+    shaping: float = 0.0
 
 
 @dataclass
@@ -71,6 +84,35 @@ class EpisodeResult:
     inference_ms_mean: float = 0.0
     sim_ms_per_step: float = 0.0
     task: Dict[str, float] = field(default_factory=dict)
+    # Where the robots were, sampled on the observation clock (ROBOT_KEYS).
+    robots: Dict[str, float] = field(default_factory=dict)
+
+
+# Means over frames: robots inside the hazard (share of robot-frames), how
+# deep they were (metres past the boundary, 0 outside), metres between pairs
+# of robots, and persons following a robot, per robot.
+ROBOT_KEYS = ("robot_inside_share", "robot_depth_m", "robot_pair_distance_m",
+              "followers_per_robot")
+
+
+def _robot_sample(model, acc: Dict[str, List[float]]) -> None:
+    robots = list(model.robots)
+    if not robots:
+        return
+    xy = [(float(rb.xy[0]), float(rb.xy[1])) for rb in robots]
+    zone = getattr(model, "danger_zone", None)
+    if zone is not None:
+        sd = [float(zone.signed_distance(x, y)) for x, y in xy]
+        acc["robot_inside_share"].extend(float(v < 0.0) for v in sd)
+        acc["robot_depth_m"].extend(max(0.0, -v) for v in sd)
+    for i in range(len(xy)):
+        for j in range(i + 1, len(xy)):
+            acc["robot_pair_distance_m"].append(
+                math.hypot(xy[i][0] - xy[j][0], xy[i][1] - xy[j][1]))
+    following = sum(1 for a in model.crowds
+                    if not a.dead and getattr(a, "following_robot_id", None)
+                    is not None)
+    acc["followers_per_robot"].append(following / len(robots))
 
 
 ActFn = Callable[[Dict[str, np.ndarray], DecisionRecord], np.ndarray]
@@ -91,6 +133,10 @@ def run_episode(model, cfg, act_fn: Optional[ActFn], *, gamma: float,
     """
     A = int(cfg.ACTION_SCALE)
     K = decision_max_steps(cfg)
+    F = frame_steps(cfg)
+    if K % F:
+        raise ValueError(f"the longest decision ({K} steps) is not a whole "
+                         f"number of observation frames ({F} steps)")
     on_events = decision_on_events(cfg)
     R = int(cfg.MAX_ROBOTS)
     max_steps = int(cfg.MAX_STEPS if max_steps is None else max_steps)
@@ -107,19 +153,34 @@ def run_episode(model, cfg, act_fn: Optional[ActFn], *, gamma: float,
     speeds: List[float] = []
     infer_ms: List[float] = []
     sim_ms = 0.0
+    where: Dict[str, List[float]] = {k: [] for k in ROBOT_KEYS}
 
     pending: Optional[Transition] = None
+    held: List[Transition] = []      # frames taken during the pending hold
     g_acc = 1.0
     d = -1
+    frame = -1
+    event = False                    # some robot arrived or was blocked
     off = robot_action.encode((0.0, 0.0), "off")
     for step in range(max_steps):
-        if (pending is None or pending.hold >= K
-                or (on_events and any(getattr(rb, "decision_event", None)
-                                      for rb in model.robots[:R]))):
+        due = False
+        if step % F == 0:
             rec = history.record(model)
+            frame += 1
+            _robot_sample(model, where)
+            due = (pending is None or pending.hold >= K
+                   or (on_events and event))
+            if not due:
+                held.append(Transition(step=frame, record=rec, action=None,
+                                       frame_only=True))
+        if due:
             d += 1
+            event = False
             if pending is not None and emit is not None:
                 emit(pending)
+                for fr in held:
+                    emit(fr)
+            held = []
             actions = np.zeros((R, robot_action.ACTION_DIM), np.float32)
             n = len(model.robots)
             if act_fn is None:
@@ -140,14 +201,16 @@ def run_episode(model, cfg, act_fn: Optional[ActFn], *, gamma: float,
             if prev_modes is not None:
                 switches += sum(a != b for a, b in zip(prev_modes, now_modes))
             prev_modes = now_modes
-            pending = Transition(step=d, record=rec, action=actions,
+            pending = Transition(step=frame, record=rec, action=actions,
                                  components={c: 0.0 for c in COMPONENTS})
             g_acc = 1.0
         t0 = time.perf_counter()
         model.step()
         sim_ms += (time.perf_counter() - t0) * 1000.0
         comps = reward.step(model)
-        r = sum(comps.values())
+        r = sum(comps.values())                    # what the learner is given
+        shaped = sum(comps[t] for t in SHAPING_TERMS)
+        pending.shaping += shaped
         pending.reward += g_acc * r
         if cfg.REWARD_VERSION in PER_ROBOT_VERSIONS:
             pending.step_rewards.append(
@@ -159,8 +222,12 @@ def run_episode(model, cfg, act_fn: Optional[ActFn], *, gamma: float,
         for c, v in comps.items():
             pending.components[c] += v
             res.components[c] += v
-        res.total_reward += r
+        res.total_reward += r - shaped            # the task reward only
         g_acc *= g_step
+        if on_events and any(getattr(rb, "decision_event", None)
+                             for rb in model.robots[:R]):
+            # Held until the next frame: decisions are taken on the clock.
+            event = True
         for rb in model.robots:
             speeds.append(math.hypot(float(rb.vel[0]), float(rb.vel[1])))
         res.steps = step + 1
@@ -171,12 +238,31 @@ def run_episode(model, cfg, act_fn: Optional[ActFn], *, gamma: float,
         if model.should_finish():
             pending.terminal = True
             res.terminated = True
+            # A terminal state's potential is zero: the last shaping term is
+            # -Phi(s_{T-1}), not g Phi(s_T) - Phi(s_{T-1}).
+            team, own = reward.terminal_correction()
+            if team or any(own):
+                if cfg.REWARD_VERSION in PER_ROBOT_VERSIONS:
+                    pending.step_rewards[-1] += team
+                    for j, v in enumerate(own):
+                        if j < len(pending.robot_penalties[-1]):
+                            pending.robot_penalties[-1][j] += v
+                else:
+                    pending.step_rewards[-1] += team + sum(own)
+                pending.reward += g_acc / g_step * (team + sum(own))
+                pending.shaping += team + sum(own)
+                pending.components["shape_progress"] += team
+                pending.components["shape_approach"] += sum(own)
+                res.components["shape_progress"] += team
+                res.components["shape_approach"] += sum(own)
             break
 
     if pending is not None and emit is not None:
         emit(pending)
+        for fr in held:
+            emit(fr)
         final = history.record(model)
-        emit(Transition(step=pending.step + 1, record=final, action=None))
+        emit(Transition(step=frame + 1, record=final, action=None))
     res.decisions = d + 1
     res.command_norm_mean = float(np.mean(cmd_norms)) if cmd_norms else 0.0
     res.robot_speed_mean = float(np.mean(speeds)) if speeds else 0.0
@@ -186,6 +272,7 @@ def run_episode(model, cfg, act_fn: Optional[ActFn], *, gamma: float,
     res.mode_switch_rate = switches / denom
     res.inference_ms_mean = float(np.mean(infer_ms)) if infer_ms else 0.0
     res.sim_ms_per_step = sim_ms / max(1, res.steps)
+    res.robots = {k: float(np.mean(v)) for k, v in where.items() if v}
     if task_metrics is not None:
         res.task = task_metrics.summary()
     return res

@@ -213,6 +213,8 @@ class MetricsLogger:
             run.define_metric("global_update")
             run.define_metric("episode/*", step_metric="global_episode")
             run.define_metric("eval/*", step_metric="global_episode")
+            # The validation headline (learn/zero_shot.HEADLINE_KEYS).
+            run.define_metric("key/*", step_metric="global_episode")
             run.define_metric("train/*", step_metric="global_update")
             self._wandb = run
             self._write_run_state(start_episode, start_update)
@@ -336,7 +338,8 @@ class MetricsLogger:
 
     def log_eval(self, global_episode: int, global_update: int,
                  metrics: Mapping[str, Any]) -> Dict[str, float]:
-        """Evaluation summaries; keys start with "eval/"."""
+        """Evaluation summaries; keys start with "eval/", and the few
+        headline numbers of a validation with "key/"."""
         return self._log("eval", global_episode, global_episode,
                          global_update, metrics)
 

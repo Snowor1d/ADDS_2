@@ -6,23 +6,30 @@ kept apart because they have different owners:
   static    the city map and this episode's hazard, shared with the team in
             advance: buildings and hazard extent. Known everywhere, observed
             or not.
-  measured  what each robot's own lidar saw at each decision instant: the
+  measured  what each robot's own lidar saw at each observation frame: the
             people within ROBOT_VISION metres not hidden by a building (or,
             with ROBOT_LIDAR_PERSON_OCCLUSION, by a nearer person), and the
             cells it could see. Anything else is
             *unobserved*, not empty.
   shared    what teammates' messages delivered: their pose, mode and
-            measurements, subject to COMM_DELAY_DECISIONS and COMM_DROP_PROB.
+            measurements, subject to COMM_DELAY_FRAMES and COMM_DROP_PROB.
 
 The simulator's true crowd reaches only the critic, as `priv`, and the actor
 only in the declared full-information experiment (ACTOR_GLOBAL_CROWD_TRUTH).
 
+Time (obs-v5). Frames are taken on a fixed clock, one every
+OBS_FRAME_PERIOD_S, and decisions are only taken on that clock (configs/
+environment.py). A window is OBS_HISTORY_FRAMES frames OBS_HISTORY_STRIDE
+frames apart, newest last, so every history step, team observation age and
+message age is a fixed number of seconds however long decisions last.
+
 Storage and rebuilding follow section 6. A `DecisionRecord` holds exactly
-what is stored per decision instant (about 6 KB for three robots), and
-`build_observations` rebuilds every actor input from a window of records plus
-the static layers. The rollout worker, the replay buffer, the viewer and the
-zero-shot evaluator all call `build_observations`; nothing else constructs an
-actor input.
+what is stored per frame (about 6 KB for three robots); a frame at which the
+team decides also carries the action in the replay. `build_observations`
+rebuilds every actor input from a window of frames plus the static layers.
+The rollout worker, the replay buffer, the viewer and the zero-shot
+evaluator all call `build_observations`; nothing else constructs an actor
+input.
 """
 
 from __future__ import annotations
@@ -70,7 +77,7 @@ def _index(layout: Tuple[str, ...]) -> Dict[str, int]:
 
 
 def ego_channels(cfg) -> int:
-    return len(EGO_STATIC) + len(EGO_DYNAMIC) * int(cfg.OBS_HISTORY_DECISIONS)
+    return len(EGO_STATIC) + len(EGO_DYNAMIC) * int(cfg.OBS_HISTORY_FRAMES)
 
 
 def mid_channels(cfg) -> int:
@@ -146,6 +153,18 @@ def _crop(arr: np.ndarray, row0: int, col0: int, size: int,
     if r0 < r1 and c0 < c1:
         out[..., r0 - row0:r1 - row0, c0 - col0:c1 - col0] = \
             arr[..., r0:r1, c0:c1]
+    return out
+
+
+def _shift(a: np.ndarray, dr: int, dc: int) -> np.ndarray:
+    """a moved by (dr, dc) cells: out[i + dr, j + dc] = a[i, j], zero where
+    nothing lands (unobserved, no people)."""
+    h, w = a.shape
+    out = np.zeros_like(a)
+    r0, r1 = max(0, dr), min(h, h + dr)
+    c0, c1 = max(0, dc), min(w, w + dc)
+    if r0 < r1 and c0 < c1:
+        out[r0:r1, c0:c1] = a[r0 - dr:r1 - dr, c0 - dc:c1 - dc]
     return out
 
 
@@ -438,17 +457,21 @@ def truth_counts(model, cfg, positions: Optional[np.ndarray] = None
 
 
 class CommChannel:
-    """Which teammate records each robot holds, per decision instant.
+    """Which teammate records each robot holds, per observation frame.
 
-    Delay is in decision intervals; a dropped message is lost for good (no
-    retransmission). The draw uses its own random stream so enabling loss
-    does not change the crowd's randomness.
+    Every frame is a message. Delay is in frames (COMM_DELAY_FRAMES); a
+    dropped message is lost for good (no retransmission). `avail` answers for
+    the window's entries, which are OBS_HISTORY_STRIDE frames apart. The draw
+    uses its own random stream so enabling loss does not change the crowd's
+    randomness.
     """
 
     def __init__(self, cfg, n_robots: int, seed: int = 0):
-        self.delay = int(cfg.COMM_DELAY_DECISIONS)
+        self.delay = int(cfg.COMM_DELAY_FRAMES)
         self.drop = float(cfg.COMM_DROP_PROB)
-        self.history = int(cfg.OBS_HISTORY_DECISIONS)
+        self.entries = int(cfg.OBS_HISTORY_FRAMES)
+        self.stride = int(cfg.OBS_HISTORY_STRIDE)
+        self.history = (self.entries - 1) * self.stride + 1
         self.n = int(n_robots)
         self.rng = np.random.default_rng(seed)
         # delivered[(t_sent, receiver, sender)] -> bool, decided when sent.
@@ -467,15 +490,18 @@ class CommChannel:
             del self._delivered[key]
 
     def avail(self, t: int, max_robots: int) -> np.ndarray:
+        """Bit j of out[r, s]: receiver r holds sender s's frame from window
+        entry j, j * OBS_HISTORY_STRIDE frames before frame t."""
         out = np.zeros((max_robots, max_robots), dtype=np.uint8)
         for r in range(self.n):
             for s in range(self.n):
                 bits = 0
-                for j in range(self.history):
-                    ts = t - j
+                for j in range(self.entries):
+                    lag = j * self.stride
+                    ts = t - lag
                     if ts < 0:
                         break
-                    if r != s and j < self.delay:
+                    if r != s and lag < self.delay:
                         continue
                     if self._delivered.get((ts, r, s), False):
                         bits |= 1 << j
@@ -551,7 +577,7 @@ def _team_union(req: ObsRequest, cfg):
     saw the same cell at the same instant saw the same people, so the cell is
     taken once, never summed.
     """
-    H = int(cfg.OBS_HISTORY_DECISIONS)
+    H = int(cfg.OBS_HISTORY_FRAMES)
     E = int(cfg.EGO_MAP_SIZE)
     newest = req.window[-1]
     r = req.receiver
@@ -621,9 +647,10 @@ def build_observations(requests: Sequence[ObsRequest], cfg,
                for k in ("ego", "mid", "glob")}
         out["state"] = np.zeros((B,) + shapes["state"], dtype=np.float32)
         rows = range(B)
-    H = int(cfg.OBS_HISTORY_DECISIONS)
+    H = int(cfg.OBS_HISTORY_FRAMES)
     E = int(cfg.EGO_MAP_SIZE)
     M = int(cfg.OBS_MID_SIZE)
+    aligned = bool(cfg.OBS_EGO_HISTORY_ALIGNED)
     G = int(cfg.OBS_GLOBAL_SIZE)
     res_e = float(cfg.OBS_EGO_RES_M)
     res_m = float(cfg.OBS_MID_RES_M)
@@ -656,10 +683,19 @@ def build_observations(requests: Sequence[ObsRequest], cfg,
             frame = req.window[-1 - j] if j < len(req.window) else None
             frame = frame if frame is not None else first
             base = len(EGO_STATIC) + 2 * j
-            ego[base] = np.minimum(
-                1.0, frame.counts[r].astype(np.float32)
-                / (res_e * res_e * sat))
-            ego[base + 1] = frame.observed[r].astype(np.float32)
+            counts = np.minimum(1.0, frame.counts[r].astype(np.float32)
+                                / (res_e * res_e * sat))
+            seen = frame.observed[r].astype(np.float32)
+            if aligned:
+                # Where the frame's cells lie in the current crop: its grid
+                # started at its own anchor, the current one at (col0, row0).
+                dc = int(frame.anchors[r, 0]) - col0
+                dr = int(frame.anchors[r, 1]) - row0
+                if dc or dr:
+                    counts = _shift(counts, dr, dc)
+                    seen = _shift(seen, dr, dc)
+            ego[base] = counts
+            ego[base + 1] = seen
 
         # ---------------- team knowledge
         if truth:
@@ -834,34 +870,50 @@ def critic_privileged(records: Sequence[DecisionRecord], cfg,
 
 # ------------------------------------------------------------ online history
 
-class ObservationHistory:
-    """A rollout's rolling window of records, for building actor input live.
+def strided_window(frames: Sequence[Optional[DecisionRecord]], cfg
+                   ) -> List[Optional[DecisionRecord]]:
+    """The window's entries from a run of consecutive frames (oldest first,
+    newest last): OBS_HISTORY_FRAMES of them, OBS_HISTORY_STRIDE frames
+    apart, oldest first, None before the episode began."""
+    H = int(cfg.OBS_HISTORY_FRAMES)
+    S = int(cfg.OBS_HISTORY_STRIDE)
+    out: List[Optional[DecisionRecord]] = []
+    for j in range(H - 1, -1, -1):
+        k = len(frames) - 1 - j * S
+        out.append(frames[k] if k >= 0 else None)
+    return out
 
-    The replay buffer rebuilds the same windows from stored records, so the
-    observation a worker acted on and the one the learner trains on are the
-    same array (tests/test_observation.py checks this).
+
+class ObservationHistory:
+    """A rollout's rolling run of frames, for building actor input live.
+
+    `record` takes one frame; call it on the observation clock (every
+    `cfg.frame_steps()` simulation steps), not per decision. The replay
+    buffer rebuilds the same windows from stored frames, so the observation a
+    worker acted on and the one the learner trains on are the same array
+    (tests/test_madrl.py checks this).
     """
 
     def __init__(self, cfg, static: StaticLayers, n_robots: int, seed: int = 0):
+        from configs import history_span_frames
         self.cfg = cfg
         self.static = static
         self.comm = CommChannel(cfg, n_robots, seed=seed)
         self.records: List[DecisionRecord] = []
+        self.span = history_span_frames(cfg)
         self.t = -1
 
     def record(self, model) -> DecisionRecord:
+        """Measure every robot now: one frame."""
         self.t += 1
         rec = record_decision(model, self.cfg, self.t, self.comm)
         self.records.append(rec)
-        H = int(self.cfg.OBS_HISTORY_DECISIONS)
-        if len(self.records) > H:
-            self.records = self.records[-H:]
+        if len(self.records) > self.span:
+            self.records = self.records[-self.span:]
         return rec
 
     def window(self) -> List[Optional[DecisionRecord]]:
-        H = int(self.cfg.OBS_HISTORY_DECISIONS)
-        pad = [None] * (H - len(self.records))
-        return pad + list(self.records)
+        return strided_window(self.records, self.cfg)
 
     def team_observations(self) -> Dict[str, np.ndarray]:
         """Actor input for every real robot of the newest record."""

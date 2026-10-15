@@ -449,7 +449,7 @@ ROBOT_MODES = ("off", "guide", "direct") if USE_DIRECT else ("off", "guide")
 #               along the navmesh, through each portal at the point farthest
 #               from the walls, and stops on arrival. The policy decides
 #               where to be and how fast to get there (one more action
-#               number, a share of ROBO_SPEED_MAX); the route, alleys
+#               number, a share of ROBOT_SPEED_MAX); the route, alleys
 #               included, is the robot's.
 # Measured on the twenty 200 m training crops: a robot steered along that
 # route reached 300 of 300 targets 20-60 m away, including every route
@@ -472,7 +472,10 @@ ROBOT_NAV_CLEARANCE_M = 0.5
 #   - ROBOT_DECISION_MAX_S_<MODE> has passed since it was taken, or
 #   - with ROBOT_DECISION_ON_EVENTS_<MODE>, some robot reached its waypoint
 #     (waypoint only) or a wall stopped more than half of its commanded move,
-# checked after every simulation step. The team decides together: a
+# checked after every simulation step and acted on at the next observation
+# frame (OBS_FRAME_PERIOD_S): decisions are only taken on that clock, so
+# ROBOT_DECISION_MAX_S_<MODE> must be a whole number of frame periods. The
+# team decides together: a
 # transition is one joint action scored by a team critic, so one robot cannot
 # keep its old action while the others take new ones. The mode changes only
 # at a decision.
@@ -597,7 +600,7 @@ K3 = 1                           # width weight
 # checkpoint, a replay file and a curriculum history all carry the versions
 # they were produced under, and nothing is loaded across a mismatch: an old
 # buffer read under a new meaning trains on the wrong thing without any error.
-OBSERVATION_SCHEMA_VERSION = "obs-v4-lean"
+OBSERVATION_SCHEMA_VERSION = "obs-v5-clock"
 # ACTION_SCHEMA_VERSION follows USE_DIRECT and is set next to it, under
 # WHAT A ROBOT SIGNALS below.
 
@@ -614,9 +617,10 @@ SUPPORTED_CROP_SIZES_M = (100, 200, 400)
 #
 # Team members exchange (position and mode, time, observed area, measured
 # crowd). The first experiments assume a lossless, delay-free link; delay and
-# loss are separate experiment axes, counted in decision intervals.
+# loss are separate experiment axes. Messages go out with every observation
+# frame (OBS_FRAME_PERIOD_S below), so the delay is counted in frames.
 TEAM_SHARE_OBSERVATIONS = True
-COMM_DELAY_DECISIONS = 0
+COMM_DELAY_FRAMES = 0
 COMM_DROP_PROB = 0.0
 # Whether a message also carries where its sender is heading: its waypoint
 # under ROBOT_ACTION_MODE = "waypoint", or the point its current command
@@ -641,8 +645,8 @@ ACTOR_GLOBAL_CROWD_TRUTH = True    # easy sanity run: full crowd truth for the a
 # size grows with the map and the map size also reaches the policy as a scalar.
 #
 #   local   EGO_MAP_SIZE^2 at OBS_EGO_RES_M: obstacles, hazard, off-map mask,
-#           and the robot's own crowd count and observed mask for the last
-#           OBS_HISTORY_DECISIONS decision instants.
+#           and the robot's own crowd count and observed mask for each of the
+#           OBS_HISTORY_FRAMES history frames (see the clock below).
 #   middle  OBS_MID_SIZE^2 at OBS_MID_RES_M: walkable fraction, hazard
 #           fraction and boundary, path distance to the hazard boundary,
 #           off-map mask, and the team's recent crowd counts, observed mask
@@ -658,7 +662,32 @@ OBS_EGO_RES_M = 1.0
 OBS_MID_SIZE = 64
 OBS_MID_RES_M = 2.0
 OBS_GLOBAL_SIZE = 64
-OBS_HISTORY_DECISIONS = 4
+
+# The observation clock. Every robot's measurement is taken as a frame every
+# OBS_FRAME_PERIOD_S of simulated time, whatever the decisions are doing, and
+# the team decides only on this clock: a decision that is due (the longest
+# hold used up, or a robot arrived or was blocked since the last frame, under
+# ROBOT_DECISION_ON_EVENTS_<MODE>) is taken at the next frame. So a decision
+# can wait up to one period minus a step after an event, and
+# ROBOT_DECISION_MAX_S_<MODE> must be a whole number of periods.
+#
+# The policy sees OBS_HISTORY_FRAMES of those frames, OBS_HISTORY_STRIDE
+# frames apart: the defaults show now, 4, 8 and 12 s ago. Before obs-v5 the
+# history was the last decisions instead, which made one history step 0.5 s
+# or 30 s depending on how long decisions lasted, and an event-driven policy
+# could not tell a person's movement from the gap between its own decisions.
+# Every age the policy reads (history frames, team observation age, message
+# age) is now a fixed number of seconds.
+OBS_FRAME_PERIOD_S = 2.0
+OBS_HISTORY_FRAMES = 4
+OBS_HISTORY_STRIDE = 2
+# Each history frame of the local crop is placed where it lies relative to
+# where the robot stands now, not where it stood then, so a person standing
+# still stays in the same cell while the robot walks, and a follower keeping
+# pace with it does too. Cells of an old frame that fall outside the current
+# crop are dropped; cells of the current crop the old frame did not cover
+# read as unobserved.
+OBS_EGO_HISTORY_ALIGNED = True
 
 # Crowd channels are densities, clipped at this many persons per square metre.
 OBS_DENSITY_SATURATION = 2.0

@@ -128,11 +128,12 @@ def draw(site: str, out_dir: str, decision: int = 40):
         fig.colorbar(im, ax=a, fraction=0.046, pad=0.02)
 
     # --- ego: static + newest and oldest frames
-    hist = int(cfg.OBS_HISTORY_DECISIONS)
+    hist = int(cfg.OBS_HISTORY_FRAMES)
+    span_s = float(cfg.OBS_FRAME_PERIOD_S) * int(cfg.OBS_HISTORY_STRIDE)
     ego_items = [(ego[i], f"ego {n}") for i, n in enumerate(EGO_STATIC)]
     ego_items += [(ego[3], "ego own_crowd t"), (ego[4], "ego own_observed t"),
-                  (ego[3 + 2 * (hist - 1)], f"ego own_crowd t-{hist - 1}"),
-                  (ego[4 + 2 * (hist - 1)], f"ego own_observed t-{hist - 1}")]
+                  (ego[3 + 2 * (hist - 1)], f"ego own_crowd -{(hist - 1) * span_s:g} s"),
+                  (ego[4 + 2 * (hist - 1)], f"ego own_observed -{(hist - 1) * span_s:g} s")]
     slots = [(0, 6), (0, 7), (0, 8), (1, 5), (1, 6), (1, 7), (1, 8)]
     for (rr, cc), (img, title) in zip(slots, ego_items):
         panel(gs[rr, cc], img, title, vmax=1.0)

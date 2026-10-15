@@ -49,7 +49,8 @@ SECTIONS: Tuple[Tuple[str, ModuleType], ...] = (
 OBSERVATION_SCHEMA_KEYS = (
     "OBSERVATION_SCHEMA_VERSION", "ACTION_SCHEMA_VERSION", "MAX_ROBOTS",
     "EGO_MAP_SIZE", "OBS_EGO_RES_M", "OBS_MID_SIZE", "OBS_MID_RES_M",
-    "OBS_GLOBAL_SIZE", "OBS_HISTORY_DECISIONS", "OBS_DENSITY_SATURATION",
+    "OBS_GLOBAL_SIZE", "OBS_FRAME_PERIOD_S", "OBS_HISTORY_FRAMES",
+    "OBS_HISTORY_STRIDE", "OBS_EGO_HISTORY_ALIGNED", "OBS_DENSITY_SATURATION",
     "OBS_TEAM_DISTANCE_SCALE_M", "ROBOT_VISION",
     "ROBOT_LIDAR_PERSON_OCCLUSION", "ROBOT_LIDAR_ANGULAR_RES_DEG",
     "ROBOT_LIDAR_MIN_VISIBLE_FRACTION",
@@ -213,6 +214,12 @@ class ResolvedConfig:
     def decision_on_events(self) -> bool:
         return decision_on_events(self)
 
+    def frame_steps(self) -> int:
+        return frame_steps(self)
+
+    def history_span_frames(self) -> int:
+        return history_span_frames(self)
+
 
 def _decision_suffix(cfg) -> str:
     return ("WAYPOINT" if getattr(cfg, "ROBOT_ACTION_MODE", "velocity")
@@ -231,6 +238,19 @@ def decision_on_events(cfg) -> bool:
     """Whether a decision ends early on an arrival or a wall block under the
     action mode in use (ROBOT_DECISION_ON_EVENTS_<MODE>)."""
     return bool(getattr(cfg, "ROBOT_DECISION_ON_EVENTS_" + _decision_suffix(cfg)))
+
+
+def frame_steps(cfg) -> int:
+    """Simulation steps between observation frames (OBS_FRAME_PERIOD_S in
+    ROBOT_TIME_STEP). Decisions are only taken on this clock."""
+    return max(1, int(round(float(cfg.OBS_FRAME_PERIOD_S)
+                            / float(cfg.ROBOT_TIME_STEP))))
+
+
+def history_span_frames(cfg) -> int:
+    """Frames from the oldest history entry to the newest, both included:
+    what an observation window has to keep."""
+    return (int(cfg.OBS_HISTORY_FRAMES) - 1) * int(cfg.OBS_HISTORY_STRIDE) + 1
 
 
 def collect() -> Tuple[Dict[str, Any], Dict[str, str]]:
@@ -518,14 +538,29 @@ def validate_config(cfg: ResolvedConfig, check_data: bool = True) -> None:
     mid_half = 0.5 * int(cfg.OBS_MID_SIZE) * float(cfg.OBS_MID_RES_M)
     _check(mid_half > ego_half, "the middle branch must reach further than "
            "the local one", p)
-    _check(int(cfg.OBS_HISTORY_DECISIONS) >= 1,
-           "OBS_HISTORY_DECISIONS must be at least 1", p)
+    _check(1 <= int(cfg.OBS_HISTORY_FRAMES) <= 8,
+           "OBS_HISTORY_FRAMES must be 1..8 (message availability is an "
+           "8-bit mask per window entry)", p)
+    _check(int(cfg.OBS_HISTORY_STRIDE) >= 1,
+           "OBS_HISTORY_STRIDE must be at least 1", p)
+    fp = float(cfg.OBS_FRAME_PERIOD_S) / float(cfg.ROBOT_TIME_STEP)
+    _check(fp >= 1.0 - 1e-9 and abs(fp - round(fp)) < 1e-6,
+           f"OBS_FRAME_PERIOD_S={cfg.OBS_FRAME_PERIOD_S} must be a positive "
+           f"whole number of ROBOT_TIME_STEP={cfg.ROBOT_TIME_STEP}", p)
+    if fp >= 1.0 - 1e-9 and abs(fp - round(fp)) < 1e-6:
+        _check(decision_max_steps(cfg) % frame_steps(cfg) == 0,
+               f"ROBOT_DECISION_MAX_S_{_decision_suffix(cfg)}="
+               f"{getattr(cfg, 'ROBOT_DECISION_MAX_S_' + _decision_suffix(cfg))}"
+               f" must be a whole number of OBS_FRAME_PERIOD_S="
+               f"{cfg.OBS_FRAME_PERIOD_S}: decisions are taken on the "
+               "observation clock", p)
     _check(int(cfg.OBS_GLOBAL_SIZE) >= 8, "OBS_GLOBAL_SIZE too small", p)
     _check(0.0 <= float(cfg.COMM_DROP_PROB) < 1.0,
            "COMM_DROP_PROB must be in [0, 1)", p)
-    _check(0 <= int(cfg.COMM_DELAY_DECISIONS) < int(cfg.OBS_HISTORY_DECISIONS),
-           "COMM_DELAY_DECISIONS must be shorter than the observation window, "
-           "or no teammate message would ever be shown", p)
+    _check(0 <= int(cfg.COMM_DELAY_FRAMES) < history_span_frames(cfg),
+           "COMM_DELAY_FRAMES must be shorter than the observation window "
+           "(history_span_frames), or no teammate message would ever be "
+           "shown", p)
     for name in ("OBSERVATION_SCHEMA_VERSION", "ACTION_SCHEMA_VERSION",
                  "REWARD_VERSION"):
         _check(isinstance(cfg[name], str) and cfg[name].strip() != "",
@@ -666,9 +701,17 @@ def validate_config(cfg: ResolvedConfig, check_data: bool = True) -> None:
            "REWARD_FIXED_N_REF and REWARD_FIXED_D_REF must be positive", p)
     _check(float(cfg.REWARD_W_PROJECTION) >= 0.0,
            "REWARD_W_PROJECTION must be non-negative", p)
-    _check(cfg.REWARD_VERSION in ("rew-v2-person-time", "rew-v3-own-collision",
-                                  "rew-v4-robot-costs", "rew-v5-projection"),
+    from sim.rewards import VERSIONS as _reward_versions
+    _check(cfg.REWARD_VERSION in _reward_versions,
            f"REWARD_VERSION={cfg.REWARD_VERSION!r} is not implemented", p)
+    _check(float(cfg.REWARD_W_SHAPE_APPROACH) >= 0.0
+           and float(cfg.REWARD_W_SHAPE_PROGRESS) >= 0.0,
+           "REWARD_W_SHAPE_APPROACH and REWARD_W_SHAPE_PROGRESS must be "
+           "non-negative", p)
+    _check(float(cfg.REWARD_SHAPE_APPROACH_CAP_M) > 0.0
+           and float(cfg.REWARD_SHAPE_APPROACH_PEOPLE) > 0.0,
+           "REWARD_SHAPE_APPROACH_CAP_M and REWARD_SHAPE_APPROACH_PEOPLE "
+           "must be positive", p)
     _check(float(cfg.ALPHA_START) > 0.0,
            f"ALPHA_START={cfg.ALPHA_START} must be positive", p)
     _check(float(cfg.ALPHA_LR) > 0.0,

@@ -64,7 +64,7 @@ DECAY_MODE = 'episode'
 # clobbering each other's logs, checkpoints or tensorboard port.
 # It was "Log_SAC_UED3", the same folder a SAC_UED3 run on this machine
 # writes to, so a SAC_UED4 run would have resumed from and overwritten it.
-LOG_DIR = "Log_SAC_UED6_easy_fullinfo"
+LOG_DIR = "Log_SAC_UED6_easy_fullinfo_clock_pbrs"
 PORT_NUM = 9001
 
 # --------------- NETWORK ---------------
@@ -121,7 +121,7 @@ ACTOR_TEAMMATE_ACTIONS = "stored"   # "stored" | "current"
 # "expectation": enumerate each actor's modes and the target's joint modes.
 # "gumbel": original hard straight-through Gumbel-Softmax estimator.
 # Rollouts always execute one categorical mode; expectation is for learning.
-SAC_MODE_ESTIMATOR = "gumbel"   # "expectation" | "gumbel"
+SAC_MODE_ESTIMATOR = "expectation"   # "expectation" | "gumbel"
 
 ENABLE_TIMER = True
 N_ENVS = 12
@@ -131,7 +131,10 @@ N_ENVS = 12
 # 0.18 s on the GPU, while 12 workers on the generated 0.6/0.3/0.1 size mix produce
 # roughly 11 decision instants a second. 1.0 made the learner the bottleneck
 # and stalled the workers on a full queue.
-UPDATES_PER_TRANSITION = 1.0
+# Per decision. Event-driven decisions last ~10 s, so an episode holds ~45 of
+# them instead of 125 at fixed 4 s; 2.0 keeps the updates per episode near
+# the earlier runs (2026-10-15).
+UPDATES_PER_TRANSITION = 2.0
 POLICY_BROADCAST_INTERVAL = 10
 FiLM_USE = True
 EGO_USE = True
@@ -190,8 +193,9 @@ CRITIC_PRIVILEGED_CROWD = True
 # measured quantities.
 # rew-v3: the same terms, but each robot is charged only its own collisions
 # (team task reward + own collision); see learn/sac.py. rew-v2 charges the
-# team sum to every robot alike.
-REWARD_VERSION = "rew-v5-projection"
+# team sum to every robot alike. rew-v6 is rew-v5 plus learning-only
+# potential-based shaping (REWARD_W_SHAPE_* below).
+REWARD_VERSION = "rew-v6-pbrs"
 REWARD_W_PERSON_TIME = 5.0
 REWARD_W_REMAINING_PATH = 1.0
 REWARD_W_REENTRY = 2.0
@@ -215,6 +219,35 @@ REWARD_W_BYSTANDER = 0
 # target reachable. Kept small: short targets are moved less often, and a
 # large weight would bias the robot towards timid steps. A design value.
 REWARD_W_PROJECTION = 0.0    # easy sanity run: shaping off
+# rew-v6 only: potential-based shaping, F = g * Phi(s') - Phi(s) every step
+# (sim/rewards.py). It moves credit in time without changing which policy is
+# best (Ng, Harada and Russell 1999), and is left out of the task reward,
+# `episode/total_reward` and every evaluation metric; it is logged as
+# episode/reward/shape_progress and shape_approach.
+#   SHAPE_APPROACH  per robot. Phi = 1 - exp(-S / REWARD_SHAPE_APPROACH_PEOPLE),
+#                   S = sum over persons in the hazard nobody has reached yet
+#                   of max(0, 1 - metres to the robot / REWARD_SHAPE_APPROACH_CAP_M):
+#                   S counts the unreached people near the robot, nearer ones
+#                   more, and Phi saturates once S passes a few PEOPLE. Phi is
+#                   in [0, 1), so its discounted sum over an episode is at
+#                   most the weight. Straight-line metres and a smooth sum:
+#                   a walking-distance nearest-person version was 98% jumps
+#                   (sim/rewards.py).
+#   SHAPE_PROGRESS  team. Phi = -sum over persons inside of min(1, metres to
+#                   safety / D_ref) / N_ref: followers walked out pay at once,
+#                   followers walked back in cost at once.
+# Weights from a one-decision probe on the validation levels
+# (docs/review_20261013 section 5.3) put a decisive move at roughly 1 per
+# 4 s decision against a task reward of about -11. PEOPLE from
+# docs/review_20261013/shaping_kernel.py (3 levels x shuttle / random /
+# still robots, 800 steps): S has median 5-14 and p90 up to 68, so 5 left
+# Phi above 0.9 at 33-44% of steps; at 10, 12-25%, a robot's approach term
+# per 4 s has sd 1.7-1.8 when it moves against 0.6 when it stands still.
+# Design values, not tuned on returns.
+REWARD_W_SHAPE_APPROACH = 0 #로봇별로 붙음
+REWARD_W_SHAPE_PROGRESS = 50.0 #팀 전체에 수여
+REWARD_SHAPE_APPROACH_CAP_M = 50.0
+REWARD_SHAPE_APPROACH_PEOPLE = 10.0
 REWARD_MIN_REFERENCE_POPULATION = 5
 REWARD_MIN_REFERENCE_DISTANCE_M = 5.0
 # What the terms are divided by.
@@ -341,7 +374,7 @@ WANDB_GROUP = None                  # None = EXPERIMENT_ID
 # "outdoor-madrl-v2-dataset-100m-0924-1530". A run started from a checkpoint
 # as a new run (see the resume rule in learn/metrics_logger.py) gets
 # "-resume<episode>" appended either way; a run that carries on keeps its name.
-WANDB_RUN_NAME = "sanity-stored-fullinfo-Gumbel-EventDecision"
+WANDB_RUN_NAME = "EventClock-Reward_Progress:50"
 # Only models chosen on validation are uploaded, never the replay buffer or
 # every periodic checkpoint.
 WANDB_UPLOAD_CHECKPOINTS = "selected"   # "none" | "selected"
