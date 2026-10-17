@@ -23,6 +23,7 @@ T0S = (48, 160, 320)          # steps: 24 s, 80 s, 160 s
 HS = (8, 24)                  # 4 s (report 5.3) and 12 s (a typical event hold)
 M = 3
 TEAM = ("person_time", "remaining_path", "reentry", "shape_progress")
+W = {"shape_progress": 50.0, "shape_approach0": 20.0}
 
 
 def run(li):
@@ -31,7 +32,13 @@ def run(li):
     from sim import robot_action as ra
     from sim.rewards import TaskReward
     from validation.shuttle_baseline import ShuttlePolicy, _centre
-    cfg = resolve_config({"REWARD_VERSION": "rew-v6-pbrs"})
+    # Weights pinned here so the probe does not follow edits to common.py;
+    # the report also gives each shaping term per unit weight.
+    cfg = resolve_config({"REWARD_VERSION": "rew-v6-pbrs",
+                          "REWARD_W_SHAPE_PROGRESS": W["shape_progress"],
+                          "REWARD_W_SHAPE_APPROACH": W["shape_approach0"],
+                          "REWARD_SHAPE_APPROACH_PEOPLE": 10.0,
+                          "REWARD_SHAPE_APPROACH_CAP_M": 50.0})
     g = cfg.gamma() ** (1.0 / int(cfg.ACTION_SCALE))
     w_appr = float(cfg.REWARD_W_SHAPE_APPROACH)
     name, lv = validation_levels(cfg)[li]
@@ -87,7 +94,8 @@ def run(li):
                     disc *= g
                     if k + 1 in HS:
                         recs.append({"level": name, "t0": t0, "rep": rep, "action": nm,
-                                     "H": k + 1, **acc})
+                                     "H": k + 1, "phi_appr0_start": rew._phi_appr[0],
+                                     **acc})
         print(f"[{name}] t0={t0} done", flush=True)
     os.makedirs(OUT, exist_ok=True)
     json.dump(recs, open(os.path.join(OUT, f"L{li}.json"), "w"))
@@ -119,7 +127,13 @@ def report():
                 b2.append(max(0.0, X.mean(axis=1).var(ddof=1) - n2[-1] / X.shape[1]))
                 lv.append(X.mean()); alv.append(abs(X.mean()))
             b, n = np.sqrt(np.mean(b2)), np.sqrt(np.mean(n2))
-            print(f"{term:16s} {np.mean(lv):8.3f} {np.mean(alv):8.3f} {b:18.3f} {n:9.3f} {b / max(n, 1e-9):6.2f}")
+            unit = (f"   per unit weight: {b / W[term]:.4f} / {n / W[term]:.4f}"
+                    if term in W else "")
+            print(f"{term:16s} {np.mean(lv):8.3f} {np.mean(alv):8.3f} {b:18.3f} {n:9.3f} "
+                  f"{b / max(n, 1e-9):6.2f}{unit}")
+        phis = sorted({(r["level"], r["t0"], round(r["phi_appr0_start"], 3)) for r in rows})
+        print("robot 0 approach potential at each start state:",
+              ", ".join(f"{lv[4:9]}@{t0 // 2}s={p}" for lv, t0, p in phis))
 
 
 if __name__ == "__main__":
