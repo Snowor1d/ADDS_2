@@ -244,7 +244,7 @@ REWARD_W_PROJECTION = 0.0    # easy sanity run: shaping off
 # Phi above 0.9 at 33-44% of steps; at 10, 12-25%, a robot's approach term
 # per 4 s has sd 1.7-1.8 when it moves against 0.6 when it stands still.
 # Design values, not tuned on returns.
-REWARD_W_SHAPE_APPROACH = 20 #로봇별로 붙음
+REWARD_W_SHAPE_APPROACH = 0 #로봇별로 붙음
 REWARD_W_SHAPE_PROGRESS = 150 #팀 전체에 수여
 REWARD_SHAPE_APPROACH_CAP_M = 50.0
 REWARD_SHAPE_APPROACH_PEOPLE = 10.0
@@ -374,7 +374,7 @@ WANDB_GROUP = None                  # None = EXPERIMENT_ID
 # "outdoor-madrl-v2-dataset-100m-0924-1530". A run started from a checkpoint
 # as a new run (see the resume rule in learn/metrics_logger.py) gets
 # "-resume<episode>" appended either way; a run that carries on keeps its name.
-WANDB_RUN_NAME = "Reward_Approach20_Progress150"  # None = auto
+WANDB_RUN_NAME = "Reward_Approach0_Progress150"  # None = auto
 # Only models chosen on validation are uploaded, never the replay buffer or
 # every periodic checkpoint.
 WANDB_UPLOAD_CHECKPOINTS = "selected"   # "none" | "selected"

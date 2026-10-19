@@ -1,0 +1,27 @@
+{
+  "WANDB_RUN_NAME": "A20_P150_AlphaMin0005",
+  "LOG_DIR": "Log_SAC_UED6_easy_fullinfo_A20_P150_alpha0005",
+  "RESUME_MODE": "fresh",
+  "ALLOW_WEIGHT_TRANSFER_FROM": null,
+  "ALPHA_AUTO": true,
+  "ALPHA_START": 0.2,
+  "ALPHA_MIN": 0.005,
+  "REWARD_W_PERSON_TIME": 5.0,
+  "REWARD_W_REMAINING_PATH": 0.0,
+  "REWARD_W_REENTRY": 0.0,
+  "REWARD_W_SHAPE_APPROACH": 20.0,
+  "REWARD_W_SHAPE_PROGRESS": 150.0,
+  "NET_ENCODER": "cnn",
+  "NET_SIZE": "m",
+  "SAC_MODE_ESTIMATOR": "expectation",
+  "ACTOR_TEAMMATE_ACTIONS": "stored",
+  "LR": 0.0001,
+  "UPDATES_PER_TRANSITION": 2.0,
+  "PERIODIC_VALIDATION": true,
+  "VALIDATION_CONDITIONS": [
+    "off_zero_command",
+    "shuttle",
+    "policy_stochastic",
+    "policy_deterministic"
+  ]
+}

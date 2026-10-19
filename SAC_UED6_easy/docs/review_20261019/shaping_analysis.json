@@ -1,0 +1,82 @@
+{
+  "common_episodes": [
+    1000,
+    1500,
+    2000,
+    2500,
+    3000,
+    3500,
+    4000
+  ],
+  "matched_metrics": {
+    "hazard_person_steps": {
+      "combined": 44973.71428571428,
+      "approach": 45225.50793650794,
+      "combined_relative_to_approach": -0.005567514048645861
+    },
+    "activity_dwell_hazard_person_steps": {
+      "combined": 14083.587301587302,
+      "approach": 13638.984126984127,
+      "combined_relative_to_approach": 0.03259796847505281
+    },
+    "reentries_after_clear": {
+      "combined": 201.5873015873016,
+      "approach": 216.26984126984127,
+      "combined_relative_to_approach": -0.06788990825688068
+    },
+    "robot_inside_share": {
+      "combined": 0.14590476190476193,
+      "approach": 0.09134391534391535,
+      "combined_relative_to_approach": 0.5973123262279889
+    },
+    "robot_depth_m": {
+      "combined": 2.1854292544263116,
+      "approach": 1.196054690555029,
+      "combined_relative_to_approach": 0.8271984313795577
+    },
+    "robot_speed_mean": {
+      "combined": 0.6869366406673939,
+      "approach": 0.7518547713854172,
+      "combined_relative_to_approach": -0.08634397650812387
+    },
+    "followers_per_robot": {
+      "combined": 11.840042328042326,
+      "approach": 10.10131216931217,
+      "combined_relative_to_approach": 0.17212913823338982
+    }
+  },
+  "training_reward_decomposition_3001_4000": {
+    "vsa06hsg": {
+      "n": 1000,
+      "reported": -1120.0386687634773,
+      "common_task_reward": -1120.0386687634773,
+      "remaining_path": 0.0,
+      "reentry": 0.0,
+      "shape_progress": 145.38316610364237,
+      "shape_approach": -67.86243328514128
+    },
+    "d774mrrb": {
+      "n": 1000,
+      "reported": -1260.740252552089,
+      "common_task_reward": -1143.5103520265989,
+      "remaining_path": -112.35141010365133,
+      "reentry": -4.878490421839148,
+      "shape_progress": 0.0,
+      "shape_approach": -67.08952132930159
+    },
+    "gain": {
+      "reported": 140.70158378861174,
+      "comparable_component": 23.471683263121577,
+      "removed_terms": 117.22990052549048,
+      "removed_terms_fraction": 0.8331811012277955
+    }
+  },
+  "synthetic_approach_probe": {
+    "phi_at_10m": 0.07688365361336422,
+    "phi_at_5m": 0.08606881472877181,
+    "phi_after_follow_accept": 0.0,
+    "move_5m_in_4s_shaping": 0.14944783404610112,
+    "follow_accept_one_step_shaping": -1.7213762945754363,
+    "note": "Synthetic potential probe only, not a simulated or feasible full trajectory."
+  }
+}
