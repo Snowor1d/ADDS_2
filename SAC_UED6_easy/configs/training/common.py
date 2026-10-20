@@ -122,6 +122,17 @@ ACTOR_TEAMMATE_ACTIONS = "stored"   # "stored" | "current"
 # "gumbel": original hard straight-through Gumbel-Softmax estimator.
 # Rollouts always execute one categorical mode; expectation is for learning.
 SAC_MODE_ESTIMATOR = "expectation"   # "expectation" | "gumbel"
+# The actor's continuous part (move, speed, heading) given the mode:
+#   "shared"    pi(m, a | o) = pi(m | o) pi(a | o): one move distribution,
+#               drawn once and paired with every mode.
+#   "per_mode"  pi(m, a | o) = pi(m | o) pi(a | o, m): the encoder and MLP are
+#               shared, the mean and log-std heads are one per mode, so "off"
+#               can run into the hazard while "guide" walks at a pace the
+#               crowd can follow, from the same observation.
+# The mode-weighted Q (SAC_MODE_ESTIMATOR) is unchanged; each mode's term
+# reads its own move. A checkpoint only loads under the layout it was
+# trained with.
+ACTOR_CONT_HEADS = "per_mode"         # "shared" | "per_mode"
 
 ENABLE_TIMER = True
 N_ENVS = 12
@@ -374,7 +385,7 @@ WANDB_GROUP = None                  # None = EXPERIMENT_ID
 # "outdoor-madrl-v2-dataset-100m-0924-1530". A run started from a checkpoint
 # as a new run (see the resume rule in learn/metrics_logger.py) gets
 # "-resume<episode>" appended either way; a run that carries on keeps its name.
-WANDB_RUN_NAME = "Reward_Approach0_Progress150"  # None = auto
+WANDB_RUN_NAME = "Reward_Approach20_Progress150_permode"  # None = auto
 # Only models chosen on validation are uploaded, never the replay buffer or
 # every periodic checkpoint.
 WANDB_UPLOAD_CHECKPOINTS = "selected"   # "none" | "selected"

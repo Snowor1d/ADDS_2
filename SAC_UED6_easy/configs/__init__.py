@@ -679,6 +679,9 @@ def validate_config(cfg: ResolvedConfig, check_data: bool = True) -> None:
            "'stored' or 'current'", p)
     _check(cfg.SAC_MODE_ESTIMATOR in ("expectation", "gumbel"),
            "SAC_MODE_ESTIMATOR must be 'expectation' or 'gumbel'", p)
+    _check(cfg.ACTOR_CONT_HEADS in ("shared", "per_mode"),
+           f"ACTOR_CONT_HEADS={cfg.ACTOR_CONT_HEADS!r}; expected 'shared' or "
+           "'per_mode'", p)
     allowed_conditions = {"off_zero_command", "shuttle", "policy_stochastic",
                           "policy_deterministic"}
     _check(isinstance(cfg.VALIDATION_CONDITIONS, (tuple, list))

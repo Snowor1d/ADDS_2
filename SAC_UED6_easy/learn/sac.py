@@ -154,6 +154,7 @@ class SACAgent:
         """
         cont, logpc, probs, logpm = self._per_robot_hybrid(obs, mask)
         B, N, K = probs.shape
+        C = cont.shape[-1]
         active = torch.nonzero(mask.any(dim=0), as_tuple=False).flatten().tolist()
         shape = (B, N) if per_robot else (B,)
         expected_q = cont.new_zeros(shape)
@@ -165,7 +166,10 @@ class SACAgent:
             for j, mode in zip(active, modes):
                 indices[:, j] = mode
             one_hot = F.one_hot(indices, K).to(cont.dtype)
-            action = torch.cat((cont, one_hot), dim=-1)
+            # Each robot's move drawn for the mode it is enumerated in.
+            move = cont.gather(2, indices[:, :, None, None].expand(B, N, 1, C)
+                               ).squeeze(2)
+            action = torch.cat((move, one_hot), dim=-1)
             selected = probs.gather(-1, indices.unsqueeze(-1)).squeeze(-1)
             factors = torch.where(mask.bool(), selected, torch.ones_like(selected))
             for j in active:
@@ -180,7 +184,7 @@ class SACAgent:
                 q1, q2 = team_value(q1, mask), team_value(q2, mask)
             q = torch.min(q1, q2)
             expected_q += q * (weight[:, None] if per_robot else weight)
-        expected_logp = logpc + (probs * logpm).sum(-1)
+        expected_logp = (probs * (logpc + logpm)).sum(-1)
         if not per_robot:
             expected_logp = team_value(expected_logp, mask)
         return expected_q - self.alpha * expected_logp
@@ -416,7 +420,7 @@ class SACAgent:
                 one_hot = cont.new_zeros(B, K)
                 one_hot[:, mode] = 1.0
                 mixed = base.clone()
-                mixed[:, j] = torch.cat((cont[:, j], one_hot), dim=-1)
+                mixed[:, j] = torch.cat((cont[:, j, mode], one_hot), dim=-1)
                 q = (self._robot_q_min(obs, mixed, mask, j) if self.own_collision
                      else self._team_q_min(obs, mixed, mask))
                 # Preserve the original joint-current team objective's Q
@@ -425,9 +429,9 @@ class SACAgent:
                         and cfg.ACTOR_TEAMMATE_ACTIONS == "current"):
                     q = q * mask.sum(-1)
                 expected += probs[:, j, mode] * (
-                    self.alpha * (logpc[:, j] + logpm[:, j, mode]) - q)
+                    self.alpha * (logpc[:, j, mode] + logpm[:, j, mode]) - q)
             total += (expected * valid).sum()
-        expected_logp = logpc + (probs * logpm).sum(-1)
+        expected_logp = (probs * (logpc + logpm)).sum(-1)
         return total / chosen.sum().clamp(min=1), expected_logp[chosen]
 
     def _soft_update(self, net, target):
@@ -440,6 +444,11 @@ class SACAgent:
     def schema(self) -> Dict[str, str]:
         return self.cfg.schema_versions()
 
+    def _network(self) -> Dict[str, str]:
+        """What a checkpoint's weights only load into."""
+        return {"encoder": self.cfg.NET_ENCODER, "size": self.cfg.NET_SIZE,
+                "actor_cont_heads": self.cfg.ACTOR_CONT_HEADS}
+
     def save(self, path: str, extra: Optional[dict] = None) -> None:
         payload = {
             "schema": self.schema(),
@@ -447,8 +456,7 @@ class SACAgent:
             "experiment_id": self.cfg.EXPERIMENT_ID,
             "config_fingerprint": self.cfg.fingerprint,
             "critic_privileged": bool(self.cfg.CRITIC_PRIVILEGED_CROWD),
-            "network": {"encoder": self.cfg.NET_ENCODER,
-                        "size": self.cfg.NET_SIZE},
+            "network": self._network(),
             "policy": self.policy.state_dict(),
             "q1": self.q1.state_dict(), "q2": self.q2.state_dict(),
             "q1_target": self.q1_target.state_dict(),
@@ -489,13 +497,18 @@ class SACAgent:
                 raise SchemaMismatch(f"checkpoint {path} observation settings "
                                      f"differ: {diff}")
         stored_net = ckpt.get("network")
-        here = {"encoder": self.cfg.NET_ENCODER, "size": self.cfg.NET_SIZE}
+        here = self._network()
+        if stored_net is not None:
+            # Checkpoints from before ACTOR_CONT_HEADS have shared heads.
+            stored_net = {"actor_cont_heads": "shared", **stored_net}
         if stored_net is not None and stored_net != here:
             raise SchemaMismatch(
                 f"checkpoint {path} holds a {stored_net['encoder']}/"
-                f"{stored_net['size']} network; this run builds "
-                f"{here['encoder']}/{here['size']}. Set NET_ENCODER and "
-                "NET_SIZE to match it.")
+                f"{stored_net['size']} network with "
+                f"{stored_net['actor_cont_heads']} actor heads; this run "
+                f"builds {here['encoder']}/{here['size']} with "
+                f"{here['actor_cont_heads']}. Set NET_ENCODER, NET_SIZE and "
+                "ACTOR_CONT_HEADS to match it.")
         self.policy.load_state_dict(ckpt["policy"])
         if not policy_only:
             self.q1.load_state_dict(ckpt["q1"])

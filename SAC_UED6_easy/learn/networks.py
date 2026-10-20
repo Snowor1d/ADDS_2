@@ -25,7 +25,8 @@ comparison of structure rather than of capacity.
 
 The action layout (move 2, the signalled heading 2 only with USE_DIRECT, then
 the mode one-hot) is owned by sim/robot_action.py; the actor's continuous
-head is as wide as its CONT_DIM and its mode head as wide as ROBOT_MODES.
+head is as wide as its CONT_DIM, once or once per mode (ACTOR_CONT_HEADS),
+and its mode head as wide as ROBOT_MODES.
 """
 
 from __future__ import annotations
@@ -220,6 +221,11 @@ class PolicyNetwork(nn.Module):
         self.log_std_min = float(cfg.LOG_STD_MIN)
         self.log_std_max = float(cfg.LOG_STD_MAX)
         self.mode_estimator = cfg.SAC_MODE_ESTIMATOR
+        n_modes = len(cfg.ROBOT_MODES)
+        # ACTOR_CONT_HEADS: one Gaussian over the continuous part shared by
+        # every mode, or one per mode on the same features.
+        self.cont_heads = n_modes if cfg.ACTOR_CONT_HEADS == "per_mode" else 1
+        self.action_cont = action_cont
         self.ego = make_encoder(spec, s["ego"][0], s["ego"][1], ego=True)
         self.mid = make_encoder(spec, s["mid"][0], s["mid"][1])
         self.glob = make_encoder(spec, s["glob"][0], s["glob"][1])
@@ -229,9 +235,9 @@ class PolicyNetwork(nn.Module):
             nn.Linear(3 * spec["embed"] + 64, h1), nn.SiLU(),
             nn.Linear(h1, h2), nn.SiLU(),
             nn.Linear(h2, h3), nn.SiLU())
-        self.mean_head = nn.Linear(h3, action_cont)
-        self.log_std_head = nn.Linear(h3, action_cont)
-        self.mode_head = nn.Linear(h3, len(cfg.ROBOT_MODES))
+        self.mean_head = nn.Linear(h3, self.cont_heads * action_cont)
+        self.log_std_head = nn.Linear(h3, self.cont_heads * action_cont)
+        self.mode_head = nn.Linear(h3, n_modes)
 
     def features(self, ego, mid, glob, state):
         return self.backbone(torch.cat([self.ego(ego), self.mid(mid),
@@ -239,19 +245,34 @@ class PolicyNetwork(nn.Module):
                                        dim=-1))
 
     def forward(self, ego, mid, glob, state):
+        """Pre-squash mean and log-std, (B, H, CONT_DIM) with H = 1 under
+        shared heads and one per mode otherwise, and the mode logits (B, K)."""
         f = self.features(ego, mid, glob, state)
-        log_std = torch.clamp(self.log_std_head(f), self.log_std_min,
-                              self.log_std_max)
-        return self.mean_head(f), log_std, self.mode_head(f)
+        shape = (f.shape[0], self.cont_heads, self.action_cont)
+        log_std = torch.clamp(self.log_std_head(f).view(shape),
+                              self.log_std_min, self.log_std_max)
+        return self.mean_head(f).view(shape), log_std, self.mode_head(f)
 
     def deterministic_action(self, ego, mid, glob, state):
+        """The most likely mode, with that mode's mean move."""
         mean, _, logits = self.forward(ego, mid, glob, state)
+        idx = logits.argmax(-1)
+        if self.cont_heads > 1:
+            mean = mean[torch.arange(mean.shape[0], device=mean.device), idx]
+        else:
+            mean = mean[:, 0]
         cont = 4 * torch.sigmoid(mean) - 2
-        one_hot = F.one_hot(logits.argmax(-1), logits.shape[-1]).float()
+        one_hot = F.one_hot(idx, logits.shape[-1]).float()
         return torch.cat([cont, one_hot], dim=-1)
 
     def sample_hybrid(self, ego, mid, glob, state, temperature: float = 1.0):
-        """Reparameterized continuous action and exact categorical probabilities."""
+        """One reparameterized continuous sample per mode and the exact
+        categorical probabilities.
+
+        Returns cont (B, K, CONT_DIM) and its log-density (B, K), entry k
+        drawn from pi(a | o, mode k), then probs and log-probs (B, K). Under
+        shared heads the K entries are the same draw.
+        """
         if temperature <= 0:
             raise ValueError("temperature must be positive")
         mean, log_std, logits = self.forward(ego, mid, glob, state)
@@ -268,10 +289,14 @@ class PolicyNetwork(nn.Module):
         log_det = (math.log(4.0) + F.logsigmoid(u) + F.logsigmoid(-u)).sum(-1)
         logp = logp_u.sum(-1) - log_det
         log_mode = F.log_softmax(logits, dim=-1)
+        K = logits.shape[-1]
+        cont = cont.expand(-1, K, -1)
+        logp = logp.expand(-1, K)
         return cont, logp, log_mode.exp(), log_mode
 
     def sample_action(self, ego, mid, glob, state, temperature: float = 1.0):
-        """Execute a sampled mode; only the legacy estimator relaxes its gradient."""
+        """Execute a sampled mode with that mode's move; only the legacy
+        estimator relaxes the mode's gradient."""
         cont, logp, probs, log_mode = self.sample_hybrid(
             ego, mid, glob, state, temperature)
         if self.mode_estimator == "gumbel":
@@ -279,8 +304,9 @@ class PolicyNetwork(nn.Module):
         else:
             idx = torch.distributions.Categorical(probs=probs).sample()
             one_hot = F.one_hot(idx, probs.shape[-1]).to(cont.dtype)
-        logp = logp + (one_hot * log_mode).sum(-1)
-        return torch.cat([cont, one_hot], dim=-1), logp
+        move = (one_hot.unsqueeze(-1) * cont).sum(-2)
+        logp = (one_hot * (logp + log_mode)).sum(-1)
+        return torch.cat([move, one_hot], dim=-1), logp
 
 
 class SpatialAttention(nn.Module):

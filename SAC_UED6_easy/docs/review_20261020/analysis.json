@@ -1,0 +1,1250 @@
+{
+  "z44h9d77": {
+    "label": "A20 / P0",
+    "url": "https://wandb.ai/437snowcap-sungkyunkwan-university/adds-sac-ued6-261011ENV/runs/z44h9d77",
+    "state": "running",
+    "last_episode": 2542,
+    "duplicate_rows": {
+      "episode": 611,
+      "validation": 2,
+      "learner": 401
+    },
+    "validation": [
+      {
+        "episode": 500,
+        "update": 19852,
+        "paired_vs_off": 0.12551726597205676,
+        "paired_vs_shuttle": -0.5364551542950049,
+        "off_zero_command": {
+          "hazard_person_steps": 60123.333333333336,
+          "activity_dwell_hazard_person_steps": 21111.88888888889,
+          "reentries_after_clear": 259,
+          "robot_inside_share": 0,
+          "robot_depth_m": 0,
+          "robot_speed_mean": 0,
+          "followers_per_robot": 0,
+          "held_clear_success": 0,
+          "n": 9
+        },
+        "shuttle": {
+          "hazard_person_steps": 35102.666666666664,
+          "activity_dwell_hazard_person_steps": 8407.666666666666,
+          "reentries_after_clear": 260.3333333333333,
+          "robot_inside_share": 0.5906666666666667,
+          "robot_depth_m": 6.242047161216423,
+          "robot_speed_mean": 1.1637308754153348,
+          "followers_per_robot": 3.437925925925926,
+          "held_clear_success": 0,
+          "n": 9
+        },
+        "policy_deterministic": {
+          "hazard_person_steps": 52106.77777777778,
+          "activity_dwell_hazard_person_steps": 16748.555555555555,
+          "reentries_after_clear": 205.44444444444446,
+          "robot_inside_share": 0.042666666666666665,
+          "robot_depth_m": 0.42378278915304896,
+          "robot_speed_mean": 0.4372166584352389,
+          "followers_per_robot": 41.33155555555556,
+          "held_clear_success": 0,
+          "n": 9
+        }
+      },
+      {
+        "episode": 1000,
+        "update": 108714,
+        "paired_vs_off": 0.23451348342657757,
+        "paired_vs_shuttle": -0.35852550287691964,
+        "off_zero_command": {
+          "hazard_person_steps": 60123.333333333336,
+          "activity_dwell_hazard_person_steps": 21111.88888888889,
+          "reentries_after_clear": 259,
+          "robot_inside_share": 0,
+          "robot_depth_m": 0,
+          "robot_speed_mean": 0,
+          "followers_per_robot": 0,
+          "held_clear_success": 0,
+          "n": 9
+        },
+        "shuttle": {
+          "hazard_person_steps": 35102.666666666664,
+          "activity_dwell_hazard_person_steps": 8407.666666666666,
+          "reentries_after_clear": 260.3333333333333,
+          "robot_inside_share": 0.5906666666666667,
+          "robot_depth_m": 6.242047161216423,
+          "robot_speed_mean": 1.1637308754153348,
+          "followers_per_robot": 3.437925925925926,
+          "held_clear_success": 0,
+          "n": 9
+        },
+        "policy_deterministic": {
+          "hazard_person_steps": 46842.555555555555,
+          "activity_dwell_hazard_person_steps": 14927,
+          "reentries_after_clear": 206.33333333333334,
+          "robot_inside_share": 0.09185185185185185,
+          "robot_depth_m": 1.408407658376679,
+          "robot_speed_mean": 0.7481809441898568,
+          "followers_per_robot": 7.078666666666667,
+          "held_clear_success": 0,
+          "n": 9
+        }
+      },
+      {
+        "episode": 1500,
+        "update": 175182,
+        "paired_vs_off": 0.2217636305923196,
+        "paired_vs_shuttle": -0.3715904479674388,
+        "off_zero_command": {
+          "hazard_person_steps": 60123.333333333336,
+          "activity_dwell_hazard_person_steps": 21111.88888888889,
+          "reentries_after_clear": 259,
+          "robot_inside_share": 0,
+          "robot_depth_m": 0,
+          "robot_speed_mean": 0,
+          "followers_per_robot": 0,
+          "held_clear_success": 0,
+          "n": 9
+        },
+        "shuttle": {
+          "hazard_person_steps": 35102.666666666664,
+          "activity_dwell_hazard_person_steps": 8407.666666666666,
+          "reentries_after_clear": 260.3333333333333,
+          "robot_inside_share": 0.5906666666666667,
+          "robot_depth_m": 6.242047161216423,
+          "robot_speed_mean": 1.1637308754153348,
+          "followers_per_robot": 3.437925925925926,
+          "held_clear_success": 0,
+          "n": 9
+        },
+        "policy_deterministic": {
+          "hazard_person_steps": 47807.666666666664,
+          "activity_dwell_hazard_person_steps": 15704.222222222223,
+          "reentries_after_clear": 217.55555555555554,
+          "robot_inside_share": 0.14296296296296299,
+          "robot_depth_m": 1.4862258269795003,
+          "robot_speed_mean": 0.8672413235148188,
+          "followers_per_robot": 13.299111111111111,
+          "held_clear_success": 0,
+          "n": 9
+        }
+      },
+      {
+        "episode": 2000,
+        "update": 232922,
+        "paired_vs_off": 0.20309004278539516,
+        "paired_vs_shuttle": -0.3830313910876699,
+        "off_zero_command": {
+          "hazard_person_steps": 60123.333333333336,
+          "activity_dwell_hazard_person_steps": 21111.88888888889,
+          "reentries_after_clear": 259,
+          "robot_inside_share": 0,
+          "robot_depth_m": 0,
+          "robot_speed_mean": 0,
+          "followers_per_robot": 0,
+          "held_clear_success": 0,
+          "n": 9
+        },
+        "shuttle": {
+          "hazard_person_steps": 35102.666666666664,
+          "activity_dwell_hazard_person_steps": 8407.666666666666,
+          "reentries_after_clear": 260.3333333333333,
+          "robot_inside_share": 0.5906666666666667,
+          "robot_depth_m": 6.242047161216423,
+          "robot_speed_mean": 1.1637308754153348,
+          "followers_per_robot": 3.437925925925926,
+          "held_clear_success": 0,
+          "n": 9
+        },
+        "policy_deterministic": {
+          "hazard_person_steps": 49551,
+          "activity_dwell_hazard_person_steps": 13719.222222222223,
+          "reentries_after_clear": 221.11111111111111,
+          "robot_inside_share": 0.14977777777777776,
+          "robot_depth_m": 2.5165314059383195,
+          "robot_speed_mean": 0.9825352227388948,
+          "followers_per_robot": 11.424296296296298,
+          "held_clear_success": 0,
+          "n": 9
+        }
+      },
+      {
+        "episode": 2500,
+        "update": 293298,
+        "paired_vs_off": 0.17281517012790773,
+        "paired_vs_shuttle": -0.49074380941239987,
+        "off_zero_command": {
+          "hazard_person_steps": 60123.333333333336,
+          "activity_dwell_hazard_person_steps": 21111.88888888889,
+          "reentries_after_clear": 259,
+          "robot_inside_share": 0,
+          "robot_depth_m": 0,
+          "robot_speed_mean": 0,
+          "followers_per_robot": 0,
+          "held_clear_success": 0,
+          "n": 9
+        },
+        "shuttle": {
+          "hazard_person_steps": 35102.666666666664,
+          "activity_dwell_hazard_person_steps": 8407.666666666666,
+          "reentries_after_clear": 260.3333333333333,
+          "robot_inside_share": 0.5906666666666667,
+          "robot_depth_m": 6.242047161216423,
+          "robot_speed_mean": 1.1637308754153348,
+          "followers_per_robot": 3.437925925925926,
+          "held_clear_success": 0,
+          "n": 9
+        },
+        "policy_deterministic": {
+          "hazard_person_steps": 50139.88888888889,
+          "activity_dwell_hazard_person_steps": 17457,
+          "reentries_after_clear": 220.55555555555554,
+          "robot_inside_share": 0.07644444444444444,
+          "robot_depth_m": 1.0365563969790372,
+          "robot_speed_mean": 1.1575446798308457,
+          "followers_per_robot": 14.184444444444445,
+          "held_clear_success": 0,
+          "n": 9
+        }
+      }
+    ],
+    "training_bins": [
+      {
+        "low": 1,
+        "high": 500,
+        "n": 500,
+        "episode/total_reward": -1288.9560475808707,
+        "episode/hazard_person_steps": 51748.518,
+        "episode/reward/collision": -0.5477999999999997,
+        "episode/mode_share/guide": 0.4979816303823525,
+        "episode/robots/robot_inside_share": 0.25917599999999996
+      },
+      {
+        "low": 501,
+        "high": 1000,
+        "n": 500,
+        "episode/total_reward": -1410.6319187639804,
+        "episode/hazard_person_steps": 53466.264,
+        "episode/reward/collision": -4.79660000000001,
+        "episode/mode_share/guide": 0.5202521846774157,
+        "episode/robots/robot_inside_share": 0.176208
+      },
+      {
+        "low": 1001,
+        "high": 1500,
+        "n": 500,
+        "episode/total_reward": -1212.2207786054778,
+        "episode/hazard_person_steps": 47513.236,
+        "episode/reward/collision": -1.9878000000000056,
+        "episode/mode_share/guide": 0.6615859210967533,
+        "episode/robots/robot_inside_share": 0.150944
+      },
+      {
+        "low": 1501,
+        "high": 2000,
+        "n": 500,
+        "episode/total_reward": -1160.8193888763826,
+        "episode/hazard_person_steps": 46299.664,
+        "episode/reward/collision": -1.8020000000000036,
+        "episode/mode_share/guide": 0.6913921416700421,
+        "episode/robots/robot_inside_share": 0.14414133333333337
+      },
+      {
+        "low": 2001,
+        "high": 2500,
+        "n": 500,
+        "episode/total_reward": -1158.9757913100352,
+        "episode/hazard_person_steps": 47078.254,
+        "episode/reward/collision": -2.391300000000007,
+        "episode/mode_share/guide": 0.7231291476207132,
+        "episode/robots/robot_inside_share": 0.12405066666666667
+      }
+    ],
+    "learner_1500_2000": {
+      "train/alpha": 0.05000000074505806,
+      "train/entropy": 1.201338189168991,
+      "train/target_entropy": -3.0,
+      "train/loss_q": 36.62529011899625,
+      "train/q_team": -298.75092014035556,
+      "train/target": -298.7525376622817
+    },
+    "first_alpha_floor_episode": 530,
+    "stochastic_validation_logged": false
+  },
+  "4pr4wxci": {
+    "label": "A0 / P150",
+    "url": "https://wandb.ai/437snowcap-sungkyunkwan-university/adds-sac-ued6-261011ENV/runs/4pr4wxci",
+    "state": "running",
+    "last_episode": 2507,
+    "duplicate_rows": {
+      "episode": 0,
+      "validation": 0,
+      "learner": 0
+    },
+    "validation": [
+      {
+        "episode": 500,
+        "update": 17126,
+        "paired_vs_off": 0.01375587276418423,
+        "paired_vs_shuttle": -0.8233212438706417,
+        "off_zero_command": {
+          "hazard_person_steps": 60123.333333333336,
+          "activity_dwell_hazard_person_steps": 21111.88888888889,
+          "reentries_after_clear": 259,
+          "robot_inside_share": 0,
+          "robot_depth_m": 0,
+          "robot_speed_mean": 0,
+          "followers_per_robot": 0,
+          "held_clear_success": 0,
+          "n": 9
+        },
+        "shuttle": {
+          "hazard_person_steps": 35102.666666666664,
+          "activity_dwell_hazard_person_steps": 8407.666666666666,
+          "reentries_after_clear": 260.3333333333333,
+          "robot_inside_share": 0.5906666666666667,
+          "robot_depth_m": 6.242047161216423,
+          "robot_speed_mean": 1.1637308754153348,
+          "followers_per_robot": 3.437925925925926,
+          "held_clear_success": 0,
+          "n": 9
+        },
+        "policy_deterministic": {
+          "hazard_person_steps": 59466.88888888889,
+          "activity_dwell_hazard_person_steps": 21527,
+          "reentries_after_clear": 257,
+          "robot_inside_share": 0.10785185185185185,
+          "robot_depth_m": 1.6489707558859894,
+          "robot_speed_mean": 0.5970853414273777,
+          "followers_per_robot": 0,
+          "held_clear_success": 0,
+          "n": 9
+        }
+      },
+      {
+        "episode": 1000,
+        "update": 100776,
+        "paired_vs_off": 0.16051248233991303,
+        "paired_vs_shuttle": -0.5238989162475002,
+        "off_zero_command": {
+          "hazard_person_steps": 60123.333333333336,
+          "activity_dwell_hazard_person_steps": 21111.88888888889,
+          "reentries_after_clear": 259,
+          "robot_inside_share": 0,
+          "robot_depth_m": 0,
+          "robot_speed_mean": 0,
+          "followers_per_robot": 0,
+          "held_clear_success": 0,
+          "n": 9
+        },
+        "shuttle": {
+          "hazard_person_steps": 35102.666666666664,
+          "activity_dwell_hazard_person_steps": 8407.666666666666,
+          "reentries_after_clear": 260.3333333333333,
+          "robot_inside_share": 0.5906666666666667,
+          "robot_depth_m": 6.242047161216423,
+          "robot_speed_mean": 1.1637308754153348,
+          "followers_per_robot": 3.437925925925926,
+          "held_clear_success": 0,
+          "n": 9
+        },
+        "policy_deterministic": {
+          "hazard_person_steps": 49599.11111111111,
+          "activity_dwell_hazard_person_steps": 17061.333333333332,
+          "reentries_after_clear": 214.88888888888889,
+          "robot_inside_share": 0.0957037037037037,
+          "robot_depth_m": 0.8834698531838596,
+          "robot_speed_mean": 0.7739346547355052,
+          "followers_per_robot": 4.411259259259259,
+          "held_clear_success": 0,
+          "n": 9
+        }
+      },
+      {
+        "episode": 1500,
+        "update": 167336,
+        "paired_vs_off": 0.21218211485466643,
+        "paired_vs_shuttle": -0.3982863331480351,
+        "off_zero_command": {
+          "hazard_person_steps": 60123.333333333336,
+          "activity_dwell_hazard_person_steps": 21111.88888888889,
+          "reentries_after_clear": 259,
+          "robot_inside_share": 0,
+          "robot_depth_m": 0,
+          "robot_speed_mean": 0,
+          "followers_per_robot": 0,
+          "held_clear_success": 0,
+          "n": 9
+        },
+        "shuttle": {
+          "hazard_person_steps": 35102.666666666664,
+          "activity_dwell_hazard_person_steps": 8407.666666666666,
+          "reentries_after_clear": 260.3333333333333,
+          "robot_inside_share": 0.5906666666666667,
+          "robot_depth_m": 6.242047161216423,
+          "robot_speed_mean": 1.1637308754153348,
+          "followers_per_robot": 3.437925925925926,
+          "held_clear_success": 0,
+          "n": 9
+        },
+        "policy_deterministic": {
+          "hazard_person_steps": 46625.333333333336,
+          "activity_dwell_hazard_person_steps": 15213.555555555555,
+          "reentries_after_clear": 207,
+          "robot_inside_share": 0.14696296296296296,
+          "robot_depth_m": 1.522671347989423,
+          "robot_speed_mean": 0.7813326802641084,
+          "followers_per_robot": 4.074814814814815,
+          "held_clear_success": 0,
+          "n": 9
+        }
+      },
+      {
+        "episode": 2000,
+        "update": 232110,
+        "paired_vs_off": 0.2597012860121743,
+        "paired_vs_shuttle": -0.29869101845587326,
+        "off_zero_command": {
+          "hazard_person_steps": 60123.333333333336,
+          "activity_dwell_hazard_person_steps": 21111.88888888889,
+          "reentries_after_clear": 259,
+          "robot_inside_share": 0,
+          "robot_depth_m": 0,
+          "robot_speed_mean": 0,
+          "followers_per_robot": 0,
+          "held_clear_success": 0,
+          "n": 9
+        },
+        "shuttle": {
+          "hazard_person_steps": 35102.666666666664,
+          "activity_dwell_hazard_person_steps": 8407.666666666666,
+          "reentries_after_clear": 260.3333333333333,
+          "robot_inside_share": 0.5906666666666667,
+          "robot_depth_m": 6.242047161216423,
+          "robot_speed_mean": 1.1637308754153348,
+          "followers_per_robot": 3.437925925925926,
+          "held_clear_success": 0,
+          "n": 9
+        },
+        "policy_deterministic": {
+          "hazard_person_steps": 45174.555555555555,
+          "activity_dwell_hazard_person_steps": 13715.666666666666,
+          "reentries_after_clear": 204.22222222222223,
+          "robot_inside_share": 0.13422222222222221,
+          "robot_depth_m": 1.7987625810976324,
+          "robot_speed_mean": 0.6490755072391576,
+          "followers_per_robot": 6.495555555555556,
+          "held_clear_success": 0,
+          "n": 9
+        }
+      }
+    ],
+    "training_bins": [
+      {
+        "low": 1,
+        "high": 500,
+        "n": 500,
+        "episode/total_reward": -1294.8386220629307,
+        "episode/hazard_person_steps": 50458.794,
+        "episode/reward/collision": -0.43559999999999965,
+        "episode/mode_share/guide": 0.5018347581329764,
+        "episode/robots/robot_inside_share": 0.274552
+      },
+      {
+        "low": 501,
+        "high": 1000,
+        "n": 500,
+        "episode/total_reward": -1273.081285721778,
+        "episode/hazard_person_steps": 51117.686,
+        "episode/reward/collision": -5.408000000000007,
+        "episode/mode_share/guide": 0.4085761600870239,
+        "episode/robots/robot_inside_share": 0.14098666666666668
+      },
+      {
+        "low": 1001,
+        "high": 1500,
+        "n": 500,
+        "episode/total_reward": -1267.8918095401193,
+        "episode/hazard_person_steps": 48834.746,
+        "episode/reward/collision": -2.909100000000005,
+        "episode/mode_share/guide": 0.47575651250011136,
+        "episode/robots/robot_inside_share": 0.1402213333333333
+      },
+      {
+        "low": 1501,
+        "high": 2000,
+        "n": 500,
+        "episode/total_reward": -1229.679871134309,
+        "episode/hazard_person_steps": 49489.16,
+        "episode/reward/collision": -2.97780000000001,
+        "episode/mode_share/guide": 0.47396864348095735,
+        "episode/robots/robot_inside_share": 0.14685333333333336
+      },
+      {
+        "low": 2001,
+        "high": 2500,
+        "n": 500,
+        "episode/total_reward": -1212.227760597565,
+        "episode/hazard_person_steps": 47719.29,
+        "episode/reward/collision": -2.6268000000000034,
+        "episode/mode_share/guide": 0.5276912170833471,
+        "episode/robots/robot_inside_share": 0.15738400000000002
+      }
+    ],
+    "learner_1500_2000": {
+      "train/alpha": 0.05000000074505806,
+      "train/entropy": 1.5996432662494708,
+      "train/target_entropy": -3.0,
+      "train/loss_q": 25.562088295667447,
+      "train/q_team": -250.03369726473568,
+      "train/target": -250.03466242433325
+    },
+    "first_alpha_floor_episode": 527,
+    "stochastic_validation_logged": false
+  },
+  "vsa06hsg": {
+    "label": "A20 / P150",
+    "url": "https://wandb.ai/437snowcap-sungkyunkwan-university/adds-sac-ued6-261011ENV/runs/vsa06hsg",
+    "state": "crashed",
+    "last_episode": 5930,
+    "duplicate_rows": {
+      "episode": 0,
+      "validation": 0,
+      "learner": 0
+    },
+    "validation": [
+      {
+        "episode": 500,
+        "update": 18040,
+        "paired_vs_off": -0.0415588448239461,
+        "paired_vs_shuttle": -0.9010749847739488,
+        "off_zero_command": {
+          "hazard_person_steps": 60123.333333333336,
+          "activity_dwell_hazard_person_steps": 21111.88888888889,
+          "reentries_after_clear": 259,
+          "robot_inside_share": 0,
+          "robot_depth_m": 0,
+          "robot_speed_mean": 0,
+          "followers_per_robot": 0,
+          "held_clear_success": 0,
+          "n": 9
+        },
+        "shuttle": {
+          "hazard_person_steps": 35102.666666666664,
+          "activity_dwell_hazard_person_steps": 8407.666666666666,
+          "reentries_after_clear": 260.3333333333333,
+          "robot_inside_share": 0.5906666666666667,
+          "robot_depth_m": 6.242047161216423,
+          "robot_speed_mean": 1.1637308754153348,
+          "followers_per_robot": 3.437925925925926,
+          "held_clear_success": 0,
+          "n": 9
+        },
+        "policy_deterministic": {
+          "hazard_person_steps": 61411.22222222222,
+          "activity_dwell_hazard_person_steps": 21734.11111111111,
+          "reentries_after_clear": 265.22222222222223,
+          "robot_inside_share": 0.025037037037037038,
+          "robot_depth_m": 0.11690652287616293,
+          "robot_speed_mean": 0.7941473073809832,
+          "followers_per_robot": 0,
+          "held_clear_success": 0,
+          "n": 9
+        }
+      },
+      {
+        "episode": 1000,
+        "update": 98972,
+        "paired_vs_off": 0.2660416824771871,
+        "paired_vs_shuttle": -0.28180040630070596,
+        "off_zero_command": {
+          "hazard_person_steps": 60123.333333333336,
+          "activity_dwell_hazard_person_steps": 21111.88888888889,
+          "reentries_after_clear": 259,
+          "robot_inside_share": 0,
+          "robot_depth_m": 0,
+          "robot_speed_mean": 0,
+          "followers_per_robot": 0,
+          "held_clear_success": 0,
+          "n": 9
+        },
+        "shuttle": {
+          "hazard_person_steps": 35102.666666666664,
+          "activity_dwell_hazard_person_steps": 8407.666666666666,
+          "reentries_after_clear": 260.3333333333333,
+          "robot_inside_share": 0.5906666666666667,
+          "robot_depth_m": 6.242047161216423,
+          "robot_speed_mean": 1.1637308754153348,
+          "followers_per_robot": 3.437925925925926,
+          "held_clear_success": 0,
+          "n": 9
+        },
+        "policy_deterministic": {
+          "hazard_person_steps": 46519,
+          "activity_dwell_hazard_person_steps": 15097.333333333334,
+          "reentries_after_clear": 200,
+          "robot_inside_share": 0.14014814814814816,
+          "robot_depth_m": 2.0583298548130373,
+          "robot_speed_mean": 0.5017816651629409,
+          "followers_per_robot": 6.324296296296296,
+          "held_clear_success": 0,
+          "n": 9
+        }
+      },
+      {
+        "episode": 1500,
+        "update": 158104,
+        "paired_vs_off": 0.23072248282779798,
+        "paired_vs_shuttle": -0.35368863309883103,
+        "off_zero_command": {
+          "hazard_person_steps": 60123.333333333336,
+          "activity_dwell_hazard_person_steps": 21111.88888888889,
+          "reentries_after_clear": 259,
+          "robot_inside_share": 0,
+          "robot_depth_m": 0,
+          "robot_speed_mean": 0,
+          "followers_per_robot": 0,
+          "held_clear_success": 0,
+          "n": 9
+        },
+        "shuttle": {
+          "hazard_person_steps": 35102.666666666664,
+          "activity_dwell_hazard_person_steps": 8407.666666666666,
+          "reentries_after_clear": 260.3333333333333,
+          "robot_inside_share": 0.5906666666666667,
+          "robot_depth_m": 6.242047161216423,
+          "robot_speed_mean": 1.1637308754153348,
+          "followers_per_robot": 3.437925925925926,
+          "held_clear_success": 0,
+          "n": 9
+        },
+        "policy_deterministic": {
+          "hazard_person_steps": 46042.555555555555,
+          "activity_dwell_hazard_person_steps": 15031.888888888889,
+          "reentries_after_clear": 209.11111111111111,
+          "robot_inside_share": 0.08325925925925924,
+          "robot_depth_m": 0.8670700421762985,
+          "robot_speed_mean": 0.7253573493477153,
+          "followers_per_robot": 9.74562962962963,
+          "held_clear_success": 0,
+          "n": 9
+        }
+      },
+      {
+        "episode": 2000,
+        "update": 215246,
+        "paired_vs_off": 0.2543079038376104,
+        "paired_vs_shuttle": -0.3255216124446465,
+        "off_zero_command": {
+          "hazard_person_steps": 60123.333333333336,
+          "activity_dwell_hazard_person_steps": 21111.88888888889,
+          "reentries_after_clear": 259,
+          "robot_inside_share": 0,
+          "robot_depth_m": 0,
+          "robot_speed_mean": 0,
+          "followers_per_robot": 0,
+          "held_clear_success": 0,
+          "n": 9
+        },
+        "shuttle": {
+          "hazard_person_steps": 35102.666666666664,
+          "activity_dwell_hazard_person_steps": 8407.666666666666,
+          "reentries_after_clear": 260.3333333333333,
+          "robot_inside_share": 0.5906666666666667,
+          "robot_depth_m": 6.242047161216423,
+          "robot_speed_mean": 1.1637308754153348,
+          "followers_per_robot": 3.437925925925926,
+          "held_clear_success": 0,
+          "n": 9
+        },
+        "policy_deterministic": {
+          "hazard_person_steps": 46789.77777777778,
+          "activity_dwell_hazard_person_steps": 14572,
+          "reentries_after_clear": 205.66666666666666,
+          "robot_inside_share": 0.15733333333333333,
+          "robot_depth_m": 2.6101720108263278,
+          "robot_speed_mean": 0.8457083772280944,
+          "followers_per_robot": 10.341185185185187,
+          "held_clear_success": 0,
+          "n": 9
+        }
+      },
+      {
+        "episode": 2500,
+        "update": 269722,
+        "paired_vs_off": 0.27094161974068365,
+        "paired_vs_shuttle": -0.2826405220988362,
+        "off_zero_command": {
+          "hazard_person_steps": 60123.333333333336,
+          "activity_dwell_hazard_person_steps": 21111.88888888889,
+          "reentries_after_clear": 259,
+          "robot_inside_share": 0,
+          "robot_depth_m": 0,
+          "robot_speed_mean": 0,
+          "followers_per_robot": 0,
+          "held_clear_success": 0,
+          "n": 9
+        },
+        "shuttle": {
+          "hazard_person_steps": 35102.666666666664,
+          "activity_dwell_hazard_person_steps": 8407.666666666666,
+          "reentries_after_clear": 260.3333333333333,
+          "robot_inside_share": 0.5906666666666667,
+          "robot_depth_m": 6.242047161216423,
+          "robot_speed_mean": 1.1637308754153348,
+          "followers_per_robot": 3.437925925925926,
+          "held_clear_success": 0,
+          "n": 9
+        },
+        "policy_deterministic": {
+          "hazard_person_steps": 44051.88888888889,
+          "activity_dwell_hazard_person_steps": 12841,
+          "reentries_after_clear": 200.88888888888889,
+          "robot_inside_share": 0.21081481481481484,
+          "robot_depth_m": 3.2639294814915862,
+          "robot_speed_mean": 0.7738615322105513,
+          "followers_per_robot": 11.099703703703703,
+          "held_clear_success": 0,
+          "n": 9
+        }
+      },
+      {
+        "episode": 3000,
+        "update": 322060,
+        "paired_vs_off": 0.23662602225064358,
+        "paired_vs_shuttle": -0.3361522171082916,
+        "off_zero_command": {
+          "hazard_person_steps": 60123.333333333336,
+          "activity_dwell_hazard_person_steps": 21111.88888888889,
+          "reentries_after_clear": 259,
+          "robot_inside_share": 0,
+          "robot_depth_m": 0,
+          "robot_speed_mean": 0,
+          "followers_per_robot": 0,
+          "held_clear_success": 0,
+          "n": 9
+        },
+        "shuttle": {
+          "hazard_person_steps": 35102.666666666664,
+          "activity_dwell_hazard_person_steps": 8407.666666666666,
+          "reentries_after_clear": 260.3333333333333,
+          "robot_inside_share": 0.5906666666666667,
+          "robot_depth_m": 6.242047161216423,
+          "robot_speed_mean": 1.1637308754153348,
+          "followers_per_robot": 3.437925925925926,
+          "held_clear_success": 0,
+          "n": 9
+        },
+        "policy_deterministic": {
+          "hazard_person_steps": 45372.333333333336,
+          "activity_dwell_hazard_person_steps": 14792.777777777777,
+          "reentries_after_clear": 202.77777777777777,
+          "robot_inside_share": 0.14637037037037037,
+          "robot_depth_m": 1.9167680721093403,
+          "robot_speed_mean": 0.7672984017928737,
+          "followers_per_robot": 16.403259259259258,
+          "held_clear_success": 0,
+          "n": 9
+        }
+      },
+      {
+        "episode": 3500,
+        "update": 373964,
+        "paired_vs_off": 0.2712262342070865,
+        "paired_vs_shuttle": -0.26867320263042843,
+        "off_zero_command": {
+          "hazard_person_steps": 60123.333333333336,
+          "activity_dwell_hazard_person_steps": 21111.88888888889,
+          "reentries_after_clear": 259,
+          "robot_inside_share": 0,
+          "robot_depth_m": 0,
+          "robot_speed_mean": 0,
+          "followers_per_robot": 0,
+          "held_clear_success": 0,
+          "n": 9
+        },
+        "shuttle": {
+          "hazard_person_steps": 35102.666666666664,
+          "activity_dwell_hazard_person_steps": 8407.666666666666,
+          "reentries_after_clear": 260.3333333333333,
+          "robot_inside_share": 0.5906666666666667,
+          "robot_depth_m": 6.242047161216423,
+          "robot_speed_mean": 1.1637308754153348,
+          "followers_per_robot": 3.437925925925926,
+          "held_clear_success": 0,
+          "n": 9
+        },
+        "policy_deterministic": {
+          "hazard_person_steps": 43713.11111111111,
+          "activity_dwell_hazard_person_steps": 12150.111111111111,
+          "reentries_after_clear": 207,
+          "robot_inside_share": 0.14651851851851852,
+          "robot_depth_m": 2.4170506328519763,
+          "robot_speed_mean": 0.5499937124221734,
+          "followers_per_robot": 17.215555555555554,
+          "held_clear_success": 0,
+          "n": 9
+        }
+      },
+      {
+        "episode": 4000,
+        "update": 422856,
+        "paired_vs_off": 0.2920757359350735,
+        "paired_vs_shuttle": -0.268417508230496,
+        "off_zero_command": {
+          "hazard_person_steps": 60123.333333333336,
+          "activity_dwell_hazard_person_steps": 21111.88888888889,
+          "reentries_after_clear": 259,
+          "robot_inside_share": 0,
+          "robot_depth_m": 0,
+          "robot_speed_mean": 0,
+          "followers_per_robot": 0,
+          "held_clear_success": 0,
+          "n": 9
+        },
+        "shuttle": {
+          "hazard_person_steps": 35102.666666666664,
+          "activity_dwell_hazard_person_steps": 8407.666666666666,
+          "reentries_after_clear": 260.3333333333333,
+          "robot_inside_share": 0.5906666666666667,
+          "robot_depth_m": 6.242047161216423,
+          "robot_speed_mean": 1.1637308754153348,
+          "followers_per_robot": 3.437925925925926,
+          "held_clear_success": 0,
+          "n": 9
+        },
+        "policy_deterministic": {
+          "hazard_person_steps": 42327.333333333336,
+          "activity_dwell_hazard_person_steps": 14100,
+          "reentries_after_clear": 185.66666666666666,
+          "robot_inside_share": 0.13688888888888892,
+          "robot_depth_m": 2.164684686715615,
+          "robot_speed_mean": 0.644555446507408,
+          "followers_per_robot": 11.750666666666667,
+          "held_clear_success": 0.1111111111111111,
+          "n": 9
+        }
+      },
+      {
+        "episode": 4500,
+        "update": 471270,
+        "paired_vs_off": 0.26815147364159864,
+        "paired_vs_shuttle": -0.31497658722953337,
+        "off_zero_command": {
+          "hazard_person_steps": 60123.333333333336,
+          "activity_dwell_hazard_person_steps": 21111.88888888889,
+          "reentries_after_clear": 259,
+          "robot_inside_share": 0,
+          "robot_depth_m": 0,
+          "robot_speed_mean": 0,
+          "followers_per_robot": 0,
+          "held_clear_success": 0,
+          "n": 9
+        },
+        "shuttle": {
+          "hazard_person_steps": 35102.666666666664,
+          "activity_dwell_hazard_person_steps": 8407.666666666666,
+          "reentries_after_clear": 260.3333333333333,
+          "robot_inside_share": 0.5906666666666667,
+          "robot_depth_m": 6.242047161216423,
+          "robot_speed_mean": 1.1637308754153348,
+          "followers_per_robot": 3.437925925925926,
+          "held_clear_success": 0,
+          "n": 9
+        },
+        "policy_deterministic": {
+          "hazard_person_steps": 42592.444444444445,
+          "activity_dwell_hazard_person_steps": 14964.666666666666,
+          "reentries_after_clear": 188.44444444444446,
+          "robot_inside_share": 0.10503703703703704,
+          "robot_depth_m": 1.6751592820300514,
+          "robot_speed_mean": 0.6050416180744711,
+          "followers_per_robot": 11.244148148148149,
+          "held_clear_success": 0,
+          "n": 9
+        }
+      },
+      {
+        "episode": 5000,
+        "update": 524466,
+        "paired_vs_off": 0.2858329323369404,
+        "paired_vs_shuttle": -0.29402786081882426,
+        "off_zero_command": {
+          "hazard_person_steps": 60123.333333333336,
+          "activity_dwell_hazard_person_steps": 21111.88888888889,
+          "reentries_after_clear": 259,
+          "robot_inside_share": 0,
+          "robot_depth_m": 0,
+          "robot_speed_mean": 0,
+          "followers_per_robot": 0,
+          "held_clear_success": 0,
+          "n": 9
+        },
+        "shuttle": {
+          "hazard_person_steps": 35102.666666666664,
+          "activity_dwell_hazard_person_steps": 8407.666666666666,
+          "reentries_after_clear": 260.3333333333333,
+          "robot_inside_share": 0.5906666666666667,
+          "robot_depth_m": 6.242047161216423,
+          "robot_speed_mean": 1.1637308754153348,
+          "followers_per_robot": 3.437925925925926,
+          "held_clear_success": 0,
+          "n": 9
+        },
+        "policy_deterministic": {
+          "hazard_person_steps": 42040,
+          "activity_dwell_hazard_person_steps": 14957.555555555555,
+          "reentries_after_clear": 179.77777777777777,
+          "robot_inside_share": 0.11807407407407407,
+          "robot_depth_m": 2.109000935990781,
+          "robot_speed_mean": 0.7586568457304539,
+          "followers_per_robot": 12.658666666666667,
+          "held_clear_success": 0,
+          "n": 9
+        }
+      },
+      {
+        "episode": 5500,
+        "update": 576330,
+        "paired_vs_off": 0.30805946241254023,
+        "paired_vs_shuttle": -0.22886331234857296,
+        "off_zero_command": {
+          "hazard_person_steps": 60123.333333333336,
+          "activity_dwell_hazard_person_steps": 21111.88888888889,
+          "reentries_after_clear": 259,
+          "robot_inside_share": 0,
+          "robot_depth_m": 0,
+          "robot_speed_mean": 0,
+          "followers_per_robot": 0,
+          "held_clear_success": 0,
+          "n": 9
+        },
+        "shuttle": {
+          "hazard_person_steps": 35102.666666666664,
+          "activity_dwell_hazard_person_steps": 8407.666666666666,
+          "reentries_after_clear": 260.3333333333333,
+          "robot_inside_share": 0.5906666666666667,
+          "robot_depth_m": 6.242047161216423,
+          "robot_speed_mean": 1.1637308754153348,
+          "followers_per_robot": 3.437925925925926,
+          "held_clear_success": 0,
+          "n": 9
+        },
+        "policy_deterministic": {
+          "hazard_person_steps": 41571.77777777778,
+          "activity_dwell_hazard_person_steps": 14519,
+          "reentries_after_clear": 187.22222222222223,
+          "robot_inside_share": 0.07837037037037037,
+          "robot_depth_m": 1.613849202303833,
+          "robot_speed_mean": 0.7624424660884077,
+          "followers_per_robot": 13.517629629629631,
+          "held_clear_success": 0,
+          "n": 9
+        }
+      }
+    ],
+    "training_bins": [
+      {
+        "low": 1,
+        "high": 500,
+        "n": 500,
+        "episode/total_reward": -1285.4671567219139,
+        "episode/hazard_person_steps": 51572.878,
+        "episode/reward/collision": -0.4398999999999996,
+        "episode/mode_share/guide": 0.49860727886220524,
+        "episode/robots/robot_inside_share": 0.27138933333333337
+      },
+      {
+        "low": 501,
+        "high": 1000,
+        "n": 500,
+        "episode/total_reward": -1296.168354596538,
+        "episode/hazard_person_steps": 49377.232,
+        "episode/reward/collision": -4.4562000000000115,
+        "episode/mode_share/guide": 0.5128795441336668,
+        "episode/robots/robot_inside_share": 0.13509333333333334
+      },
+      {
+        "low": 1001,
+        "high": 1500,
+        "n": 500,
+        "episode/total_reward": -1208.5215021399,
+        "episode/hazard_person_steps": 48849.746,
+        "episode/reward/collision": -1.5262000000000033,
+        "episode/mode_share/guide": 0.5774503711490018,
+        "episode/robots/robot_inside_share": 0.15682933333333335
+      },
+      {
+        "low": 1501,
+        "high": 2000,
+        "n": 500,
+        "episode/total_reward": -1171.557745410147,
+        "episode/hazard_person_steps": 46664.178,
+        "episode/reward/collision": -1.7949000000000033,
+        "episode/mode_share/guide": 0.6089236747609575,
+        "episode/robots/robot_inside_share": 0.15681066666666665
+      },
+      {
+        "low": 2001,
+        "high": 2500,
+        "n": 500,
+        "episode/total_reward": -1186.9739583100961,
+        "episode/hazard_person_steps": 47346.844,
+        "episode/reward/collision": -1.341000000000003,
+        "episode/mode_share/guide": 0.6129186638344288,
+        "episode/robots/robot_inside_share": 0.17089600000000002
+      }
+    ],
+    "learner_1500_2000": {
+      "train/alpha": 0.05000000074505806,
+      "train/entropy": 1.1634862508925987,
+      "train/target_entropy": -3.0,
+      "train/loss_q": 27.18971477699618,
+      "train/q_team": -246.32394250288078,
+      "train/target": -246.3249388774574
+    },
+    "first_alpha_floor_episode": 531,
+    "stochastic_validation_logged": false
+  },
+  "progress_latest_pairs": [
+    {
+      "scenario": "val_dotonbori_200m_0",
+      "seed": 958659,
+      "off": 77985,
+      "shuttle": 52852,
+      "policy": 56197,
+      "vs_off": 0.27938706161441307,
+      "vs_shuttle": -0.06328994172405955
+    },
+    {
+      "scenario": "val_dotonbori_200m_1",
+      "seed": 955091,
+      "off": 29608,
+      "shuttle": 12135,
+      "policy": 22694,
+      "vs_off": 0.2335179681167252,
+      "vs_shuttle": -0.8701277297074577
+    },
+    {
+      "scenario": "val_dotonbori_200m_2",
+      "seed": 959977,
+      "off": 72040,
+      "shuttle": 39354,
+      "policy": 49413,
+      "vs_off": 0.31408939478067743,
+      "vs_shuttle": -0.2556029882604056
+    },
+    {
+      "scenario": "val_covent_garden_200m_0",
+      "seed": 957802,
+      "off": 64246,
+      "shuttle": 37209,
+      "policy": 52624,
+      "vs_off": 0.18089842169162285,
+      "vs_shuttle": -0.41428149103711465
+    },
+    {
+      "scenario": "val_covent_garden_200m_1",
+      "seed": 955283,
+      "off": 20071,
+      "shuttle": 18566,
+      "policy": 16555,
+      "vs_off": 0.17517811768222813,
+      "vs_shuttle": 0.10831627706560376
+    },
+    {
+      "scenario": "val_covent_garden_200m_2",
+      "seed": 959972,
+      "off": 70012,
+      "shuttle": 47110,
+      "policy": 59739,
+      "vs_off": 0.14673198880191962,
+      "vs_shuttle": -0.2680747187433665
+    },
+    {
+      "scenario": "val_hongdae_200m_0",
+      "seed": 957589,
+      "off": 29541,
+      "shuttle": 21308,
+      "policy": 24982,
+      "vs_off": 0.1543278832808639,
+      "vs_shuttle": -0.1724235029097052
+    },
+    {
+      "scenario": "val_hongdae_200m_1",
+      "seed": 956910,
+      "off": 28212,
+      "shuttle": 8291,
+      "policy": 10933,
+      "vs_off": 0.6124698709768892,
+      "vs_shuttle": -0.31865878663611147
+    },
+    {
+      "scenario": "val_hongdae_200m_2",
+      "seed": 956276,
+      "off": 149395,
+      "shuttle": 79099,
+      "policy": 113434,
+      "vs_off": 0.24071086716422907,
+      "vs_shuttle": -0.43407628415024213
+    }
+  ],
+  "progress_latest_condition_means": {
+    "off_zero_command": {
+      "hazard_person_steps": 60123.333333333336,
+      "activity_dwell_hazard_person_steps": 21111.88888888889,
+      "reentries_after_clear": 259.0,
+      "robot_inside_share": 0.0,
+      "robot_depth_m": 0.0,
+      "robot_speed_mean": 0.0,
+      "followers_per_robot": 0.0,
+      "held_clear_success": 0.0,
+      "n": null,
+      "activity_cancelled_robot_follow": 0.0,
+      "mode_share_guide": 0.0
+    },
+    "shuttle": {
+      "hazard_person_steps": 35102.666666666664,
+      "activity_dwell_hazard_person_steps": 8407.666666666666,
+      "reentries_after_clear": 260.3333333333333,
+      "robot_inside_share": 0.5906666666666667,
+      "robot_depth_m": 6.242047161216423,
+      "robot_speed_mean": 1.1637308754153348,
+      "followers_per_robot": 3.437925925925926,
+      "held_clear_success": 0.0,
+      "n": null,
+      "activity_cancelled_robot_follow": 17.555555555555557,
+      "mode_share_guide": 0.7311837944232609
+    },
+    "policy_deterministic": {
+      "hazard_person_steps": 45174.555555555555,
+      "activity_dwell_hazard_person_steps": 13715.666666666666,
+      "reentries_after_clear": 204.22222222222223,
+      "robot_inside_share": 0.13422222222222221,
+      "robot_depth_m": 1.7987625810976324,
+      "robot_speed_mean": 0.6490755072391576,
+      "followers_per_robot": 6.495555555555556,
+      "held_clear_success": 0.0,
+      "n": null,
+      "activity_cancelled_robot_follow": 25.0,
+      "mode_share_guide": 0.484847093079314
+    }
+  },
+  "matched_episode_2000": {
+    "z44h9d77": {
+      "episode": 2000,
+      "update": 232922,
+      "paired_vs_off": 0.20309004278539516,
+      "paired_vs_shuttle": -0.3830313910876699,
+      "off_zero_command": {
+        "hazard_person_steps": 60123.333333333336,
+        "activity_dwell_hazard_person_steps": 21111.88888888889,
+        "reentries_after_clear": 259,
+        "robot_inside_share": 0,
+        "robot_depth_m": 0,
+        "robot_speed_mean": 0,
+        "followers_per_robot": 0,
+        "held_clear_success": 0,
+        "n": 9
+      },
+      "shuttle": {
+        "hazard_person_steps": 35102.666666666664,
+        "activity_dwell_hazard_person_steps": 8407.666666666666,
+        "reentries_after_clear": 260.3333333333333,
+        "robot_inside_share": 0.5906666666666667,
+        "robot_depth_m": 6.242047161216423,
+        "robot_speed_mean": 1.1637308754153348,
+        "followers_per_robot": 3.437925925925926,
+        "held_clear_success": 0,
+        "n": 9
+      },
+      "policy_deterministic": {
+        "hazard_person_steps": 49551,
+        "activity_dwell_hazard_person_steps": 13719.222222222223,
+        "reentries_after_clear": 221.11111111111111,
+        "robot_inside_share": 0.14977777777777776,
+        "robot_depth_m": 2.5165314059383195,
+        "robot_speed_mean": 0.9825352227388948,
+        "followers_per_robot": 11.424296296296298,
+        "held_clear_success": 0,
+        "n": 9
+      }
+    },
+    "4pr4wxci": {
+      "episode": 2000,
+      "update": 232110,
+      "paired_vs_off": 0.2597012860121743,
+      "paired_vs_shuttle": -0.29869101845587326,
+      "off_zero_command": {
+        "hazard_person_steps": 60123.333333333336,
+        "activity_dwell_hazard_person_steps": 21111.88888888889,
+        "reentries_after_clear": 259,
+        "robot_inside_share": 0,
+        "robot_depth_m": 0,
+        "robot_speed_mean": 0,
+        "followers_per_robot": 0,
+        "held_clear_success": 0,
+        "n": 9
+      },
+      "shuttle": {
+        "hazard_person_steps": 35102.666666666664,
+        "activity_dwell_hazard_person_steps": 8407.666666666666,
+        "reentries_after_clear": 260.3333333333333,
+        "robot_inside_share": 0.5906666666666667,
+        "robot_depth_m": 6.242047161216423,
+        "robot_speed_mean": 1.1637308754153348,
+        "followers_per_robot": 3.437925925925926,
+        "held_clear_success": 0,
+        "n": 9
+      },
+      "policy_deterministic": {
+        "hazard_person_steps": 45174.555555555555,
+        "activity_dwell_hazard_person_steps": 13715.666666666666,
+        "reentries_after_clear": 204.22222222222223,
+        "robot_inside_share": 0.13422222222222221,
+        "robot_depth_m": 1.7987625810976324,
+        "robot_speed_mean": 0.6490755072391576,
+        "followers_per_robot": 6.495555555555556,
+        "held_clear_success": 0,
+        "n": 9
+      }
+    },
+    "vsa06hsg": {
+      "episode": 2000,
+      "update": 215246,
+      "paired_vs_off": 0.2543079038376104,
+      "paired_vs_shuttle": -0.3255216124446465,
+      "off_zero_command": {
+        "hazard_person_steps": 60123.333333333336,
+        "activity_dwell_hazard_person_steps": 21111.88888888889,
+        "reentries_after_clear": 259,
+        "robot_inside_share": 0,
+        "robot_depth_m": 0,
+        "robot_speed_mean": 0,
+        "followers_per_robot": 0,
+        "held_clear_success": 0,
+        "n": 9
+      },
+      "shuttle": {
+        "hazard_person_steps": 35102.666666666664,
+        "activity_dwell_hazard_person_steps": 8407.666666666666,
+        "reentries_after_clear": 260.3333333333333,
+        "robot_inside_share": 0.5906666666666667,
+        "robot_depth_m": 6.242047161216423,
+        "robot_speed_mean": 1.1637308754153348,
+        "followers_per_robot": 3.437925925925926,
+        "held_clear_success": 0,
+        "n": 9
+      },
+      "policy_deterministic": {
+        "hazard_person_steps": 46789.77777777778,
+        "activity_dwell_hazard_person_steps": 14572,
+        "reentries_after_clear": 205.66666666666666,
+        "robot_inside_share": 0.15733333333333333,
+        "robot_depth_m": 2.6101720108263278,
+        "robot_speed_mean": 0.8457083772280944,
+        "followers_per_robot": 10.341185185185187,
+        "held_clear_success": 0,
+        "n": 9
+      }
+    }
+  }
+}
