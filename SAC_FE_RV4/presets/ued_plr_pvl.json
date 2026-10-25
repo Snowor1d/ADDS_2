@@ -1,0 +1,8 @@
+{
+ "_comment": "UED: PLR, Positive Value Loss 점수 (Jiang et al. 2021a).",
+ "LOG_DIR": "Log_SAC_FE_RV4_ued_plr_pvl",
+ "EXPERIMENT_ID": "fe-rv4-ued_plr_pvl",
+ "TRAIN_MAP_SOURCE": "ued",
+ "UED_METHOD": "plr",
+ "UED_SCORE": "pvl"
+}

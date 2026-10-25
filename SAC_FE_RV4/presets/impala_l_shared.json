@@ -1,0 +1,9 @@
+{
+ "_comment": "IMPALA-CNN l + 크리틱 인코더 공유(SAC-AE/DrQ 방식)로 비용 절감.",
+ "LOG_DIR": "Log_SAC_FE_RV4_impala_l_shared",
+ "EXPERIMENT_ID": "fe-rv4-impala_l_shared",
+ "NET_ENCODER": "impala",
+ "NET_SIZE": "l",
+ "ENCODER_SHARING": "critic",
+ "UPDATES_PER_TRANSITION": 0.5
+}

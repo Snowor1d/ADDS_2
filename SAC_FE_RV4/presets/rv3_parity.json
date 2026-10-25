@@ -1,0 +1,16 @@
+{
+ "_comment": "RV3와 같은 학습: 300맵 dataset + D4 증강 + RV3 네트워크/보상/버그까지 동일. RV4 파이프라인이 RV3 성능을 재현하는지 확인하는 기준선. 속도 상한도 RV3처럼 없음(None). 이 체크포인트를 RV3 기록과 비교할 때는 평가도 --set ROBOT_SPEED_NORM_LIMIT=None 으로.",
+ "LOG_DIR": "Log_SAC_FE_RV4_rv3_parity",
+ "EXPERIMENT_ID": "fe-rv4-rv3_parity",
+ "TRAIN_MAP_SOURCE": "dataset",
+ "DATASET_AUGMENTATION": true,
+ "NET_ENCODER": "legacy_rv3",
+ "TIMEOUT_BOOTSTRAP": false,
+ "SAC_STABLE_LOGPROB": false,
+ "REWARD_COLLISION_MODE": "last_step",
+ "ALPHA_AUTO": false,
+ "N_STEP": 1,
+ "LOG_STD_MIN": -20,
+ "ROBOT_SPEED_NORM_LIMIT": null,
+ "ROBOT_EDGE_TRAP_FIX": false
+}

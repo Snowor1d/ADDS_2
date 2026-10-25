@@ -1,0 +1,7 @@
+{
+ "_comment": "관측 확장: 정적 측지거리 채널 + 추종자 픽셀(200).",
+ "LOG_DIR": "Log_SAC_FE_RV4_obs_rich",
+ "EXPERIMENT_ID": "fe-rv4-obs_rich",
+ "OBS_STATIC_DISTANCE_CHANNEL": true,
+ "OBS_FOLLOWER_PIXEL": 200
+}

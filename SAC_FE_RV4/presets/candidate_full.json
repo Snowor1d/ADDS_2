@@ -1,0 +1,15 @@
+{
+ "_comment": "검증되지 않은 조합 후보: ACCEL + IMPALA m(공유) + D4 증강 + 정적 거리 채널 + 크리틱 LN + 3-step. 단일 기법 실험 결과를 본 뒤 조정할 것.",
+ "LOG_DIR": "Log_SAC_FE_RV4_candidate_full",
+ "EXPERIMENT_ID": "fe-rv4-candidate_full",
+ "TRAIN_MAP_SOURCE": "ued",
+ "UED_METHOD": "accel",
+ "NET_ENCODER": "impala",
+ "NET_SIZE": "m",
+ "ENCODER_SHARING": "critic",
+ "AUG_REPLAY_D4": true,
+ "OBS_STATIC_DISTANCE_CHANNEL": true,
+ "CRITIC_LAYERNORM": true,
+ "N_STEP": 3,
+ "UPDATES_PER_TRANSITION": 0.5
+}

@@ -1,0 +1,7 @@
+{
+ "_comment": "UED: Domain Randomization (매 에피소드 새 생성 레벨, 커리큘럼 없음). 무한한 학습 맵의 효과를 보는 UED 기준선.",
+ "LOG_DIR": "Log_SAC_FE_RV4_ued_dr",
+ "EXPERIMENT_ID": "fe-rv4-ued_dr",
+ "TRAIN_MAP_SOURCE": "ued",
+ "UED_METHOD": "dr"
+}

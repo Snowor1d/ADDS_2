@@ -1,0 +1,7 @@
+{
+ "_comment": "가소성 유지: 20만 업데이트마다 헤드 재초기화 (Nikishin et al. 2022).",
+ "LOG_DIR": "Log_SAC_FE_RV4_resets",
+ "EXPERIMENT_ID": "fe-rv4-resets",
+ "RESET_EVERY_UPDATES": 200000,
+ "RESET_SCOPE": "heads"
+}

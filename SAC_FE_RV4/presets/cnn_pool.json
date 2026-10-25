@@ -1,0 +1,7 @@
+{
+ "_comment": "cnn m + 4x4 평균 풀링 + 좌표 채널 (위치별 선형층 대신 위치 불변 특징).",
+ "LOG_DIR": "Log_SAC_FE_RV4_cnn_pool",
+ "EXPERIMENT_ID": "fe-rv4-cnn_pool",
+ "NET_SPATIAL": "pool",
+ "NET_COORD_CHANNELS": true
+}

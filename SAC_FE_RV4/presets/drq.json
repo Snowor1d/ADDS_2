@@ -1,0 +1,9 @@
+{
+ "_comment": "DrQ: 무작위 평행이동 + 타깃/Q 평균(K=M=2) + 크리틱 인코더 공유 (Kostrikov et al. 2021).",
+ "LOG_DIR": "Log_SAC_FE_RV4_drq",
+ "EXPERIMENT_ID": "fe-rv4-drq",
+ "AUG_RANDOM_SHIFT": true,
+ "AUG_DRQ_K": 2,
+ "AUG_DRQ_M": 2,
+ "ENCODER_SHARING": "critic"
+}

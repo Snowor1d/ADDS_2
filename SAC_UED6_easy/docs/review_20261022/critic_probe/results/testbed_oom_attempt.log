@@ -1,0 +1,33 @@
+replay 954065 records in 14s
+targets mean -432.7 range [-2589.0, -37.5] support (-3864.7157611846924, 1238.2234554290771, 201)
+18 probe states
+{'update': -1, 'variant': 'checkpoint', 'agree_corr': 0.2206, 'action_sd': 0.7835, 'probe_ratio': 0.1524, 'probe_corr': -0.1037}
+{'update': 0, 'variant': 'mse:1', 'td_mse': 568.2261, 'elapsed_s': 0.0, 'agree_corr': 0.5356, 'action_sd': 0.0035, 'probe_ratio': 0.0004, 'probe_corr': -0.1397}
+{'update': 0, 'variant': 'hlgauss:1', 'td_mse': 515.4097, 'elapsed_s': 0.0, 'agree_corr': -0.7754, 'action_sd': 0.3402, 'probe_ratio': 0.0261, 'probe_corr': 0.1904}
+{'update': 0, 'variant': 'dueling:1', 'td_mse': 568.1086, 'elapsed_s': 0.0, 'agree_corr': -0.5447, 'action_sd': 0.0038, 'probe_ratio': 0.0003, 'probe_corr': -0.0926}
+{'update': 0, 'variant': 'hlgauss_dueling:1', 'td_mse': 513.8687, 'elapsed_s': 0.0, 'agree_corr': -0.4161, 'action_sd': 0.2735, 'probe_ratio': 0.019, 'probe_corr': -0.047}
+{'update': 0, 'variant': 'mse:3', 'td_mse': 3373.2076, 'elapsed_s': 0.0, 'agree_corr': 0.3919, 'action_sd': 0.0026, 'probe_ratio': 0.0003, 'probe_corr': -0.0521}
+Traceback (most recent call last):
+  File "/home/amrl_sunny/ADDS_2/SAC_UED6_easy/docs/review_20261022/critic_probe/testbed_multi.py", line 278, in <module>
+    main()
+  File "/home/amrl_sunny/ADDS_2/SAC_UED6_easy/docs/review_20261022/critic_probe/testbed_multi.py", line 266, in main
+    + v["q2"].loss(v["q2"].encode_observation(b["obs"]), b["action"], b["mask"], yv))
+  File "/home/amrl_sunny/ADDS_2/SAC_UED6_easy/learn/networks.py", line 388, in encode_observation
+    g2d = self.attend(self.glob.features(flat(glob)), ctx)
+  File "/home/amrl_sunny/ADDS_2/SAC_UED6_easy/learn/networks.py", line 123, in features
+    return self.conv(x)
+  File "/home/amrl_sunny/.local/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/home/amrl_sunny/.local/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/home/amrl_sunny/.local/lib/python3.10/site-packages/torch/nn/modules/container.py", line 250, in forward
+    input = module(input)
+  File "/home/amrl_sunny/.local/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/home/amrl_sunny/.local/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/home/amrl_sunny/.local/lib/python3.10/site-packages/torch/nn/modules/normalization.py", line 313, in forward
+    return F.group_norm(input, self.num_groups, self.weight, self.bias, self.eps)
+  File "/home/amrl_sunny/.local/lib/python3.10/site-packages/torch/nn/functional.py", line 2955, in group_norm
+    return torch.group_norm(
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 12.00 MiB. GPU 0 has a total capacity of 7.62 GiB of which 3.07 GiB is free. Process 714092 has 270.03 MiB memory in use. Including non-PyTorch memory, this process has 3.54 GiB memory in use. 3.43 GiB allowed; Of the allocated memory 3.38 GiB is allocated by PyTorch, and 48.80 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)

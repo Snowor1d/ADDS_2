@@ -1,0 +1,9 @@
+{
+ "_comment": "REDQ: 크리틱 10개, 타깃은 무작위 2개 min, 크리틱 LayerNorm (Chen et al. 2021; Ball et al. 2023).",
+ "LOG_DIR": "Log_SAC_FE_RV4_redq",
+ "EXPERIMENT_ID": "fe-rv4-redq",
+ "CRITIC_ENSEMBLE": 10,
+ "CRITIC_TARGET_SUBSET": 2,
+ "CRITIC_LAYERNORM": true,
+ "ENCODER_SHARING": "critic"
+}

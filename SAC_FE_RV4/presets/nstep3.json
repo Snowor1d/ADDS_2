@@ -1,0 +1,6 @@
+{
+ "_comment": "3-step 반환.",
+ "LOG_DIR": "Log_SAC_FE_RV4_nstep3",
+ "EXPERIMENT_ID": "fe-rv4-nstep3",
+ "N_STEP": 3
+}

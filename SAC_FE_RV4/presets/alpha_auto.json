@@ -1,0 +1,7 @@
+{
+ "_comment": "엔트로피 온도 자동 조정 + LOG_STD_MIN -5.",
+ "LOG_DIR": "Log_SAC_FE_RV4_alpha_auto",
+ "EXPERIMENT_ID": "fe-rv4-alpha_auto",
+ "ALPHA_AUTO": true,
+ "LOG_STD_MIN": -5
+}

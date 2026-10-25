@@ -1,0 +1,8 @@
+{
+ "_comment": "IMPALA-CNN m (Cobbe et al. 2020). 업데이트가 cnn m 의 약 2.5배라 UPDATES_PER_TRANSITION 을 낮춘다.",
+ "LOG_DIR": "Log_SAC_FE_RV4_impala_m",
+ "EXPERIMENT_ID": "fe-rv4-impala_m",
+ "NET_ENCODER": "impala",
+ "NET_SIZE": "m",
+ "UPDATES_PER_TRANSITION": 0.5
+}

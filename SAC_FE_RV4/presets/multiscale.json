@@ -1,0 +1,19 @@
+{
+ "_comment": "여러 맵 크기(70/100/140 m) + 맵 스케일 입력(액터·크리틱) + 미터 단위 ego + 크기 불변 보상. test_scale 스위트로 평가.",
+ "LOG_DIR": "Log_SAC_FE_RV4_multiscale",
+ "EXPERIMENT_ID": "fe-rv4-multiscale",
+ "TRAIN_MAP_SOURCE": "ued",
+ "UED_MAP_SIZES_M": [
+  70,
+  100,
+  140
+ ],
+ "MAP_SCALE_TO_ACTOR": true,
+ "MAP_SCALE_TO_CRITIC": true,
+ "OBS_EGO_MODE": "metric",
+ "REWARD_SCALE_INVARIANT": true,
+ "UED_DIFFICULTY_RANGE": [
+  1,
+  5
+ ]
+}

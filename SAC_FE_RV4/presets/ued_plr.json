@@ -1,0 +1,8 @@
+{
+ "_comment": "UED: Robust PLR, MaxMC 점수 (Jiang et al. 2021b).",
+ "LOG_DIR": "Log_SAC_FE_RV4_ued_plr",
+ "EXPERIMENT_ID": "fe-rv4-ued_plr",
+ "TRAIN_MAP_SOURCE": "ued",
+ "UED_METHOD": "plr",
+ "UED_SCORE": "maxmc"
+}

@@ -1,0 +1,8 @@
+/home/amrl_sunny/.local/lib/python3.10/site-packages/matplotlib/projections/__init__.py:63: UserWarning: Unable to import Axes3D. This may be due to multiple versions of Matplotlib being installed (e.g. as a system package and as a pip package). As a result, the 3D projection is not available.
+  warnings.warn("Unable to import Axes3D. This may be due to multiple versions of "
+[val_dotonbori_200m_2 t0=320] rep 5 done 383s max step err 2.2e-14
+[val_dotonbori_200m_2 t0=320] rep 6 done 765s max step err 2.8e-14
+[val_dotonbori_200m_2 t0=320] rep 7 done 1191s max step err 2.8e-14
+[val_dotonbori_200m_2 t0=320] rep 8 done 1533s max step err 2.8e-14
+[val_dotonbori_200m_2 t0=320] rep 9 done 1898s max step err 2.8e-14
+saved /home/amrl_sunny/ADDS_2/SAC_UED6_easy/docs/review_20261022/critic_probe/results/persons/s2_t320_r5.npz

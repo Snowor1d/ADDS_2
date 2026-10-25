@@ -1,0 +1,45 @@
+{
+ "horizon": "end",
+ "states": 24,
+ "pooled_F": 1.457217805400299,
+ "pooled_df": [
+  168,
+  630
+ ],
+ "pooled_p": 0.0006962916011205992,
+ "mean_true_sd": 12.540905051421248,
+ "mean_noise_sd": 40.897491138732285,
+ "mean_critic_sd": 2.3100670897260893,
+ "ratio_rms": 0.17870574008996032,
+ "mean_corr": -0.09535900380112945,
+ "positive_corr": 7,
+ "mean_spearman": -0.048611111111111126,
+ "mean_corr_q1q2": 0.09560992290321589,
+ "best_agree": 0
+}
+
+state      scenario                  t(s)   in/Nref  r0 sd   true  noise       p  critic   corr   q1q2  best(true/critic)
+s0_t320    val_dotonbori_200m_0       160  105/111   -16.6    0.0   29.7 5.6e-01    3.63  -0.06  +1.00  policy_s2/in_off
+s0_t80     val_dotonbori_200m_0        40  153/111    -3.2    0.0   65.8 6.3e-01    0.61  -0.46  -0.37  in_off/policy_s1
+s1_t320    val_dotonbori_200m_1       170    8/77     24.8    0.0   23.2 8.2e-01    1.48  -0.72  +1.00  still_guide/in_off
+s1_t80     val_dotonbori_200m_1        50   41/77     20.8    3.1   36.3 4.6e-01    1.14  -0.69  +0.98  still_guide/policy_s1
+s2_t320    val_dotonbori_200m_2       162   54/110    -8.8   15.8   26.0 2.7e-04    1.09  -0.40  +0.92  policy_s2/out_off
+s2_t320_r3 val_dotonbori_200m_2       162   54/110    -8.8   14.2   25.0 1.3e-01    1.09  -0.75  +0.92  still_guide/out_off
+s2_t80     val_dotonbori_200m_2        40  123/110     6.7    3.8   33.6 4.5e-01    2.21  -0.57  +0.83  still_guide/in_off
+s3_t320    val_covent_garden_200m_0   166   38/82     33.5   31.7   43.3 1.1e-05    3.12  -0.01  -0.98  in_off/still_guide
+s3_t320_r3 val_covent_garden_200m_0   166   38/82     33.5   36.3   41.5 2.7e-02    3.12  +0.06  -0.98  in_guide/still_guide
+s3_t80     val_covent_garden_200m_0    40  111/82    -18.1   16.7   62.6 1.2e-01    1.99  +0.78  -0.99  out_off/in_off
+s3_t80_r3  val_covent_garden_200m_0    40  111/82    -18.1   47.4   52.4 2.3e-02    1.99  +0.85  -0.99  out_off/in_off
+s4_t320    val_covent_garden_200m_1   168   10/84     31.8    0.0   15.7 5.8e-01    1.60  +0.36  +0.08  policy_s1/still_guide
+s4_t80     val_covent_garden_200m_1    56   37/84     11.2    0.0   25.3 9.6e-01    1.38  +0.18  -0.39  policy_det/out_off
+s5_t320    val_covent_garden_200m_2   168   56/115    -9.0    0.0   21.2 9.6e-01    1.12  +0.51  -0.59  in_guide/in_off
+s5_t80     val_covent_garden_200m_2    40  114/115     6.9    0.0   33.8 7.4e-01    2.12  -0.10  +0.91  policy_det/in_off
+s5_t80_r3  val_covent_garden_200m_2    40  114/115     6.9   17.2   40.8 2.3e-01    2.12  +0.36  +0.91  policy_det/in_off
+s6_t320    val_hongdae_200m_0         166   21/54     39.1    0.0   45.6 6.5e-01    1.49  -0.32  +0.65  policy_det/in_off
+s6_t80     val_hongdae_200m_0          40   87/54     39.2   22.0   99.7 1.9e-01   10.84  -0.45  -0.84  policy_s2/policy_s1
+s6_t80_r3  val_hongdae_200m_0          40   87/54     39.2   53.4   83.5 9.6e-02   10.84  -0.03  -0.84  in_guide/policy_s1
+s7_t320    val_hongdae_200m_1         166    8/31     29.8   17.4   39.7 1.0e-02    0.54  -0.24  +0.12  in_guide/still_guide
+s7_t320_r3 val_hongdae_200m_1         166    8/31     29.8   16.2   29.1 1.4e-01    0.54  -0.21  +0.12  in_guide/still_guide
+s7_t80     val_hongdae_200m_1          40   23/31      8.9    0.0   49.5 5.4e-01    0.61  -0.04  +0.56  policy_s2/out_off
+s8_t320    val_hongdae_200m_2         160  156/191    -2.7    0.0   30.1 7.5e-01    0.56  -0.04  +0.93  out_guide/still_guide
+s8_t80     val_hongdae_200m_2          40  247/191    43.7    5.8   28.4 4.0e-01    0.21  -0.29  -0.68  in_guide/still_guide

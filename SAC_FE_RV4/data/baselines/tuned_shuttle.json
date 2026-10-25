@@ -1,0 +1,2488 @@
+{
+ "shuttle_random": {
+  "best": {
+   "approach": 1.5,
+   "escort": 1.0,
+   "mean": 719.53125,
+   "success_rate": 1.0,
+   "n": 96
+  },
+  "rungs": [
+   {
+    "n_scenarios": 12,
+    "n_configs": 35,
+    "ranking": [
+     {
+      "approach": 2.83,
+      "escort": 0.6,
+      "mean": 678.0,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.5,
+      "escort": 1.4,
+      "mean": 720.9166666666666,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.5,
+      "escort": 1.2,
+      "mean": 725.5833333333334,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.0,
+      "escort": 1.4,
+      "mean": 738.75,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.5,
+      "escort": 1.0,
+      "mean": 741.0,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.5,
+      "escort": 1.0,
+      "mean": 747.3333333333334,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.83,
+      "escort": 1.0,
+      "mean": 755.9166666666666,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.0,
+      "escort": 0.8,
+      "mean": 772.6666666666666,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.0,
+      "escort": 1.2,
+      "mean": 774.9166666666666,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.0,
+      "escort": 1.0,
+      "mean": 780.5,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.83,
+      "escort": 1.4,
+      "mean": 782.75,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.5,
+      "escort": 1.4,
+      "mean": 783.75,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.5,
+      "escort": 0.8,
+      "mean": 792.75,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.5,
+      "escort": 0.8,
+      "mean": 799.0,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.83,
+      "escort": 0.8,
+      "mean": 800.5833333333334,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.0,
+      "escort": 1.2,
+      "mean": 807.1666666666666,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.5,
+      "escort": 1.2,
+      "mean": 830.0833333333334,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.0,
+      "escort": 1.0,
+      "mean": 844.1666666666666,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.5,
+      "escort": 0.6,
+      "mean": 854.6666666666666,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.0,
+      "escort": 0.6,
+      "mean": 869.3333333333334,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.83,
+      "escort": 1.2,
+      "mean": 874.5,
+      "success_rate": 0.9166666666666666
+     },
+     {
+      "approach": 1.5,
+      "escort": 0.6,
+      "mean": 897.75,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.0,
+      "escort": 0.6,
+      "mean": 901.9166666666666,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.0,
+      "escort": 0.8,
+      "mean": 911.0,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.0,
+      "escort": 1.4,
+      "mean": 951.0,
+      "success_rate": 0.9166666666666666
+     },
+     {
+      "approach": 1.5,
+      "escort": 1.7,
+      "mean": 1128.75,
+      "success_rate": 0.9166666666666666
+     },
+     {
+      "approach": 2.0,
+      "escort": 1.7,
+      "mean": 1160.8333333333333,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.0,
+      "escort": 1.7,
+      "mean": 1246.0,
+      "success_rate": 0.8333333333333334
+     },
+     {
+      "approach": 2.5,
+      "escort": 1.7,
+      "mean": 1302.5,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.83,
+      "escort": 1.7,
+      "mean": 1340.1666666666667,
+      "success_rate": 0.9166666666666666
+     },
+     {
+      "approach": 2.5,
+      "escort": 2.0,
+      "mean": 1358.1666666666667,
+      "success_rate": 0.9166666666666666
+     },
+     {
+      "approach": 2.83,
+      "escort": 2.0,
+      "mean": 1423.8333333333333,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.5,
+      "escort": 2.0,
+      "mean": 1530.25,
+      "success_rate": 0.9166666666666666
+     },
+     {
+      "approach": 2.0,
+      "escort": 2.0,
+      "mean": 1679.0,
+      "success_rate": 0.9166666666666666
+     },
+     {
+      "approach": 1.0,
+      "escort": 2.0,
+      "mean": 1919.1666666666667,
+      "success_rate": 0.8333333333333334
+     }
+    ]
+   },
+   {
+    "n_scenarios": 36,
+    "n_configs": 12,
+    "ranking": [
+     {
+      "approach": 2.83,
+      "escort": 1.0,
+      "mean": 696.4444444444445,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.5,
+      "escort": 1.0,
+      "mean": 699.5277777777778,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.5,
+      "escort": 1.0,
+      "mean": 724.4444444444445,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.5,
+      "escort": 1.2,
+      "mean": 747.3611111111111,
+      "success_rate": 0.9722222222222222
+     },
+     {
+      "approach": 2.0,
+      "escort": 0.8,
+      "mean": 748.3055555555555,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.0,
+      "escort": 1.0,
+      "mean": 782.3611111111111,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.5,
+      "escort": 1.4,
+      "mean": 790.0555555555555,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.83,
+      "escort": 0.6,
+      "mean": 802.9444444444445,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.83,
+      "escort": 1.4,
+      "mean": 836.1388888888889,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.5,
+      "escort": 1.4,
+      "mean": 844.3611111111111,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.0,
+      "escort": 1.4,
+      "mean": 871.1111111111111,
+      "success_rate": 0.9722222222222222
+     },
+     {
+      "approach": 1.0,
+      "escort": 1.2,
+      "mean": 890.7777777777778,
+      "success_rate": 0.9722222222222222
+     }
+    ]
+   },
+   {
+    "n_scenarios": 96,
+    "n_configs": 4,
+    "ranking": [
+     {
+      "approach": 1.5,
+      "escort": 1.0,
+      "mean": 719.53125,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.83,
+      "escort": 1.0,
+      "mean": 743.2708333333334,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.5,
+      "escort": 1.0,
+      "mean": 746.625,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.5,
+      "escort": 1.2,
+      "mean": 790.3229166666666,
+      "success_rate": 0.9895833333333334
+     }
+    ]
+   },
+   {
+    "n_scenarios": 96,
+    "n_configs": 1,
+    "ranking": [
+     {
+      "approach": 1.5,
+      "escort": 1.0,
+      "mean": 719.53125,
+      "success_rate": 1.0
+     }
+    ]
+   }
+  ],
+  "all": [
+   {
+    "approach": 1.5,
+    "escort": 1.0,
+    "n": 96,
+    "mean": 719.53125,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 2.83,
+    "escort": 1.0,
+    "n": 96,
+    "mean": 743.2708333333334,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 2.5,
+    "escort": 1.0,
+    "n": 96,
+    "mean": 746.625,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 2.5,
+    "escort": 1.2,
+    "n": 96,
+    "mean": 790.3229166666666,
+    "success_rate": 0.9895833333333334
+   },
+   {
+    "approach": 2.0,
+    "escort": 0.8,
+    "n": 36,
+    "mean": 748.3055555555555,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 2.0,
+    "escort": 1.0,
+    "n": 36,
+    "mean": 782.3611111111111,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 2.5,
+    "escort": 1.4,
+    "n": 36,
+    "mean": 790.0555555555555,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 2.83,
+    "escort": 0.6,
+    "n": 36,
+    "mean": 802.9444444444445,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 2.83,
+    "escort": 1.4,
+    "n": 36,
+    "mean": 836.1388888888889,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.5,
+    "escort": 1.4,
+    "n": 36,
+    "mean": 844.3611111111111,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 2.0,
+    "escort": 1.4,
+    "n": 36,
+    "mean": 871.1111111111111,
+    "success_rate": 0.9722222222222222
+   },
+   {
+    "approach": 1.0,
+    "escort": 1.2,
+    "n": 36,
+    "mean": 890.7777777777778,
+    "success_rate": 0.9722222222222222
+   },
+   {
+    "approach": 1.5,
+    "escort": 0.8,
+    "n": 12,
+    "mean": 792.75,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 2.5,
+    "escort": 0.8,
+    "n": 12,
+    "mean": 799.0,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 2.83,
+    "escort": 0.8,
+    "n": 12,
+    "mean": 800.5833333333334,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 2.0,
+    "escort": 1.2,
+    "n": 12,
+    "mean": 807.1666666666666,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.5,
+    "escort": 1.2,
+    "n": 12,
+    "mean": 830.0833333333334,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.0,
+    "escort": 1.0,
+    "n": 12,
+    "mean": 844.1666666666666,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 2.5,
+    "escort": 0.6,
+    "n": 12,
+    "mean": 854.6666666666666,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.0,
+    "escort": 0.6,
+    "n": 12,
+    "mean": 869.3333333333334,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 2.83,
+    "escort": 1.2,
+    "n": 12,
+    "mean": 874.5,
+    "success_rate": 0.9166666666666666
+   },
+   {
+    "approach": 1.5,
+    "escort": 0.6,
+    "n": 12,
+    "mean": 897.75,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 2.0,
+    "escort": 0.6,
+    "n": 12,
+    "mean": 901.9166666666666,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.0,
+    "escort": 0.8,
+    "n": 12,
+    "mean": 911.0,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.0,
+    "escort": 1.4,
+    "n": 12,
+    "mean": 951.0,
+    "success_rate": 0.9166666666666666
+   },
+   {
+    "approach": 1.5,
+    "escort": 1.7,
+    "n": 12,
+    "mean": 1128.75,
+    "success_rate": 0.9166666666666666
+   },
+   {
+    "approach": 2.0,
+    "escort": 1.7,
+    "n": 12,
+    "mean": 1160.8333333333333,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.0,
+    "escort": 1.7,
+    "n": 12,
+    "mean": 1246.0,
+    "success_rate": 0.8333333333333334
+   },
+   {
+    "approach": 2.5,
+    "escort": 1.7,
+    "n": 12,
+    "mean": 1302.5,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 2.83,
+    "escort": 1.7,
+    "n": 12,
+    "mean": 1340.1666666666667,
+    "success_rate": 0.9166666666666666
+   },
+   {
+    "approach": 2.5,
+    "escort": 2.0,
+    "n": 12,
+    "mean": 1358.1666666666667,
+    "success_rate": 0.9166666666666666
+   },
+   {
+    "approach": 2.83,
+    "escort": 2.0,
+    "n": 12,
+    "mean": 1423.8333333333333,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.5,
+    "escort": 2.0,
+    "n": 12,
+    "mean": 1530.25,
+    "success_rate": 0.9166666666666666
+   },
+   {
+    "approach": 2.0,
+    "escort": 2.0,
+    "n": 12,
+    "mean": 1679.0,
+    "success_rate": 0.9166666666666666
+   },
+   {
+    "approach": 1.0,
+    "escort": 2.0,
+    "n": 12,
+    "mean": 1919.1666666666667,
+    "success_rate": 0.8333333333333334
+   }
+  ]
+ },
+ "shuttle_nearest": {
+  "best": {
+   "approach": 2.83,
+   "escort": 1.2,
+   "mean": 784.5104166666666,
+   "success_rate": 1.0,
+   "n": 96
+  },
+  "rungs": [
+   {
+    "n_scenarios": 12,
+    "n_configs": 35,
+    "ranking": [
+     {
+      "approach": 2.5,
+      "escort": 0.8,
+      "mean": 739.3333333333334,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.0,
+      "escort": 1.2,
+      "mean": 772.1666666666666,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.5,
+      "escort": 1.0,
+      "mean": 773.4166666666666,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.5,
+      "escort": 1.2,
+      "mean": 775.9166666666666,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.5,
+      "escort": 1.4,
+      "mean": 795.1666666666666,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.83,
+      "escort": 1.4,
+      "mean": 796.8333333333334,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.83,
+      "escort": 1.0,
+      "mean": 799.6666666666666,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.0,
+      "escort": 0.8,
+      "mean": 819.75,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.5,
+      "escort": 1.0,
+      "mean": 839.4166666666666,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.83,
+      "escort": 1.2,
+      "mean": 844.1666666666666,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.5,
+      "escort": 1.4,
+      "mean": 860.8333333333334,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.0,
+      "escort": 1.0,
+      "mean": 882.4166666666666,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.0,
+      "escort": 1.4,
+      "mean": 891.4166666666666,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.0,
+      "escort": 1.4,
+      "mean": 900.0,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.5,
+      "escort": 0.8,
+      "mean": 902.4166666666666,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.0,
+      "escort": 0.8,
+      "mean": 926.4166666666666,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.5,
+      "escort": 1.2,
+      "mean": 926.5,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.5,
+      "escort": 0.6,
+      "mean": 936.0,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.0,
+      "escort": 0.6,
+      "mean": 959.6666666666666,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.0,
+      "escort": 0.6,
+      "mean": 967.0,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.83,
+      "escort": 0.8,
+      "mean": 984.8333333333334,
+      "success_rate": 0.9166666666666666
+     },
+     {
+      "approach": 1.0,
+      "escort": 1.0,
+      "mean": 1003.25,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.83,
+      "escort": 1.7,
+      "mean": 1026.8333333333333,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.83,
+      "escort": 0.6,
+      "mean": 1045.4166666666667,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.5,
+      "escort": 0.6,
+      "mean": 1046.4166666666667,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.5,
+      "escort": 1.7,
+      "mean": 1053.9166666666667,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.0,
+      "escort": 1.7,
+      "mean": 1085.0,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.0,
+      "escort": 1.2,
+      "mean": 1115.5833333333333,
+      "success_rate": 0.9166666666666666
+     },
+     {
+      "approach": 2.5,
+      "escort": 2.0,
+      "mean": 1155.6666666666667,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.5,
+      "escort": 1.7,
+      "mean": 1180.5833333333333,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.0,
+      "escort": 2.0,
+      "mean": 1389.75,
+      "success_rate": 0.9166666666666666
+     },
+     {
+      "approach": 1.0,
+      "escort": 1.7,
+      "mean": 1417.5,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.83,
+      "escort": 2.0,
+      "mean": 1509.5,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.0,
+      "escort": 2.0,
+      "mean": 1519.75,
+      "success_rate": 0.9166666666666666
+     },
+     {
+      "approach": 1.5,
+      "escort": 2.0,
+      "mean": 1672.0,
+      "success_rate": 1.0
+     }
+    ]
+   },
+   {
+    "n_scenarios": 36,
+    "n_configs": 12,
+    "ranking": [
+     {
+      "approach": 2.5,
+      "escort": 1.2,
+      "mean": 761.8611111111111,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.5,
+      "escort": 1.0,
+      "mean": 802.6666666666666,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.83,
+      "escort": 1.2,
+      "mean": 809.4444444444445,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.0,
+      "escort": 1.2,
+      "mean": 814.0555555555555,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.0,
+      "escort": 1.0,
+      "mean": 831.4722222222222,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.5,
+      "escort": 1.4,
+      "mean": 850.0555555555555,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.83,
+      "escort": 1.0,
+      "mean": 850.6666666666666,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.5,
+      "escort": 1.0,
+      "mean": 852.3888888888889,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.83,
+      "escort": 1.4,
+      "mean": 852.6388888888889,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.0,
+      "escort": 0.8,
+      "mean": 863.5555555555555,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.5,
+      "escort": 0.8,
+      "mean": 874.7222222222222,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.5,
+      "escort": 1.4,
+      "mean": 881.5833333333334,
+      "success_rate": 1.0
+     }
+    ]
+   },
+   {
+    "n_scenarios": 96,
+    "n_configs": 4,
+    "ranking": [
+     {
+      "approach": 2.83,
+      "escort": 1.2,
+      "mean": 784.5104166666666,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.5,
+      "escort": 1.2,
+      "mean": 791.6041666666666,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.5,
+      "escort": 1.0,
+      "mean": 809.6979166666666,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.0,
+      "escort": 1.2,
+      "mean": 828.78125,
+      "success_rate": 1.0
+     }
+    ]
+   },
+   {
+    "n_scenarios": 96,
+    "n_configs": 1,
+    "ranking": [
+     {
+      "approach": 2.83,
+      "escort": 1.2,
+      "mean": 784.5104166666666,
+      "success_rate": 1.0
+     }
+    ]
+   }
+  ],
+  "all": [
+   {
+    "approach": 2.83,
+    "escort": 1.2,
+    "n": 96,
+    "mean": 784.5104166666666,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 2.5,
+    "escort": 1.2,
+    "n": 96,
+    "mean": 791.6041666666666,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 2.5,
+    "escort": 1.0,
+    "n": 96,
+    "mean": 809.6979166666666,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 2.0,
+    "escort": 1.2,
+    "n": 96,
+    "mean": 828.78125,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 2.0,
+    "escort": 1.0,
+    "n": 36,
+    "mean": 831.4722222222222,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 2.5,
+    "escort": 1.4,
+    "n": 36,
+    "mean": 850.0555555555555,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 2.83,
+    "escort": 1.0,
+    "n": 36,
+    "mean": 850.6666666666666,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.5,
+    "escort": 1.0,
+    "n": 36,
+    "mean": 852.3888888888889,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 2.83,
+    "escort": 1.4,
+    "n": 36,
+    "mean": 852.6388888888889,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 2.0,
+    "escort": 0.8,
+    "n": 36,
+    "mean": 863.5555555555555,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 2.5,
+    "escort": 0.8,
+    "n": 36,
+    "mean": 874.7222222222222,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.5,
+    "escort": 1.4,
+    "n": 36,
+    "mean": 881.5833333333334,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.0,
+    "escort": 1.4,
+    "n": 12,
+    "mean": 891.4166666666666,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 2.0,
+    "escort": 1.4,
+    "n": 12,
+    "mean": 900.0,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.5,
+    "escort": 0.8,
+    "n": 12,
+    "mean": 902.4166666666666,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.0,
+    "escort": 0.8,
+    "n": 12,
+    "mean": 926.4166666666666,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.5,
+    "escort": 1.2,
+    "n": 12,
+    "mean": 926.5,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 2.5,
+    "escort": 0.6,
+    "n": 12,
+    "mean": 936.0,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 2.0,
+    "escort": 0.6,
+    "n": 12,
+    "mean": 959.6666666666666,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.0,
+    "escort": 0.6,
+    "n": 12,
+    "mean": 967.0,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 2.83,
+    "escort": 0.8,
+    "n": 12,
+    "mean": 984.8333333333334,
+    "success_rate": 0.9166666666666666
+   },
+   {
+    "approach": 1.0,
+    "escort": 1.0,
+    "n": 12,
+    "mean": 1003.25,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 2.83,
+    "escort": 1.7,
+    "n": 12,
+    "mean": 1026.8333333333333,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 2.83,
+    "escort": 0.6,
+    "n": 12,
+    "mean": 1045.4166666666667,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.5,
+    "escort": 0.6,
+    "n": 12,
+    "mean": 1046.4166666666667,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 2.5,
+    "escort": 1.7,
+    "n": 12,
+    "mean": 1053.9166666666667,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 2.0,
+    "escort": 1.7,
+    "n": 12,
+    "mean": 1085.0,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.0,
+    "escort": 1.2,
+    "n": 12,
+    "mean": 1115.5833333333333,
+    "success_rate": 0.9166666666666666
+   },
+   {
+    "approach": 2.5,
+    "escort": 2.0,
+    "n": 12,
+    "mean": 1155.6666666666667,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.5,
+    "escort": 1.7,
+    "n": 12,
+    "mean": 1180.5833333333333,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 2.0,
+    "escort": 2.0,
+    "n": 12,
+    "mean": 1389.75,
+    "success_rate": 0.9166666666666666
+   },
+   {
+    "approach": 1.0,
+    "escort": 1.7,
+    "n": 12,
+    "mean": 1417.5,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 2.83,
+    "escort": 2.0,
+    "n": 12,
+    "mean": 1509.5,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.0,
+    "escort": 2.0,
+    "n": 12,
+    "mean": 1519.75,
+    "success_rate": 0.9166666666666666
+   },
+   {
+    "approach": 1.5,
+    "escort": 2.0,
+    "n": 12,
+    "mean": 1672.0,
+    "success_rate": 1.0
+   }
+  ]
+ },
+ "meta": {
+  "shuttle_random": {
+   "suite": "tune",
+   "digest": "e2b09fd6849ec218",
+   "sim_version": "3d90c94249dd",
+   "objective": "mean evac_time_100 (steps, cap if unfinished)",
+   "updated": "2026-10-24T23:47:23",
+   "grid": {
+    "approach": [
+     1.0,
+     1.5,
+     2.0,
+     2.5,
+     2.83
+    ],
+    "escort": [
+     0.6,
+     0.8,
+     1.0,
+     1.2,
+     1.4,
+     1.7,
+     2.0
+    ]
+   },
+   "eta": 3,
+   "speed_limit": null
+  },
+  "shuttle_nearest": {
+   "suite": "tune",
+   "digest": "e2b09fd6849ec218",
+   "sim_version": "3d90c94249dd",
+   "objective": "mean evac_time_100 (steps, cap if unfinished)",
+   "updated": "2026-10-24T23:47:23",
+   "grid": {
+    "approach": [
+     1.0,
+     1.5,
+     2.0,
+     2.5,
+     2.83
+    ],
+    "escort": [
+     0.6,
+     0.8,
+     1.0,
+     1.2,
+     1.4,
+     1.7,
+     2.0
+    ]
+   },
+   "eta": 3,
+   "speed_limit": null
+  },
+  "shuttle_random@2": {
+   "speed_limit": 2.0,
+   "suite": "tune",
+   "digest": "e2b09fd6849ec218",
+   "sim_version": "500d9ac3e433",
+   "objective": "mean evac_time_100 (steps, cap if unfinished)",
+   "updated": "2026-10-25T12:52:39",
+   "grid": {
+    "approach": [
+     1.0,
+     1.25,
+     1.5,
+     1.75,
+     2.0
+    ],
+    "escort": [
+     0.6,
+     0.8,
+     1.0,
+     1.2,
+     1.4,
+     1.7,
+     2.0
+    ]
+   },
+   "eta": 3
+  },
+  "shuttle_nearest@2": {
+   "speed_limit": 2.0,
+   "suite": "tune",
+   "digest": "e2b09fd6849ec218",
+   "sim_version": "500d9ac3e433",
+   "objective": "mean evac_time_100 (steps, cap if unfinished)",
+   "updated": "2026-10-25T13:11:59",
+   "grid": {
+    "approach": [
+     1.0,
+     1.25,
+     1.5,
+     1.75,
+     2.0
+    ],
+    "escort": [
+     0.6,
+     0.8,
+     1.0,
+     1.2,
+     1.4,
+     1.7,
+     2.0
+    ]
+   },
+   "eta": 3
+  }
+ },
+ "shuttle_random@2": {
+  "best": {
+   "approach": 1.5,
+   "escort": 1.0,
+   "mean": 719.53125,
+   "success_rate": 1.0,
+   "n": 96
+  },
+  "rungs": [
+   {
+    "n_scenarios": 12,
+    "n_configs": 35,
+    "ranking": [
+     {
+      "approach": 1.75,
+      "escort": 1.2,
+      "mean": 723.5833333333334,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.25,
+      "escort": 0.6,
+      "mean": 737.4166666666666,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.0,
+      "escort": 1.4,
+      "mean": 738.75,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.5,
+      "escort": 1.0,
+      "mean": 741.0,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.25,
+      "escort": 0.8,
+      "mean": 770.5833333333334,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.0,
+      "escort": 0.8,
+      "mean": 772.6666666666666,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.75,
+      "escort": 1.4,
+      "mean": 773.0833333333334,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.0,
+      "escort": 1.2,
+      "mean": 774.9166666666666,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.25,
+      "escort": 1.0,
+      "mean": 779.25,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.0,
+      "escort": 1.0,
+      "mean": 780.5,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.5,
+      "escort": 1.4,
+      "mean": 783.75,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.5,
+      "escort": 0.8,
+      "mean": 792.75,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.25,
+      "escort": 1.2,
+      "mean": 800.0,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.0,
+      "escort": 1.2,
+      "mean": 807.1666666666666,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.5,
+      "escort": 1.2,
+      "mean": 830.0833333333334,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.75,
+      "escort": 1.0,
+      "mean": 838.9166666666666,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.0,
+      "escort": 1.0,
+      "mean": 844.1666666666666,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.75,
+      "escort": 0.8,
+      "mean": 854.0833333333334,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.0,
+      "escort": 0.6,
+      "mean": 869.3333333333334,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.5,
+      "escort": 0.6,
+      "mean": 897.75,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.25,
+      "escort": 1.4,
+      "mean": 898.0,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.0,
+      "escort": 0.6,
+      "mean": 901.9166666666666,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.0,
+      "escort": 0.8,
+      "mean": 911.0,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.0,
+      "escort": 1.4,
+      "mean": 951.0,
+      "success_rate": 0.9166666666666666
+     },
+     {
+      "approach": 1.75,
+      "escort": 0.6,
+      "mean": 964.4166666666666,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.5,
+      "escort": 1.7,
+      "mean": 1128.75,
+      "success_rate": 0.9166666666666666
+     },
+     {
+      "approach": 2.0,
+      "escort": 1.7,
+      "mean": 1160.8333333333333,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.25,
+      "escort": 1.7,
+      "mean": 1225.0833333333333,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.0,
+      "escort": 1.7,
+      "mean": 1246.0,
+      "success_rate": 0.8333333333333334
+     },
+     {
+      "approach": 1.75,
+      "escort": 1.7,
+      "mean": 1353.1666666666667,
+      "success_rate": 0.8333333333333334
+     },
+     {
+      "approach": 1.5,
+      "escort": 2.0,
+      "mean": 1530.25,
+      "success_rate": 0.9166666666666666
+     },
+     {
+      "approach": 2.0,
+      "escort": 2.0,
+      "mean": 1545.5833333333333,
+      "success_rate": 0.9166666666666666
+     },
+     {
+      "approach": 1.25,
+      "escort": 2.0,
+      "mean": 1609.9166666666667,
+      "success_rate": 0.8333333333333334
+     },
+     {
+      "approach": 1.75,
+      "escort": 2.0,
+      "mean": 1663.25,
+      "success_rate": 0.8333333333333334
+     },
+     {
+      "approach": 1.0,
+      "escort": 2.0,
+      "mean": 1919.1666666666667,
+      "success_rate": 0.8333333333333334
+     }
+    ]
+   },
+   {
+    "n_scenarios": 36,
+    "n_configs": 12,
+    "ranking": [
+     {
+      "approach": 1.5,
+      "escort": 1.0,
+      "mean": 699.5277777777778,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.25,
+      "escort": 1.0,
+      "mean": 744.7777777777778,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.0,
+      "escort": 0.8,
+      "mean": 748.3055555555555,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.25,
+      "escort": 0.8,
+      "mean": 765.1944444444445,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.0,
+      "escort": 1.0,
+      "mean": 782.3611111111111,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.75,
+      "escort": 1.2,
+      "mean": 819.3888888888889,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.25,
+      "escort": 0.6,
+      "mean": 843.1388888888889,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.5,
+      "escort": 1.4,
+      "mean": 844.3611111111111,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.0,
+      "escort": 1.4,
+      "mean": 871.1111111111111,
+      "success_rate": 0.9722222222222222
+     },
+     {
+      "approach": 1.5,
+      "escort": 0.8,
+      "mean": 877.5277777777778,
+      "success_rate": 0.9722222222222222
+     },
+     {
+      "approach": 1.75,
+      "escort": 1.4,
+      "mean": 884.5,
+      "success_rate": 0.9722222222222222
+     },
+     {
+      "approach": 1.0,
+      "escort": 1.2,
+      "mean": 890.7777777777778,
+      "success_rate": 0.9722222222222222
+     }
+    ]
+   },
+   {
+    "n_scenarios": 96,
+    "n_configs": 4,
+    "ranking": [
+     {
+      "approach": 1.5,
+      "escort": 1.0,
+      "mean": 719.53125,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.0,
+      "escort": 0.8,
+      "mean": 761.78125,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.25,
+      "escort": 1.0,
+      "mean": 764.5625,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.25,
+      "escort": 0.8,
+      "mean": 793.28125,
+      "success_rate": 1.0
+     }
+    ]
+   },
+   {
+    "n_scenarios": 96,
+    "n_configs": 1,
+    "ranking": [
+     {
+      "approach": 1.5,
+      "escort": 1.0,
+      "mean": 719.53125,
+      "success_rate": 1.0
+     }
+    ]
+   }
+  ],
+  "all": [
+   {
+    "approach": 1.5,
+    "escort": 1.0,
+    "n": 96,
+    "mean": 719.53125,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 2.0,
+    "escort": 0.8,
+    "n": 96,
+    "mean": 761.78125,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.25,
+    "escort": 1.0,
+    "n": 96,
+    "mean": 764.5625,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.25,
+    "escort": 0.8,
+    "n": 96,
+    "mean": 793.28125,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 2.0,
+    "escort": 1.0,
+    "n": 36,
+    "mean": 782.3611111111111,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.75,
+    "escort": 1.2,
+    "n": 36,
+    "mean": 819.3888888888889,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.25,
+    "escort": 0.6,
+    "n": 36,
+    "mean": 843.1388888888889,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.5,
+    "escort": 1.4,
+    "n": 36,
+    "mean": 844.3611111111111,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 2.0,
+    "escort": 1.4,
+    "n": 36,
+    "mean": 871.1111111111111,
+    "success_rate": 0.9722222222222222
+   },
+   {
+    "approach": 1.5,
+    "escort": 0.8,
+    "n": 36,
+    "mean": 877.5277777777778,
+    "success_rate": 0.9722222222222222
+   },
+   {
+    "approach": 1.75,
+    "escort": 1.4,
+    "n": 36,
+    "mean": 884.5,
+    "success_rate": 0.9722222222222222
+   },
+   {
+    "approach": 1.0,
+    "escort": 1.2,
+    "n": 36,
+    "mean": 890.7777777777778,
+    "success_rate": 0.9722222222222222
+   },
+   {
+    "approach": 1.25,
+    "escort": 1.2,
+    "n": 12,
+    "mean": 800.0,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 2.0,
+    "escort": 1.2,
+    "n": 12,
+    "mean": 807.1666666666666,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.5,
+    "escort": 1.2,
+    "n": 12,
+    "mean": 830.0833333333334,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.75,
+    "escort": 1.0,
+    "n": 12,
+    "mean": 838.9166666666666,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.0,
+    "escort": 1.0,
+    "n": 12,
+    "mean": 844.1666666666666,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.75,
+    "escort": 0.8,
+    "n": 12,
+    "mean": 854.0833333333334,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.0,
+    "escort": 0.6,
+    "n": 12,
+    "mean": 869.3333333333334,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.5,
+    "escort": 0.6,
+    "n": 12,
+    "mean": 897.75,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.25,
+    "escort": 1.4,
+    "n": 12,
+    "mean": 898.0,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 2.0,
+    "escort": 0.6,
+    "n": 12,
+    "mean": 901.9166666666666,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.0,
+    "escort": 0.8,
+    "n": 12,
+    "mean": 911.0,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.0,
+    "escort": 1.4,
+    "n": 12,
+    "mean": 951.0,
+    "success_rate": 0.9166666666666666
+   },
+   {
+    "approach": 1.75,
+    "escort": 0.6,
+    "n": 12,
+    "mean": 964.4166666666666,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.5,
+    "escort": 1.7,
+    "n": 12,
+    "mean": 1128.75,
+    "success_rate": 0.9166666666666666
+   },
+   {
+    "approach": 2.0,
+    "escort": 1.7,
+    "n": 12,
+    "mean": 1160.8333333333333,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.25,
+    "escort": 1.7,
+    "n": 12,
+    "mean": 1225.0833333333333,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.0,
+    "escort": 1.7,
+    "n": 12,
+    "mean": 1246.0,
+    "success_rate": 0.8333333333333334
+   },
+   {
+    "approach": 1.75,
+    "escort": 1.7,
+    "n": 12,
+    "mean": 1353.1666666666667,
+    "success_rate": 0.8333333333333334
+   },
+   {
+    "approach": 1.5,
+    "escort": 2.0,
+    "n": 12,
+    "mean": 1530.25,
+    "success_rate": 0.9166666666666666
+   },
+   {
+    "approach": 2.0,
+    "escort": 2.0,
+    "n": 12,
+    "mean": 1545.5833333333333,
+    "success_rate": 0.9166666666666666
+   },
+   {
+    "approach": 1.25,
+    "escort": 2.0,
+    "n": 12,
+    "mean": 1609.9166666666667,
+    "success_rate": 0.8333333333333334
+   },
+   {
+    "approach": 1.75,
+    "escort": 2.0,
+    "n": 12,
+    "mean": 1663.25,
+    "success_rate": 0.8333333333333334
+   },
+   {
+    "approach": 1.0,
+    "escort": 2.0,
+    "n": 12,
+    "mean": 1919.1666666666667,
+    "success_rate": 0.8333333333333334
+   }
+  ]
+ },
+ "shuttle_nearest@2": {
+  "best": {
+   "approach": 2.0,
+   "escort": 1.2,
+   "mean": 828.78125,
+   "success_rate": 1.0,
+   "n": 96
+  },
+  "rungs": [
+   {
+    "n_scenarios": 12,
+    "n_configs": 35,
+    "ranking": [
+     {
+      "approach": 2.0,
+      "escort": 1.2,
+      "mean": 772.1666666666666,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.5,
+      "escort": 1.0,
+      "mean": 773.4166666666666,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.25,
+      "escort": 1.4,
+      "mean": 782.1666666666666,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.75,
+      "escort": 1.2,
+      "mean": 788.1666666666666,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.5,
+      "escort": 1.4,
+      "mean": 795.1666666666666,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.75,
+      "escort": 1.0,
+      "mean": 799.0833333333334,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.0,
+      "escort": 0.8,
+      "mean": 819.75,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.25,
+      "escort": 1.2,
+      "mean": 824.9166666666666,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.25,
+      "escort": 0.8,
+      "mean": 827.8333333333334,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.75,
+      "escort": 0.8,
+      "mean": 849.3333333333334,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.75,
+      "escort": 1.4,
+      "mean": 850.0833333333334,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.0,
+      "escort": 1.0,
+      "mean": 882.4166666666666,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.0,
+      "escort": 1.4,
+      "mean": 891.4166666666666,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.0,
+      "escort": 1.4,
+      "mean": 900.0,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.5,
+      "escort": 0.8,
+      "mean": 902.4166666666666,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.25,
+      "escort": 1.0,
+      "mean": 914.0833333333334,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.0,
+      "escort": 0.8,
+      "mean": 926.4166666666666,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.5,
+      "escort": 1.2,
+      "mean": 926.5,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.0,
+      "escort": 0.6,
+      "mean": 959.6666666666666,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.0,
+      "escort": 0.6,
+      "mean": 967.0,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.75,
+      "escort": 0.6,
+      "mean": 970.75,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.0,
+      "escort": 1.0,
+      "mean": 1003.25,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.25,
+      "escort": 0.6,
+      "mean": 1021.5,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.5,
+      "escort": 0.6,
+      "mean": 1046.4166666666667,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.75,
+      "escort": 1.7,
+      "mean": 1069.75,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.0,
+      "escort": 1.7,
+      "mean": 1085.0,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.0,
+      "escort": 1.2,
+      "mean": 1115.5833333333333,
+      "success_rate": 0.9166666666666666
+     },
+     {
+      "approach": 1.5,
+      "escort": 1.7,
+      "mean": 1180.5833333333333,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.25,
+      "escort": 1.7,
+      "mean": 1250.8333333333333,
+      "success_rate": 0.9166666666666666
+     },
+     {
+      "approach": 2.0,
+      "escort": 2.0,
+      "mean": 1389.75,
+      "success_rate": 0.9166666666666666
+     },
+     {
+      "approach": 1.0,
+      "escort": 1.7,
+      "mean": 1417.5,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.25,
+      "escort": 2.0,
+      "mean": 1478.5,
+      "success_rate": 0.9166666666666666
+     },
+     {
+      "approach": 1.0,
+      "escort": 2.0,
+      "mean": 1519.75,
+      "success_rate": 0.9166666666666666
+     },
+     {
+      "approach": 1.75,
+      "escort": 2.0,
+      "mean": 1551.0,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.5,
+      "escort": 2.0,
+      "mean": 1672.0,
+      "success_rate": 1.0
+     }
+    ]
+   },
+   {
+    "n_scenarios": 36,
+    "n_configs": 12,
+    "ranking": [
+     {
+      "approach": 2.0,
+      "escort": 1.2,
+      "mean": 814.0555555555555,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.25,
+      "escort": 1.2,
+      "mean": 814.8888888888889,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.0,
+      "escort": 1.0,
+      "mean": 831.4722222222222,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.75,
+      "escort": 1.2,
+      "mean": 836.1111111111111,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.75,
+      "escort": 1.0,
+      "mean": 837.0555555555555,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.5,
+      "escort": 1.0,
+      "mean": 852.3888888888889,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.75,
+      "escort": 0.8,
+      "mean": 853.25,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.0,
+      "escort": 0.8,
+      "mean": 863.5555555555555,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.25,
+      "escort": 0.8,
+      "mean": 871.8611111111111,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.5,
+      "escort": 1.4,
+      "mean": 881.5833333333334,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.75,
+      "escort": 1.4,
+      "mean": 892.7777777777778,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.25,
+      "escort": 1.4,
+      "mean": 894.6388888888889,
+      "success_rate": 1.0
+     }
+    ]
+   },
+   {
+    "n_scenarios": 96,
+    "n_configs": 4,
+    "ranking": [
+     {
+      "approach": 2.0,
+      "escort": 1.2,
+      "mean": 828.78125,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 1.75,
+      "escort": 1.2,
+      "mean": 840.5625,
+      "success_rate": 1.0
+     },
+     {
+      "approach": 2.0,
+      "escort": 1.0,
+      "mean": 842.5,
+      "success_rate": 0.9895833333333334
+     },
+     {
+      "approach": 1.25,
+      "escort": 1.2,
+      "mean": 868.875,
+      "success_rate": 1.0
+     }
+    ]
+   },
+   {
+    "n_scenarios": 96,
+    "n_configs": 1,
+    "ranking": [
+     {
+      "approach": 2.0,
+      "escort": 1.2,
+      "mean": 828.78125,
+      "success_rate": 1.0
+     }
+    ]
+   }
+  ],
+  "all": [
+   {
+    "approach": 2.0,
+    "escort": 1.2,
+    "n": 96,
+    "mean": 828.78125,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.75,
+    "escort": 1.2,
+    "n": 96,
+    "mean": 840.5625,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 2.0,
+    "escort": 1.0,
+    "n": 96,
+    "mean": 842.5,
+    "success_rate": 0.9895833333333334
+   },
+   {
+    "approach": 1.25,
+    "escort": 1.2,
+    "n": 96,
+    "mean": 868.875,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.75,
+    "escort": 1.0,
+    "n": 36,
+    "mean": 837.0555555555555,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.5,
+    "escort": 1.0,
+    "n": 36,
+    "mean": 852.3888888888889,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.75,
+    "escort": 0.8,
+    "n": 36,
+    "mean": 853.25,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 2.0,
+    "escort": 0.8,
+    "n": 36,
+    "mean": 863.5555555555555,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.25,
+    "escort": 0.8,
+    "n": 36,
+    "mean": 871.8611111111111,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.5,
+    "escort": 1.4,
+    "n": 36,
+    "mean": 881.5833333333334,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.75,
+    "escort": 1.4,
+    "n": 36,
+    "mean": 892.7777777777778,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.25,
+    "escort": 1.4,
+    "n": 36,
+    "mean": 894.6388888888889,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.0,
+    "escort": 1.4,
+    "n": 12,
+    "mean": 891.4166666666666,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 2.0,
+    "escort": 1.4,
+    "n": 12,
+    "mean": 900.0,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.5,
+    "escort": 0.8,
+    "n": 12,
+    "mean": 902.4166666666666,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.25,
+    "escort": 1.0,
+    "n": 12,
+    "mean": 914.0833333333334,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.0,
+    "escort": 0.8,
+    "n": 12,
+    "mean": 926.4166666666666,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.5,
+    "escort": 1.2,
+    "n": 12,
+    "mean": 926.5,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 2.0,
+    "escort": 0.6,
+    "n": 12,
+    "mean": 959.6666666666666,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.0,
+    "escort": 0.6,
+    "n": 12,
+    "mean": 967.0,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.75,
+    "escort": 0.6,
+    "n": 12,
+    "mean": 970.75,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.0,
+    "escort": 1.0,
+    "n": 12,
+    "mean": 1003.25,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.25,
+    "escort": 0.6,
+    "n": 12,
+    "mean": 1021.5,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.5,
+    "escort": 0.6,
+    "n": 12,
+    "mean": 1046.4166666666667,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.75,
+    "escort": 1.7,
+    "n": 12,
+    "mean": 1069.75,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 2.0,
+    "escort": 1.7,
+    "n": 12,
+    "mean": 1085.0,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.0,
+    "escort": 1.2,
+    "n": 12,
+    "mean": 1115.5833333333333,
+    "success_rate": 0.9166666666666666
+   },
+   {
+    "approach": 1.5,
+    "escort": 1.7,
+    "n": 12,
+    "mean": 1180.5833333333333,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.25,
+    "escort": 1.7,
+    "n": 12,
+    "mean": 1250.8333333333333,
+    "success_rate": 0.9166666666666666
+   },
+   {
+    "approach": 2.0,
+    "escort": 2.0,
+    "n": 12,
+    "mean": 1389.75,
+    "success_rate": 0.9166666666666666
+   },
+   {
+    "approach": 1.0,
+    "escort": 1.7,
+    "n": 12,
+    "mean": 1417.5,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.25,
+    "escort": 2.0,
+    "n": 12,
+    "mean": 1478.5,
+    "success_rate": 0.9166666666666666
+   },
+   {
+    "approach": 1.0,
+    "escort": 2.0,
+    "n": 12,
+    "mean": 1519.75,
+    "success_rate": 0.9166666666666666
+   },
+   {
+    "approach": 1.75,
+    "escort": 2.0,
+    "n": 12,
+    "mean": 1551.0,
+    "success_rate": 1.0
+   },
+   {
+    "approach": 1.5,
+    "escort": 2.0,
+    "n": 12,
+    "mean": 1672.0,
+    "success_rate": 1.0
+   }
+  ]
+ }
+}

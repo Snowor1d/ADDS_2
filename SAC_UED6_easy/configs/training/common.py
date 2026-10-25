@@ -36,8 +36,6 @@ DEVICE = "cuda"
 GAMMA_VELOCITY = 0.99
 GAMMA_WAYPOINT = 0.99
 # Not read anywhere.
-GAMMA_END = 0.99
-GAMMA_SCHEDULE_STEP = 1000
 WD_Q = 3e-4                      # weight decay
 WD_PI = 0.0
 SCALE_CHECK = 0                  # want to check reward scale?
@@ -132,7 +130,7 @@ SAC_MODE_ESTIMATOR = "expectation"   # "expectation" | "gumbel"
 # The mode-weighted Q (SAC_MODE_ESTIMATOR) is unchanged; each mode's term
 # reads its own move. A checkpoint only loads under the layout it was
 # trained with.
-ACTOR_CONT_HEADS = "per_mode"         # "shared" | "per_mode"
+ACTOR_CONT_HEADS = "shared"         # "shared" | "per_mode"
 
 ENABLE_TIMER = True
 N_ENVS = 12
@@ -145,7 +143,7 @@ N_ENVS = 12
 # Per decision. Event-driven decisions last ~10 s, so an episode holds ~45 of
 # them instead of 125 at fixed 4 s; 2.0 keeps the updates per episode near
 # the earlier runs (2026-10-15).
-UPDATES_PER_TRANSITION = 2.0
+UPDATES_PER_TRANSITION = 4.0
 POLICY_BROADCAST_INTERVAL = 10
 FiLM_USE = True
 EGO_USE = True
@@ -385,7 +383,7 @@ WANDB_GROUP = None                  # None = EXPERIMENT_ID
 # "outdoor-madrl-v2-dataset-100m-0924-1530". A run started from a checkpoint
 # as a new run (see the resume rule in learn/metrics_logger.py) gets
 # "-resume<episode>" appended either way; a run that carries on keeps its name.
-WANDB_RUN_NAME = "Reward_Approach20_Progress150_permode"  # None = auto
+WANDB_RUN_NAME = "Reward_Progress150_RD60_UPT4"  # None = auto
 # Only models chosen on validation are uploaded, never the replay buffer or
 # every periodic checkpoint.
 WANDB_UPLOAD_CHECKPOINTS = "selected"   # "none" | "selected"

@@ -1,0 +1,6 @@
+{
+ "_comment": "리플레이 D4 대칭 증강 (관측·위치·행동을 함께 회전/반사).",
+ "LOG_DIR": "Log_SAC_FE_RV4_d4aug",
+ "EXPERIMENT_ID": "fe-rv4-d4aug",
+ "AUG_REPLAY_D4": true
+}

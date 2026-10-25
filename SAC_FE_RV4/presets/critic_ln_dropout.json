@@ -1,0 +1,7 @@
+{
+ "_comment": "크리틱 LayerNorm + Dropout 0.01 (DroQ, Hiraoka et al. 2022).",
+ "LOG_DIR": "Log_SAC_FE_RV4_critic_ln_dropout",
+ "EXPERIMENT_ID": "fe-rv4-critic_ln_dropout",
+ "CRITIC_LAYERNORM": true,
+ "CRITIC_DROPOUT": 0.01
+}

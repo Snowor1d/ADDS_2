@@ -1,0 +1,10 @@
+/home/amrl_sunny/.local/lib/python3.10/site-packages/matplotlib/projections/__init__.py:63: UserWarning: Unable to import Axes3D. This may be due to multiple versions of Matplotlib being installed (e.g. as a system package and as a pip package). As a result, the 3D projection is not available.
+  warnings.warn("Unable to import Axes3D. This may be due to multiple versions of "
+[val_covent_garden_200m_0 t0=80] rep 3 done 1360s
+[val_covent_garden_200m_0 t0=80] rep 4 done 2599s
+[val_covent_garden_200m_0 t0=80] rep 5 done 3606s
+[val_covent_garden_200m_0 t0=80] rep 6 done 4592s
+[val_covent_garden_200m_0 t0=80] rep 7 done 5557s
+[val_covent_garden_200m_0 t0=80] rep 8 done 6522s
+[val_covent_garden_200m_0 t0=80] rep 9 done 7483s
+saved /home/amrl_sunny/ADDS_2/SAC_UED6_easy/docs/review_20261022/critic_probe/results/s3_t80_more.json

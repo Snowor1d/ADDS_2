@@ -1,0 +1,8 @@
+{
+ "_comment": "dataset 300맵 30% + ACCEL 70%. 사람이 만든 맵의 분포를 유지하면서 생성 레벨로 다양성 확보.",
+ "LOG_DIR": "Log_SAC_FE_RV4_mixed",
+ "EXPERIMENT_ID": "fe-rv4-mixed",
+ "TRAIN_MAP_SOURCE": "mixed",
+ "MIXED_DATASET_PROB": 0.3,
+ "UED_METHOD": "accel"
+}

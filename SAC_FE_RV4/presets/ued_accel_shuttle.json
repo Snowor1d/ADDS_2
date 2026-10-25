@@ -1,0 +1,10 @@
+{
+ "_comment": "UED: ACCEL, 튜닝된 nearest 셔틀 대비 regret 으로 레벨 우선순위. 목표(베이스라인/사람보다 빨리)와 직접 정렬된 점수. 새 레벨마다 셔틀 에피소드 1회 추가 비용.",
+ "LOG_DIR": "Log_SAC_FE_RV4_ued_accel_shuttle",
+ "EXPERIMENT_ID": "fe-rv4-ued_accel_shuttle",
+ "TRAIN_MAP_SOURCE": "ued",
+ "UED_METHOD": "accel",
+ "UED_SCORE": "shuttle_regret",
+ "UED_SUCCESS_REFERENCE": "shuttle",
+ "UED_SUCCESS_K": 1.0
+}

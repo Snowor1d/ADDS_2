@@ -1,0 +1,8 @@
+{
+ "_comment": "UED: ACCEL + learnability (기본값과 같음).",
+ "LOG_DIR": "Log_SAC_FE_RV4_ued_accel",
+ "EXPERIMENT_ID": "fe-rv4-ued_accel",
+ "TRAIN_MAP_SOURCE": "ued",
+ "UED_METHOD": "accel",
+ "UED_SCORE": "learnability"
+}

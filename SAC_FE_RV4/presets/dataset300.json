@@ -1,0 +1,6 @@
+{
+ "_comment": "300맵 dataset + RV4 기본 네트워크(cnn m, GroupNorm)와 버그 수정. rv3_parity 와의 차이 = 네트워크/수정 효과.",
+ "LOG_DIR": "Log_SAC_FE_RV4_dataset300",
+ "EXPERIMENT_ID": "fe-rv4-dataset300",
+ "TRAIN_MAP_SOURCE": "dataset"
+}

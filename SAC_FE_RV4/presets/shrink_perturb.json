@@ -1,0 +1,8 @@
+{
+ "_comment": "가소성 유지: 20만 업데이트마다 shrink & perturb 0.8 (Ash & Adams 2020).",
+ "LOG_DIR": "Log_SAC_FE_RV4_shrink_perturb",
+ "EXPERIMENT_ID": "fe-rv4-shrink_perturb",
+ "RESET_EVERY_UPDATES": 200000,
+ "RESET_SCOPE": "all",
+ "SHRINK_PERTURB_ALPHA": 0.8
+}

@@ -488,7 +488,7 @@ ROBOT_NAV_CLEARANCE_M = 0.5
 # is discounted by the steps it lasted.
 ROBOT_DECISION_MAX_S_VELOCITY = 2.0
 ROBOT_DECISION_ON_EVENTS_VELOCITY = False
-ROBOT_DECISION_MAX_S_WAYPOINT = 20.0    # easy sanity run
+ROBOT_DECISION_MAX_S_WAYPOINT = 60.0    # easy sanity run
 ROBOT_DECISION_ON_EVENTS_WAYPOINT = True  # easy sanity run: fixed-length decisions
 
 ACTION_SCHEMA_VERSION = (("act-v1-move2-signal2-mode3" if USE_DIRECT
