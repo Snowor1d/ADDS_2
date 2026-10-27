@@ -2708,39 +2708,49 @@ class FightingModel(Model):
         self._policy_deterministic = bool(deterministic)
         self._policy_history = ObservationHistory(
             cfg, build_static_layers(self, cfg), len(self.robots))
-        self._policy_hold = None
+        # Per robot, as in learn/rollout.py: steps since its decision (None
+        # before its first) and whether it arrived or was blocked since.
+        self._policy_hold = [None] * len(self.robots)
         self._policy_clock = 0
-        self._policy_event = False
+        self._policy_event = [False] * len(self.robots)
         self.using_model = True
 
     def _policy_tick(self):
         """The same clock as learn/rollout.py: a frame every
-        `cfg.frame_steps()` steps, and a decision at a frame when none was
-        taken yet, the longest decision is used up, or (ROBOT_DECISION_ON_
-        EVENTS_<MODE>) a robot arrived or was blocked since the last frame.
+        `cfg.frame_steps()` steps, and at a frame a robot decides when it has
+        not yet, its longest decision is used up, or (ROBOT_DECISION_ON_
+        EVENTS_<MODE>) it arrived or was blocked since its decision; under
+        ROBOT_DECISION_SCOPE = "team" every robot decides whenever one does.
         Called once per step before the robots move."""
         from configs import decision_max_steps, decision_on_events, frame_steps
         cfg = self._policy_cfg
-        if decision_on_events(cfg) and any(getattr(rb, "decision_event", None)
-                                           for rb in self.robots):
-            self._policy_event = True
+        if decision_on_events(cfg):
+            for i, rb in enumerate(self.robots):
+                if getattr(rb, "decision_event", None):
+                    self._policy_event[i] = True
         if self._policy_clock % frame_steps(cfg) == 0:
             self._policy_history.record(self)
-            if (self._policy_hold is None
-                    or self._policy_hold >= decision_max_steps(cfg)
-                    or self._policy_event):
-                self._act_with_loaded_policy()
+            K = decision_max_steps(cfg)
+            due = [h is None or h >= K or ev
+                   for h, ev in zip(self._policy_hold, self._policy_event)]
+            if getattr(cfg, "ROBOT_DECISION_SCOPE", "robot") == "team" and any(due):
+                due = [True] * len(due)
+            if any(due):
+                self._act_with_loaded_policy(due)
         self._policy_clock += 1
-        self._policy_hold += 1
+        self._policy_hold = [h + 1 if h is not None else None
+                             for h in self._policy_hold]
 
-    def _act_with_loaded_policy(self):
+    def _act_with_loaded_policy(self, due=None):
         import sim.robot_action as _ra
         obs = self._policy_history.team_observations()
         actions = self.sac_agent.act(obs, deterministic=self._policy_deterministic)
-        for rb, action in zip(self.robots, actions):
+        for i, (rb, action) in enumerate(zip(self.robots, actions)):
+            if due is not None and not due[i]:
+                continue                # keeps the decision it is carrying out
             _ra.apply_to(rb, action)
-        self._policy_hold = 0
-        self._policy_event = False
+            self._policy_hold[i] = 0
+            self._policy_event[i] = False
 
     def reward_based_distance_from_near_agents(self):
         guided_num = 0

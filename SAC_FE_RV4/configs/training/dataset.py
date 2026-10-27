@@ -17,7 +17,7 @@ DATASET_MAP_WEIGHTS = None
 # 기하 증강: 에피소드마다 D4 대칭(회전 4 x 반사 2) 중 하나를 맵에 적용.
 # 출구·장애물이 함께 변환된다. RV3 는 MAP_DATA_AUGMENTATION=True 로 항상 켜져
 # 있었다.
-DATASET_AUGMENTATION = False
+DATASET_AUGMENTATION = True
 DATASET_AUGMENTATION_TRANSFORMS = (
     "identity", "rotate_90", "rotate_180", "rotate_270",
     "reflect", "reflect_rotate_90", "reflect_rotate_180", "reflect_rotate_270",

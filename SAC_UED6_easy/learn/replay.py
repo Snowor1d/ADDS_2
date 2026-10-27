@@ -9,16 +9,17 @@ transition before the new branches. Here:
     for as long as the buffer still refers to it;
   * every observation frame stores the team's DecisionRecord once (the
     robots' own measurements, poses, modes, message availability, and the
-    critic's true crowd summary), about 6 kB for three robots; a frame at
-    which the team decided also stores the action and the per-step rewards
-    of its hold;
+    critic's true crowd summary), about 6 kB for three robots, and the
+    learning reward of the steps up to the next frame; a frame at which some
+    robot decided also stores every robot's current action and who decided;
   * state, next state and the history windows (OBS_HISTORY_FRAMES frames
     OBS_HISTORY_STRIDE apart) are rebuilt from indices with
     `sim.observation.build_observations`, the same function the worker acted
-    on. Frames link to their predecessor (`prev`) for windows, decisions to
-    the next decision or final frame (`next_dec`) for the transition. A
-    window never crosses an episode boundary, and a transition whose history
-    has been overwritten is not sampled.
+    on. Frames link to their predecessor (`prev`) for windows, and each
+    robot's decision to its next decision or the final frame (`next_dec_r`)
+    for its transition. A window never crosses an episode boundary, and a
+    decision whose history or reward frames have been overwritten is not
+    sampled.
 
 Nothing written under one set of schema versions is read under another.
 """
@@ -33,7 +34,7 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
-from configs import decision_max_steps, frame_steps
+from configs import frame_steps
 from sim.observation import (DecisionRecord, ObsRequest, StaticLayers,
                              build_observations, critic_privileged,
                              critic_scalars, obs_shapes)
@@ -156,16 +157,28 @@ def joint_observation(cfg, statics: List[StaticLayers],
 
 
 class ReplayBuffer:
-    """Decision records in a ring, linked into episodes by index.
+    """Observation frames in a ring, linked into episodes by index, and each
+    robot's decisions linked to its next one.
 
-    Protocol, per episode: `push(record, ...)` for every observation frame
-    in time order (learn/rollout.py emits them so): a decision frame with its
-    action and outcome, a frame taken during a hold with `frame_only=True`,
-    and a last `push(final_record, action=None)` carrying the state after the
-    final action. Records from different workers interleave freely.
+    Protocol, per episode: `push_transition(uid, static_key, tr)` for every
+    frame learn/rollout.py emits, in time order: the frame's record, the
+    team's actions and who decided when some robot decided there, the
+    rewards of the steps that follow it, and last the final frame. Records
+    from different workers interleave freely.
+
+    A sample is one robot's decision: the frame at which robot j decided,
+    every robot's action there (j's new one and its teammates' current
+    ones), the frame of j's next decision (or the final frame), the
+    learning reward of the steps between discounted with the learner's
+    gamma, and every robot's action and who decides at that next frame.
     """
 
+    # Bumped when what a stored array means changes. Format 1 linked team
+    # decisions (one hold per frame); format 2 links each robot's decisions.
+    FORMAT = 2
+
     def __init__(self, cfg, capacity: int, static_store: StaticStore):
+        from sim.rewards import PER_ROBOT_VERSIONS
         self.cfg = cfg
         self.capacity = int(capacity)
         self.statics = static_store
@@ -175,6 +188,8 @@ class ReplayBuffer:
         from sim.robot_action import ACTION_DIM
         self.action_dim = ACTION_DIM
         self._mask_bytes = (E * E + 7) // 8
+        self._frames = frame_steps(cfg)
+        F = self._frames
         C = self.capacity
         self.n_robots = np.zeros(C, np.int8)
         self.anchors = np.zeros((C, R, 2), np.int32)
@@ -187,33 +202,39 @@ class ReplayBuffer:
         self.avail = np.zeros((C, R, R), np.uint8)
         self.priv = np.zeros((C, G, G), np.uint8)
         self.priv_scalars = np.zeros((C, 3), np.float32)
+        # Every robot's current action, at a frame where some robot decided.
         self.action = np.zeros((C, R, ACTION_DIM), np.float32)
         self.has_action = np.zeros(C, bool)
-        # One column per step of the longest decision (ROBOT_DECISION_MAX_S_<MODE>).
-        self.step_rewards = np.zeros((C, decision_max_steps(cfg)), np.float32)
-        # Per step and robot, its own share of the robot-charged reward terms
-        # (sim/rewards.ROBOT_TERMS), weighted. Same step columns as
-        # step_rewards. float32: under rew-v6 they carry the robot's shaping,
-        # whose steps must add up to the potential difference.
-        self.robot_penalties = np.zeros((C, decision_max_steps(cfg), R),
-                                        np.float32)
-        self.hold = np.zeros(C, np.int16)
-        self.terminal = np.zeros(C, bool)
+        self.decided = np.zeros((C, R), bool)
+        # The steps from this frame to the next: the team's part of the
+        # learning reward, and per robot its own robot-charged terms.
+        # float32: under rew-v6 they carry shaping, whose steps must add up to
+        # the potential difference.
+        self.step_rewards = np.zeros((C, F), np.float32)
+        self.robot_penalties = np.zeros((C, F, R), np.float32)
+        self.n_steps = np.zeros(C, np.int8)
+        self.terminal = np.zeros(C, bool)       # the task ended in those steps
+        self.final = np.zeros(C, bool)          # the state after the last step
         self.episode = np.full(C, -1, np.int64)
         self.step = np.full(C, -1, np.int32)
         self.prev = np.full(C, -1, np.int64)
         self.next = np.full(C, -1, np.int64)
-        # From a decision frame to the frame of the next decision (or the
-        # final frame): the transition's next state.
-        self.next_dec = np.full(C, -1, np.int64)
-        self._frames = frame_steps(cfg)
+        # Per robot, from a frame where it decided to the frame of its next
+        # decision (or the final frame), the steps between, and whether the
+        # task ended the episode in them.
+        self.next_dec_r = np.full((C, R), -1, np.int64)
+        self.hold_r = np.zeros((C, R), np.int16)
+        self.term_r = np.zeros((C, R), bool)
         self._entries = int(cfg.OBS_HISTORY_FRAMES)
         self._stride = int(cfg.OBS_HISTORY_STRIDE)
         self.static_id = np.full(C, -1, np.int32)
         self._static_keys: List[str] = []
         self._static_index: Dict[str, int] = {}
         self._last: Dict[int, int] = {}       # episode uid -> newest index
-        self._last_dec: Dict[int, int] = {}   # episode uid -> newest decision
+        # episode uid -> per robot [frame of its open decision, steps since]
+        self._open: Dict[int, List[List[int]]] = {}
+        self.g_step = float(cfg.gamma()) ** (1.0 / max(1, int(cfg.ACTION_SCALE)))
+        self.per_robot = cfg.REWARD_VERSION in PER_ROBOT_VERSIONS
         self.ptr = 0
         self.size = 0
         # Held by push and sample, so a prefetch thread can rebuild a batch
@@ -232,26 +253,37 @@ class ReplayBuffer:
             self._static_index[key] = slot
         return slot
 
+    def push_transition(self, episode_uid: int, static_key: str, tr) -> int:
+        """Store one frame emitted by learn/rollout.run_episode."""
+        return self.push(episode_uid, tr.step, tr.record, static_key,
+                         action=tr.action, decided=tr.decided,
+                         step_rewards=tr.step_rewards,
+                         robot_penalties=tr.robot_penalties,
+                         terminal=tr.terminal, final=tr.final)
+
     def push(self, episode_uid: int, step: int, record: DecisionRecord,
              static_key: str, action: Optional[np.ndarray] = None,
-             step_rewards=(), terminal: bool = False,
-             robot_penalties=None, frame_only: bool = False) -> int:
+             decided: Optional[np.ndarray] = None, step_rewards=(),
+             robot_penalties=None, terminal: bool = False,
+             final: bool = False) -> int:
         with self.lock:
             return self._push(episode_uid, step, record, static_key, action,
-                              step_rewards, terminal, robot_penalties,
-                              frame_only)
+                              decided, step_rewards, robot_penalties,
+                              terminal, final)
 
-    def _push(self, episode_uid, step, record, static_key, action,
-              step_rewards, terminal, robot_penalties=None,
-              frame_only=False) -> int:
+    def _push(self, episode_uid, step, record, static_key, action, decided,
+              step_rewards, robot_penalties, terminal, final) -> int:
         if static_key not in self.statics:
             raise KeyError(f"static layers {static_key} were never stored")
+        uid = int(episode_uid)
         i = self.ptr
         old_uid = int(self.episode[i])
         if old_uid >= 0 and self._last.get(old_uid) == i:
             del self._last[old_uid]
-        if old_uid >= 0 and self._last_dec.get(old_uid) == i:
-            del self._last_dec[old_uid]
+        if old_uid >= 0 and old_uid in self._open:
+            for slot in self._open[old_uid]:
+                if slot[0] == i:
+                    slot[0] = -1            # its open decision was overwritten
         self.n_robots[i] = record.n_robots
         self.anchors[i] = record.anchors
         self.counts[i] = record.counts
@@ -267,13 +299,16 @@ class ReplayBuffer:
         self.priv_scalars[i] = (record.priv_scalars
                                 if record.priv_scalars is not None else 0.0)
         self.has_action[i] = action is not None
-        if action is not None:
-            self.action[i] = action
+        self.action[i] = action if action is not None else 0.0
+        self.decided[i] = False
+        if action is not None and decided is not None:
+            d = np.asarray(decided, bool).reshape(-1)
+            self.decided[i, :d.shape[0]] = d
         sr = np.asarray(step_rewards, dtype=np.float32).reshape(-1)
         if sr.shape[0] > self.step_rewards.shape[1]:
-            raise ValueError(f"an action held {sr.shape[0]} steps, more than "
-                             f"ROBOT_DECISION_MAX_S_<MODE> allows "
-                             f"({self.step_rewards.shape[1]} steps)")
+            raise ValueError(f"a frame carries {sr.shape[0]} steps of reward, "
+                             f"more than the {self.step_rewards.shape[1]} "
+                             "steps between frames")
         self.step_rewards[i] = 0.0
         self.step_rewards[i, :sr.shape[0]] = sr
         self.robot_penalties[i] = 0
@@ -281,38 +316,56 @@ class ReplayBuffer:
             for k, row in enumerate(robot_penalties[:sr.shape[0]]):
                 row = np.asarray(row, dtype=np.float32)[:self.robot_penalties.shape[2]]
                 self.robot_penalties[i, k, :row.shape[0]] = row
-        self.hold[i] = int(sr.shape[0])
+        self.n_steps[i] = int(sr.shape[0])
         self.terminal[i] = bool(terminal)
-        self.episode[i] = int(episode_uid)
+        self.final[i] = bool(final)
+        self.episode[i] = uid
         self.step[i] = int(step)
         self.static_id[i] = self._static_slot(static_key)
         self.next[i] = -1
-        self.next_dec[i] = -1
-        if not frame_only:
-            # A decision or the final frame closes the previous decision.
-            pd = self._last_dec.get(int(episode_uid), -1)
-            if pd >= 0 and self.episode[pd] == episode_uid:
-                self.next_dec[pd] = i
-            if action is not None:
-                self._last_dec[int(episode_uid)] = i
-            else:
-                self._last_dec.pop(int(episode_uid), None)
-        prev = self._last.get(int(episode_uid), -1)
-        if prev >= 0 and self.episode[prev] == episode_uid \
+        self.next_dec_r[i] = -1
+        self.hold_r[i] = 0
+        self.term_r[i] = False
+        prev = self._last.get(uid, -1)
+        if prev >= 0 and self.episode[prev] == uid \
                 and self.step[prev] == step - 1:
             self.prev[i] = prev
             self.next[prev] = i
         else:
             self.prev[i] = -1
-        self._last[int(episode_uid)] = i
+        self._last[uid] = i
+        self._link_decisions(uid, i, final, terminal)
         self.ptr = (i + 1) % self.capacity
         self.size = min(self.size + 1, self.capacity)
         return i
 
+    def _link_decisions(self, uid: int, i: int, final: bool,
+                        terminal: bool) -> None:
+        """Close the decisions that end at frame i and open the new ones."""
+        R = self.decided.shape[1]
+        opened = self._open.setdefault(uid, [[-1, 0] for _ in range(R)])
+        ending = (np.ones(R, bool) if final else self.decided[i])
+        for j in range(R):
+            if not ending[j]:
+                continue
+            p, steps = opened[j]
+            if p >= 0 and self.episode[p] == uid and self.decided[p, j]:
+                self.next_dec_r[p, j] = i
+                self.hold_r[p, j] = steps
+                self.term_r[p, j] = bool(final and terminal)
+            opened[j] = [-1, 0] if final else [i, 0]
+        if final:
+            self._open.pop(uid, None)
+            return
+        k = int(self.n_steps[i])
+        for slot in opened:
+            if slot[0] >= 0:
+                slot[1] += k
+
     def end_episode(self, episode_uid: int) -> None:
         with self.lock:
             self._last.pop(int(episode_uid), None)
-            self._last_dec.pop(int(episode_uid), None)
+            self._open.pop(int(episode_uid), None)
 
     # ------------------------------------------------------------ reading
 
@@ -350,19 +403,57 @@ class ReplayBuffer:
         out.reverse()
         return [None] * (self._entries - len(out)) + out
 
-    def valid_transition(self, i: int) -> bool:
-        if not self.has_action[i] or self.episode[i] < 0:
+    def decision_return(self, i: int, j: int) -> Optional[Tuple[float, int]]:
+        """Robot j's learning reward from its decision at frame i to its
+        next, discounted per step with the learner's gamma, and the number
+        of steps; None when a frame between was overwritten."""
+        n = int(self.next_dec_r[i, j])
+        total, disc, steps, cur = 0.0, 1.0, 0, i
+        g = self.g_step
+        while cur != n:
+            k = int(self.n_steps[cur])
+            if k:
+                r = self.step_rewards[cur, :k].astype(np.float64)
+                if self.per_robot:
+                    r = r + self.robot_penalties[cur, :k, j]
+                total += disc * float((r * g ** np.arange(k)).sum())
+                disc *= g ** k
+                steps += k
+            nxt = int(self.next[cur])
+            if nxt < 0 or not self._linked(cur, nxt):
+                return None
+            cur = nxt
+        if steps != int(self.hold_r[i, j]):
+            return None
+        return total, steps
+
+    def valid_decision(self, i: int, j: int) -> bool:
+        """Robot j decided at frame i, and its next decision frame and both
+        history windows are still in the buffer."""
+        if (not self.has_action[i] or self.final[i] or not self.decided[i, j]
+                or self.episode[i] < 0 or j >= int(self.n_robots[i])):
             return False
-        n = int(self.next_dec[i])
+        n = int(self.next_dec_r[i, j])
         if n < 0 or self.episode[n] != self.episode[i]:
             return False
-        # The next decision (or final) frame is as many frames on as the
-        # hold lasted, rounded up for a hold the episode's end cut short.
-        frames = -(-int(self.hold[i]) // self._frames)
+        # The next decision frame is as many frames on as the steps between,
+        # rounded up for a decision the episode's end cut short.
+        frames = -(-int(self.hold_r[i, j]) // self._frames)
         if int(self.step[n]) - int(self.step[i]) != frames:
             return False
         return (self.window_indices(i) is not None
                 and self.window_indices(n) is not None)
+
+    def decisions(self) -> np.ndarray:
+        """(frame, robot) of every stored decision, valid or not."""
+        f, j = np.nonzero(self.decided[:self.size]
+                          & self.has_action[:self.size, None]
+                          & ~self.final[:self.size, None])
+        return np.stack([f, j], 1)
+
+    def n_valid(self) -> int:
+        return int(sum(self.valid_decision(int(f), int(j))
+                       for f, j in self.decisions()))
 
     def __len__(self) -> int:
         return self.size
@@ -388,7 +479,7 @@ class ReplayBuffer:
 
     def sample(self, batch_size: int, rng: Optional[np.random.Generator] = None
                ) -> Dict[str, np.ndarray]:
-        """A batch of valid transitions, rebuilt from their records.
+        """A batch of valid robot decisions, rebuilt from their records.
 
         The observation arrays live in memory that the call after next
         reuses (two sets alternate), so one batch can be trained on while the
@@ -400,62 +491,71 @@ class ReplayBuffer:
         rng = rng or np.random.default_rng()
         if self.size == 0:
             raise ValueError("empty replay buffer")
-        chosen: List[int] = []
+        pairs = self.decisions()
+        if pairs.shape[0] == 0:
+            raise ValueError("no decisions to sample")
+        chosen: List[Tuple[int, int]] = []
+        rets: List[Tuple[float, int]] = []
         tries = 0
-        # Most frames are not decisions under event-driven timing; draw from
-        # the decision frames only.
-        decisions = np.flatnonzero(self.has_action[:self.size])
-        if decisions.size == 0:
-            raise ValueError("no decision frames to sample")
         while len(chosen) < batch_size:
             tries += 1
             if tries > 50:
-                raise ValueError("not enough valid transitions to sample")
-            cand = decisions[rng.integers(0, decisions.size,
-                                          size=4 * batch_size)]
-            for i in cand:
-                i = int(i)
-                if self.valid_transition(i):
-                    chosen.append(i)
-                    if len(chosen) == batch_size:
-                        break
-        nxt = [int(self.next_dec[i]) for i in chosen]
+                raise ValueError("not enough valid decisions to sample")
+            for f, j in pairs[rng.integers(0, pairs.shape[0],
+                                           size=4 * batch_size)]:
+                f, j = int(f), int(j)
+                if not self.valid_decision(f, j):
+                    continue
+                ret = self.decision_return(f, j)
+                if ret is None:
+                    continue
+                chosen.append((f, j))
+                rets.append(ret)
+                if len(chosen) == batch_size:
+                    break
+        frames = [f for f, _ in chosen]
+        robots = np.asarray([j for _, j in chosen], np.int64)
+        nxt = [int(self.next_dec_r[f, j]) for f, j in chosen]
         arenas = self._arena_sets[self._arena_turn]
         self._arena_turn ^= 1
-        s = self._joint(chosen, arenas[0])
+        s = self._joint(frames, arenas[0])
         s2 = self._joint(nxt, arenas[1])
-        n_real = s["mask"].sum(1).astype(np.int64)
-        agent = (rng.random(len(chosen)) * n_real).astype(np.int64)
+        R = self.decided.shape[1]
+        next_decided = self.decided[nxt].copy()
+        fin = self.final[nxt]
+        next_decided[fin] = True              # every decision ends at the end
+        keys = ("ego", "mid", "glob", "state", "priv", "priv_scalars")
         return {
-            "obs": {k: s[k] for k in ("ego", "mid", "glob", "state", "priv",
-                                     "priv_scalars")},
+            "obs": {k: s[k] for k in keys},
             "mask": s["mask"],
-            "action": self.action[chosen].copy(),
-            "step_rewards": self.step_rewards[chosen].copy(),
-            "robot_penalties": self.robot_penalties[chosen].astype(np.float32),
-            "hold": self.hold[chosen].astype(np.float32),
-            "terminal": self.terminal[chosen].astype(np.float32),
-            "next_obs": {k: s2[k] for k in ("ego", "mid", "glob", "state",
-                                              "priv", "priv_scalars")},
+            "action": self.action[frames].copy(),
+            "decided": self.decided[frames].copy(),
+            "next_obs": {k: s2[k] for k in keys},
             "next_mask": s2["mask"],
-            "agent_index": agent,
-            "indices": np.asarray(chosen),
+            "next_action": self.action[nxt].copy(),
+            "next_decided": next_decided & (s2["mask"] > 0),
+            "ret": np.asarray([r for r, _ in rets], np.float32),
+            "hold": np.asarray([k for _, k in rets], np.float32),
+            "terminal": np.asarray([self.term_r[f, j] for f, j in chosen],
+                                   np.float32),
+            "agent_index": robots,
+            "indices": np.asarray(frames),
         }
 
     # -------------------------------------------------------- persistence
 
     ARRAYS = ("n_robots", "anchors", "counts", "observed", "pose", "mode",
               "signal", "intent", "avail", "priv", "priv_scalars", "action",
-              "has_action",
-              "step_rewards", "robot_penalties",
-              "hold", "terminal", "episode", "step", "prev", "next",
-              "next_dec", "static_id")
+              "has_action", "decided", "step_rewards", "robot_penalties",
+              "n_steps", "terminal", "final", "episode", "step", "prev",
+              "next", "next_dec_r", "hold_r", "term_r", "static_id")
 
     def save(self, path: str, schema: Dict[str, str]) -> None:
         n = self.size
         payload = {k: getattr(self, k)[:n] for k in self.ARRAYS}
         meta = {"schema": schema, "capacity": self.capacity, "ptr": self.ptr,
-                "size": self.size, "static_keys": self._static_keys}
+                "size": self.size, "static_keys": self._static_keys,
+                "format": self.FORMAT}
         tmp = path + ".tmp.npz"
         np.savez(tmp, meta=np.array(json.dumps(meta)), **payload)
         os.replace(tmp, path)
@@ -465,6 +565,13 @@ class ReplayBuffer:
             meta = json.loads(str(data["meta"]))
             check_schema(meta.get("schema", {}), schema,
                          f"replay buffer {path}")
+            fmt = int(meta.get("format", 1))
+            if fmt != self.FORMAT:
+                raise SchemaMismatch(
+                    f"replay buffer {path} is in format {fmt} (team "
+                    f"decisions), this code reads format {self.FORMAT} "
+                    "(each robot's decisions); start a new LOG_DIR or set "
+                    "RESUME_MODE='fresh'")
             n = int(meta["size"])
             if n > self.capacity:
                 raise ValueError(f"stored buffer holds {n} > capacity "
@@ -478,24 +585,7 @@ class ReplayBuffer:
                     # Saved before the critic was given these.
                     self.priv_scalars[:n] = 0.0
                     continue
-                if k == "robot_penalties" and k not in data.files:
-                    # Saved before per-robot terms were stored.
-                    self.robot_penalties[:n] = 0
-                    continue
                 arr = data[k]
-                if (k == "robot_penalties" and arr.ndim == 3
-                        and arr.shape[1] <= self.robot_penalties.shape[1]
-                        and arr.shape[2] == self.robot_penalties.shape[2]):
-                    self.robot_penalties[:n] = 0
-                    self.robot_penalties[:n, :arr.shape[1]] = arr
-                    continue
-                if (k == "step_rewards" and arr.ndim == 2
-                        and arr.shape[1] <= self.step_rewards.shape[1]):
-                    # Saved under a shorter ROBOT_DECISION_MAX_S_<MODE>: the extra
-                    # columns are past every stored hold and stay zero.
-                    self.step_rewards[:n] = 0.0
-                    self.step_rewards[:n, :arr.shape[1]] = arr
-                    continue
                 if arr.shape[1:] != getattr(self, k).shape[1:]:
                     raise SchemaMismatch(f"replay array {k} has shape "
                                          f"{arr.shape[1:]}, expected "
@@ -505,12 +595,12 @@ class ReplayBuffer:
         self.ptr = int(meta["ptr"]) % self.capacity
         self._static_keys = list(meta["static_keys"])
         self._static_index = {k: i for i, k in enumerate(self._static_keys)}
-        self._last_dec = {}
         missing = [k for k in set(self._static_keys) if k not in self.statics]
         if missing:
             raise KeyError(f"{len(missing)} static layer entries referenced by "
                            "the buffer are missing from the static store")
         self._last = {}
+        self._open = {}
 
     def nbytes(self) -> int:
         return int(sum(getattr(self, k).nbytes for k in self.ARRAYS))

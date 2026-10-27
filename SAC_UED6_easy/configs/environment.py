@@ -466,19 +466,29 @@ ROBOT_WAYPOINT_RANGE_M = 40.0
 # crossed, at its widest point.
 ROBOT_NAV_CLEARANCE_M = 0.5
 
-# When the team takes its next decision, one pair per ROBOT_ACTION_MODE;
+# When a robot takes its next decision, one pair per ROBOT_ACTION_MODE;
 # `cfg.decision_max_steps()` and `cfg.decision_on_events()` pick the pair in
-# use. A decision (every robot's move and mode) is held until either
+# use. A robot's decision (its move, speed and mode) is held until either
 #   - ROBOT_DECISION_MAX_S_<MODE> has passed since it was taken, or
-#   - with ROBOT_DECISION_ON_EVENTS_<MODE>, some robot reached its waypoint
+#   - with ROBOT_DECISION_ON_EVENTS_<MODE>, the robot reached its waypoint
 #     (waypoint only) or a wall stopped more than half of its commanded move,
 # checked after every simulation step and acted on at the next observation
 # frame (OBS_FRAME_PERIOD_S): decisions are only taken on that clock, so
 # ROBOT_DECISION_MAX_S_<MODE> must be a whole number of frame periods. The
-# team decides together: a
-# transition is one joint action scored by a team critic, so one robot cannot
-# keep its old action while the others take new ones. The mode changes only
-# at a decision.
+# mode changes only at a decision.
+#
+# Whose decision ends (ROBOT_DECISION_SCOPE):
+#   "robot"  only the robot whose own decision ended decides again; its
+#            teammates keep what they are doing. Each robot's decision is one
+#            transition in the replay, from its decision to its next one,
+#            scored against what its teammates were doing then
+#            (docs/async_decisions.md).
+#   "team"   every robot decides again whenever any robot's decision ends:
+#            the team decides together, as every run before 2026-10-27 did.
+#            With three robots a decision then lasted about 8 s on average,
+#            whatever ROBOT_DECISION_MAX_S_<MODE> said, because some robot
+#            arrived or was blocked that often.
+ROBOT_DECISION_SCOPE = "robot"          # "robot" | "team"
 # Separate per mode because one shared value leaked a waypoint setting into
 # velocity training: a velocity command held for up to 30 s is a straight
 # line of up to 60 m with the guide/off mode frozen, and that run did not

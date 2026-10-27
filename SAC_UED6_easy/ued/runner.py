@@ -236,10 +236,12 @@ class UEDRunner:
 
         trace.touched = time.time()
         trace.ret += float(msg.reward)
-        trace.n_seen += 1
         sample = getattr(msg, "value_sample", None)
         if sample is None:
             return
+        # Counts the frames that offer a value sample, so the reservoir
+        # stays uniform over them.
+        trace.n_seen += 1
         if len(trace.samples) < MAXMC_SAMPLES:
             trace.samples.append(sample)
         else:

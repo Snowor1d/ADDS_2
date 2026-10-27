@@ -75,7 +75,7 @@ ALPHA_END = 0.2
 ALPHA_DECAY_STEPS = 3000
 # 엔트로피 온도 자동 조정 (Haarnoja et al. 2018b). False 면 ALPHA_START 고정
 # (RV3: 고정 0.2, alpha optimizer 는 있었지만 쓰이지 않았다).
-ALPHA_AUTO = False
+ALPHA_AUTO = True
 ALPHA_LR = 3e-4
 ALPHA_TARGET_ENTROPY = -2.0  # 행동 차원 2 -> -2
 ALPHA_MIN = 0.0
@@ -264,7 +264,7 @@ WANDB_MODE = "online"
 WANDB_PROJECT = "adds-sac-fe-rv4"
 WANDB_ENTITY = None                  # None = 계정 기본 entity
 WANDB_GROUP = None                   # None = EXPERIMENT_ID
-WANDB_RUN_NAME = "SAC_FE_RV3_baseline"                # None = 모드·인코더·시각으로 자동 생성
+WANDB_RUN_NAME = "SAC_FE_RV3_aug_AutoAlpha"                # None = 모드·인코더·시각으로 자동 생성
 WANDB_TAGS = ()
 WANDB_UPLOAD_CHECKPOINTS = "selected"   # "none" | "selected" (검증으로 고른 모델만)
 # 검증 때 정책 에피소드 1개를 영상으로 W&B 에 올릴지 (continuous_renderer)

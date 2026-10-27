@@ -307,7 +307,8 @@ _MODULE_CONSTANTS = None
 # replay written under other timing stays usable.
 _NOT_DYNAMICS = frozenset({
     "ROBOT_DECISION_MAX_S_VELOCITY", "ROBOT_DECISION_MAX_S_WAYPOINT",
-    "ROBOT_DECISION_ON_EVENTS_VELOCITY", "ROBOT_DECISION_ON_EVENTS_WAYPOINT"})
+    "ROBOT_DECISION_ON_EVENTS_VELOCITY", "ROBOT_DECISION_ON_EVENTS_WAYPOINT",
+    "ROBOT_DECISION_SCOPE"})
 
 
 def _module_constants() -> frozenset:
@@ -679,6 +680,9 @@ def validate_config(cfg: ResolvedConfig, check_data: bool = True) -> None:
            "'stored' or 'current'", p)
     _check(cfg.SAC_MODE_ESTIMATOR in ("expectation", "gumbel"),
            "SAC_MODE_ESTIMATOR must be 'expectation' or 'gumbel'", p)
+    _check(cfg.ROBOT_DECISION_SCOPE in ("robot", "team"),
+           f"ROBOT_DECISION_SCOPE={cfg.ROBOT_DECISION_SCOPE!r}; expected "
+           "'robot' or 'team'", p)
     _check(cfg.ACTOR_CONT_HEADS in ("shared", "per_mode"),
            f"ACTOR_CONT_HEADS={cfg.ACTOR_CONT_HEADS!r}; expected 'shared' or "
            "'per_mode'", p)

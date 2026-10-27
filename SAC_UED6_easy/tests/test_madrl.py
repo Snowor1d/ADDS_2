@@ -71,9 +71,7 @@ def _fill(cfg, buffer, store, agent, episodes=((1, 40), (2, 40), (3, 40)),
             return agent.act(obs, epsilon=0.3)
 
         def emit(tr, uid=uid, st=st):
-            buffer.push(uid, tr.step, tr.record, st.key, tr.action,
-                        tr.step_rewards, tr.terminal,
-                        tr.robot_penalties, tr.frame_only)
+            buffer.push_transition(uid, st.key, tr)
 
         run_episode(m, cfg, act, gamma=0.99, max_steps=steps, seed=uid,
                     static=st, emit=emit)
@@ -81,36 +79,25 @@ def _fill(cfg, buffer, store, agent, episodes=((1, 40), (2, 40), (3, 40)),
 
 
 class TeamQTest(unittest.TestCase):
-    def test_target_takes_the_minimum_after_the_team_mean(self):
-        from learn.sac import SACAgent, discounted_return
+    def test_target_bootstraps_by_the_steps_the_decision_lasted(self):
+        """y = R_j + gamma_step^k (1 - terminal) V_j(s'): the decision's own
+        discounted reward from the replay, its own length k."""
+        from learn.sac import SACAgent
         cfg = _cfg(SAC_MODE_ESTIMATOR="gumbel")
         agent = SACAgent(cfg)
-        B, N = 2, cfg.MAX_ROBOTS
-        mask = torch.tensor([[1.0, 1.0, 0.0], [1.0, 0.0, 0.0]])
-        # Per robot: critic 1 is lower for robot 0, critic 2 for robot 1, so
-        # min-then-mean and mean-then-min differ.
-        q1 = torch.tensor([[0.0, 10.0, 99.0], [4.0, 99.0, 99.0]])
-        q2 = torch.tensor([[10.0, 0.0, 99.0], [6.0, 99.0, 99.0]])
-        agent.q1_target = lambda o, a, m: q1 * m
-        agent.q2_target = lambda o, a, m: q2 * m
-        logp = torch.tensor([[1.0, 3.0, 50.0], [2.0, 50.0, 50.0]])
-        agent._per_robot_actions = lambda o, m: (None, logp)
-        agent.alpha = torch.tensor(0.5)
-        batch = {"next_obs": {}, "next_mask": mask,
-                 "step_rewards": torch.tensor([[1.0, 1.0, 1.0, 1.0],
-                                               [2.0, 0.0, 0.0, 0.0]]),
+        v2 = torch.tensor([3.0, 5.0])
+        agent._sampled_next_value = lambda *a: v2
+        batch = {"next_obs": {}, "next_mask": torch.ones(2, 3),
+                 "next_action": None, "next_decided": None,
+                 "agent_index": torch.tensor([0, 1]),
+                 "ret": torch.tensor([1.5, 2.0]),
                  "hold": torch.tensor([4.0, 1.0]),
                  "terminal": torch.tensor([0.0, 1.0])}
-        y = agent.targets(batch)
+        y = agent.robot_targets(batch)
         g = agent.gamma ** (1 / cfg.ACTION_SCALE)
-        # Team means: q1 5 and 4, q2 5 and 6; entropy means 2 and 2.
-        v0 = min(5.0, 5.0) - 0.5 * 2.0
-        r0 = 1 + g + g ** 2 + g ** 3
-        self.assertAlmostEqual(float(y[0]), r0 + g ** 4 * v0, places=5)
-        # Terminal: no bootstrap, one step of reward.
+        self.assertAlmostEqual(float(y[0]), 1.5 + g ** 4 * 3.0, places=5)
+        # Terminal: no bootstrap.
         self.assertAlmostEqual(float(y[1]), 2.0, places=5)
-        dr = discounted_return(batch["step_rewards"], batch["hold"], g)
-        self.assertAlmostEqual(float(dr[1]), 2.0, places=6)
 
     def test_critic_is_order_equivariant_and_ignores_padding(self):
         from learn.networks import CentralizedCritic
@@ -257,32 +244,63 @@ class AlphaAutoTest(unittest.TestCase):
                                    places=6)
 
     def test_own_collision_is_charged_to_the_robot_that_hit(self):
-        """rew-v3: a collision lowers only the colliding robot's target."""
-        import torch
+        """A robot's decision is linked to its own next decision, and its
+        return is the team's reward plus only its own charges, over the
+        steps between, discounted with the learner's gamma."""
+        from learn.replay import ReplayBuffer, StaticStore
+        from learn.rollout import run_episode
+        from sim.observation import build_static_layers
+        cfg = _cfg(**_dmax(2.0), **_devents(False))
+        F = cfg.frame_steps()
+        m = _model(_level(robots=2, seed=3))
+        frames = []
+        from sim.robot_action import encode
+        act = np.stack([encode((0.0, 0.0), "guide")] * 2)
+        run_episode(m, cfg, lambda o, r: act, gamma=0.99, max_steps=4 * F,
+                    needs_obs=False, emit=frames.append)
+        self.assertEqual(len(frames), 5)                # 4 frames + final
         with tempfile.TemporaryDirectory() as tmp:
-            agent, buf = ActorUpdateModeTest._run(self, tmp)
-            if not agent.own_collision:
-                self.skipTest("REWARD_VERSION is not rew-v3")
-            b = buf.sample(4, np.random.default_rng(0))
-            dev = agent.device
-            batch = {
-                "next_obs": {k: torch.as_tensor(v, device=dev)
-                             for k, v in b["next_obs"].items()},
-                "next_mask": torch.as_tensor(b["next_mask"], device=dev),
-                "step_rewards": torch.as_tensor(b["step_rewards"], device=dev),
-                "hold": torch.as_tensor(b["hold"], device=dev),
-                "terminal": torch.ones(4, device=dev),   # no bootstrap noise
-            }
-            rc = np.zeros_like(b["robot_penalties"])
-            batch["robot_penalties"] = torch.as_tensor(rc, device=dev)
-            y0 = agent.robot_targets(batch)
-            w = float(agent.cfg.REWARD_W_COLLISION)
-            rc[:, 0, 0] = -w                            # robot 0, first step
-            batch["robot_penalties"] = torch.as_tensor(rc, device=dev)
-            y1 = agent.robot_targets(batch)
-            d = (y1 - y0).cpu().numpy()
-            np.testing.assert_allclose(d[:, 0], -w, atol=1e-5)
-            np.testing.assert_allclose(d[:, 1:], 0.0, atol=1e-6)
+            store = StaticStore(tmp)
+            st = build_static_layers(m, cfg)
+            store.put(st)
+            buf = ReplayBuffer(cfg, 50, store)
+            if not buf.per_robot:
+                self.skipTest("REWARD_VERSION does not charge robots")
+            R = int(cfg.MAX_ROBOTS)
+            idx = []
+            for k, tr in enumerate(frames):
+                decided = np.zeros(R, bool)
+                if tr.final:
+                    decided[:2] = True
+                elif k == 0:
+                    decided[:2] = True                  # both decide at f0
+                elif k == 2:
+                    decided[0] = True                   # robot 0 again at f2
+                pen = [[0.0] * R for _ in range(F)] if not tr.final else []
+                if k == 1:
+                    pen[0][0] = -0.5                    # robot 0 hits a wall
+                idx.append(buf.push(
+                    1, tr.step, tr.record, st.key,
+                    action=(np.zeros((R, buf.action_dim), np.float32)
+                            if decided.any() else None),
+                    decided=decided, step_rewards=[] if tr.final else [1.0] * F,
+                    robot_penalties=pen, final=tr.final))
+            f0, f1, f2, f3, fin = idx
+            self.assertEqual(int(buf.next_dec_r[f0, 0]), f2)
+            self.assertEqual(int(buf.next_dec_r[f2, 0]), fin)
+            self.assertEqual(int(buf.next_dec_r[f0, 1]), fin)
+            self.assertEqual(int(buf.hold_r[f0, 0]), 2 * F)
+            self.assertEqual(int(buf.hold_r[f0, 1]), 4 * F)
+            g = buf.g_step
+            r0, k0 = buf.decision_return(f0, 0)
+            r1, k1 = buf.decision_return(f0, 1)
+            self.assertEqual((k0, k1), (2 * F, 4 * F))
+            self.assertAlmostEqual(r0, sum(g ** t for t in range(2 * F))
+                                   - 0.5 * g ** F, places=5)
+            self.assertAlmostEqual(r1, sum(g ** t for t in range(4 * F)),
+                                   places=5)
+            self.assertTrue(buf.valid_decision(f0, 0))
+            self.assertFalse(buf.valid_decision(f1, 0))  # nobody decided there
 
     def test_alpha_never_falls_below_the_floor(self):
         import torch
@@ -442,7 +460,7 @@ class TeamIntentTest(unittest.TestCase):
 
 class RewardTimeTest(unittest.TestCase):
     def test_first_and_cut_short_decisions_are_recorded(self):
-        from learn.rollout import run_episode
+        from learn.rollout import decision_holds, run_episode
         # Fixed-length decisions: under waypoint mode a robot standing on
         # its own waypoint "arrives" every step, which is an event, not the
         # timing this test is about.
@@ -453,15 +471,15 @@ class RewardTimeTest(unittest.TestCase):
         guide = encode((0.0, 0.0), "guide")[None]
         run_episode(m, cfg, lambda o, r: guide,
                     gamma=0.99, max_steps=10, emit=got.append)
-        acted = [t for t in got if t.action is not None]
+        acted = [t for t in got if t.action is not None and not t.final]
         self.assertEqual([t.step for t in acted], [0, 1, 2])
-        self.assertEqual([t.hold for t in acted], [4, 4, 2])
-        self.assertEqual(sum(len(t.step_rewards) for t in acted), 10)
-        self.assertIsNone(got[-1].action)
-        self.assertFalse(any(t.terminal for t in acted))
+        self.assertEqual(decision_holds(got, 0), [4, 4, 2])
+        self.assertEqual(sum(len(t.step_rewards) for t in got), 10)
+        self.assertTrue(got[-1].final)
+        self.assertFalse(any(t.terminal for t in got))
 
     def test_task_termination_marks_the_last_transition_terminal(self):
-        from learn.rollout import run_episode
+        from learn.rollout import decision_holds, run_episode
         cfg = _cfg(**_dmax(2.0), **_devents(False))
         m = _model(_level(robots=1))
         # The robots also ask should_finish, so decide by the step count.
@@ -471,9 +489,9 @@ class RewardTimeTest(unittest.TestCase):
         guide = encode((0.0, 0.0), "guide")[None]
         run_episode(m, cfg, lambda o, r: guide,
                     gamma=0.99, max_steps=100, emit=got.append)
-        acted = [t for t in got if t.action is not None]
-        self.assertTrue(acted[-1].terminal)
-        self.assertEqual(acted[-1].hold, 2)
+        self.assertTrue(got[-2].terminal)               # the frame it ended in
+        self.assertTrue(got[-1].final and got[-1].terminal)
+        self.assertEqual(decision_holds(got, 0)[-1], 2)
 
     def test_reentry_counts_only_after_clearing_and_never_on_departure(self):
         from sim.rewards import TaskReward
@@ -651,13 +669,12 @@ class ShapingTest(unittest.TestCase):
         act = encode((1.0, 0.0), "guide")[None]
         run_episode(m, cfg, lambda o, r: act, gamma=0.99, max_steps=100,
                     emit=got.append, needs_obs=False)
-        acted = [t for t in got if t.action is not None]
-        self.assertTrue(acted[-1].terminal)
+        self.assertTrue(got[-1].terminal)
         g = phi0.g_step
         disc, robot = 1.0, 0.0
-        for t in acted:
-            for k in range(t.hold):
-                robot += disc * t.robot_penalties[k][0]
+        for t in got:
+            for row in t.robot_penalties:
+                robot += disc * row[0]
                 disc *= g
         # Episode sum of the robot's shaping = Phi(terminal) - Phi(s_0)
         # = -Phi(s_0), whatever happened in between.
@@ -706,7 +723,7 @@ class ReplayTest(unittest.TestCase):
     def test_rebuilt_observation_is_what_the_actor_saw(self):
         checked = 0
         for i in range(self.buf.size):
-            if not self.buf.has_action[i]:
+            if not self.buf.has_action[i] or self.buf.final[i]:
                 continue
             key = (int(self.buf.episode[i]), int(self.buf.step[i]))
             joint = self.buf._joint([i])
@@ -734,15 +751,17 @@ class ReplayTest(unittest.TestCase):
         small = ReplayBuffer(self.cfg, 25, self.store)
         _fill(self.cfg, small, self.store, self.agent,
               episodes=((2, 60),))
-        valid = [i for i in range(small.size) if small.valid_transition(i)]
-        for i in valid:
+        valid = [(int(i), int(j)) for i, j in small.decisions()
+                 if small.valid_decision(int(i), int(j))]
+        for i, j in valid:
             self.assertIsNotNone(small.window_indices(i))
-            self.assertIsNotNone(small.window_indices(int(small.next_dec[i])))
+            self.assertIsNotNone(small.window_indices(int(small.next_dec_r[i, j])))
         # The oldest surviving records lost their predecessors.
         oldest = int(np.argmin(np.where(small.step[:small.size] >= 0,
                                         small.step[:small.size], 1 << 30)))
         if small.step[oldest] >= self.cfg.OBS_HISTORY_STRIDE:
-            self.assertFalse(small.valid_transition(oldest))
+            self.assertFalse(any(small.valid_decision(oldest, j)
+                                 for j in range(int(small.n_robots[oldest]))))
 
     def test_static_layers_reload_from_disk_after_eviction(self):
         from learn.replay import StaticStore
@@ -1011,8 +1030,8 @@ class DirectModeSwitchTest(unittest.TestCase):
 
 
 class DecisionTimingTest(unittest.TestCase):
-    """A team decision is held up to ROBOT_DECISION_MAX_S_<MODE>, and ends early
-    when a robot arrives at its waypoint or is blocked by a wall."""
+    """A robot's decision is held up to ROBOT_DECISION_MAX_S_<MODE>, and ends
+    early when it arrives at its waypoint or is blocked by a wall."""
 
     def setUp(self):
         import sim.agent as A
@@ -1043,7 +1062,8 @@ class DecisionTimingTest(unittest.TestCase):
         act = encode(move, "guide")[None]
         run_episode(m, cfg, lambda o, r: act, gamma=0.99, max_steps=steps,
                     emit=got.append)
-        return [t.hold for t in got if t.action is not None]
+        from learn.rollout import decision_holds
+        return decision_holds(got, 0)
 
     def test_the_longest_decision_is_the_configured_time(self):
         cfg = _cfg(**_dmax(4.0), **_devents(False))
@@ -1109,6 +1129,8 @@ class DecisionTimingTest(unittest.TestCase):
                          else "blocked")
 
     def test_a_replay_saved_with_shorter_decisions_still_loads(self):
+        """Rewards are stored per frame, so the longest decision does not
+        change what a stored frame holds."""
         from learn.replay import ReplayBuffer, StaticStore
         from learn.sac import SACAgent
         cfg = _cfg(**_dmax(2.0))
@@ -1122,11 +1144,142 @@ class DecisionTimingTest(unittest.TestCase):
             again = ReplayBuffer(longer, 200, store)
             again.load(path, longer.schema_versions())
             n = again.size
-            self.assertEqual(again.step_rewards.shape[1], 8)
-            np.testing.assert_array_equal(again.step_rewards[:n, :4],
+            self.assertEqual(again.step_rewards.shape[1], cfg.frame_steps())
+            np.testing.assert_array_equal(again.step_rewards[:n],
                                           buf.step_rewards[:n])
-            self.assertFalse(again.step_rewards[:n, 4:].any())
+            np.testing.assert_array_equal(again.next_dec_r[:n],
+                                          buf.next_dec_r[:n])
 
+    def test_an_old_team_decision_replay_is_refused(self):
+        from learn.replay import ReplayBuffer, SchemaMismatch, StaticStore
+        from learn.sac import SACAgent
+        cfg = _cfg()
+        with tempfile.TemporaryDirectory() as tmp:
+            store = StaticStore(tmp)
+            buf = ReplayBuffer(cfg, 200, store)
+            _fill(cfg, buf, store, SACAgent(cfg), episodes=((2, 20),))
+            buf.FORMAT = 1
+            path = os.path.join(tmp, "old.npz")
+            buf.save(path, cfg.schema_versions())
+            with self.assertRaises(SchemaMismatch):
+                ReplayBuffer(cfg, 200, store).load(path, cfg.schema_versions())
+
+
+class AsyncDecisionTest(unittest.TestCase):
+    """ROBOT_DECISION_SCOPE: under "robot" only the robot whose own decision
+    ended decides again and its teammates keep theirs; under "team" every
+    robot decides whenever one does (docs/async_decisions.md)."""
+
+    def _two_robots(self):
+        from sim.danger import DangerZone
+        from ued.level import Level
+        import sim.model as M
+        random.seed(0)
+        np.random.seed(0)
+        wall = [[0.0, 28.0], [60.0, 28.0], [60.0, 32.0], [0.0, 32.0]]
+        lv = Level(obstacles=[wall], exits=[], crowd_size=3, width=60,
+                   height=60)
+        lv.danger = DangerZone("circle", 50.0, 50.0, radius=5.0)
+        lv.robot_num = 2
+        lv.augmentation = "identity"
+        m = M.FightingModel(3, 60, 60, robot="Q", level=lv)
+        m.robots[0].xy = [10.0, 10.0]
+        m.robots[1].xy = [10.0, 14.0]
+        return m
+
+    def _run(self, scope, steps=32):
+        from learn.rollout import run_episode
+        from sim.robot_action import encode
+        cfg = _cfg(**_dmax(8.0), **_devents(True), ROBOT_DECISION_SCOPE=scope)
+        if cfg.ROBOT_ACTION_MODE != "waypoint":
+            self.skipTest("arrival events need waypoint actions")
+        m = self._two_robots()
+        # Robot 0 stands on its own waypoint: it arrives at once, every
+        # frame. Robot 1 walks to a waypoint 40 m away.
+        act = np.stack([encode((0.0, 0.0), "guide"),
+                        encode((2.0, 0.0), "off", speed=0.5)])
+        got, targets = [], []
+        run_episode(m, cfg, lambda o, r: act, gamma=0.99, max_steps=steps,
+                    needs_obs=False, emit=got.append,
+                    on_step=lambda model, k: targets.append(
+                        getattr(model.robots[1], "_waypoint", None)))
+        return cfg, m, got, targets
+
+    def test_only_the_robot_that_arrived_decides_again(self):
+        from learn.rollout import decision_holds
+        cfg, m, got, targets = self._run("robot")
+        F, K = cfg.frame_steps(), cfg.decision_max_steps()
+        frames = [t for t in got if t.action is not None and not t.final]
+        self.assertTrue(all(t.decided[0] for t in frames))       # every frame
+        self.assertEqual(decision_holds(got, 0), [F] * (32 // F))
+        # Robot 1 decides at the start and when its longest decision is up.
+        self.assertEqual(decision_holds(got, 1), [K, 32 - K])
+        self.assertEqual([t.step for t in frames if t.decided[1]], [0, K // F])
+        # It kept walking to the same waypoint while robot 0 re-decided.
+        firsts = [w[0] for w in targets[1:K] if w is not None]
+        self.assertTrue(firsts and all(w == firsts[0] for w in firsts))
+
+    def test_team_scope_decides_together(self):
+        from learn.rollout import decision_holds
+        cfg, m, got, _ = self._run("team")
+        F = cfg.frame_steps()
+        frames = [t for t in got if t.action is not None and not t.final]
+        self.assertTrue(all(t.decided[:2].all() for t in frames))
+        self.assertEqual(decision_holds(got, 1), [F] * (32 // F))
+
+    def test_a_kept_decision_is_recorded_as_the_way_still_to_go(self):
+        from learn.rollout import run_episode
+        from sim import robot_action as ra
+        cfg, m, got, targets = self._run("robot", steps=16)
+        rng = float(cfg.ROBOT_WAYPOINT_RANGE_M)
+        later = [t for t in got if t.action is not None and not t.final
+                 and not t.decided[1]]
+        self.assertTrue(later)
+        goal = targets[-1][0]
+        for t in later:
+            pose = t.record.pose[1]
+            move = t.action[1, ra.MOVE]
+            # The recorded move points from where robot 1 is now to the
+            # waypoint it is walking to.
+            est = (pose[0] + move[0] * rng / 2.0, pose[1] + move[1] * rng / 2.0)
+            self.assertLess(math.hypot(est[0] - goal[0], est[1] - goal[1]), 1.0)
+            self.assertEqual(int(np.argmax(t.action[1, ra.MODE])),
+                             cfg.ROBOT_MODES.index("off"))
+
+    def test_the_viewer_decides_per_robot(self):
+        cfg = _cfg(**_dmax(8.0), **_devents(True), ROBOT_DECISION_SCOPE="robot")
+        if cfg.ROBOT_ACTION_MODE != "waypoint":
+            self.skipTest("arrival events need waypoint actions")
+        from sim.robot_action import encode
+        m = self._two_robots()
+        m.use_model(None, cfg=cfg, deterministic=True)
+        calls = []
+
+        def act(obs, deterministic=False):
+            calls.append(len(calls))
+            k = float(len(calls))
+            return np.stack([encode((0.0, 0.0), "guide"),
+                             encode((2.0, 0.0 + 0.1 * k), "off")])
+        m.sac_agent.act = act
+        F = cfg.frame_steps()
+        m.step()                                    # frame 0: both decide
+        a1 = tuple(m.robots[1].action[:2])
+        for _ in range(F):
+            m.step()                                # frame 1: robot 0 only
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(tuple(m.robots[1].action[:2]), a1)
+        self.assertEqual(m._policy_hold[1], F + 1)
+        self.assertEqual(m._policy_hold[0], 1)
+
+    def test_the_shuttle_moves_only_the_deciding_robots(self):
+        from validation.shuttle_baseline import ShuttlePolicy
+        cfg = _cfg()
+        m = _model(_level(robots=2, seed=4))
+        sp = ShuttlePolicy(m, 2, cfg=cfg)
+        before = [dict(st) for st in sp.state]
+        rows = sp(None, None, deciding=np.array([True, False]))
+        self.assertFalse(rows[1].any())
+        self.assertEqual(sp.state[1], before[1])
 
 
 class ObservationClockTest(unittest.TestCase):
@@ -1134,7 +1287,7 @@ class ObservationClockTest(unittest.TestCase):
     entries a fixed number of seconds apart."""
 
     def test_frames_are_on_the_clock_and_decisions_wait_for_one(self):
-        from learn.rollout import run_episode
+        from learn.rollout import decision_holds, run_episode
         from sim.robot_action import encode
         cfg = _cfg(**_dmax(4.0), **_devents(True))
         F, K = cfg.frame_steps(), cfg.decision_max_steps()
@@ -1143,20 +1296,23 @@ class ObservationClockTest(unittest.TestCase):
         act = np.stack([encode((1.0, -0.4), "guide")] * 2)
         run_episode(m, cfg, lambda o, r: act, gamma=0.99, max_steps=48,
                     needs_obs=False, emit=got.append)
-        # Every frame arrives once, in order, the last being the final state.
+        # Every frame arrives once, in order, the last being the final state,
+        # each carrying the steps up to the next frame.
         self.assertEqual([t.step for t in got], list(range(48 // F + 1)))
-        self.assertIsNone(got[-1].action)
-        self.assertFalse(got[-1].frame_only)
-        acted = [t for t in got if t.action is not None]
-        for t in acted:
-            self.assertEqual(t.hold % F, 0)
-            self.assertLessEqual(t.hold, K)
-        # A decision's frames: its own, then those taken while it was held.
-        for a, b in zip(acted, acted[1:]):
-            self.assertEqual(b.step - a.step, a.hold // F)
-            between = [t for t in got if a.step < t.step < b.step]
-            self.assertTrue(all(t.frame_only and t.action is None
-                                for t in between))
+        self.assertTrue(got[-1].final)
+        self.assertTrue(all(len(t.step_rewards) == F for t in got[:-1]))
+        for j in range(2):
+            holds = decision_holds(got, j)
+            self.assertEqual(sum(holds), 48)
+            for h in holds:
+                self.assertEqual(h % F, 0)
+                self.assertLessEqual(h, K)
+        # A frame without a decision carries no action.
+        for t in got[:-1]:
+            if t.action is None:
+                self.assertIsNone(t.decided)
+            else:
+                self.assertTrue(t.decided.any())
 
     def test_window_entries_are_a_fixed_number_of_frames_apart(self):
         from sim.observation import ObservationHistory, build_static_layers
@@ -1194,11 +1350,12 @@ class ObservationClockTest(unittest.TestCase):
                 seen.append({k: v.copy() for k, v in obs.items()})
                 return agent.act(obs, epsilon=0.3)
 
+            frames = []
+
             def emit(tr):
-                i = buf.push(7, tr.step, tr.record, st.key, tr.action,
-                             tr.step_rewards, tr.terminal,
-                             tr.robot_penalties, tr.frame_only)
-                if tr.action is not None:
+                i = buf.push_transition(7, st.key, tr)
+                frames.append((i, tr))
+                if tr.action is not None and not tr.final:
                     acted.append(i)
 
             run_episode(m, cfg, act, gamma=0.99, max_steps=72, seed=1,
@@ -1211,10 +1368,16 @@ class ObservationClockTest(unittest.TestCase):
                 n = int(buf.n_robots[i])
                 for k in ("ego", "mid", "glob", "state"):
                     np.testing.assert_array_equal(joint[k][0, :n], obs[k], k)
-            valid = [i for i in acted if buf.valid_transition(i)]
-            self.assertEqual(valid, acted)
-            for a, b2 in zip(acted, acted[1:]):
-                self.assertEqual(int(buf.next_dec[a]), b2)
+            n_rob = int(buf.n_robots[acted[0]])
+            for j in range(n_rob):
+                own = [i for i, tr in frames
+                       if tr.decided is not None and tr.decided[j]]
+                # Each of robot j's decisions links to its next, the last to
+                # the final frame, and each is a valid sample.
+                for a, b2 in zip(own, own[1:]):
+                    if not buf.final[a]:
+                        self.assertEqual(int(buf.next_dec_r[a, j]), b2)
+                        self.assertTrue(buf.valid_decision(a, j))
             b = buf.sample(4, np.random.default_rng(0))
             self.assertEqual(len(b["indices"]), 4)
             self.assertTrue(all(buf.has_action[int(i)] for i in b["indices"]))
@@ -1436,28 +1599,33 @@ class WaypointActionTest(unittest.TestCase):
         self.assertAlmostEqual(total_comp, total_b, places=6)
 
     def test_the_signal_holds_for_the_whole_decision(self):
-        """Whatever mode a decision sets is the mode every step of it runs
-        with, however long the decision lasts (waypoint decisions end on
-        arrival, a block or the time limit)."""
+        """Whatever mode a robot's decision sets is the mode every step of
+        it runs with, however long the decision lasts (waypoint decisions end
+        on arrival, a block or the time limit), and a robot that is not
+        deciding keeps its mode while a teammate decides."""
         from learn.rollout import run_episode
         from sim import robot_action as ra
         cfg = _cfg()
         m = _model(_level(robots=2, seed=4))
         rng = np.random.default_rng(0)
-        said = []
+        held = [None] * len(m.robots)
+        calls = []
 
-        def act(o, r):
+        def act(o, r, deciding):
             modes = ["guide" if rng.random() < 0.5 else "off"
                      for _ in m.robots]
-            said.append(modes)
+            for i, d in enumerate(deciding):
+                if d:
+                    held[i] = modes[i]
+            calls.append(deciding.copy())
             return np.stack([ra.encode((1.5, -0.5), md) for md in modes])
         seen = []
         run_episode(m, cfg, act, gamma=0.99, max_steps=120, needs_obs=False,
                     on_step=lambda model, k: seen.append(
-                        (len(said) - 1, [rb.mode for rb in model.robots])))
-        self.assertGreater(len(said), 1)
-        for d, modes in seen:
-            self.assertEqual(modes, said[d][:len(modes)])
+                        ([rb.mode for rb in model.robots], list(held))))
+        self.assertGreater(len(calls), 1)
+        for modes, want in seen:
+            self.assertEqual(modes, want[:len(modes)])
 
     def test_the_action_schema_follows_the_mode(self):
         from configs import ConfigError

@@ -24,7 +24,8 @@ def test_actor_matches_analytic_loss_and_mode_gradient():
                                             torch.zeros(1,2,2), p, lp)
     agent._robot_q_min = lambda o,a,m,j: 2*a[:,j,0] + 3*a[:,j,-1] + 5*a[:,1-j,-1]
     base = torch.tensor([[[0.,1.,0.], [0.,1.,0.]]])
-    loss, logp = agent._expected_actor_loss({}, base, torch.ones(1,2), torch.tensor([0]))
+    chosen = torch.ones(1, 2, dtype=torch.bool)       # both robots decided
+    loss, logp = agent._expected_actor_loss({}, base, torch.ones(1,2), chosen)
     expected = (.2 * (p * lp).sum(-1) - 2*cont[...,0] - 3*p[...,1]).mean()
     torch.testing.assert_close(loss, expected)
     torch.testing.assert_close(logp, (p*lp).sum(-1).flatten())
@@ -35,19 +36,34 @@ def test_actor_matches_analytic_loss_and_mode_gradient():
     torch.testing.assert_close(logits.grad[...,0], -expected_guide_grad)
 
 
-def test_target_expectation_handles_padding_and_clipped_team_order():
+def test_target_redraws_only_the_deciding_robots():
+    """At robot j's next decision frame the robots that decide there are
+    re-drawn (modes enumerated), the others keep their held actions, padding
+    is ignored, the clipped minimum is inside the expectation, and the
+    entropy bonus is j's own."""
     agent = object.__new__(SACAgent)
-    agent.alpha = torch.tensor(0.)
+    agent.alpha = torch.tensor(1.)
     p = torch.tensor([[[.25,.75],[.6,.4],[.9,.1]],
                       [[.75,.25],[.3,.7],[.2,.8]]])
     agent._per_robot_hybrid = lambda o,m: (torch.zeros(2,3,2,1), torch.zeros(2,3,2),p,p.log())
-    agent.q1_target = lambda o,a,m: (torch.tensor([[0.,10.,99.],[0.,10.,99.]])+a[:,0,-1,None])*m
-    agent.q2_target = lambda o,a,m: (torch.tensor([[10.,0.,99.],[10.,0.,99.]])+a[:,0,-1,None])*m
-    mask = torch.tensor([[1.,1.,0.],[1.,0.,0.]])
-    team = agent._expected_next_value({}, mask, per_robot=False)
-    own = agent._expected_next_value({}, mask, per_robot=True)
-    torch.testing.assert_close(team, torch.tensor([5.75,.25]))
-    torch.testing.assert_close(own, torch.tensor([[.75,.75,0.],[.25,0.,0.]]))
+    # Per robot output; robot 0's critic 1 is lower, robot 1's critic 2.
+    base1 = torch.tensor([[0.,5.,99.],[0.,5.,99.]])
+    base2 = torch.tensor([[3.,0.,99.],[3.,0.,99.]])
+    effect = lambda a: (a[:,0,-1] + 10*a[:,1,-1])[:, None]   # guide indicators
+    agent.q1_target = lambda o,a,m: (base1 + effect(a))*m
+    agent.q2_target = lambda o,a,m: (base2 + effect(a))*m
+    mask = torch.tensor([[1.,1.,0.],[1.,1.,0.]])
+    held = torch.zeros(2,3,3)
+    held[1,1,2] = 1.0                       # robot 1 of sample 1 keeps guiding
+    deciding = torch.tensor([[True,True,False],[True,False,False]])
+    v = agent._expected_next_value({}, mask, held, deciding, torch.tensor([0,0]))
+    h = lambda q: -(q*q.log()).sum()
+    expected = torch.tensor([.75 + 10*.4 + h(p[0,0]),        # both re-drawn
+                             .25 + 10*1. + h(p[1,0])])       # robot 1 held
+    torch.testing.assert_close(v, expected)
+    # Robot 1's own value: its own entropy, and critic 2's lower baseline.
+    v1 = agent._expected_next_value({}, mask, held, deciding[:1].expand(2,3), torch.tensor([1,1]))
+    torch.testing.assert_close(v1[0], .75 + 10*.4 + h(p[0,1]))
 
 
 def test_expected_actor_one_scores_only_selected_robots():
@@ -60,9 +76,10 @@ def test_expected_actor_one_scores_only_selected_robots():
     agent._per_robot_hybrid = lambda o,m: (cont.unsqueeze(2).expand(2,3,2,1),
                                            torch.zeros(2,3,2),p,p.log())
     agent._robot_q_min = lambda o,a,m,j: a[:,j,0]
+    chosen = torch.tensor([[False,True,False],[False,False,True]])
     loss,logp = agent._expected_actor_loss({},torch.zeros(2,3,3),
                                          torch.tensor([[1.,1.,0.],[1.,1.,1.]]),
-                                         torch.tensor([1,2]))
+                                         chosen)
     loss.backward()
     torch.testing.assert_close(cont.grad[...,0],torch.tensor([[0.,-.5,0.],[0.,0.,-.5]]))
     assert logp.shape == (2,)
@@ -127,13 +144,15 @@ def test_per_mode_moves_take_their_own_mode_gradient_and_target():
     # Q rewards moving with +2 in off and -3 in guide.
     q = lambda a: a[:,0,0] * (2*a[:,0,1] - 3*a[:,0,2])
     agent._robot_q_min = lambda o,a,m,j: q(a)
-    loss, _ = agent._expected_actor_loss({}, torch.zeros(1,1,3), torch.ones(1,1), torch.tensor([0]))
+    loss, _ = agent._expected_actor_loss({}, torch.zeros(1,1,3), torch.ones(1,1),
+                                         torch.ones(1,1,dtype=torch.bool))
     loss.backward()
     torch.testing.assert_close(cont.grad, torch.tensor([[[[-2*.3], [3*.7]]]]))
 
     agent.q1_target = agent.q2_target = lambda o,a,m: q(a)[:,None]*m
-    v = agent._expected_next_value({}, torch.ones(1,1), per_robot=True)
-    torch.testing.assert_close(v, torch.tensor([[.3*2*.5 + .7*(-3)*(-1.)]]))
+    v = agent._expected_next_value({}, torch.ones(1,1), torch.zeros(1,1,3),
+                                   torch.ones(1,1,dtype=torch.bool), torch.tensor([0]))
+    torch.testing.assert_close(v, torch.tensor([.3*2*.5 + .7*(-3)*(-1.)]))
 
 
 def _policy(heads):
@@ -220,3 +239,15 @@ def test_per_mode_update_trains_every_modes_head(tmp_path):
     for k in range(ra.ACTION_DIM - ra.CONT_DIM):
         rows = slice(k * ra.CONT_DIM, (k + 1) * ra.CONT_DIM)
         assert not torch.equal(before[rows], after[rows]), k
+
+
+def test_actor_trains_only_the_robots_that_decided():
+    agent = object.__new__(SACAgent)
+    mask = torch.tensor([[1.,1.,0.],[1.,1.,1.]])
+    decided = torch.tensor([[True,False,False],[False,True,True]])
+    agent.cfg = SimpleNamespace(ACTOR_UPDATE_ROBOTS="all")
+    assert agent._actor_chosen(mask, decided, torch.tensor([0,1])).tolist() == \
+        [[True,False,False],[False,True,True]]
+    agent.cfg = SimpleNamespace(ACTOR_UPDATE_ROBOTS="one")
+    assert agent._actor_chosen(mask, decided, torch.tensor([0,2])).tolist() == \
+        [[True,False,False],[False,False,True]]

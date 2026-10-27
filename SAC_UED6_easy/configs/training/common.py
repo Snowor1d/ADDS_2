@@ -102,18 +102,18 @@ ALPHA_TARGET_ENTROPY = None
 ALPHA_MIN = 0.05
 
 # --------------- ACTOR UPDATE (multi-robot) ---------------
-# Whose action the actor loss re-draws from the current policy and
-# differentiates, per sampled decision instant:
-#   "all"  every real robot (a team of three gives three times the policy
-#          gradient samples per batch)
-#   "one"  one robot drawn at random, as before
+# A replay sample is one robot's decision (docs/async_decisions.md). Whose
+# action the actor loss re-draws from the current policy and differentiates
+# at the sampled frame:
+#   "all"  every robot that decided at that frame (under
+#          ROBOT_DECISION_SCOPE = "team", every real robot)
+#   "one"  only the robot whose decision was sampled
 # What the other robots are taken to do meanwhile:
-#   "stored"   the actions they actually took, as recorded in the replay
-#              (MADDPG): the best reply to what teammates did. With "all",
-#              one critic pass per robot slot.
-#   "current"  what the current policy would do now, without gradient
-#              through them: teammates as they are, not as an older policy
-#              was. With "all", one critic pass re-draws the whole team.
+#   "stored"   the actions they had at that frame, as recorded in the replay
+#              (MADDPG): the best reply to what teammates were doing.
+#   "current"  for teammates that decided at that frame too, what the
+#              current policy would do now (without gradient through them);
+#              teammates carrying out an earlier decision keep it.
 ACTOR_UPDATE_ROBOTS = "all"         # "all" | "one"
 ACTOR_TEAMMATE_ACTIONS = "stored"   # "stored" | "current"
 # "expectation": enumerate each actor's modes and the target's joint modes.
@@ -134,7 +134,8 @@ ACTOR_CONT_HEADS = "shared"         # "shared" | "per_mode"
 
 ENABLE_TIMER = True
 N_ENVS = 12
-# Gradient updates per stored decision instant. Measured on this machine
+# Gradient updates per stored frame at which some robot decided (and per
+# episode's final frame). Measured on this machine
 # (docs/replay_memory_budget.md): one update at batch 128 with three robots
 # costs about 0.18 s to rebuild (overlapped with the previous update) plus
 # 0.18 s on the GPU, while 12 workers on the generated 0.6/0.3/0.1 size mix produce
@@ -383,7 +384,7 @@ WANDB_GROUP = None                  # None = EXPERIMENT_ID
 # "outdoor-madrl-v2-dataset-100m-0924-1530". A run started from a checkpoint
 # as a new run (see the resume rule in learn/metrics_logger.py) gets
 # "-resume<episode>" appended either way; a run that carries on keeps its name.
-WANDB_RUN_NAME = "Reward_Progress150_RD60_UPT4"  # None = auto
+WANDB_RUN_NAME = "Reward_Progress150_UPT2_asy"  # None = auto
 # Only models chosen on validation are uploaded, never the replay buffer or
 # every periodic checkpoint.
 WANDB_UPLOAD_CHECKPOINTS = "selected"   # "none" | "selected"

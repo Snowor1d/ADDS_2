@@ -127,9 +127,15 @@ class ShuttlePolicy:
 
     # ------------------------------------------------------------- acting
 
-    def __call__(self, obs, rec) -> np.ndarray:
+    def __call__(self, obs, rec, deciding=None) -> np.ndarray:
+        """One row per robot. Only the robots in `deciding` (all when None)
+        advance their state machine; a robot carrying out its decision gets
+        a row the rollout does not apply."""
         rows = []
         for i, rb in enumerate(self.m.robots):
+            if deciding is not None and not deciding[i]:
+                rows.append(np.zeros(self.ra.ACTION_DIM, np.float32))
+                continue
             rows.append(self._act_one(i, rb))
         return np.stack(rows)
 

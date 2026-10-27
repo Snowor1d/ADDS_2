@@ -70,9 +70,7 @@ def measure(size: int, steps: int, batch: int, density=None, level=None,
         buf = ReplayBuffer(cfg, 4 * steps, store)
 
         def emit(tr):
-            buf.push(0, tr.step, tr.record, static.key, tr.action,
-                     tr.step_rewards, tr.terminal,
-                     tr.robot_penalties, tr.frame_only)
+            buf.push_transition(0, static.key, tr)
 
         t0 = time.perf_counter()
         res = run_episode(model, cfg,
@@ -80,7 +78,7 @@ def measure(size: int, steps: int, batch: int, density=None, level=None,
                           gamma=0.99, max_steps=steps, static=static,
                           emit=emit)
         episode_s = time.perf_counter() - t0
-        n_valid = sum(buf.valid_transition(i) for i in range(buf.size))
+        n_valid = buf.n_valid()
         b = min(batch, max(1, n_valid))
         t0 = time.perf_counter()
         sample = buf.sample(b)
