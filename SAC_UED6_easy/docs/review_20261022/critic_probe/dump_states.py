@@ -6,6 +6,9 @@ same Q as the probe recorded. Writes results/<name>_state.npz next to each
 results/<name>.json: the joint observation, mask, and one applied action
 matrix per candidate.
 
+Probes run on any level (validation index or SITE:SIZE:K, true_adv_v2
+`probe_level`) and under their recorded overrides.
+
 Usage: dump_states.py CKPT [RESULTS_DIR]
 """
 import glob
@@ -36,14 +39,13 @@ def main():
     agent = SACAgent(cfg, device="cpu")
     agent.load(ckpt)
     agent.policy.eval()
-    levels = validation_levels(cfg)
     for path in sorted(glob.glob(os.path.join(rdir, "s*_t*.json"))):
         out = path[:-5] + "_state.npz"
-        if os.path.exists(out):
+        if os.path.exists(out) or path.endswith(("_r3.json", "_more.json")):
             continue
         d = json.load(open(path))
-        name, lv = levels[d["scen"]]
-        seed = validation_seed(name)
+        cfg = resolve_config(d.get("overrides") or None, check_data=False)
+        name, lv, seed = P.probe_level(cfg, d.get("level_spec", d["scen"]))
         m = build_eval_model(lv, seed)
         static = build_static_layers(m, cfg)
         ep = P.Episode(m, cfg, static, seed)

@@ -19,6 +19,12 @@ import torch.nn.functional as F
 from config import *
 
 
+class NoSafeMeshError(Exception):
+    """choice_safe_mesh found no walkable navmesh triangle at or next to the
+    point. A subclass of Exception with RV3's message, so existing handlers
+    behave as before; calculate_mesh_danger catches it by name."""
+
+
  # goals의 가운데를 가져오는 함수
  # 어디로 향하게 할 것인가? -> goals의 가운데 
 
@@ -143,7 +149,7 @@ class CrowdAgent(Agent):
                     return self.model.match_grid_to_mesh[point_grid]
                 
             
-            raise Exception(f"{x}, {y} 지점에서 오류 발생, safe mesh를 찾지 못했습니다")
+            raise NoSafeMeshError(f"{x}, {y} 지점에서 오류 발생, safe mesh를 찾지 못했습니다")
         return self.model.match_grid_to_mesh[point_grid]
         
 
@@ -372,7 +378,7 @@ class CrowdAgent(Agent):
             return x*s, y*s
         
         self.danger = 1e9
-        self.danger = self.model.distance_to_exit(self.xy)
+        self.danger = self.model.danger_distance(self.xy)
         if (self.danger > 1e5):
             self.dead = True
 
@@ -890,7 +896,7 @@ class RobotAgent(CrowdAgent):
             self.robot_waypoint = [0, 0]
 
         self.previous_danger = getattr(self, "danger", 1e9)
-        self.danger = self.model.distance_to_exit(self.xy)
+        self.danger = self.model.danger_distance(self.xy)
         
         if(self.model.alived_agents()< 1):
             self.is_game_finished = 1

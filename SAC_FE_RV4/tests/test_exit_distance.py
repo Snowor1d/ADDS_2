@@ -97,8 +97,8 @@ class DangerTest(unittest.TestCase):
         importlib.reload(agent)
         importlib.reload(model)
 
-    def test_euclidean_default_is_rv3(self):
-        env = self._env({})
+    def test_euclidean_is_rv3(self):
+        env = self._env({"DANGER_DISTANCE": "euclidean"})
         for _ in range(3):
             env.step()
         for a in env.crowds:
@@ -124,18 +124,20 @@ class DangerTest(unittest.TestCase):
 
 
 class FingerprintTest(unittest.TestCase):
-    def test_default_leaves_fingerprint_unchanged(self):
-        from configs import _FINGERPRINT_DEFAULTS, resolve_config
+    def tearDown(self):
         os.environ.pop("RV4_OVERRIDES", None)
+
+    def test_legacy_default_hashes_as_if_the_setting_did_not_exist(self):
+        import hashlib
+        from configs import _FINGERPRINT_DEFAULTS, _NOT_FINGERPRINTED, resolve_config
+        os.environ["RV4_OVERRIDES"] = json.dumps(_FINGERPRINT_DEFAULTS)
         cfg = resolve_config()
-        for k, v in _FINGERPRINT_DEFAULTS.items():
-            self.assertEqual(cfg.get(k), v)
-        base = cfg.fingerprint()
-        os.environ["RV4_OVERRIDES"] = json.dumps({"DANGER_DISTANCE": "geodesic"})
-        try:
-            self.assertNotEqual(resolve_config().fingerprint(), base)
-        finally:
-            os.environ.pop("RV4_OVERRIDES", None)
+        old = {k: v for k, v in cfg.as_dict().items()
+               if k not in _NOT_FINGERPRINTED and k not in _FINGERPRINT_DEFAULTS}
+        blob = json.dumps(old, sort_keys=True, default=str).encode()
+        self.assertEqual(cfg.fingerprint(), hashlib.sha256(blob).hexdigest()[:12])
+        os.environ["RV4_OVERRIDES"] = json.dumps(dict(_FINGERPRINT_DEFAULTS, DANGER_DISTANCE="geodesic"))
+        self.assertNotEqual(resolve_config().fingerprint(), cfg.fingerprint())
 
 
 if __name__ == "__main__":

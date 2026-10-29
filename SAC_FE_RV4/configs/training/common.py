@@ -254,7 +254,7 @@ MAX_UPDATES_PER_LOOP = 64
 # 로깅과 W&B
 # =====================================================================
 LOG_DIR = "Log_SAC_FE_RV4"           # ~/<LOG_DIR>
-PORT_NUM = 7754
+PORT_NUM = 7900
 EXPERIMENT_ID = "fe-rv4"
 LOG_TRAIN_EVERY_UPDATES = 200
 LOG_TXT_COMPAT = True                # RV3 형식 txt (total_reward.txt 등)도 계속 기록
@@ -264,7 +264,7 @@ WANDB_MODE = "online"
 WANDB_PROJECT = "adds-sac-fe-rv4"
 WANDB_ENTITY = None                  # None = 계정 기본 entity
 WANDB_GROUP = None                   # None = EXPERIMENT_ID
-WANDB_RUN_NAME = "SAC_FE_RV3_aug_L"                # None = 모드·인코더·시각으로 자동 생성
+WANDB_RUN_NAME = "SAC_FE_RV4_aug_L_geoDanger"                # None = 모드·인코더·시각으로 자동 생성
 WANDB_TAGS = ()
 WANDB_UPLOAD_CHECKPOINTS = "selected"   # "none" | "selected" (검증으로 고른 모델만)
 # 검증 때 정책 에피소드 1개를 영상으로 W&B 에 올릴지 (continuous_renderer)

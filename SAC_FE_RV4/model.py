@@ -11,7 +11,7 @@ from shapely.ops import unary_union
 import matplotlib.tri as mtri
 
 from core import Model, Agent
-from agent import WallAgent
+from agent import WallAgent, NoSafeMeshError
 import random
 import copy
 import math
@@ -1007,6 +1007,8 @@ class FightingModel(Model):
         """
         BIG = 1e18
         self.mesh_danger = {}
+        # Triangles whose route could not be computed (see below).
+        self.mesh_danger_unplaced = 0
 
         # mesh 대표점 -> safe mesh 매칭 안정화를 위해 centroid 사용
         for mesh in self.pure_mesh:
@@ -1020,7 +1022,20 @@ class FightingModel(Model):
                 # model's navmesh, so any agent can evaluate it; RV3 used the
                 # robot and so could not build a map without one ('N').
                 helper = self.robot if hasattr(self, "robot") else self.crowds[0]
-                d = helper.point_to_point_distance((cx, cy), q)
+                try:
+                    d = helper.point_to_point_distance((cx, cy), q)
+                except NoSafeMeshError:
+                    # A sliver triangle, typically in the 1 m strip between
+                    # an obstacle and the map edge (the frame is at W-1 / H-1),
+                    # whose centroid has no walkable grid cell within reach
+                    # of choice_safe_mesh, so no route is known. RV3 aborted
+                    # the whole map build here (map 1230 under 4 of the 8 D4
+                    # transforms). mesh_danger is only drawn by the renderer,
+                    # so the triangle is left at BIG instead; maps that built
+                    # before compute exactly what they did.
+                    self.mesh_danger_unplaced += 1
+                    best = BIG
+                    break
 
                 if d < best:
                     best = d

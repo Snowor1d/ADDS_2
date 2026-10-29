@@ -15,8 +15,10 @@ DATASET_MAPS = tuple(range(1000, 1300))
 # 맵별 추출 가중치. None 이면 균등.
 DATASET_MAP_WEIGHTS = None
 # 기하 증강: 에피소드마다 D4 대칭(회전 4 x 반사 2) 중 하나를 맵에 적용.
-# 출구·장애물이 함께 변환된다. RV3 는 MAP_DATA_AUGMENTATION=True 로 항상 켜져
-# 있었다.
+# 출구·장애물이 함께 변환된다. RV4 학습의 task sampler(ued/runner.py)가 변환을
+# 골라 환경에 명시적으로 넘긴다. RV3 코드에는 2026-09-03 에 들어왔으므로
+# (MAP_DATA_AUGMENTATION, configs/environment.py) 그 전에 학습된 3maps·300maps
+# 모델은 증강 없이 학습됐다.
 DATASET_AUGMENTATION = True
 DATASET_AUGMENTATION_TRANSFORMS = (
     "identity", "rotate_90", "rotate_180", "rotate_270",

@@ -1300,6 +1300,12 @@ class FightingModel(Model):
                     heapq.heappush(heap, (nd, id(nb), nb))
 
         self.mesh_danger = dist
+        # What escape_distance reports for a triangle with no walkable route
+        # to safety: farther than any place that has one, but finite and on
+        # the scale of the crop, so the reward terms that sum it stay bounded.
+        reach = [d for d in dist.values() if d < 1e5]
+        self.danger_unreachable = float((max(reach) if reach else 0.0)
+                                        + math.hypot(float(self.width), float(self.height)))
         return 0
 
  
@@ -1395,6 +1401,15 @@ class FightingModel(Model):
         happens for a pedestrian pressed into a corner during a collision
         resolution. The straight line is a lower bound, so the fallback can
         only under-report the work remaining, never invent progress.
+
+        A triangle with no walkable route to safety at all reports
+        `danger_unreachable` (calculate_mesh_danger): the farthest distance
+        that does have a route, plus the crop diagonal. Escape distance is
+        walking distance, and somebody who cannot walk out is farther from
+        safety than anybody who can; the straight line it used to fall back
+        to here would call them close. The level validator rejects levels
+        where somebody starts without a route, so this is the guard for what
+        it misses, not a normal state.
         """
         zone = getattr(self, "danger_zone", None)
         if zone is None:
@@ -1404,8 +1419,12 @@ class FightingModel(Model):
         mesh = self.match_grid_to_mesh.get((int(xy[0]), int(xy[1])))
         if mesh is not None:
             d = self.mesh_danger.get(mesh)
-            if d is not None and d < 1e5:
-                return float(d)
+            if d is not None:
+                if d < 1e5:
+                    return float(d)
+                cap = getattr(self, "danger_unreachable", None)
+                if cap is not None:
+                    return cap
         return float(zone.escape_distance(float(xy[0]), float(xy[1])))
 
     def agents_in_danger(self) -> int:

@@ -19,6 +19,10 @@ candidates is read at the branch state with the moves the environment
 accepted, as the replay stores them.
 
 Usage: true_adv_v2.py SCEN T0_STEPS CKPT OUT [--reps 3] [--rep-start 0] [--max-steps N]
+                      [--overrides JSON]
+
+SCEN is a validation scenario index, or SITE:SIZE:K for a probe level on any
+corpus crop (`probe_level`), e.g. kreuzberg:200:0 or hongdae:100:1.
 
 Repeat r always uses the same seeds, so --rep-start adds repeats to an
 earlier run of the same state (merge_reps.py joins them).
@@ -47,6 +51,30 @@ from learn.zero_shot import build_eval_model, validation_levels, validation_seed
 from sim import robot_action as ra
 from sim.observation import ObservationHistory, build_static_layers
 from sim.rewards import PER_ROBOT_VERSIONS, ROBOT_TERMS, TaskReward
+
+
+def probe_level(cfg, spec):
+    """(name, level, crowd seed) for a validation index or SITE:SIZE:K.
+
+    A SITE:SIZE:K level is made by the training sampler from a seed fixed by
+    its name, as validation levels are, in a range of its own (960000-964999;
+    validation uses 955000-959999 and the final zero-shot 970000 and up)."""
+    import hashlib
+    spec = str(spec)
+    if ":" not in spec:
+        name, lv = validation_levels(cfg)[int(spec)]
+        return name, lv, validation_seed(name)
+    from learn.training_maps import OsmTrainingMaps
+    site, size, k = spec.split(":")
+    if site == str(cfg.FINAL_ZERO_SHOT_SITE):
+        raise ValueError("the final zero-shot site is not probed")
+    name = f"probe_{site}_{int(size)}m_{int(k)}"
+    seed = int(hashlib.sha256(name.encode()).hexdigest()[:6], 16) % 5000 + 960_000
+    maps = OsmTrainingMaps(cfg, (site,), (int(size),))
+    lv = maps.make_level((site, int(size)), random.Random(seed))
+    if lv is None:
+        raise RuntimeError(f"no hazard placed on {spec}")
+    return name, lv, validation_seed(name)
 
 
 class Episode:
@@ -112,7 +140,7 @@ class Episode:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("scen", type=int)
+    ap.add_argument("scen", help="validation index or SITE:SIZE:K")
     ap.add_argument("t0", type=int, help="branch at the first decision at or after this step")
     ap.add_argument("ckpt")
     ap.add_argument("out")
@@ -120,9 +148,14 @@ def main():
     ap.add_argument("--rep-start", type=int, default=0)
     ap.add_argument("--max-steps", type=int, default=None,
                     help="cap the rollout after the branch (smoke tests)")
+    ap.add_argument("--overrides", default="",
+                    help="JSON settings to run under, e.g. the checkpoint's training values")
     args = ap.parse_args()
 
-    cfg = resolve_config(check_data=False)
+    over = json.loads(args.overrides) if args.overrides else {}
+    cfg = resolve_config(over or None, check_data=False)
+    print(f"gamma {cfg.gamma()} decision max steps {cfg.decision_max_steps()} "
+          f"overrides {over}", flush=True)
     agent = SACAgent(cfg, device="cpu")
     ck = agent.load(args.ckpt)
     agent.policy.eval()
@@ -131,8 +164,7 @@ def main():
               f"{ck.get('config_fingerprint')}", flush=True)
     g_step = cfg.gamma() ** (1.0 / max(1, int(cfg.ACTION_SCALE)))
 
-    name, lv = validation_levels(cfg)[args.scen]
-    seed = validation_seed(name)
+    name, lv, seed = probe_level(cfg, args.scen)
     m = build_eval_model(lv, seed)
     static = build_static_layers(m, cfg)
     ep = Episode(m, cfg, static, seed)
@@ -185,7 +217,8 @@ def main():
 
     memo_shared = {id(cfg): cfg, id(static): static}
     horizons = {"200s": 400, "400s": 800}
-    out = {"scenario": name, "scen": args.scen, "t0_request": args.t0,
+    out = {"scenario": name, "scen": args.scen, "level_spec": str(args.scen),
+           "overrides": over, "map_size": int(lv.width), "t0_request": args.t0,
            "branch_step": branch_step, "gamma": cfg.gamma(), "g_step": g_step,
            "inside_at_branch": int(ep.m.agents_in_danger()),
            "n_ref": float(ep.rew.n_ref), "robot0_xy": [x, y],

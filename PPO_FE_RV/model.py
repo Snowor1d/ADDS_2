@@ -11,7 +11,7 @@ from shapely.ops import unary_union
 import matplotlib.tri as mtri
 
 from core import Model, Agent
-from agent import WallAgent
+from agent import WallAgent, NoSafeMeshError
 import random
 import copy
 import math
@@ -836,6 +836,22 @@ class FightingModel(Model):
         _, _, d = self.nearest_exit(xy)
         return d
 
+    def danger_distance(self, xy):
+        """agent.danger: 가장 가까운 출구까지 거리. DANGER_DISTANCE 가
+        "euclidean" 이면 distance_to_exit (RV3, 벽 무시), "geodesic" 이면 걷는
+        거리 (exit_distance.py). 걷는 거리에서 출구로 가는 길이 없는 곳은
+        맵에서 도달 가능한 가장 먼 거리 + 대각선(유한), 출구가 없는 맵은 inf."""
+        if DANGER_DISTANCE == "geodesic":
+            fld = getattr(self, "_danger_field", None)
+            if fld is None:
+                from exit_distance import ExitDistanceField
+                fld = self._danger_field = ExitDistanceField(
+                    self.obstacles, self.exit_list, self.width, self.height, DANGER_GEO_RES)
+            return fld(float(xy[0]), float(xy[1]))
+        if DANGER_DISTANCE != "euclidean":
+            raise ValueError(f"DANGER_DISTANCE={DANGER_DISTANCE!r} must be 'euclidean' or 'geodesic'")
+        return self.distance_to_exit(xy)
+
     def visible_exits(self, xy, radius):
         """
         xy에서 radius 내 '시야 폴리곤' 기준으로 보이는 출구 idx 리스트.
@@ -963,6 +979,8 @@ class FightingModel(Model):
         """
         BIG = 1e18
         self.mesh_danger = {}
+        # Triangles whose route could not be computed (see below).
+        self.mesh_danger_unplaced = 0
 
         # mesh 대표점 -> safe mesh 매칭 안정화를 위해 centroid 사용
         for mesh in self.pure_mesh:
@@ -973,7 +991,20 @@ class FightingModel(Model):
             for exit_idx in range(len(self._exit_polys)):
                 q, _ = self.nearest_point_on_exit(exit_idx, (cx, cy))
                 # 기존 네비메쉬 기반 거리 사용
-                d = self.robot.point_to_point_distance((cx, cy), q)
+                try:
+                    d = self.robot.point_to_point_distance((cx, cy), q)
+                except NoSafeMeshError:
+                    # A sliver triangle, typically in the 1 m strip between
+                    # an obstacle and the map edge (the frame is at W-1 / H-1),
+                    # whose centroid has no walkable grid cell within reach
+                    # of choice_safe_mesh, so no route is known. RV3 aborted
+                    # the whole map build here (maps 1207 and 1230 under some
+                    # D4 transforms). mesh_danger is only drawn by the
+                    # renderer, so the triangle is left at BIG instead; maps
+                    # that built before compute exactly what they did.
+                    self.mesh_danger_unplaced += 1
+                    best = BIG
+                    break
 
                 if d < best:
                     best = d

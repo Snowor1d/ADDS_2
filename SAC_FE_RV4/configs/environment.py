@@ -61,9 +61,11 @@ HARDCODED_MAP_SIZES = {}
 MAP_NUM = -1                 # 고정 맵 번호, -1 이면 MAP_NUM_RANDOM 에서 무작위
 MAP_NUM_RANDOM = list(range(1000, 1300))
 # 옛 스크립트에서 맵을 만들 때마다 대칭 변환을 무작위로 적용할지.
-# RV3 는 True 였고, 그래서 RV3 평가도 회전·반사된 맵에서 돌았다. RV4 학습은
-# DATASET_AUGMENTATION / UED_AUGMENTATION 으로, 평가는 시나리오에 적힌
-# 변환(기본 identity)으로 정한다.
+# FightingModel 을 augmentation 인자 없이 만들 때만 읽는다(run_sim.py,
+# ADDS_AS_experiment.py, HumanPlay 의 suite 아닌 모드 등). RV3 에는
+# 2026-09-03 에 들어와 True 였고, 그 뒤 RV3 스크립트의 학습·평가는 회전·반사된
+# 맵에서 돌았다. RV4 학습은 DATASET_AUGMENTATION / UED_AUGMENTATION 으로,
+# 평가는 시나리오에 적힌 변환(기본 identity)으로 정하므로 이 값을 보지 않는다.
 MAP_DATA_AUGMENTATION = False
 MAP_AUGMENTATION_TRANSFORMS = (
     "identity", "rotate_90", "rotate_180", "rotate_270",
@@ -114,7 +116,7 @@ ROBOT_EDGE_TRAP_FIX = True
 # RV3; 출구가 없는 맵에서는 두 방식 모두 inf).
 # 군중의 이동 결정은 danger 를 쓰지 않으므로 시뮬레이션 결과(대피 시간)는
 # 바뀌지 않고 보상만 바뀐다.
-DANGER_DISTANCE = "euclidean"      # "euclidean" | "geodesic"
+DANGER_DISTANCE = "geodesic"      # "euclidean" | "geodesic"
 DANGER_GEO_RES = 0.5               # m
 AGENT_TIME_STEP = 0.5        # s
 ROBOT_TIME_STEP = 0.5        # s
