@@ -1,0 +1,4 @@
+{
+  "_comment": "agent.danger (reward_b's distance sum, reward_d's near-exit test) as walking distance around obstacles instead of RV3's straight line through walls. See configs/environment.py DANGER_DISTANCE.",
+  "DANGER_DISTANCE": "geodesic"
+}

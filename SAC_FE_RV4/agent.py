@@ -372,7 +372,7 @@ class CrowdAgent(Agent):
             return x*s, y*s
         
         self.danger = 1e9
-        self.danger = self.model.distance_to_exit(self.xy)
+        self.danger = self.model.danger_distance(self.xy)
         if (self.danger > 1e5):
             self.dead = True
 
@@ -899,7 +899,7 @@ class RobotAgent(CrowdAgent):
             self.robot_waypoint = [0, 0]
 
         self.previous_danger = getattr(self, "danger", 1e9)
-        self.danger = self.model.distance_to_exit(self.xy)
+        self.danger = self.model.danger_distance(self.xy)
         
         if(self.model.alived_agents()< 1):
             self.is_game_finished = 1

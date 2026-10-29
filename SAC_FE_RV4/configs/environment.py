@@ -98,6 +98,24 @@ ROBOT_SPEED_NORM_LIMIT = 2.0
 # 못 빠져나옴; 셔틀 베이스라인에서 관찰, 2026-10-25). True 면 그 띠에서만 반발
 # 방향을 안쪽으로 고친다. 경계 안쪽 동작은 RV3 와 같다. False = RV3.
 ROBOT_EDGE_TRAP_FIX = True
+# 사람·로봇의 agent.danger (출구까지 거리)를 재는 방법.
+#   "euclidean" RV3 그대로: 가장 가까운 출구 다각형까지의 직선거리
+#               (model.distance_to_exit). 벽을 무시해서, 출구 옆 막다른
+#               골목에서는 실제 걷는 거리의 절반 이하가 된다(맵 1504: 직선
+#               21.5 m, 걷는 거리 약 56 m).
+#   "geodesic"  장애물을 돌아가는 걷는 거리 (learn/exit_distance.py: 맵마다
+#               DANGER_GEO_RES 격자 거리장을 한 번 계산, 열린 공간에서는 직선
+#               거리와 3 % 안으로 같다). 출구로 가는 길이 없는 곳은 "그 맵에서
+#               도달 가능한 가장 먼 거리 + 맵 대각선": 어느 도달 가능한 곳보다
+#               멀지만 유한해서 reward_b 가 발산하지 않고, 갇힌 사람이 아래
+#               "danger > 1e5 이면 제거" 규칙에 걸리지 않는다.
+# agent.danger 를 쓰는 곳: reward_b (생존자 거리 합), reward_d (로봇이 출구
+# 5 m 안인지), reward_j, 그리고 "출구가 없는 맵이면 제거"(danger > 1e5,
+# RV3; 출구가 없는 맵에서는 두 방식 모두 inf).
+# 군중의 이동 결정은 danger 를 쓰지 않으므로 시뮬레이션 결과(대피 시간)는
+# 바뀌지 않고 보상만 바뀐다.
+DANGER_DISTANCE = "euclidean"      # "euclidean" | "geodesic"
+DANGER_GEO_RES = 0.5               # m
 AGENT_TIME_STEP = 0.5        # s
 ROBOT_TIME_STEP = 0.5        # s
 # 출구 점수 가중치 (crowd exit choice)

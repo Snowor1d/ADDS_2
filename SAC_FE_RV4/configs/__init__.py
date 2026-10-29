@@ -57,6 +57,14 @@ _NOT_FINGERPRINTED = {
     "SAVE_REPLAY", "SHOW_CONTROLLED_CROWD",
 }
 
+# Settings added after runs had started, with the value that reproduces the
+# earlier behaviour. At that value they are left out of the fingerprint, so
+# checkpoints written before the setting existed still resume.
+_FINGERPRINT_DEFAULTS = {
+    "DANGER_DISTANCE": "euclidean",
+    "DANGER_GEO_RES": 0.5,
+}
+
 _VALID = {
     "TRAIN_MAP_SOURCE": ("dataset", "ued", "mixed"),
     "OBS_EGO_MODE": ("normalized", "metric"),
@@ -67,6 +75,7 @@ _VALID = {
     "ENCODER_SHARING": ("separate", "critic"),
     "RESET_SCOPE": ("heads", "all"),
     "REWARD_COLLISION_MODE": ("last_step", "sum"),
+    "DANGER_DISTANCE": ("euclidean", "geodesic"),
     "RESUME_MODE": ("latest", "fresh"),
     "WANDB_MODE": ("online", "offline", "disabled"),
     "WANDB_UPLOAD_CHECKPOINTS": ("none", "selected"),
@@ -254,7 +263,8 @@ class Config:
         return self._overridden
 
     def fingerprint(self) -> str:
-        data = {k: v for k, v in self._values.items() if k not in _NOT_FINGERPRINTED}
+        data = {k: v for k, v in self._values.items() if k not in _NOT_FINGERPRINTED
+                and not (k in _FINGERPRINT_DEFAULTS and v == _FINGERPRINT_DEFAULTS[k])}
         blob = json.dumps(data, sort_keys=True, default=str).encode()
         return hashlib.sha256(blob).hexdigest()[:12]
 
@@ -334,6 +344,9 @@ def _validate(v: Dict[str, Any]) -> None:
     lim = v.get("ROBOT_SPEED_NORM_LIMIT")
     if lim is not None and not (0 < float(lim) <= 2.0 * 2 ** 0.5):
         errs.append("ROBOT_SPEED_NORM_LIMIT must be None or in (0, 2.83]")
+    res = v.get("DANGER_GEO_RES")
+    if res is not None and not (isinstance(res, (int, float)) and 0.1 <= res <= 2.0):
+        errs.append("DANGER_GEO_RES must be in [0.1, 2.0] m")
     if v["EGO_MAP_SIZE"] % 2 != 1:
         errs.append("EGO_MAP_SIZE must be odd so the robot sits on the centre pixel")
     if v["FRAME_STACK"] < 1:

@@ -8,6 +8,10 @@ REWARD_* weights. Two options (configs/training/common.py):
                            looks at the window's last step only; "sum": at
                            every step of the window.
     REWARD_SCALE_INVARIANT the distance-sum term divided by side / 100 m.
+
+The distance-sum term (reward_b) adds up agent.danger, whose metric is the
+environment setting DANGER_DISTANCE (straight line as in RV3, or walking
+distance; model.danger_distance).
 """
 
 from __future__ import annotations

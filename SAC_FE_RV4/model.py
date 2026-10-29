@@ -866,6 +866,20 @@ class FightingModel(Model):
         _, _, d = self.nearest_exit(xy)
         return d
 
+    def danger_distance(self, xy):
+        """agent.danger: 가장 가까운 출구까지 거리. DANGER_DISTANCE 가
+        "euclidean" 이면 distance_to_exit (RV3, 벽 무시), "geodesic" 이면 걷는
+        거리 (learn/exit_distance.py). 걷는 거리에서 출구로 가는 길이 없는 곳은
+        맵에서 도달 가능한 가장 먼 거리 + 대각선(유한), 출구가 없는 맵은 inf."""
+        if DANGER_DISTANCE == "geodesic":
+            fld = getattr(self, "_danger_field", None)
+            if fld is None:
+                from learn.exit_distance import ExitDistanceField
+                fld = self._danger_field = ExitDistanceField(
+                    self.obstacles, self.exit_list, self.width, self.height, DANGER_GEO_RES)
+            return fld(float(xy[0]), float(xy[1]))
+        return self.distance_to_exit(xy)
+
     def visible_exits(self, xy, radius):
         """
         xy에서 radius 내 '시야 폴리곤' 기준으로 보이는 출구 idx 리스트.
