@@ -252,7 +252,7 @@ def calculate_shaping_components(env, collision_reward: float, zero_step: int,
     values = {
         "reward_a_alive": _weighted(cfg.REWARD_A, env.reward_based_alived),
         "reward_b_danger": _weighted(
-            cfg.REWARD_B, env.reward_based_all_agents_danger
+            cfg.REWARD_B_1, env.reward_based_all_agents_danger
         ),
         "reward_c_gain": _weighted(cfg.REWARD_C, env.reward_based_gain),
         "reward_d_penalty": _weighted(cfg.REWARD_D, env.reward_penalty),
@@ -657,7 +657,7 @@ def read_progress_mean_rewards(path: Path) -> list[dict[str, float]]:
 def enabled_component_keys() -> list[str]:
     weights = {
         "reward_a_alive": cfg.REWARD_A,
-        "reward_b_danger": cfg.REWARD_B,
+        "reward_b_danger": cfg.REWARD_B_1,
         "reward_c_gain": cfg.REWARD_C,
         "reward_d_penalty": cfg.REWARD_D,
         "reward_e_evacuated_with_robot": cfg.REWARD_E,
@@ -900,7 +900,7 @@ def write_run_config(path: Path, args: argparse.Namespace, completed: int) -> No
     ]
     for key, value in (
         ("REWARD_A", cfg.REWARD_A),
-        ("REWARD_B", cfg.REWARD_B),
+        ("REWARD_B_1", cfg.REWARD_B_1),
         ("REWARD_C", cfg.REWARD_C),
         ("REWARD_D", cfg.REWARD_D),
         ("REWARD_E", cfg.REWARD_E),

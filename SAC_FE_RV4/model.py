@@ -2140,7 +2140,7 @@ class FightingModel(Model):
             if self.using_model and ((self.step_n % ACTION_SCALE == (ACTION_SCALE - 1)) and SCALE_CHECK):
                 # (주의) 각 reward 함수들이 정의되어 있어야 함
                 print(f"reward_based_alived : {self.reward_based_alived() * REWARD_A:.4f}")
-                print(f"reward_based_all_agents_danger : {self.reward_based_all_agents_danger() * REWARD_B:.4f}")
+                print(f"reward_based_all_agents_danger : {self.reward_based_all_agents_danger() * REWARD_B_1:.4f}")
                 print(f"reward_penalty : {self.reward_penalty() * REWARD_D:.4f}")
                 print(f"reward_fixed : {REWARD_FIXED}")
                 print(f"reward_based_farthest_agent_distance : {self.reward_based_farthest_agent_distance() * REWARD_L:.4f}")

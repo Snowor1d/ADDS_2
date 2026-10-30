@@ -13,6 +13,11 @@ Per probe state (8 candidates for robot 0, Monte Carlo returns per repeat):
                candidate, over the same for a uniformly random pick (0 = picks
                the best, 1 = no better than chance)
 
+  pair accuracy  over candidate pairs whose return difference is significant
+               (paired over repeats, which share their random numbers; t test
+               p < 0.05, states with >= 6 repeats), the share the critic
+               orders the same way; confidence interval by resampling states
+
 A critic's values at one update are noisy (earlier testbed: checkpoint to
 checkpoint variation as large as between variants), so each variant is
 scored on its values averaged over the updates in --late (default: the last
@@ -69,11 +74,54 @@ def scores(q, mc):
     return corr, regret
 
 
+T95 = {5: 2.571, 6: 2.447, 7: 2.365, 8: 2.306, 9: 2.262, 10: 2.228, 11: 2.201}
+
+
+def significant_pairs(mc):
+    """[(a, b)] with candidate a's return significantly above b's."""
+    C, M = mc.shape
+    if M < 6:
+        return []
+    out = []
+    for a in range(C):
+        for b in range(C):
+            if a == b:
+                continue
+            d = mc[a] - mc[b]
+            se = d.std(ddof=1) / np.sqrt(M)
+            if se > 0 and d.mean() / se > T95.get(M - 1, 2.0):
+                out.append((a, b))
+    return out
+
+
+def pair_accuracy(qs, pairs, states, boots=2000, rng=None):
+    """Share of significant pairs ordered correctly, and a 95% interval
+    from resampling states."""
+    rng = rng or np.random.default_rng(0)
+    per = []
+    for s in states:
+        q = qs[s]
+        per.append((sum(q[a] > q[b] for a, b in pairs[s]), len(pairs[s])))
+    per = np.asarray(per, float)
+    if per[:, 1].sum() == 0:
+        return float("nan"), (float("nan"), float("nan"))
+    acc = per[:, 0].sum() / per[:, 1].sum()
+    bs = []
+    for _ in range(boots):
+        i = rng.integers(0, len(per), len(per))
+        n = per[i, 1].sum()
+        if n > 0:
+            bs.append(per[i, 0].sum() / n)
+    return float(acc), (float(np.percentile(bs, 2.5)), float(np.percentile(bs, 97.5)))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("jsonl")
     ap.add_argument("--late", type=int, default=None, help="first update of the averaged window")
     ap.add_argument("--min-rel", type=float, default=0.5)
+    ap.add_argument("--pair", default="spatial,vector",
+                    help="A,B: report A minus B, pairing A<suffix> with B<suffix> over seeds")
     ap.add_argument("--dirs", default=",".join([os.path.join(HERE, "results"),
                                                 os.path.join(HERE, "results", "gen")]))
     args = ap.parse_args()
@@ -124,18 +172,33 @@ def main():
                 line += f" {v} {np.mean(c):+.2f}/{np.mean(rg):.2f}"
             print(line)
     # Pairs trained from the same initialisation seed, averaged over seeds.
-    seeds = [v[len("spatial"):] for v in variants if v.startswith("spatial") and "vector" + v[len("spatial"):] in variants]
+    A_, B_ = args.pair.split(",")
+    seeds = [v[len(A_):] for v in variants
+             if v.startswith(A_) and (v[len(A_):] == "" or v[len(A_):].startswith("_s"))
+             and B_ + v[len(A_):] in variants]
     if seeds:
-        print(f"\n-- spatial minus vector, corr, mean over {len(seeds)} seed pair(s), +- se over states")
+        print(f"\n-- {A_} minus {B_}, corr, mean over {len(seeds)} seed pair(s), +- se over states")
         for g in groups + ["ALL"]:
             for sel_name, sel in (("reliable", lambda s: rel[s] >= args.min_rel), ("all", lambda s: True)):
-                d = np.asarray([np.mean([table["spatial" + k, s][0] - table["vector" + k, s][0] for k in seeds])
+                d = np.asarray([np.mean([table[A_ + k, s][0] - table[B_ + k, s][0] for k in seeds])
                                 for s in gt if (g == "ALL" or group.get(s) == g) and sel(s)
-                                and all(("spatial" + k, s) in table and ("vector" + k, s) in table
-                                        for k in seeds)])
+                                and all((A_ + k, s) in table and (B_ + k, s) in table for k in seeds)])
                 if len(d) > 1:
                     print(f"   {g:11s} {sel_name:8s} n={len(d):2d} {d.mean():+.2f} +- "
-                          f"{d.std(ddof=1) / np.sqrt(len(d)):.2f}  (spatial better in {(d > 0).sum()}/{len(d)})")
+                          f"{d.std(ddof=1) / np.sqrt(len(d)):.2f}  ({A_} better in {(d > 0).sum()}/{len(d)})")
+    pairs = {st: significant_pairs(mc) for st, mc in gt.items()}
+    print(f"\n== pair accuracy (significant pairs, values averaged over updates >= {late})")
+    for g in groups + ["ALL"]:
+        ss = [st for st in gt if (g == "ALL" or group.get(st) == g) and pairs[st]]
+        n = sum(len(pairs[st]) for st in ss)
+        line = f"   {g:11s} {len(ss):2d} states {n:3d} pairs |"
+        for v in variants:
+            if not all((v, st) in table for st in ss):
+                continue
+            qs = {st: np.mean(by[v][st], 0) for st in ss}
+            acc, (lo, hi) = pair_accuracy(qs, pairs, ss)
+            line += f" {v} {acc:.2f} [{lo:.2f}, {hi:.2f}]"
+        print(line)
     print("\n== per update: mean corr on reliable states")
     ups = sorted({u for v in curve for u in curve[v]})
     print("   update " + " ".join(f"{v:>9s}" for v in variants))

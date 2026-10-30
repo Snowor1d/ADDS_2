@@ -2,3 +2,14 @@ gamma 0.995 decision max steps 40 overrides {'GAMMA_WAYPOINT': 0.995, 'ROBOT_DEC
 WARNING config 793cb2b218f246cd != checkpoint 63e59b59f545f9bc
 /home/amrl_sunny/.local/lib/python3.10/site-packages/matplotlib/projections/__init__.py:63: UserWarning: Unable to import Axes3D. This may be due to multiple versions of Matplotlib being installed (e.g. as a system package and as a pip package). As a result, the 3D projection is not available.
   warnings.warn("Unable to import Axes3D. This may be due to multiple versions of "
+[probe_dotonbori_100m_2 t0=80] rep 0 done 508s
+[probe_dotonbori_100m_2 t0=80] rep 1 done 924s
+[probe_dotonbori_100m_2 t0=80] rep 2 done 1341s
+[probe_dotonbori_100m_2 t0=80] rep 3 done 1814s
+[probe_dotonbori_100m_2 t0=80] rep 4 done 2283s
+[probe_dotonbori_100m_2 t0=80] rep 5 done 2758s
+[probe_dotonbori_100m_2 t0=80] rep 6 done 3196s
+[probe_dotonbori_100m_2 t0=80] rep 7 done 3633s
+[probe_dotonbori_100m_2 t0=80] rep 8 done 4022s
+[probe_dotonbori_100m_2 t0=80] rep 9 done 4409s
+saved /home/amrl_sunny/ADDS_2/SAC_UED6_easy/docs/review_20261022/critic_probe/results/gen/s_dotonbori_100_2_t80.json

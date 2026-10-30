@@ -1,0 +1,77 @@
+probe states: 30; reliability >= 0.5: 6
+state                              group       reps   rel  ceil
+s_dotonbori_100_0_t80              train_100     10  0.42  0.65
+s_dotonbori_100_1_t80              train_100     10 -0.45  0.00
+s_dotonbori_100_2_t80              train_100     10  0.86  0.93
+s_hongdae_100_0_t80                train_100     10  0.85  0.92
+s_hongdae_100_1_t80                train_100     10  0.14  0.37
+s_hongdae_100_2_t80                train_100     10 -0.07  0.00
+s0_t320                            train_200      3   nan   nan
+s0_t80                             train_200      3   nan   nan
+s1_t320                            train_200      3   nan   nan
+s1_t80                             train_200      3   nan   nan
+s2_t320                            train_200     10  0.82  0.91
+s2_t80                             train_200      3   nan   nan
+s3_t320                            train_200     10  0.86  0.93
+s3_t80                             train_200     10  0.48  0.69
+s4_t320                            train_200      3   nan   nan
+s4_t80                             train_200      3   nan   nan
+s5_t320                            train_200      3   nan   nan
+s5_t80                             train_200     10 -0.43  0.00
+s6_t320                            train_200      3   nan   nan
+s6_t80                             train_200     10  0.41  0.64
+s7_t320                            train_200     10  0.70  0.84
+s7_t80                             train_200      3   nan   nan
+s8_t320                            train_200      3   nan   nan
+s8_t80                             train_200      3   nan   nan
+s_gracia_200_0_t320                unseen_200    10 -1.97  0.00
+s_gracia_200_0_t80                 unseen_200    10 -0.39  0.00
+s_kreuzberg_200_0_t320             unseen_200    10  0.25  0.50
+s_kreuzberg_200_0_t80              unseen_200    10  0.57  0.76
+s_trastevere_200_0_t320            unseen_200    10 -0.32  0.00
+s_trastevere_200_0_t80             unseen_200    10 -2.17  0.00
+
+== values averaged over updates >= 6000 (checkpoint: its own values)
+
+-- reliable states: mean corr (ceiling) / mean regret, per group
+   train_100   n= 2 ceil 0.92 | checkpoint +0.07/1.86 spatial -0.32/0.64 spatial_s1 +0.01/1.32 vector +0.30/0.47 vector_s1 +0.15/0.20
+   train_200   n= 3 ceil 0.89 | checkpoint -0.22/0.93 spatial -0.16/1.71 spatial_s1 -0.23/1.62 vector -0.19/0.96 vector_s1 +0.00/0.67
+   unseen_200  n= 1 ceil 0.76 | checkpoint -0.54/2.39 spatial -0.47/2.39 spatial_s1 -0.31/2.39 vector -0.20/2.39 vector_s1 +0.40/0.43
+   ALL         n= 6 ceil 0.88 | checkpoint -0.18/1.49 spatial -0.27/1.47 spatial_s1 -0.16/1.65 vector -0.03/1.03 vector_s1 +0.12/0.47
+
+-- all states: mean corr (ceiling) / mean regret, per group
+   train_100   n= 6 ceil 0.48 | checkpoint -0.02/1.07 spatial -0.17/0.87 spatial_s1 -0.04/1.45 vector -0.16/0.93 vector_s1 -0.00/0.37
+   train_200   n=18 ceil 0.67 | checkpoint -0.14/1.10 spatial -0.02/1.03 spatial_s1 -0.19/1.23 vector -0.09/0.89 vector_s1 -0.09/1.15
+   unseen_200  n= 6 ceil 0.21 | checkpoint +0.20/1.18 spatial -0.10/1.07 spatial_s1 +0.29/0.54 vector -0.03/1.73 vector_s1 -0.24/1.53
+   ALL         n=30 ceil 0.45 | checkpoint -0.05/1.11 spatial -0.07/1.00 spatial_s1 -0.06/1.13 vector -0.09/1.07 vector_s1 -0.10/1.07
+
+-- spatial minus vector, corr, mean over 2 seed pair(s), +- se over states
+   train_100   reliable n= 2 -0.38 +- 0.54  (spatial better in 1/2)
+   train_100   all      n= 6 -0.02 +- 0.20  (spatial better in 3/6)
+   train_200   reliable n= 3 -0.10 +- 0.20  (spatial better in 1/3)
+   train_200   all      n=18 -0.02 +- 0.11  (spatial better in 11/18)
+   unseen_200  all      n= 6 +0.23 +- 0.29  (spatial better in 4/6)
+   ALL         reliable n= 6 -0.26 +- 0.18  (spatial better in 2/6)
+   ALL         all      n=30 +0.03 +- 0.09  (spatial better in 18/30)
+
+== pair accuracy (significant pairs, values averaged over updates >= 6000)
+   train_100    4 states  24 pairs | checkpoint 0.58 [0.20, 0.89] spatial 0.42 [0.22, 0.60] spatial_s1 0.54 [0.33, 0.70] vector 0.71 [0.00, 0.95] vector_s1 0.67 [0.00, 0.76]
+   train_200    5 states  38 pairs | checkpoint 0.39 [0.17, 0.61] spatial 0.37 [0.24, 0.61] spatial_s1 0.37 [0.21, 0.56] vector 0.47 [0.23, 0.69] vector_s1 0.55 [0.41, 0.74]
+   unseen_200   2 states   4 pairs | checkpoint 0.25 [0.00, 1.00] spatial 0.25 [0.00, 1.00] spatial_s1 0.50 [0.33, 1.00] vector 0.25 [0.00, 0.33] vector_s1 0.75 [0.00, 1.00]
+   ALL         11 states  66 pairs | checkpoint 0.45 [0.23, 0.67] spatial 0.38 [0.27, 0.52] spatial_s1 0.44 [0.31, 0.57] vector 0.55 [0.30, 0.74] vector_s1 0.61 [0.47, 0.72]
+
+== per update: mean corr on reliable states
+   update checkpoint   spatial spatial_s1    vector vector_s1
+       -1     -0.18                                        
+     1000               -0.20     -0.16     +0.14     -0.31
+     2000               -0.09     -0.07     +0.07     +0.04
+     3000               -0.10     -0.22     -0.05     +0.10
+     4000               -0.16     -0.22     -0.01     +0.15
+     5000               -0.05     +0.19     +0.03     +0.26
+     6000               -0.13     -0.16     -0.00     +0.23
+     7000               -0.05     -0.18     +0.05     +0.19
+     8000               -0.13     -0.05     -0.07     +0.16
+     9000               -0.14     -0.17     -0.06     +0.01
+    10000               -0.03     +0.08     +0.03     +0.05
+    11000               -0.10     +0.04     -0.02     +0.02
+    12000               -0.33     -0.17     -0.04     +0.07

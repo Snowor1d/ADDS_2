@@ -63,6 +63,12 @@ _NOT_FINGERPRINTED = {
 _FINGERPRINT_DEFAULTS = {
     "DANGER_DISTANCE": "euclidean",
     "DANGER_GEO_RES": 0.5,
+    "REWARD_B_2": 0,
+}
+# Settings renamed after runs had started: the fingerprint hashes them under
+# the old name, and overrides (presets, --set, RV4_OVERRIDES) may still use it.
+_RENAMED = {
+    "REWARD_B_1": "REWARD_B",
 }
 
 _VALID = {
@@ -263,7 +269,7 @@ class Config:
         return self._overridden
 
     def fingerprint(self) -> str:
-        data = {k: v for k, v in self._values.items() if k not in _NOT_FINGERPRINTED
+        data = {_RENAMED.get(k, k): v for k, v in self._values.items() if k not in _NOT_FINGERPRINTED
                 and not (k in _FINGERPRINT_DEFAULTS and v == _FINGERPRINT_DEFAULTS[k])}
         blob = json.dumps(data, sort_keys=True, default=str).encode()
         return hashlib.sha256(blob).hexdigest()[:12]
@@ -344,6 +350,12 @@ def _validate(v: Dict[str, Any]) -> None:
     lim = v.get("ROBOT_SPEED_NORM_LIMIT")
     if lim is not None and not (0 < float(lim) <= 2.0 * 2 ** 0.5):
         errs.append("ROBOT_SPEED_NORM_LIMIT must be None or in (0, 2.83]")
+    b2 = v.get("REWARD_B_2")
+    if not (b2 == "auto" or (isinstance(b2, (int, float)) and not isinstance(b2, bool) and b2 >= 0)):
+        errs.append("REWARD_B_2 must be 0 (off), a K > 0 or 'auto'")
+    elif b2 and float(v["GAMMA_START"]) != float(v["GAMMA_END"]):
+        errs.append("REWARD_B_2 (potential shaping) needs a constant discount (GAMMA_START == GAMMA_END): "
+                    "the shaping term uses the learner's gamma and is computed in the workers")
     res = v.get("DANGER_GEO_RES")
     if res is not None and not (isinstance(res, (int, float)) and 0.1 <= res <= 2.0):
         errs.append("DANGER_GEO_RES must be in [0.1, 2.0] m")
@@ -401,6 +413,8 @@ def resolve_config(overrides: Optional[Mapping[str, Any]] = None,
         over.update(env_overrides())
     if overrides:
         over.update(overrides)
+    old_names = {o: n for n, o in _RENAMED.items()}
+    over = {old_names.get(k, k): v for k, v in over.items()}
     unknown = sorted(set(over) - set(values))
     if unknown:
         raise ConfigError(f"unknown setting(s) in overrides: {unknown}")

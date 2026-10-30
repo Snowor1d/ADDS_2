@@ -7,3 +7,9 @@ WARNING config 793cb2b218f246cd != checkpoint 63e59b59f545f9bc
 [probe_trastevere_200m_0 t0=320] rep 2 done 3194s
 [probe_trastevere_200m_0 t0=320] rep 3 done 4433s
 [probe_trastevere_200m_0 t0=320] rep 4 done 5633s
+[probe_trastevere_200m_0 t0=320] rep 5 done 6782s
+[probe_trastevere_200m_0 t0=320] rep 6 done 7821s
+[probe_trastevere_200m_0 t0=320] rep 7 done 8783s
+[probe_trastevere_200m_0 t0=320] rep 8 done 9620s
+[probe_trastevere_200m_0 t0=320] rep 9 done 10684s
+saved /home/amrl_sunny/ADDS_2/SAC_UED6_easy/docs/review_20261022/critic_probe/results/gen/s_trastevere_200_0_t320.json

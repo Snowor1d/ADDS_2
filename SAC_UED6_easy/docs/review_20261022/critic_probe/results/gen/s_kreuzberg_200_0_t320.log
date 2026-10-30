@@ -8,3 +8,8 @@ WARNING config 793cb2b218f246cd != checkpoint 63e59b59f545f9bc
 [probe_kreuzberg_200m_0 t0=320] rep 3 done 4417s
 [probe_kreuzberg_200m_0 t0=320] rep 4 done 5567s
 [probe_kreuzberg_200m_0 t0=320] rep 5 done 6737s
+[probe_kreuzberg_200m_0 t0=320] rep 6 done 7832s
+[probe_kreuzberg_200m_0 t0=320] rep 7 done 8676s
+[probe_kreuzberg_200m_0 t0=320] rep 8 done 9726s
+[probe_kreuzberg_200m_0 t0=320] rep 9 done 10939s
+saved /home/amrl_sunny/ADDS_2/SAC_UED6_easy/docs/review_20261022/critic_probe/results/gen/s_kreuzberg_200_0_t320.json

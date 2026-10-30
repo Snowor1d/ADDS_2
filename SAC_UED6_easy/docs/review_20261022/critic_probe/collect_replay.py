@@ -12,6 +12,11 @@ memory: it starts --workers, adds one (up to --max-workers) while more than
 --add-free-gb is available, and retires the newest when less than
 --min-free-gb is (it exits after the episode it is running).
 
+With --person-returns every robot decision also gets the returns of
+person_book.py (the people near the robot, and the whole team, over 200 s
+and to the end), saved as OUT_DIR/local_targets.npz aligned to the replay's
+frames; the persons' booking is checked against the team reward every step.
+
 Usage: collect_replay.py CKPT OUT_DIR --episodes 800 --workers 4 --max-workers 10 \
            --overrides '{"GAMMA_WAYPOINT": 0.995, ...}'
 Writes OUT_DIR/replay_buffer.npz and OUT_DIR/replay_static/, every
@@ -34,7 +39,7 @@ import numpy as np
 import torch
 
 
-def worker(wid, overrides, ckpt, seed, out_q, stop, retire):
+def worker(wid, overrides, ckpt, seed, out_q, stop, retire, person_returns=False):
     from configs import resolve_config
     import sim.model as model_module
     from learn.ADDS_AS_reinforcement import episode_uid, make_level_source
@@ -67,9 +72,21 @@ def worker(wid, overrides, ckpt, seed, out_q, stop, retire):
         static = build_static_layers(model, cfg)
         uid = episode_uid(wid, idx, 0)
         out_q.put(("start", uid, static.meta(), static.arrays()))
+        book = None
+        if person_returns:
+            from person_book import PersonBook
+            book = PersonBook(model, cfg)
+
+        def emit(tr):
+            out_q.put(("tr", uid, static.key, tr))
+            if book is not None:
+                book.emit(tr)
+
         res = run_episode(model, cfg, act, gamma=cfg.gamma(),
-                          seed=rng.randrange(1 << 30), static=static,
-                          emit=lambda tr: out_q.put(("tr", uid, static.key, tr)))
+                          seed=rng.randrange(1 << 30), static=static, emit=emit,
+                          on_step=book.on_step if book is not None else None)
+        if book is not None:
+            out_q.put(("local", uid) + tuple(book.targets()))
         out_q.put(("done", uid, res.steps, res.decisions, float(res.total_reward)))
         idx += 1
 
@@ -95,6 +112,7 @@ def main():
     ap.add_argument("--save-every", type=int, default=100)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--overrides", default="")
+    ap.add_argument("--person-returns", action="store_true")
     args = ap.parse_args()
 
     from configs import resolve_config
@@ -119,7 +137,7 @@ def main():
         nonlocal next_wid
         retire = ctx.Event()
         p = ctx.Process(target=worker, args=(next_wid, over, args.ckpt, args.seed, q,
-                                             stop, retire), daemon=True)
+                                             stop, retire, args.person_returns), daemon=True)
         p.start()
         procs.append((p, retire))
         next_wid += 1
@@ -127,6 +145,26 @@ def main():
     for _ in range(args.workers):
         start_worker()
     done, t0, rets = 0, time.time(), []
+    local, max_err = {}, 0.0
+
+    def save():
+        buf.save(path, cfg.schema_versions())
+        if not args.person_returns:
+            return
+        from person_book import NAMES
+        n, R = buf.size, buf.decided.shape[1]
+        tg = np.zeros((n, R, len(NAMES)), np.float32)
+        ok = np.zeros((n, R), bool)
+        rows = {}
+        for i in np.flatnonzero(buf.has_action[:n] & ~buf.final[:n]):
+            rows[(int(buf.episode[i]), int(buf.step[i]))] = i
+        for uid, (frames, t, v) in local.items():
+            for f, tf, vf in zip(frames, t, v):
+                i = rows.get((uid, int(f)))
+                if i is not None:
+                    tg[i], ok[i] = tf, vf & buf.decided[i]
+        np.savez(os.path.join(args.out_dir, "local_targets.npz"), targets=tg, valid=ok,
+                 names=np.asarray(NAMES), max_err=max_err)
     last_check = time.time()
     try:
         while done < args.episodes:
@@ -148,6 +186,12 @@ def main():
                 continue
             if msg[0] == "start":
                 store.put(StaticLayers.from_parts(msg[2], msg[3]))
+            elif msg[0] == "local":
+                _, uid, frames, t, v, err = msg
+                local[uid] = (frames, t, v)
+                max_err = max(max_err, err)
+                if err > 1e-6:
+                    print(f"WARNING person booking error {err:.2e} in episode {uid}", flush=True)
             elif msg[0] == "tr":
                 _, uid, key, tr = msg
                 buf.push_transition(uid, key, tr)
@@ -158,15 +202,16 @@ def main():
                 rets.append(msg[4])
                 if done % 10 == 0:
                     print(f"{done} episodes, {len(buf)} frames, {buf.n_valid()} robot "
-                          f"decisions, return {np.mean(rets[-10:]):.0f}, "
+                          f"decisions, booking error {max_err:.1e}, return {np.mean(rets[-10:]):.0f}, "
                           f"{time.time() - t0:.0f}s", flush=True)
                 if done % args.save_every == 0:
-                    buf.save(path, cfg.schema_versions())
+                    save()
     finally:
         stop.set()
         for p, _ in procs:
             p.terminate()
-    buf.save(path, cfg.schema_versions())
+    save()
+    print(f"person booking max error {max_err:.2e}", flush=True)
     print(f"saved {path}: {len(buf)} frames, {buf.n_valid()} robot decisions, "
           f"{done} episodes, {time.time() - t0:.0f}s", flush=True)
 

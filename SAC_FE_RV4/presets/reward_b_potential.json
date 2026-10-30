@@ -1,0 +1,5 @@
+{
+  "_comment": "Replace RV3's distance penalty (reward_b_1) with potential-based shaping (reward_b_2, Ng et al. 1999): Phi = -K * sum of exit distances, reward_b_2 = gamma*Phi(s') - Phi(s); K auto = REWARD_A / (crowd x mean speed x decision seconds). Distances follow DANGER_DISTANCE.",
+  "REWARD_B_1": 0,
+  "REWARD_B_2": "auto"
+}

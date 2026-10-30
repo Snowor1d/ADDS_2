@@ -70,3 +70,23 @@ python3 eval_saved.py <dir> $CK $PWD/results/eval_saved_final.jsonl $PWD/results
 | 결정적 + 사람 단위 공통 난수 | 52.6 | 35.9 | 0.32 | 19.9 |
 
 반복 효과 몫은 상태별로 0.01–0.43이다. 외생 정보를 완벽히 쓰는 critic도 잡음 분산의 약 1/3만 지울 수 있다(신호 대 잡음비로 약 1.2배). 나머지는 같은 외생 난수라도 첫 행동에 따라 다르게 번지는 상호작용(행동 효과의 이질성)이다.
+
+## 4. 지도 정렬 critic 검증 (`testbed_spatial.py`, 2026-10-29)
+
+결과는 `../critic_diagnosis.md` 9장. 형식 2 replay와 로봇별 target(`learn/sac.robot_targets`)을 쓴다.
+
+```bash
+CK=<checkpoint>
+OVR='{"GAMMA_WAYPOINT": 0.995, "ROBOT_DECISION_MAX_S_WAYPOINT": 20, "ROBOT_DECISION_SCOPE": "team"}'
+python3 collect_replay.py $CK <dir> --episodes 400 --overrides "$OVR"     # 고정 정책 replay
+CK=$CK ./run_gen_batch.sh; CK=$CK ./run_chunks.sh; ./merge_chunks.sh      # 새 probe 12개 (true_adv_v2 SITE:SIZE:K)
+python3 dump_states.py $CK $PWD/results/gen
+python3 testbed_spatial.py --ckpt $CK --replay-dir <dir> --out $PWD/results/spatial_testbed.jsonl \
+    --variants vector:0,spatial:0,vector:1,spatial:1 --updates 12000 --save-dir <critics> --overrides "$OVR"
+python3 eval_spatial_saved.py <critics> $CK $PWD/results/spatial_eval_all.jsonl --overrides "$OVR"
+python3 analyze_spatial.py results/spatial_eval_all.jsonl --late 6000
+```
+
+- `true_adv_v2.py`는 이제 `SITE:SIZE:K`(임의 crop의 probe 수준)와 `--overrides`를 받는다. 최종 zero-shot 지역은 거부한다.
+- `testbed_spatial.py --check`: 로봇별 target 경로가 `learn/sac`과 같은지, spatial critic의 로봇 하나 경로와 전체 경로가 같은지 확인한다.
+- 원자료: `results/gen/`(새 probe), `results/spatial_eval_all.jsonl`, `results/spatial_eval_all_analysis.txt`, `results/spatial_eval_agreement.txt`. replay와 저장된 critic은 크기 때문에 저장소 밖에 있다.

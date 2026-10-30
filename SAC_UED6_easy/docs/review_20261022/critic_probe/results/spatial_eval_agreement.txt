@@ -1,0 +1,32 @@
+== agreement across candidates, mean corr over 30 states (late-averaged values)
+   spatial    vs spatial_s1 +0.45
+   vector     vs vector_s1  +0.46
+   spatial    vs vector     +0.31
+   spatial_s1 vs vector_s1  +0.02
+   spatial    q1 vs q2   +0.22
+   spatial_s1 q1 vs q2   +0.54
+   vector     q1 vs q2   +0.53
+   vector_s1  q1 vs q2   +0.32
+   truth split-half reliability (10-repeat states), mean +0.15
+
+== action-value spread: sd over candidates of the critic / of the true means (noise-corrected), mean over 10-repeat states
+   checkpoint 0.87 (median)
+   spatial    0.11 (median)
+   spatial_s1 0.24 (median)
+   vector     0.48 (median)
+   vector_s1  0.13 (median)
+
+== pair accuracy by kind of pair (significant pairs; policy = det/s1/s2 draws of the policy)
+   checkpoint other-other 10/25  policy-other 17/34  policy-policy 3/7
+   spatial    other-other 11/25  policy-other 12/34  policy-policy 2/7
+   spatial_s1 other-other 16/25  policy-other 13/34  policy-policy 0/7
+   vector     other-other 14/25  policy-other 18/34  policy-policy 4/7
+   vector_s1  other-other 15/25  policy-other 22/34  policy-policy 3/7
+
+== top candidate of each critic vs truth on the 6 reliable states
+   s2_t320                  truth best policy_s2    worst in_off       | spatial:in_off spatial_s1:policy_s1 vector:policy_s1 vector_s1:still_guide
+   s3_t320                  truth best in_off       worst policy_s2    | spatial:policy_s1 spatial_s1:policy_s2 vector:in_guide vector_s1:in_guide
+   s7_t320                  truth best in_guide     worst out_guide    | spatial:policy_det spatial_s1:policy_s2 vector:policy_s2 vector_s1:out_off
+   s_dotonbori_100_2_t80    truth best policy_s1    worst policy_det   | spatial:in_guide spatial_s1:policy_det vector:policy_s1 vector_s1:in_guide
+   s_hongdae_100_0_t80      truth best out_off      worst in_guide     | spatial:policy_det spatial_s1:policy_s1 vector:out_guide vector_s1:out_off
+   s_kreuzberg_200_0_t80    truth best out_off      worst in_off       | spatial:in_off spatial_s1:in_off vector:in_off vector_s1:still_guide

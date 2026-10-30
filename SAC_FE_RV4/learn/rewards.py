@@ -9,18 +9,62 @@ REWARD_* weights. Two options (configs/training/common.py):
                            every step of the window.
     REWARD_SCALE_INVARIANT the distance-sum term divided by side / 100 m.
 
-The distance-sum term (reward_b) adds up agent.danger, whose metric is the
-environment setting DANGER_DISTANCE (straight line as in RV3, or walking
-distance; model.danger_distance).
+Two exit-distance terms, independent of each other, both over agent.danger
+(whose metric is the environment setting DANGER_DISTANCE: straight line as in
+RV3, or walking distance; model.danger_distance):
+
+    reward_b_1  REWARD_B_1, RV3's penalty: -REWARD_B_1 * (sum of the exit
+                distances of the people still inside), every decision.
+    reward_b_2  REWARD_B_2, potential-based shaping (Ng, Harada and Russell
+                1999): Phi(s) = -K * (the same sum, measured now) and
+                reward_b_2 = gamma * Phi(s') - Phi(s), with gamma the
+                learner's per-decision discount and Phi = 0 once everyone is
+                out. Over an episode the terms telescope to
+                gamma^T Phi(s_T) - Phi(s_0), so the shaping cannot change which
+                policy is optimal; it pays K per person-metre of progress
+                toward an exit as it happens. It needs the potential of the
+                state the episode starts in: call reset_reward_state(env, cfg)
+                once per episode, before the first decision.
 """
 
 from __future__ import annotations
 
 from typing import Dict, Tuple
 
-COMPONENTS = ("reward_a", "reward_b", "reward_c", "reward_d", "reward_e", "reward_f",
+COMPONENTS = ("reward_a", "reward_b_1", "reward_b_2", "reward_c", "reward_d", "reward_e", "reward_f",
               "reward_g", "reward_h", "reward_i", "reward_j", "reward_k", "reward_l",
               "reward_fixed", "reward_finished_bonus")
+
+
+def potential_k(env, cfg) -> float:
+    """K of reward_b_2, per person-metre. REWARD_B_2 = "auto": REWARD_A spread
+    over the crowd, per metre walked in one decision at the mean speed, so
+    that Phi is the reward_a cost still to pay if everyone walked straight
+    out. A number is K itself."""
+    if cfg.REWARD_B_2 != "auto":
+        return float(cfg.REWARD_B_2)
+    per_decision_m = float(cfg.AGENT_SPEED_MEAN) * int(cfg.ACTION_SCALE) * float(cfg.AGENT_TIME_STEP)
+    return float(cfg.REWARD_A) / (max(1, int(env.total_agents)) * per_decision_m)
+
+
+def potential(env, cfg) -> float:
+    """Phi(s) = -K * sum over the people still inside (types 0, 1, 2) of
+    their distance to the nearest exit (model.danger_distance, so the
+    DANGER_DISTANCE metric), measured now."""
+    total = 0.0
+    for ag in env.crowds:
+        if ag.type in (0, 1, 2) and not ag.dead:
+            total += float(env.danger_distance(ag.xy))
+    if total != total or total == float("inf"):
+        raise RuntimeError(f"potential is not finite ({total}): a map without exits?")
+    return -potential_k(env, cfg) * total
+
+
+def reset_reward_state(env, cfg) -> None:
+    """Start of an episode: remember Phi(s_0) for the first decision's
+    shaping term. No effect while REWARD_B_2 is 0."""
+    if cfg.REWARD_B_2:
+        env._rv4_phi = potential(env, cfg)
 
 
 def decision_reward(env, cfg, collision_last: int, collisions_in_window: int,
@@ -34,11 +78,19 @@ def decision_reward(env, cfg, collision_last: int, collisions_in_window: int,
         comp["reward_k"] = -1.0 * float(hits) * float(c.REWARD_K)
     if c.REWARD_A:
         comp["reward_a"] = env.reward_based_alived() * c.REWARD_A
-    if c.REWARD_B:
-        rb = env.reward_based_all_agents_danger() * c.REWARD_B
+    if c.REWARD_B_1:
+        rb = env.reward_based_all_agents_danger() * c.REWARD_B_1
         if c.REWARD_SCALE_INVARIANT:
             rb /= max(env.width, env.height) / 100.0
-        comp["reward_b"] = rb
+        comp["reward_b_1"] = rb
+    if c.REWARD_B_2:
+        prev = getattr(env, "_rv4_phi", None)
+        if prev is None:
+            raise RuntimeError("REWARD_B_2 (potential shaping): call reset_reward_state(env, cfg) "
+                               "when the episode starts")
+        phi = 0.0 if finished else potential(env, cfg)
+        comp["reward_b_2"] = float(c.GAMMA_START) * phi - prev
+        env._rv4_phi = phi
     if c.REWARD_C:
         comp["reward_c"] = env.reward_based_gain() * c.REWARD_C
     if c.REWARD_D:

@@ -29,8 +29,9 @@ def main():
     ap.add_argument("--overrides", default="")
     ap.add_argument("--probe-dirs", default=",".join([os.path.join(T.HERE, "results"),
                                                       os.path.join(T.HERE, "results", "gen")]))
+    ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = ap.parse_args()
-    dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    dev = torch.device(args.device)
     if dev.type == "cuda":
         torch.cuda.set_per_process_memory_fraction(0.3)
     cfg = resolve_config(json.loads(args.overrides) if args.overrides else None, check_data=False)

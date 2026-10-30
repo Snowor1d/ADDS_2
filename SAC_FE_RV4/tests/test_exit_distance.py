@@ -129,10 +129,11 @@ class FingerprintTest(unittest.TestCase):
 
     def test_legacy_default_hashes_as_if_the_setting_did_not_exist(self):
         import hashlib
-        from configs import _FINGERPRINT_DEFAULTS, _NOT_FINGERPRINTED, resolve_config
+        from configs import _FINGERPRINT_DEFAULTS, _NOT_FINGERPRINTED, _RENAMED, resolve_config
         os.environ["RV4_OVERRIDES"] = json.dumps(_FINGERPRINT_DEFAULTS)
         cfg = resolve_config()
-        old = {k: v for k, v in cfg.as_dict().items()
+        # the settings as they were named, without the ones added since
+        old = {_RENAMED.get(k, k): v for k, v in cfg.as_dict().items()
                if k not in _NOT_FINGERPRINTED and k not in _FINGERPRINT_DEFAULTS}
         blob = json.dumps(old, sort_keys=True, default=str).encode()
         self.assertEqual(cfg.fingerprint(), hashlib.sha256(blob).hexdigest()[:12])

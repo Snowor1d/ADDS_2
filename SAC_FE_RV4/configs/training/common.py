@@ -142,7 +142,7 @@ NET_SPATIAL = "flatten"             # "flatten" | "pool"
 NET_COORD_CHANNELS = False          # cnn 입력에 좌표 채널 2개 추가 (impala 는 항상)
 # 크리틱 MLP 은닉층에 LayerNorm (Ball et al. 2023 RLPD: off-policy 안정성과
 # 외삽 억제에 핵심) / Dropout (DroQ, Hiraoka et al. 2022).
-CRITIC_LAYERNORM = False
+CRITIC_LAYERNORM = True
 CRITIC_DROPOUT = 0.0
 # 인코더 공유:
 #   "separate"  액터와 각 크리틱이 자기 인코더를 가진다 (RV3).
@@ -188,8 +188,11 @@ SHRINK_PERTURB_ALPHA = 0.0
 # 보상 (RV3 가중치)
 # =====================================================================
 REWARD_A = 2                 # -살아있는 인원 비율
-REWARD_B = 0.003             # -모든 생존자의 출구까지 거리 합
-REWARD_D = 2                 # 추종자 없이 출구 근처에 있으면 -1
+REWARD_B_1 = 0.003           # reward_b_1 (penalty): -모든 생존자의 출구까지 거리 합 (RV3 의 REWARD_B)
+# reward_a 0.51, reward_k 1.17, reward_b_2 는 K=0.003 이면 0.03(묻힘), auto 면
+# 0.23, K=0.3 이면 3.0(다른 항을 덮음).
+REWARD_B_2 = 0
+REWARD_D = 0                 # 추종자 없이 출구 근처에 있으면 -1
 REWARD_K = 6                 # 벽 충돌 -1
 REWARD_J = 0                 # all_agents_danger_root
 REWARD_L = 1                 # -가장 먼 생존자 거리 / 맵 대각선
@@ -205,9 +208,26 @@ INTRINSIC_ETA = 0.1          # 사용 안 함 (RV3 잔재)
 # 충돌 벌점 계산: "last_step" 은 RV3 동작(결정 4 스텝 중 마지막 스텝만 봄),
 # "sum" 은 4 스텝 모두 합산.
 REWARD_COLLISION_MODE = "last_step"   # "last_step" | "sum"
-# 거리 합 항(REWARD_B)을 맵 한 변/100 m 로 나눠 크기가 다른 맵 사이 보상
+# 거리 합 penalty 항(reward_b_1)을 맵 한 변/100 m 로 나눠 크기가 다른 맵 사이 보상
 # 크기를 맞춘다. 100 m 맵에서는 값이 같다. 여러 크기 맵으로 학습할 때 권장.
 REWARD_SCALE_INVARIANT = False
+# 출구 거리 항은 두 가지이고 서로 독립이다(둘 다 agent.danger 의 거리 기준,
+# configs/environment.py DANGER_DISTANCE 를 따른다).
+#   reward_b_1 (penalty, RV3)   결정마다 -REWARD_B_1 x (생존자 출구 거리 합).
+#       출구에서 먼 상태로 있는 시간 자체가 목표의 일부가 된다(거리 x 시간).
+#   reward_b_2 (potential)      potential 기반 shaping (Ng, Harada, Russell 1999):
+#       Phi(s) = -K x (생존자 출구 거리 합), reward_b_2 = gamma Phi(s') - Phi(s),
+#       gamma 는 learner 의 결정당 할인율(GAMMA_START = GAMMA_END 이어야 함).
+#       출구 쪽으로 옮긴 거리 x K 를 받고 되돌아가면 그만큼 잃는다. 에피소드 합이
+#       telescoping 되어 최적 정책을 바꾸지 않고 학습만 돕는다.
+#       REWARD_SCALE_INVARIANT 는 적용하지 않는다.
+# penalty 를 potential 로 바꾸는 실험은 REWARD_B_1 = 0, REWARD_B_2 = "auto"
+# (presets/reward_b_potential.json).
+# REWARD_B_2 = 0 이면 끔, 양수면 K (사람 1명 x 1 m 당), "auto" 면
+#   K = REWARD_A / (군중 수 x AGENT_SPEED_MEAN x 결정 시간) = 2 / (30 x 1.5 x 2) = 0.022
+# 이때 Phi 는 "모두가 평균 속도로 곧장 걸어 나간다면 reward_a 로 아직 치러야 할
+# 비용" 이다. 학습 맵에서 잰 결정당 표준편차(2026-10-30): reward_b_1 1.36,
+
 
 # =====================================================================
 # 워커 (롤아웃 프로세스)

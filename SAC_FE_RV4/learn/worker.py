@@ -47,7 +47,7 @@ def worker_main(wid: int, task_q, out_q, param_q, epsilon_shared, seed: int):
     from evaluation.baselines import make_controller
     from learn.networks import build_policy
     from learn.obs import ObservationBuilder, StackedObservation, network_state
-    from learn.rewards import COMPONENTS, decision_reward
+    from learn.rewards import COMPONENTS, decision_reward, reset_reward_state
     from learn.rollout import EnvSpec, build_env, eval_step_cap, freeflow_steps, run_episode
 
     torch.set_num_threads(1)
@@ -113,6 +113,7 @@ def worker_main(wid: int, task_q, out_q, param_q, epsilon_shared, seed: int):
             stack.reset(ego, glob, es)
             out_q.put(("start", wid, ep, task.task_id, ego, glob, es, ob.glob_static))
             state = ob.robot_state()
+            reset_reward_state(env, cfg)
             comp_tot = {k: 0.0 for k in COMPONENTS}
             total_reward = 0.0
             t80 = t100 = None
