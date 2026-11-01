@@ -1,5 +1,5 @@
 {
- "_comment": "RV3와 같은 학습: 300맵 dataset + D4 증강 + RV3 네트워크/보상/버그까지 동일. RV4 파이프라인이 RV3 성능을 재현하는지 확인하는 기준선. 속도 상한도 RV3처럼 없음(None). 이 체크포인트를 RV3 기록과 비교할 때는 평가도 --set ROBOT_SPEED_NORM_LIMIT=None 으로.",
+ "_comment": "RV3와 같은 학습: 300맵 dataset + D4 증강 + RV3 네트워크/보상/버그까지 동일. RV4 파이프라인이 RV3 성능을 재현하는지 확인하는 기준선. 속도 상한도 RV3처럼 없음(None). 이 체크포인트를 RV3 기록과 비교할 때는 평가도 --set ROBOT_SPEED_NORM_LIMIT=None 으로. RV3 와 달라지는 RV4 설정(행동 모드, 관측 채널, 크리틱 정규화, 거리 기준, 보상 항)은 config 파일 값과 무관하게 RV3 값으로 고정한다.",
  "LOG_DIR": "Log_SAC_FE_RV4_rv3_parity",
  "EXPERIMENT_ID": "fe-rv4-rv3_parity",
  "TRAIN_MAP_SOURCE": "dataset",
@@ -12,5 +12,20 @@
  "N_STEP": 1,
  "LOG_STD_MIN": -20,
  "ROBOT_SPEED_NORM_LIMIT": null,
- "ROBOT_EDGE_TRAP_FIX": false
+ "ROBOT_EDGE_TRAP_FIX": false,
+ "ROBOT_ACTION_MODE": "velocity",
+ "OBS_STATIC_DISTANCE_CHANNEL": false,
+ "OBS_FOLLOWER_PIXEL": null,
+ "OBS_EGO_MODE": "normalized",
+ "MAP_SCALE_TO_ACTOR": false,
+ "MAP_SCALE_TO_CRITIC": false,
+ "CRITIC_LAYERNORM": false,
+ "CRITIC_DROPOUT": 0,
+ "UPDATES_PER_TRANSITION": 1,
+ "GAMMA_START": 0.99,
+ "GAMMA_END": 0.99,
+ "DANGER_DISTANCE": "euclidean",
+ "REWARD_B_1": 0.003,
+ "REWARD_B_2": 0,
+ "REWARD_D": 2
 }

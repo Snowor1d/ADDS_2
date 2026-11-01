@@ -13,7 +13,7 @@ import torch
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-from configs import resolve_config  # noqa: E402
+from tests.reference import reference_config  # noqa: E402
 from learn.networks import NETWORK_SIZES, build_networks, build_policy  # noqa: E402
 from learn.sac import SACLearner, d4_batch, random_shift  # noqa: E402
 
@@ -36,7 +36,7 @@ class NetworkTest(unittest.TestCase):
         for fam in ("cnn", "impala"):
             for size in NETWORK_SIZES[fam]:
                 for share in ("separate", "critic"):
-                    cfg = resolve_config(overrides={"NET_ENCODER": fam, "NET_SIZE": size,
+                    cfg = reference_config({"NET_ENCODER": fam, "NET_SIZE": size,
                                                     "ENCODER_SHARING": share})
                     actor, critic, target = build_networks(cfg)
                     b = batch(cfg, B=3)
@@ -55,7 +55,7 @@ class NetworkTest(unittest.TestCase):
                      {"MAP_SCALE_TO_ACTOR": True, "MAP_SCALE_TO_CRITIC": True},
                      {"CRITIC_LAYERNORM": True, "CRITIC_DROPOUT": 0.1, "CRITIC_ENSEMBLE": 4},
                      {"EGO_USE": False}, {"FiLM_USE": False}):
-            cfg = resolve_config(overrides=over)
+            cfg = reference_config(over)
             actor, critic, _ = build_networks(cfg)
             b = batch(cfg, B=2)
             sa = b["state"] if cfg.MAP_SCALE_TO_ACTOR else b["state"][:, :3]
@@ -110,7 +110,7 @@ class NetworkTest(unittest.TestCase):
 
 class SACTest(unittest.TestCase):
     def _run(self, over, n=3):
-        cfg = resolve_config(overrides=over)
+        cfg = reference_config(over)
         L = SACLearner(cfg, "cpu")
         for i in range(n):
             out = L.update(batch(cfg, B=8, seed=i))
@@ -133,13 +133,13 @@ class SACTest(unittest.TestCase):
                 self._run(over)
 
     def test_shared_encoder_not_trained_by_actor(self):
-        cfg = resolve_config(overrides={"ENCODER_SHARING": "critic", "POLICY_DELAY": 1})
+        cfg = reference_config({"ENCODER_SHARING": "critic", "POLICY_DELAY": 1})
         L = SACLearner(cfg, "cpu")
         ids = {id(p) for p in L.actor_opt.param_groups[0]["params"]}
         self.assertFalse(any(id(p) in ids for p in L.critic.encoder.parameters()))
 
     def test_alpha_learns_when_auto(self):
-        cfg = resolve_config(overrides={"ALPHA_AUTO": True, "ALPHA_LR": 0.1})
+        cfg = reference_config({"ALPHA_AUTO": True, "ALPHA_LR": 0.1})
         L = SACLearner(cfg, "cpu")
         a0 = float(L.alpha)
         for i in range(5):
@@ -147,7 +147,7 @@ class SACTest(unittest.TestCase):
         self.assertNotAlmostEqual(a0, float(L.alpha))
 
     def test_state_dict_round_trip(self):
-        cfg = resolve_config()
+        cfg = reference_config()
         L = self._run({})
         L2 = SACLearner(cfg, "cpu")
         L2.load_state_dict(L.state_dict())
@@ -160,7 +160,7 @@ class SACTest(unittest.TestCase):
         x = torch.arange(2 * 1 * 5 * 5, dtype=torch.float32).view(2, 1, 5, 5)
         y = random_shift(x, 1)
         self.assertEqual(y.shape, x.shape)
-        cfg = resolve_config()
+        cfg = reference_config()
         b = batch(cfg, B=4)
         k = torch.tensor([0, 1, 4, 7])
         out = d4_batch(b, k)

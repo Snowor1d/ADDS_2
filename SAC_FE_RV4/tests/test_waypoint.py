@@ -19,7 +19,8 @@ from configs import resolve_config  # noqa: E402
 
 
 def _cfg(**over):
-    return resolve_config(overrides=over, use_env=False)
+    from tests.reference import reference_config
+    return reference_config(over)
 
 
 WP = dict(ROBOT_ACTION_MODE="waypoint")
@@ -200,6 +201,8 @@ class ConfigTest(unittest.TestCase):
         from learn.policy_io import policy_settings
         self.assertEqual(policy_settings({"format": "rv4", "config": {"NET_SIZE": "l"}})["ROBOT_ACTION_MODE"], "velocity")
         self.assertEqual(policy_settings({"format": "rv4", "config": {"ROBOT_ACTION_MODE": "waypoint"}})["ROBOT_ACTION_MODE"], "waypoint")
+        # RV3 checkpoints too, whatever configs/ says
+        self.assertEqual(policy_settings({"policy": {}, "q1": {}})["ROBOT_ACTION_MODE"], "velocity")
 
     def test_decision_length_must_fit_the_clock(self):
         from configs import ConfigError

@@ -118,7 +118,7 @@ ROBOT_EDGE_TRAP_FIX = True
 # 행동 차원이 바뀌므로(2 -> 3) 네트워크와 체크포인트가 서로 호환되지 않는다.
 # 시뮬레이터는 바꾸지 않는다: 추종기가 매 스텝 속도 명령을 줄 뿐이다.
 # 사람 조작(HumanPlay)은 계속 속도 명령이다.
-ROBOT_ACTION_MODE = "velocity"       # "velocity" | "waypoint"
+ROBOT_ACTION_MODE = "waypoint"       # "velocity" | "waypoint"
 ROBOT_WAYPOINT_RANGE_M = 30.0        # 목표 오프셋 최대 (축마다, m)
 ROBOT_WAYPOINT_SPEED_MAX = 2.0       # m/s (ROBOT_SPEED_NORM_LIMIT 도 적용됨)
 ROBOT_WAYPOINT_ARRIVAL_M = 1.0       # 이 안이면 도착, 정지

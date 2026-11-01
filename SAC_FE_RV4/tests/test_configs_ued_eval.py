@@ -14,36 +14,51 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 os.chdir(ROOT)
 
-from configs import ConfigError, resolve_config  # noqa: E402
+from configs import ConfigError  # noqa: E402
+from tests.reference import reference_config  # noqa: E402
 
 
 class ConfigTest(unittest.TestCase):
     def test_unknown_and_invalid_rejected(self):
         with self.assertRaises(ConfigError):
-            resolve_config(overrides={"LRR": 1})
+            reference_config({"LRR": 1})
         with self.assertRaises(ConfigError):
-            resolve_config(overrides={"UED_METHOD": "paired"})
+            reference_config({"UED_METHOD": "paired"})
         with self.assertRaises(ConfigError):
-            resolve_config(overrides={"NET_ENCODER": "legacy_rv3", "MAP_SCALE_TO_ACTOR": True})
+            reference_config({"NET_ENCODER": "legacy_rv3", "MAP_SCALE_TO_ACTOR": True})
         with self.assertRaises(ConfigError):
-            resolve_config(overrides={"UED_MAP_SIZES_M": 100})
+            reference_config({"UED_MAP_SIZES_M": 100})
 
     def test_json_lists_become_tuples(self):
-        c = resolve_config(overrides={"UED_MAP_SIZES_M": [70, 100]})
+        c = reference_config({"UED_MAP_SIZES_M": [70, 100]})
         self.assertEqual(c.UED_MAP_SIZES_M, (70, 100))
 
     def test_fingerprint(self):
-        a = resolve_config()
-        self.assertEqual(a.fingerprint(), resolve_config().fingerprint())
-        self.assertNotEqual(a.fingerprint(), resolve_config(overrides={"LR": 3e-4}).fingerprint())
-        self.assertEqual(a.fingerprint(), resolve_config(overrides={"WANDB_RUN_NAME": "x"}).fingerprint())
+        a = reference_config()
+        self.assertEqual(a.fingerprint(), reference_config().fingerprint())
+        self.assertNotEqual(a.fingerprint(), reference_config({"LR": 3e-4}).fingerprint())
+        self.assertEqual(a.fingerprint(), reference_config({"WANDB_RUN_NAME": "x"}).fingerprint())
 
     def test_presets_valid(self):
         for p in glob.glob(os.path.join(ROOT, "presets", "*.json")):
             with self.subTest(preset=os.path.basename(p)):
                 d = json.load(open(p))
                 d.pop("_comment", None)
-                resolve_config(overrides=d)
+                reference_config(d)
+
+    def test_rv3_parity_preset_is_self_contained(self):
+        """It reproduces RV3 whatever configs/ is set to for the next run."""
+        d = json.load(open(os.path.join(ROOT, "presets", "rv3_parity.json")))
+        d.pop("_comment", None)
+        for run_settings in ({}, {"ROBOT_ACTION_MODE": "waypoint", "OBS_STATIC_DISTANCE_CHANNEL": True,
+                                  "CRITIC_LAYERNORM": True, "CRITIC_DROPOUT": 0.01, "ALPHA_AUTO": True,
+                                  "DANGER_DISTANCE": "geodesic", "REWARD_B_2": "auto",
+                                  "OBS_FOLLOWER_PIXEL": 200, "UPDATES_PER_TRANSITION": 4}):
+            c = reference_config({**run_settings, **d})
+            self.assertEqual((c.NET_ENCODER, c.ROBOT_ACTION_MODE, c.OBS_STATIC_DISTANCE_CHANNEL,
+                              c.CRITIC_LAYERNORM, c.ALPHA_AUTO, c.DANGER_DISTANCE, c.REWARD_B_2,
+                              c.OBS_FOLLOWER_PIXEL, c.UPDATES_PER_TRANSITION),
+                             ("legacy_rv3", "velocity", False, False, False, "euclidean", 0, None, 1))
 
     def test_cli_overrides_reach_children(self):
         code = ("from configs import apply_cli_overrides; apply_cli_overrides(['--set', 'LR=0.25']);"
@@ -59,7 +74,7 @@ class ConfigTest(unittest.TestCase):
 
 class UEDTest(unittest.TestCase):
     def setUp(self):
-        self.cfg = resolve_config(overrides={"UED_MIN_TRIALS": 2})
+        self.cfg = reference_config({"UED_MIN_TRIALS": 2})
 
     def test_generation_and_check(self):
         from ued.level import Level, check_level, generate_level
@@ -89,7 +104,7 @@ class UEDTest(unittest.TestCase):
     def test_population(self):
         from ued.level import generate_level, next_level_id
         from ued.population import LevelPopulation
-        cfg = resolve_config(overrides={"UED_MIN_TRIALS": 2, "UED_POP_SIZE": 12})
+        cfg = reference_config({"UED_MIN_TRIALS": 2, "UED_POP_SIZE": 12})
         pop = LevelPopulation(cfg, rng=random.Random(0))
         levels = []
         for s in range(14):
@@ -123,7 +138,7 @@ class UEDTest(unittest.TestCase):
         for over in ({"TRAIN_MAP_SOURCE": "dataset"}, {"UED_METHOD": "dr"},
                      {"UED_METHOD": "plr", "UED_WARMUP_EPISODES": 0},
                      {"TRAIN_MAP_SOURCE": "mixed", "MIXED_DATASET_PROB": 0.5}):
-            cfg = resolve_config(overrides=over)
+            cfg = reference_config(over)
             s = TaskSampler(cfg, seed=1)
             for ep in range(6):
                 t = s.next_task(ep)

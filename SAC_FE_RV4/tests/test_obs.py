@@ -12,7 +12,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 os.chdir(ROOT)
 
-from configs import resolve_config  # noqa: E402
+from tests.reference import reference_config  # noqa: E402
 from learn import obs as O  # noqa: E402
 from map_augmentation import transform_point  # noqa: E402
 
@@ -27,7 +27,7 @@ def _env(aug="identity", m=1500, seed=3):
 class ObservationTest(unittest.TestCase):
     def test_frames_equal_rv3(self):
         import torch.nn.functional as F
-        cfg = resolve_config()
+        cfg = reference_config()
         env = _env()
         ob = O.ObservationBuilder(cfg, env)
         full = env.return_current_image(100, 100)
@@ -43,13 +43,13 @@ class ObservationTest(unittest.TestCase):
 
     def test_metric_ego_equals_normalized_at_100m(self):
         env = _env()
-        a = O.ObservationBuilder(resolve_config(), env).frames()
-        b = O.ObservationBuilder(resolve_config(overrides={"OBS_EGO_MODE": "metric"}), env).frames()
+        a = O.ObservationBuilder(reference_config(), env).frames()
+        b = O.ObservationBuilder(reference_config({"OBS_EGO_MODE": "metric"}), env).frames()
         np.testing.assert_array_equal(a[0], b[0])
         np.testing.assert_array_equal(a[1], b[1])
 
     def test_static_channel(self):
-        cfg = resolve_config(overrides={"OBS_STATIC_DISTANCE_CHANNEL": True})
+        cfg = reference_config({"OBS_STATIC_DISTANCE_CHANNEL": True})
         env = _env()
         ob = O.ObservationBuilder(cfg, env)
         d = ob.dist_full
@@ -64,7 +64,7 @@ class ObservationTest(unittest.TestCase):
 
     def test_d4_image_matches_world_transform(self):
         """Rendering a transformed map equals transforming the rendering."""
-        cfg = resolve_config()
+        cfg = reference_config()
         base = O.ObservationBuilder(cfg, _env("identity")).static_full
         for k, name in enumerate(O.D4_NAMES):
             env = _env(name)
@@ -93,7 +93,7 @@ class ObservationTest(unittest.TestCase):
         self.assertEqual(O.d4_state(s, 2)[0, 3:].tolist(), [1.0, 3.0])
 
     def test_scale_feature(self):
-        cfg = resolve_config(overrides={"MAP_SCALE_N": 1.5})
+        cfg = reference_config({"MAP_SCALE_N": 1.5})
         env = _env()
         st = O.ObservationBuilder(cfg, env).robot_state()
         self.assertAlmostEqual(float(st[3]), 1.5 * 100 / 50)

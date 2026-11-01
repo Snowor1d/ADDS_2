@@ -18,7 +18,8 @@ from learn import rewards as R  # noqa: E402
 
 
 def _cfg(**over):
-    return resolve_config(overrides=over, use_env=False)
+    from tests.reference import reference_config
+    return reference_config(over)
 
 
 def _env(seed=5, map_num=1504):
