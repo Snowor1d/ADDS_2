@@ -1,0 +1,6 @@
+{
+  "_comment": "Waypoint actions (learn/waypoint.py): the policy picks a target point (+-30 m per axis) and a speed; a navmesh follower walks there; decisions last 2-20 s (14 s on average with a random policy, so about 1/7 of the velocity mode's transitions per episode). BUFFER_SIZE 250k: a transition carries up to 4 frames (3.4 measured), about 1.07M frames / 4 GB. UPDATES_PER_TRANSITION 4: with 1 the learner would get about 7 transitions/s and leave the GPU about 75% idle. Fixed ALPHA 0.2 weighs entropy about 6-10x less against a decision's reward than in velocity mode (rewards add up over the decision's 2 s windows): watch train/entropy. Add LOG_DIR / WANDB_RUN_NAME of your own.",
+  "ROBOT_ACTION_MODE": "waypoint",
+  "BUFFER_SIZE": 250000,
+  "UPDATES_PER_TRANSITION": 4
+}

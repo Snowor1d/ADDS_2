@@ -18,6 +18,12 @@ Transitions of an episode are linked (next_t), which gives n-step returns:
 rewards are summed along the link until N_STEP, the episode's end, or a
 successor that has not arrived yet, and the target bootstraps from the last
 included transition's next state with gamma ** (number summed).
+
+A transition may span several ACTION_SCALE windows (waypoint decisions): its
+`dur` is that number, its discount gamma ** dur, and it brings in one frame
+per window (the last FRAME_STACK of them are kept: older ones are never part
+of a stack). The next state's whole stack is stored (s2_f). Velocity
+decisions have dur = 1 and one frame, as before.
 """
 
 from __future__ import annotations
@@ -44,14 +50,15 @@ class EpisodeCursor:
 
 class FrameReplay:
     def __init__(self, capacity: int, ego_hw: int, glob_hw: int, stack: int,
-                 static_channel: bool, device="cpu"):
+                 static_channel: bool, device="cpu", action_dim: int = 2,
+                 frames_per_transition: float = 1.1):
         self.cap = int(capacity)
         self.stack = int(stack)
         self.ego_hw = int(ego_hw)
         self.glob_hw = int(glob_hw)
         self.static = bool(static_channel)
         self.device = torch.device(device)
-        self.fcap = int(self.cap * 1.1) + 65536
+        self.fcap = int(self.cap * float(frames_per_transition)) + 65536
         self.ecap = max(8192, self.cap // 16)
 
         self.ego_f = np.zeros((self.fcap, ego_hw, ego_hw), np.uint8)
@@ -67,10 +74,12 @@ class FrameReplay:
         c = self.cap
         self.s_f = np.zeros((c, self.stack), np.int64)
         self.s2_f0 = np.zeros(c, np.int64)
+        self.s2_f = np.zeros((c, self.stack), np.int64)     # the next state's stack
+        self.dur = np.ones(c, np.int16)                     # ACTION_SCALE windows spanned
         self.ep = np.zeros(c, np.int64)
         self.state = np.zeros((c, STATE_DIM), np.float32)
         self.state2 = np.zeros((c, STATE_DIM), np.float32)
-        self.action = np.zeros((c, 2), np.float32)
+        self.action = np.zeros((c, int(action_dim)), np.float32)
         self.reward = np.zeros(c, np.float32)
         self.terminal = np.zeros(c, bool)   # the task ended (everyone out)
         self.last = np.zeros(c, bool)       # the episode ended (terminal or time limit)
@@ -114,6 +123,8 @@ class FrameReplay:
         slot = tid % self.cap
         self.s_f[slot] = cur.stack
         self.s2_f0[slot] = f0
+        self.s2_f[slot] = [f0] + cur.stack[:-1]
+        self.dur[slot] = 1
         self.ep[slot] = cur.episode_id
         self.state[slot] = state
         self.state2[slot] = next_state
@@ -132,6 +143,46 @@ class FrameReplay:
         self.size = min(self.size + 1, self.cap)
         cur.prev_t = tid
         cur.stack = [f0] + cur.stack[:-1]
+        cur.t_ids.append(tid)
+        return tid
+
+    def add_multi(self, cur: EpisodeCursor, state, action, reward, frames, next_state,
+                  terminal: bool, last: bool, ticks: int, trainable: bool = True) -> int:
+        """A decision that lasted `ticks` ACTION_SCALE windows: `frames` are
+        the (ego, glob, ego_static) of its last windows, oldest first, at most
+        FRAME_STACK of them; the newest is the next state's."""
+        assert frames, "a transition needs its next frame"
+        s_f = list(cur.stack)
+        for (e, g, es) in frames[:-1]:
+            fid = self._put_frame(e, g, es)
+            cur.stack = [fid] + cur.stack[:-1]
+        e, g, es = frames[-1]
+        f0 = self._put_frame(e, g, es)
+        s2 = [f0] + cur.stack[:-1]
+        tid = self.t_next
+        slot = tid % self.cap
+        self.s_f[slot] = s_f
+        self.s2_f0[slot] = f0
+        self.s2_f[slot] = s2
+        self.dur[slot] = int(ticks)
+        self.ep[slot] = cur.episode_id
+        self.state[slot] = state
+        self.state2[slot] = next_state
+        self.action[slot] = action
+        self.reward[slot] = reward
+        self.terminal[slot] = bool(terminal)
+        self.last[slot] = bool(last)
+        self.trainable[slot] = bool(trainable)
+        self.t_id[slot] = tid
+        self.next_t[slot] = -1
+        if cur.prev_t >= 0:
+            ps = cur.prev_t % self.cap
+            if self.t_id[ps] == cur.prev_t:
+                self.next_t[ps] = tid
+        self.t_next += 1
+        self.size = min(self.size + 1, self.cap)
+        cur.prev_t = tid
+        cur.stack = s2
         cur.t_ids.append(tid)
         return tid
 
@@ -154,7 +205,7 @@ class FrameReplay:
         if for_training:
             ok &= self.trainable[slots]
         ok &= self._frames_valid(self.s_f[slots]).all(axis=1)
-        ok &= self._frames_valid(self.s2_f0[slots])
+        ok &= self._frames_valid(self.s2_f[slots]).all(axis=1)
         if self.static:
             e = self.ep[slots]
             ok &= self.e_id[e % self.ecap] == e
@@ -177,7 +228,7 @@ class FrameReplay:
         of end_slot)."""
         B = slots.shape[0]
         R = self.reward[slots].astype(np.float64).copy()
-        disc = np.full(B, gamma, np.float64)
+        disc = np.power(float(gamma), self.dur[slots].astype(np.float64))
         end = slots.copy()
         active = ~self.last[slots]
         for _ in range(1, n):
@@ -187,9 +238,9 @@ class FrameReplay:
             has = active & (nxt >= 0)
             nslot = np.where(has, nxt % self.cap, end)
             has &= self.t_id[nslot] == nxt
-            has &= self._frames_valid(self.s2_f0[nslot])
+            has &= self._frames_valid(self.s2_f[nslot]).all(axis=1)
             R = np.where(has, R + disc * self.reward[nslot], R)
-            disc = np.where(has, disc * gamma, disc)
+            disc = np.where(has, disc * np.power(float(gamma), self.dur[nslot].astype(np.float64)), disc)
             end = np.where(has, nslot, end)
             active = has & ~self.last[nslot]
         done = self.terminal[end] if timeout_bootstrap else self.last[end]
@@ -209,7 +260,7 @@ class FrameReplay:
         R, disc, done, end = self._nstep(slots, n_step, gamma, timeout_bootstrap)
         s_f = self.s_f[slots]
         ego, glob = self._obs(s_f, s_f[:, 0], self.ep[slots])
-        s2 = np.concatenate([self.s2_f0[end][:, None], self.s_f[end][:, :-1]], axis=1)
+        s2 = self.s2_f[end]
         ego2, glob2 = self._obs(s2, s2[:, 0], self.ep[end])
         dev = self.device
 
@@ -230,7 +281,7 @@ class FrameReplay:
         """(ego, glob, state) of the transitions' states, or of their next
         states with nxt=True, as network inputs."""
         if nxt:
-            s2 = np.concatenate([self.s2_f0[slots][:, None], self.s_f[slots][:, :-1]], axis=1)
+            s2 = self.s2_f[slots]
             ego, glob = self._obs(s2, s2[:, 0], self.ep[slots])
             st = self.state2[slots]
         else:
@@ -259,7 +310,7 @@ class FrameReplay:
     # ---------------------------------------------------------- persistence
 
     _ARRAYS = ("ego_f", "glob_f", "ego_static_f", "f_id", "glob_static_e", "e_id",
-               "s_f", "s2_f0", "ep", "state", "state2", "action", "reward",
+               "s_f", "s2_f0", "s2_f", "dur", "ep", "state", "state2", "action", "reward",
                "terminal", "last", "trainable", "t_id", "next_t")
 
     def save(self, directory: str) -> None:
@@ -283,8 +334,15 @@ class FrameReplay:
             print("[replay] stored buffer has a different shape; starting empty")
             return False
         for name in self._ARRAYS:
-            if getattr(self, name) is not None:
-                getattr(self, name)[...] = np.load(os.path.join(directory, name + ".npy"))
+            f = os.path.join(directory, name + ".npy")
+            if getattr(self, name) is None:
+                continue
+            if name in ("s2_f", "dur") and not os.path.exists(f):
+                continue          # saved before these existed: rebuilt below
+            getattr(self, name)[...] = np.load(f)
+        if not os.path.exists(os.path.join(directory, "s2_f.npy")):
+            self.s2_f[:] = np.concatenate([self.s2_f0[:, None], self.s_f[:, :-1]], axis=1)
+            self.dur[:] = 1
         self.f_next, self.e_next, self.t_next, self.size = (int(x) for x in c[:4])
         # In-flight episodes of the previous process are gone; their last
         # transitions keep next_t = -1, which ends their n-step sums there.

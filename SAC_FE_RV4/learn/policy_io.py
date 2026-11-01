@@ -25,6 +25,8 @@ POLICY_KEYS = (
     "OBS_EGO_MODE", "OBS_EGO_METERS_PER_PX", "OBS_FOLLOWER_PIXEL",
     "OBS_STATIC_DISTANCE_CHANNEL", "MAP_SCALE_UNIT_M", "MAP_SCALE_N", "FRAME_STACK",
     "EGO_MAP_SIZE", "DOWNSAMPLE_MAP_SIZE", "MAP_H", "MAP_W", "ACTION_SCALE",
+    "ROBOT_ACTION_MODE", "ROBOT_WAYPOINT_RANGE_M", "ROBOT_WAYPOINT_SPEED_MAX",
+    "ROBOT_WAYPOINT_ARRIVAL_M", "ROBOT_DECISION_MAX_S_WAYPOINT", "ROBOT_DECISION_ON_EVENTS_WAYPOINT",
 )
 
 RV3_POLICY = {
@@ -60,7 +62,11 @@ def policy_settings(ckpt: Dict[str, Any]) -> Dict[str, Any]:
     if is_rv3(ckpt):
         return dict(RV3_POLICY)
     saved = ckpt.get("config", {})
-    return {k: saved[k] for k in POLICY_KEYS if k in saved}
+    out = {k: saved[k] for k in POLICY_KEYS if k in saved}
+    # checkpoints from before ROBOT_ACTION_MODE existed are velocity policies,
+    # whatever configs/ says today
+    out.setdefault("ROBOT_ACTION_MODE", "velocity")
+    return out
 
 
 def policy_config(ckpt: Dict[str, Any]):

@@ -122,7 +122,7 @@ def analyse_one(row, z):
     ii, jj = _cells(field, dxy)
     geo_dir = -_unit(np.c_[gx[ii, jj], gy[ii, jj]])
     eu_dir = _unit(_exit_vectors(row, dxy))
-    u = _unit(z["mean_action"][sel].astype(np.float64))
+    u = _unit(z["mean_action"][sel][:, :2].astype(np.float64))   # direction only (waypoint: + speed)
     ok = np.isfinite(geo_dir).all(1)
 
     L = 40   # 20 s

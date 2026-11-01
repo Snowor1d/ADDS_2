@@ -258,8 +258,20 @@ def main(argv: Optional[List[str]] = None):
     max_episodes = args.max_episodes if args.max_episodes is not None else int(cfg.MAX_EPISODES)
 
     learner = SACLearner(cfg, device)
+    fpt = cfg.REPLAY_FRAMES_PER_TRANSITION
+    if fpt is None:
+        # a waypoint transition brings one frame per 2 s window it spans, up
+        # to FRAME_STACK (3.4 on average with 14 s decisions, measured)
+        fpt = 1.1 if cfg.ROBOT_ACTION_MODE == "velocity" else \
+            float(min(int(cfg.FRAME_STACK), cfg.decision_max_ticks()))
     replay = FrameReplay(int(cfg.BUFFER_SIZE), int(cfg.EGO_MAP_SIZE), int(cfg.DOWNSAMPLE_MAP_SIZE),
-                         int(cfg.FRAME_STACK), bool(cfg.OBS_STATIC_DISTANCE_CHANNEL), device=device)
+                         int(cfg.FRAME_STACK), bool(cfg.OBS_STATIC_DISTANCE_CHANNEL), device=device,
+                         action_dim=cfg.action_dim(), frames_per_transition=float(fpt))
+    frame_bytes = int(cfg.EGO_MAP_SIZE) ** 2 * (2 if cfg.OBS_STATIC_DISTANCE_CHANNEL else 1) \
+        + int(cfg.DOWNSAMPLE_MAP_SIZE) ** 2
+    print(f"[main] replay: {int(cfg.BUFFER_SIZE)} transitions, {replay.fcap} frames "
+          f"(~{replay.fcap * frame_bytes / 1e9:.1f} GB), action dim {cfg.action_dim()}, "
+          f"robot action mode {cfg.ROBOT_ACTION_MODE}", flush=True)
     sampler = TaskSampler(cfg, seed=int(time.time()) % 100000)
     start_episode = 0
     epsilon0 = float(cfg.START_EPSILON)
@@ -366,7 +378,7 @@ def main(argv: Optional[List[str]] = None):
         """V(s_t) along the episode, for MaxMC / PVL."""
         slots = replay.episode_slots(cur.t_ids)
         if len(slots) == 0:
-            return None, None, 0.0, True
+            return None, None, 0.0, True, None
         vals = []
         was = learner.actor.training, learner.critic.training
         learner.actor.eval()
@@ -380,7 +392,7 @@ def main(argv: Optional[List[str]] = None):
             learner.actor.train(was[0])
             learner.critic.train(was[1])
         return (np.concatenate(vals), replay.reward[slots].astype(np.float64), last_v,
-                bool(replay.terminal[slots[-1]]))
+                bool(replay.terminal[slots[-1]]), replay.dur[slots].astype(np.float64))
 
     def on_end(wid, ep, task_id, st):
         nonlocal episode, last_broadcast, best_val, warm
@@ -424,17 +436,19 @@ def main(argv: Optional[List[str]] = None):
                 logger.write_by_map(task.label() if task.kind == "dataset" else "ued",
                                     st["total_reward"], st["evac_time_100"])
             if task is not None and task.kind == "level":
-                vals = rew = None
+                vals = rew = dur = None
                 last_v, last_term = 0.0, True
                 if (sampler.needs_values() and cur is not None
                         and eps_used <= float(cfg.UED_SCORE_MAX_EPSILON)):
-                    vals, rew, last_v, last_term = ued_values(cur)
+                    vals, rew, last_v, last_term, dur = ued_values(cur)
                 elif cur is not None:
                     slots = replay.episode_slots(cur.t_ids)
                     rew = replay.reward[slots].astype(np.float64) if len(slots) else None
+                    dur = replay.dur[slots].astype(np.float64) if len(slots) else None
+                # gamma per transition: gamma ** (ACTION_SCALE windows it spans)
+                g = learner.gamma if dur is None else np.power(learner.gamma, dur)
                 sampler.on_episode(task, st, episode, eps_used, values=vals, rewards=rew,
-                                   last_value=last_v, last_terminal=last_term,
-                                   gamma=learner.gamma)
+                                   last_value=last_v, last_terminal=last_term, gamma=g)
         # schedules (RV3's linear gamma ascent and alpha decay, per episode;
         # constant with the default START == END)
         frac = lambda n: min(1.0, max(0.0, episode / max(1, int(n))))
@@ -532,8 +546,14 @@ def main(argv: Optional[List[str]] = None):
                         continue
                     t = ep_task.get((wid, ep))
                     trainable = True if t is None else bool(t.trainable)
-                    for (s, a, r, e2, g2, es2, s2, term, last) in chunk:
-                        replay.add(cur, s, a, r, e2, g2, es2, s2, term, last, trainable=trainable)
+                    for item in chunk:
+                        if len(item) == 9:          # velocity: one window, one frame
+                            s, a, r, e2, g2, es2, s2, term, last = item
+                            replay.add(cur, s, a, r, e2, g2, es2, s2, term, last, trainable=trainable)
+                        else:                       # waypoint: (.., frames, .., ticks)
+                            s, a, r, frames, s2, term, last, ticks = item
+                            replay.add_multi(cur, s, a, r, frames, s2, term, last, ticks,
+                                             trainable=trainable)
                     n_trans += len(chunk)
                     trans_perf += len(chunk)
                     n_trans_since_resume += len(chunk)

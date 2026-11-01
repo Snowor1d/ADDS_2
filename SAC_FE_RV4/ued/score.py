@@ -19,10 +19,17 @@ from typing import Optional
 import numpy as np
 
 
-def discounted_return(rewards: np.ndarray, gamma: float) -> float:
+def _discounts(gamma, T: int) -> np.ndarray:
+    """gamma per transition: a number, or one per transition (waypoint
+    decisions of different lengths are discounted by gamma ** windows)."""
+    return np.broadcast_to(np.asarray(gamma, dtype=np.float64), (T,))
+
+
+def discounted_return(rewards: np.ndarray, gamma) -> float:
     g = 0.0
-    for r in rewards[::-1]:
-        g = float(r) + gamma * g
+    d = _discounts(gamma, len(rewards))
+    for t in range(len(rewards) - 1, -1, -1):
+        g = float(rewards[t]) + float(d[t]) * g
     return g
 
 
@@ -40,10 +47,11 @@ def pvl(rewards: np.ndarray, values: np.ndarray, next_value_last: float, last_te
     v_next = np.empty(T)
     v_next[:-1] = values[1:]
     v_next[-1] = 0.0 if last_terminal else next_value_last
-    delta = rewards + gamma * v_next - values
+    d = _discounts(gamma, T)
+    delta = rewards + d * v_next - values
     adv = np.empty(T)
     run = 0.0
     for t in range(T - 1, -1, -1):
-        run = delta[t] + gamma * lam * run
+        run = delta[t] + d[t] * lam * run
         adv[t] = run
     return float(np.mean(np.maximum(adv, 0.0)))

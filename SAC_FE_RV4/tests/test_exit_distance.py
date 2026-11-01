@@ -19,6 +19,14 @@ from learn.exit_distance import ExitDistanceField  # noqa: E402
 EXIT_RIGHT = [[[96.0, 45.0], [100.0, 45.0], [100.0, 55.0], [96.0, 55.0]]]
 
 
+def _restore(saved):
+    """Put RV4_OVERRIDES back as the caller had it (tests that follow read it)."""
+    if saved is None:
+        os.environ.pop("RV4_OVERRIDES", None)
+    else:
+        os.environ["RV4_OVERRIDES"] = saved
+
+
 def _straight(x, y, exits=EXIT_RIGHT):
     from shapely.geometry import Point, Polygon
     return min(Polygon(e).distance(Point(x, y)) for e in exits)
@@ -74,8 +82,12 @@ class FieldTest(unittest.TestCase):
 
 
 class DangerTest(unittest.TestCase):
+    def setUp(self):
+        self._saved = os.environ.get("RV4_OVERRIDES")
+
     def _env(self, overrides, map_num=1504, seed=3):
-        os.environ["RV4_OVERRIDES"] = json.dumps(overrides)
+        base = json.loads(self._saved) if self._saved else {}
+        os.environ["RV4_OVERRIDES"] = json.dumps({**base, **overrides})
         from configs import refresh
         refresh()
         import importlib
@@ -88,7 +100,7 @@ class DangerTest(unittest.TestCase):
         return model.FightingModel(30, 100, 100, model_num=map_num, robot="Q")
 
     def tearDown(self):
-        os.environ.pop("RV4_OVERRIDES", None)
+        _restore(self._saved)
         from configs import refresh
         refresh()
         import importlib
@@ -124,17 +136,23 @@ class DangerTest(unittest.TestCase):
 
 
 class FingerprintTest(unittest.TestCase):
+    def setUp(self):
+        self._saved = os.environ.get("RV4_OVERRIDES")
+
     def tearDown(self):
-        os.environ.pop("RV4_OVERRIDES", None)
+        _restore(self._saved)
 
     def test_legacy_default_hashes_as_if_the_setting_did_not_exist(self):
         import hashlib
-        from configs import _FINGERPRINT_DEFAULTS, _NOT_FINGERPRINTED, _RENAMED, resolve_config
+        from configs import (_FINGERPRINT_DEFAULTS, _NOT_FINGERPRINTED, _RENAMED, _WAYPOINT_ONLY,
+                             resolve_config)
         os.environ["RV4_OVERRIDES"] = json.dumps(_FINGERPRINT_DEFAULTS)
         cfg = resolve_config()
-        # the settings as they were named, without the ones added since
+        # the settings as they were named, without the ones added since (the
+        # waypoint-only ones do not count in velocity mode)
         old = {_RENAMED.get(k, k): v for k, v in cfg.as_dict().items()
-               if k not in _NOT_FINGERPRINTED and k not in _FINGERPRINT_DEFAULTS}
+               if k not in _NOT_FINGERPRINTED and k not in _FINGERPRINT_DEFAULTS
+               and k not in _WAYPOINT_ONLY}
         blob = json.dumps(old, sort_keys=True, default=str).encode()
         self.assertEqual(cfg.fingerprint(), hashlib.sha256(blob).hexdigest()[:12])
         os.environ["RV4_OVERRIDES"] = json.dumps(dict(_FINGERPRINT_DEFAULTS, DANGER_DISTANCE="geodesic"))

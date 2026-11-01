@@ -64,7 +64,15 @@ _FINGERPRINT_DEFAULTS = {
     "DANGER_DISTANCE": "euclidean",
     "DANGER_GEO_RES": 0.5,
     "REWARD_B_2": 0,
+    "ROBOT_ACTION_MODE": "velocity",
+    "REPLAY_FRAMES_PER_TRANSITION": None,
 }
+# Settings that only mean something in ROBOT_ACTION_MODE = "waypoint": left
+# out of the fingerprint in "velocity" mode whatever their value, so velocity
+# runs keep their fingerprints.
+_WAYPOINT_ONLY = ("ROBOT_WAYPOINT_RANGE_M", "ROBOT_WAYPOINT_SPEED_MAX", "ROBOT_WAYPOINT_ARRIVAL_M",
+                  "ROBOT_DECISION_MAX_S_WAYPOINT", "ROBOT_DECISION_ON_EVENTS_WAYPOINT")
+
 # Settings renamed after runs had started: the fingerprint hashes them under
 # the old name, and overrides (presets, --set, RV4_OVERRIDES) may still use it.
 _RENAMED = {
@@ -82,6 +90,7 @@ _VALID = {
     "RESET_SCOPE": ("heads", "all"),
     "REWARD_COLLISION_MODE": ("last_step", "sum"),
     "DANGER_DISTANCE": ("euclidean", "geodesic"),
+    "ROBOT_ACTION_MODE": ("velocity", "waypoint"),
     "RESUME_MODE": ("latest", "fresh"),
     "WANDB_MODE": ("online", "offline", "disabled"),
     "WANDB_UPLOAD_CHECKPOINTS": ("none", "selected"),
@@ -269,8 +278,10 @@ class Config:
         return self._overridden
 
     def fingerprint(self) -> str:
+        velocity = self._values.get("ROBOT_ACTION_MODE", "velocity") == "velocity"
         data = {_RENAMED.get(k, k): v for k, v in self._values.items() if k not in _NOT_FINGERPRINTED
-                and not (k in _FINGERPRINT_DEFAULTS and v == _FINGERPRINT_DEFAULTS[k])}
+                and not (k in _FINGERPRINT_DEFAULTS and v == _FINGERPRINT_DEFAULTS[k])
+                and not (velocity and k in _WAYPOINT_ONLY)}
         blob = json.dumps(data, sort_keys=True, default=str).encode()
         return hashlib.sha256(blob).hexdigest()[:12]
 
@@ -280,6 +291,17 @@ class Config:
 
     def lr_critic(self) -> float:
         return float(self.LR_CRITIC if self.LR_CRITIC is not None else self.LR)
+
+    def action_dim(self) -> int:
+        """2 (velocity) or 3 (waypoint: target offset x, y and speed)."""
+        return 3 if self.ROBOT_ACTION_MODE == "waypoint" else 2
+
+    def decision_max_ticks(self) -> int:
+        """Longest decision in ACTION_SCALE windows (1 in velocity mode)."""
+        if self.ROBOT_ACTION_MODE != "waypoint":
+            return 1
+        tick_s = int(self.ACTION_SCALE) * float(self.AGENT_TIME_STEP)
+        return max(1, int(round(float(self.ROBOT_DECISION_MAX_S_WAYPOINT) / tick_s)))
 
     def obs_channels(self) -> int:
         return int(self.FRAME_STACK) + (1 if self.OBS_STATIC_DISTANCE_CHANNEL else 0)
@@ -350,6 +372,20 @@ def _validate(v: Dict[str, Any]) -> None:
     lim = v.get("ROBOT_SPEED_NORM_LIMIT")
     if lim is not None and not (0 < float(lim) <= 2.0 * 2 ** 0.5):
         errs.append("ROBOT_SPEED_NORM_LIMIT must be None or in (0, 2.83]")
+    if v.get("ROBOT_ACTION_MODE") == "waypoint":
+        tick_s = int(v["ACTION_SCALE"]) * float(v["AGENT_TIME_STEP"])
+        ratio = float(v["ROBOT_DECISION_MAX_S_WAYPOINT"]) / tick_s
+        if ratio < 1 or abs(ratio - round(ratio)) > 1e-9:
+            errs.append(f"ROBOT_DECISION_MAX_S_WAYPOINT must be a positive multiple of {tick_s:g} s "
+                        "(decisions end on the ACTION_SCALE clock)")
+        if v["NET_ENCODER"] == "legacy_rv3":
+            errs.append("ROBOT_ACTION_MODE='waypoint' needs a 3-number action; legacy_rv3 has 2")
+        if float(v["GAMMA_START"]) != float(v["GAMMA_END"]):
+            errs.append("ROBOT_ACTION_MODE='waypoint' needs a constant discount (GAMMA_START == GAMMA_END): "
+                        "workers discount the 2 s rewards inside a decision with it")
+        for k in ("ROBOT_WAYPOINT_RANGE_M", "ROBOT_WAYPOINT_SPEED_MAX", "ROBOT_WAYPOINT_ARRIVAL_M"):
+            if not float(v[k]) > 0:
+                errs.append(f"{k} must be > 0")
     b2 = v.get("REWARD_B_2")
     if not (b2 == "auto" or (isinstance(b2, (int, float)) and not isinstance(b2, bool) and b2 >= 0)):
         errs.append("REWARD_B_2 must be 0 (off), a K > 0 or 'auto'")

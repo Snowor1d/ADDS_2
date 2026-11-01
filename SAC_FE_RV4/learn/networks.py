@@ -327,7 +327,7 @@ def squash_sample(mean, log_std, temperature: float = 1.0, stable: bool = True):
 
 class ActorHead(nn.Module):
     def __init__(self, feat_dim: int, state_dim: int, spec: dict,
-                 log_std_min: float, log_std_max: float):
+                 log_std_min: float, log_std_max: float, action_dim: int = 2):
         super().__init__()
         self.robot_fc = nn.Sequential(nn.Linear(state_dim, spec["robot"]), nn.SiLU())
         h1, h2, h3 = spec["mlp"]
@@ -335,8 +335,8 @@ class ActorHead(nn.Module):
             nn.Linear(feat_dim + spec["robot"], h1), nn.SiLU(),
             nn.Linear(h1, h2), nn.SiLU(),
             nn.Linear(h2, h3), nn.SiLU())
-        self.mean_head = nn.Linear(h3, 2)
-        self.log_std_head = nn.Linear(h3, 2)
+        self.mean_head = nn.Linear(h3, action_dim)
+        self.log_std_head = nn.Linear(h3, action_dim)
         self.log_std_min = float(log_std_min)
         self.log_std_max = float(log_std_max)
 
@@ -348,19 +348,19 @@ class ActorHead(nn.Module):
 
 class CriticHead(nn.Module):
     def __init__(self, img_dim: int, state_dim: int, spec: dict, film: bool,
-                 layernorm: bool, dropout: float):
+                 layernorm: bool, dropout: float, action_dim: int = 2):
         super().__init__()
         rdim = spec["robot"]
         self.robot_fc = nn.Sequential(nn.Linear(state_dim, rdim), nn.SiLU())
         self.film = None
         if film:
-            self.film = nn.Sequential(nn.Linear(2 + rdim, 256), nn.SiLU(),
+            self.film = nn.Sequential(nn.Linear(action_dim + rdim, 256), nn.SiLU(),
                                       nn.Linear(256, 2 * img_dim))
             nn.init.zeros_(self.film[-1].weight)
             nn.init.zeros_(self.film[-1].bias)
         h1, h2 = spec["head"]
         layers: List[nn.Module] = []
-        prev = img_dim + rdim + 2
+        prev = img_dim + rdim + action_dim
         for h in (h1, h2):
             layers.append(nn.Linear(prev, h))
             if dropout > 0:
@@ -405,7 +405,7 @@ class Actor(nn.Module):
         self.shared_encoder = encoder is not None
         self.encoder = encoder if encoder is not None else DualEncoder(cfg, spec, cfg.obs_channels())
         self.head = ActorHead(self.encoder.out_dim, cfg.actor_state_dim(), spec,
-                              cfg.LOG_STD_MIN, cfg.LOG_STD_MAX)
+                              cfg.LOG_STD_MIN, cfg.LOG_STD_MAX, action_dim=cfg.action_dim())
         self.detach_features = self.shared_encoder
 
     def forward(self, ego, glob, state):
@@ -462,7 +462,7 @@ class CriticEnsemble(nn.Module):
             img = self.encoders[0].out_dim
         self.heads = nn.ModuleList([
             CriticHead(img, cfg.critic_state_dim(), spec, cfg.FiLM_USE,
-                       cfg.CRITIC_LAYERNORM, float(cfg.CRITIC_DROPOUT))
+                       cfg.CRITIC_LAYERNORM, float(cfg.CRITIC_DROPOUT), action_dim=cfg.action_dim())
             for _ in range(self.n)])
 
     def forward(self, ego, glob, state, action, members: Optional[Sequence[int]] = None):

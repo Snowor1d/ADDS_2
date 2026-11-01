@@ -36,7 +36,7 @@ OBS_FOLLOWER_PIXEL = None
 # 거리장, 0~1 정규화)를 추가할지. 맵의 위상(어디가 막혀 있고 어느 쪽이
 # 출구로 이어지는지)을 네트워크가 원시 점유 격자에서 추론하지 않아도 되게
 # 한다. 입력 채널 수가 바뀐다(4 -> 5).
-OBS_STATIC_DISTANCE_CHANNEL = False
+OBS_STATIC_DISTANCE_CHANNEL = True
 
 # 맵 스케일 입력: 한 변이 MAP_SCALE_UNIT_M 미터인 맵의 스케일을 MAP_SCALE_N
 # 으로 둔다. 즉 50 m x 50 m 가 n 이면 100 m x 100 m 는 2n.
@@ -100,6 +100,30 @@ ROBOT_SPEED_NORM_LIMIT = 2.0
 # 못 빠져나옴; 셔틀 베이스라인에서 관찰, 2026-10-25). True 면 그 띠에서만 반발
 # 방향을 안쪽으로 고친다. 경계 안쪽 동작은 RV3 와 같다. False = RV3.
 ROBOT_EDGE_TRAP_FIX = True
+
+# 로봇 행동의 의미.
+#   "velocity"  RV3: 행동 (dx, dy) 가 곧 속도(m/s)이고 ACTION_SCALE 스텝(2 s)마다
+#               새로 정한다. 정책이 모든 코너를 직접 돈다.
+#   "waypoint"  행동 3개: 목표점 오프셋 (축마다 [-2, 2] -> +-ROBOT_WAYPOINT_RANGE_M,
+#               결정 순간의 로봇 위치 기준)과 속도 ([-2, 2] -> [0, 1] x
+#               ROBOT_WAYPOINT_SPEED_MAX). 장애물 안이나 맵 밖 목표는 가장 가까운
+#               보행 가능 지점으로 옮긴다. 로봇은 셔틀 베이스라인과 같은 navmesh
+#               경로 추종(evaluation/baselines.Navigator, ROBOT_BODY_RADIUS 여유)으로
+#               매 스텝 그 점을 향해 걷고, 도착하면 선다. 결정은 2 s 경계에서만
+#               끝난다: ROBOT_DECISION_MAX_S_WAYPOINT 가 지났거나,
+#               ROBOT_DECISION_ON_EVENTS_WAYPOINT 이면 도착했거나 지난 2 s 동안
+#               명령 거리의 절반도 못 갔을 때. 한 결정의 보상은 2 s 마다 계산한
+#               보상의 할인 합(gamma^j)이고 transition 은 gamma^(2 s 개수)로 할인한다.
+#               관측 프레임은 결정과 무관하게 2 s 마다 쌓는다(속도 모드와 같은 간격).
+# 행동 차원이 바뀌므로(2 -> 3) 네트워크와 체크포인트가 서로 호환되지 않는다.
+# 시뮬레이터는 바꾸지 않는다: 추종기가 매 스텝 속도 명령을 줄 뿐이다.
+# 사람 조작(HumanPlay)은 계속 속도 명령이다.
+ROBOT_ACTION_MODE = "velocity"       # "velocity" | "waypoint"
+ROBOT_WAYPOINT_RANGE_M = 30.0        # 목표 오프셋 최대 (축마다, m)
+ROBOT_WAYPOINT_SPEED_MAX = 2.0       # m/s (ROBOT_SPEED_NORM_LIMIT 도 적용됨)
+ROBOT_WAYPOINT_ARRIVAL_M = 1.0       # 이 안이면 도착, 정지
+ROBOT_DECISION_MAX_S_WAYPOINT = 20.0  # 2 s 의 배수
+ROBOT_DECISION_ON_EVENTS_WAYPOINT = True
 # 사람·로봇의 agent.danger (출구까지 거리)를 재는 방법.
 #   "euclidean" RV3 그대로: 가장 가까운 출구 다각형까지의 직선거리
 #               (model.distance_to_exit). 벽을 무시해서, 출구 옆 막다른

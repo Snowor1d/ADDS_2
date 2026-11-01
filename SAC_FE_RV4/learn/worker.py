@@ -123,22 +123,55 @@ def worker_main(wid: int, task_q, out_q, param_q, epsilon_shared, seed: int):
             coll_window = 0
             collisions = 0
             decisions = 0
+            # Waypoint mode (learn/waypoint.py): a decision spans whole
+            # ACTION_SCALE windows; its reward is the discounted sum of the
+            # windows' rewards and it carries one frame per window (the last
+            # FRAME_STACK), so the stack keeps the velocity mode's 2 s spacing.
+            waypoint = cfg.ROBOT_ACTION_MODE == "waypoint"
+            if waypoint:
+                from learn.waypoint import WaypointFollower
+                follower = WaypointFollower(env, cfg)
+                gamma = float(cfg.GAMMA_START)
+                n_stack = int(cfg.FRAME_STACK)
+                A = cfg.action_dim()
+                deciding = True
+                dec_R, dec_ticks, dec_frames, dec_state = 0.0, 0, [], state
             for step in range(max_steps):
-                if step % D == 0:
-                    if np.random.rand() < eps:
-                        dx = np.random.uniform(-2, 2)
-                        dy = np.random.uniform(-2, 2)
+                if step % D == 0 and (not waypoint or deciding):
+                    if waypoint:
+                        if np.random.rand() < eps:
+                            a_np = np.random.uniform(-2, 2, size=A)
+                        else:
+                            e_in, g_in = stack.network_input(ob.glob_static)
+                            with torch.no_grad():
+                                a, _ = policy.sample(torch.from_numpy(e_in)[None],
+                                                     torch.from_numpy(g_in)[None],
+                                                     torch.from_numpy(network_state(state, use_scale))[None])
+                            a_np = a[0].numpy().astype(np.float64)
+                        follower.set(a_np)
+                        action = a_np.astype(np.float32)
+                        deciding = False
+                        dec_R, dec_ticks, dec_frames, dec_state = 0.0, 0, [], state
                     else:
-                        e_in, g_in = stack.network_input(ob.glob_static)
-                        with torch.no_grad():
-                            a, _ = policy.sample(torch.from_numpy(e_in)[None],
-                                                 torch.from_numpy(g_in)[None],
-                                                 torch.from_numpy(network_state(state, use_scale))[None])
-                        dx, dy = float(a[0, 0]), float(a[0, 1])
-                    real = env.robot.receive_action([dx, dy])
-                    action = np.array([real[0], real[1]], dtype=np.float32)
-                    coll_window = 0
+                        if np.random.rand() < eps:
+                            dx = np.random.uniform(-2, 2)
+                            dy = np.random.uniform(-2, 2)
+                        else:
+                            e_in, g_in = stack.network_input(ob.glob_static)
+                            with torch.no_grad():
+                                a, _ = policy.sample(torch.from_numpy(e_in)[None],
+                                                     torch.from_numpy(g_in)[None],
+                                                     torch.from_numpy(network_state(state, use_scale))[None])
+                            dx, dy = float(a[0, 0]), float(a[0, 1])
+                        real = env.robot.receive_action([dx, dy])
+                        action = np.array([real[0], real[1]], dtype=np.float32)
                     decisions += 1
+                if waypoint:
+                    if step % D == 0:
+                        coll_window = 0
+                    env.robot.receive_action(list(follower.command()))
+                elif step % D == 0:
+                    coll_window = 0
                 env.step()
                 hit = int(bool(env.robot.collision_check))
                 coll_window += hit
@@ -159,9 +192,20 @@ def worker_main(wid: int, task_q, out_q, param_q, epsilon_shared, seed: int):
                         comp_tot[k] += v
                     ego2, glob2, es2 = ob.frames()
                     state2 = ob.robot_state()
-                    chunk.append((state, action, float(r), ego2, glob2, es2, state2,
-                                  bool(finished), bool(last)))
-                    if len(chunk) >= chunk_n or last:
+                    if waypoint:
+                        dec_R += (gamma ** dec_ticks) * float(r)
+                        dec_frames = (dec_frames + [(ego2, glob2, es2)])[-n_stack:]
+                        if follower.end_of_tick(last):
+                            dec_ticks = follower.ticks
+                            chunk.append((dec_state, action, float(dec_R), dec_frames, state2,
+                                          bool(finished), bool(last), int(dec_ticks)))
+                            deciding = True
+                        else:
+                            dec_ticks = follower.ticks
+                    else:
+                        chunk.append((state, action, float(r), ego2, glob2, es2, state2,
+                                      bool(finished), bool(last)))
+                    if chunk and (len(chunk) >= chunk_n or last):
                         out_q.put(("trans", wid, ep, chunk))
                         chunk = []
                     stack.push(ego2, glob2, es2)

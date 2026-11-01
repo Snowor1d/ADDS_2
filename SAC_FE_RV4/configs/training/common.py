@@ -35,6 +35,13 @@ LR_CRITIC = None             # None 이면 LR
 # 1M 에 약 25 GB 였다. RV4는 프레임을 한 번만 저장하고 스택은 인덱스로
 # 다시 만든다(learn/replay.py): 1M 에 약 4 GB.
 BUFFER_SIZE = 1_000_000
+# 프레임 링 크기 = BUFFER_SIZE x 이 값 (+65536). None = auto: velocity 1.1,
+# waypoint min(FRAME_STACK, 결정 최대 길이/2 s) = 4. waypoint transition 은 2 s 마다
+# 프레임 1개(최대 FRAME_STACK 개)를 가져온다(평균 14 s 결정에서 3.4개, 실측).
+# 프레임 1개 약 3.1 kB (거리 채널이 있으면 3.75 kB). 링이 부족하면 가장 오래된
+# transition 이 무효가 되어 표본에서 빠질 뿐이다. waypoint 는 BUFFER_SIZE 250k
+# (약 1.07M 프레임, 4 GB) 를 권장 (presets/waypoint.json).
+REPLAY_FRAMES_PER_TRANSITION = None
 BATCH_SIZE = 128
 START_BATCH_TIMES = 1
 START_UPDATE_EPISODE = 500   # 이 에피소드 수 이후부터 업데이트 시작
@@ -192,7 +199,7 @@ REWARD_B_1 = 0.003           # reward_b_1 (penalty): -모든 생존자의 출구
 # reward_a 0.51, reward_k 1.17, reward_b_2 는 K=0.003 이면 0.03(묻힘), auto 면
 # 0.23, K=0.3 이면 3.0(다른 항을 덮음).
 REWARD_B_2 = 0
-REWARD_D = 0                 # 추종자 없이 출구 근처에 있으면 -1
+REWARD_D = 2                 # 추종자 없이 출구 근처에 있으면 -1
 REWARD_K = 6                 # 벽 충돌 -1
 REWARD_J = 0                 # all_agents_danger_root
 REWARD_L = 1                 # -가장 먼 생존자 거리 / 맵 대각선
@@ -284,7 +291,7 @@ WANDB_MODE = "online"
 WANDB_PROJECT = "adds-sac-fe-rv4"
 WANDB_ENTITY = None                  # None = 계정 기본 entity
 WANDB_GROUP = None                   # None = EXPERIMENT_ID
-WANDB_RUN_NAME = "SAC_FE_RV4_aug_L_geoDanger"                # None = 모드·인코더·시각으로 자동 생성
+WANDB_RUN_NAME = "OBS_STATIC"                # None = 모드·인코더·시각으로 자동 생성
 WANDB_TAGS = ()
 WANDB_UPLOAD_CHECKPOINTS = "selected"   # "none" | "selected" (검증으로 고른 모델만)
 # 검증 때 정책 에피소드 1개를 영상으로 W&B 에 올릴지 (continuous_renderer)

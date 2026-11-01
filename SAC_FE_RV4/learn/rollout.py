@@ -99,6 +99,8 @@ class PolicyController:
         self.deterministic = bool(deterministic)
         self.use_scale = bool(getattr(actor, "use_scale", False))
         self.seed = seed
+        # what the action means (learn/waypoint.py); run_episode follows it
+        self.action_mode = str(getattr(obs_cfg, "ROBOT_ACTION_MODE", "velocity"))
 
     def reset(self, env, ob):
         if self.seed is not None and not self.deterministic:
@@ -117,6 +119,70 @@ class PolicyController:
         return a[0].numpy().astype(np.float64)
 
 
+def _run_waypoint_episode(env, controller, cfg, max_steps: int, D: int, on_step) -> Dict[str, float]:
+    """run_episode for a waypoint policy (learn/waypoint.py): frames are
+    stacked every ACTION_SCALE window, the policy decides only when its
+    decision ends, and the follower drives the robot in between. `cfg` is the
+    policy's configuration (its waypoint settings)."""
+    from learn.waypoint import WaypointFollower
+    ob = ObservationBuilder(cfg, env)
+    stack = StackedObservation(int(cfg.FRAME_STACK))
+    controller.reset(env, ob)
+    follower = WaypointFollower(env, cfg)
+    total = env.total_agents
+    t80 = t100 = None
+    collisions = 0
+    path_len = 0.0
+    last_xy = list(env.robot.xy)
+    decisions = 0
+    deciding = True
+    for step in range(max_steps):
+        if step % D == 0:
+            ego, glob, es = ob.frames()
+            if step == 0:
+                stack.reset(ego, glob, es)
+            else:
+                stack.push(ego, glob, es)
+            if deciding:
+                a = controller.act(env, ob, stack, ob.robot_state())
+                follower.set(a)
+                deciding = False
+                decisions += 1
+        env.robot.receive_action(list(follower.command()))
+        env.step()
+        collisions += int(bool(getattr(env.robot, "collision_check", 0)))
+        xy = env.robot.xy
+        path_len += math.hypot(xy[0] - last_xy[0], xy[1] - last_xy[1])
+        last_xy = [xy[0], xy[1]]
+        if on_step is not None:
+            on_step(env, step + 1)
+        alive = env.alived_agents()
+        if t80 is None and alive < total * 0.2:
+            t80 = step + 1
+        if alive < 1:
+            t100 = step + 1
+        done = t100 is not None or step == max_steps - 1
+        if step % D == D - 1 or done:
+            if follower.end_of_tick(done):
+                deciding = True
+        if t100 is not None:
+            break
+    steps = step + 1
+    finished = t100 is not None
+    return {
+        "evac_time_100": float(t100 if finished else max_steps),
+        "evac_time_80": float(t80 if t80 is not None else max_steps),
+        "success": float(finished),
+        "steps": float(steps),
+        "alive_end": float(env.alived_agents()),
+        "total_lifetime": float(env.calculate_all_agents_life_time()),
+        "robot_collision_steps": float(collisions),
+        "robot_path_m": float(path_len),
+        "decisions": float(decisions),
+        "step_cap": float(max_steps),
+    }
+
+
 def run_episode(env, controller, cfg, max_steps: int,
                 decision_interval: Optional[int] = None,
                 on_step=None) -> Dict[str, float]:
@@ -128,6 +194,8 @@ def run_episode(env, controller, cfg, max_steps: int,
     D = int(decision_interval or getattr(controller, "decision_interval", None) or cfg.ACTION_SCALE)
     has_robot = getattr(env, "robot_version", "Q") != "N"
     active = controller is not None and has_robot
+    if active and getattr(controller, "action_mode", "velocity") == "waypoint":
+        return _run_waypoint_episode(env, controller, cfg, max_steps, D, on_step)
     ob = ObservationBuilder(cfg, env) if (active and getattr(controller, "needs_obs", True)) else None
     stack = StackedObservation(int(cfg.FRAME_STACK)) if ob is not None else None
     if active:
