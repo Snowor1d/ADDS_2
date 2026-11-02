@@ -115,12 +115,34 @@ ROBOT_EDGE_TRAP_FIX = True
 #               명령 거리의 절반도 못 갔을 때. 한 결정의 보상은 2 s 마다 계산한
 #               보상의 할인 합(gamma^j)이고 transition 은 gamma^(2 s 개수)로 할인한다.
 #               관측 프레임은 결정과 무관하게 2 s 마다 쌓는다(속도 모드와 같은 간격).
-# 행동 차원이 바뀌므로(2 -> 3) 네트워크와 체크포인트가 서로 호환되지 않는다.
+# 행동 차원이 바뀌므로(2 -> 3 또는 4) 네트워크와 체크포인트가 서로 호환되지 않는다.
 # 시뮬레이터는 바꾸지 않는다: 추종기가 매 스텝 속도 명령을 줄 뿐이다.
 # 사람 조작(HumanPlay)은 계속 속도 명령이다.
 ROBOT_ACTION_MODE = "waypoint"       # "velocity" | "waypoint"
-ROBOT_WAYPOINT_RANGE_M = 30.0        # 목표 오프셋 최대 (축마다, m)
-ROBOT_WAYPOINT_SPEED_MAX = 2.0       # m/s (ROBOT_SPEED_NORM_LIMIT 도 적용됨)
+# waypoint 행동을 목표점으로 바꾸는 방법.
+#   "cartesian" 위 설명 그대로: 오프셋 (x, y) +-ROBOT_WAYPOINT_RANGE_M 과 속도
+#               [0, ROBOT_WAYPOINT_SPEED_MAX]. 멈춰 기다릴 수 있고 한 결정이 최대
+#               ROBOT_DECISION_MAX_S_WAYPOINT 까지 간다.
+#   "polar"     2026-04~07 SAC_MARL_waypoint / DREAMER_MARL5 방식. 행동 4개:
+#               방향 (dx, dy) (atan2 로 각도만 씀), 거리 [-2, 2] ->
+#               ROBOT_WAYPOINT_POLAR_RADIUS_M, 속도 [-2, 2] ->
+#               ROBOT_WAYPOINT_POLAR_SPEED_M_S. 4월 코드처럼 속도 하한(1 m/s)이
+#               있으면 서 있을 수 없고 한 번에 짧게 간다. 하한 0 이면 cartesian
+#               처럼 2 s 씩 설 수 있다 (속도 x 2 s < 0.5 m 인 결정은 2 s 로 끝). 옛 코드는 0.5 s 마다 '목표 2 m 안이면 새 결정'
+#               이었지만 여기는 결정이 2 s 경계에서만 바뀌므로, 로봇이 목표에
+#               먼저 닿아 서서 기다리지 않게 둘을 2 s 시계에 맞춘다:
+#               - 거리 하한 = max(RADIUS 최소, 속도 x 2 s + ARRIVAL_M); 거리 행동은
+#                 [하한, RADIUS 최대] 를 덮는다 (2 m/s 면 5-8 m, 1 m/s 면 3-8 m).
+#               - 다음 2 s 안에 도착해 설 거리면 (직선 거리 < 속도 x 2 s +
+#                 ARRIVAL_M) 그 경계에서 결정이 끝난다.
+#               랜덤 행동으로 결정 하나 평균 2 s 창 1.2 개, 정지 스텝 4% (벽 안 목표가
+#               가까이 옮겨진 경우뿐; 시험 맵 7개, 군중 30, 2026-11-02).
+#               막힘·최대 시간 규칙은 같다.
+ROBOT_WAYPOINT_PARAM = "polar"   # "cartesian" | "polar"
+ROBOT_WAYPOINT_RANGE_M = 20.0        # cartesian: 목표 오프셋 최대 (축마다, m)
+ROBOT_WAYPOINT_SPEED_MAX = 2.0       # cartesian: m/s (ROBOT_SPEED_NORM_LIMIT 도 적용됨)
+ROBOT_WAYPOINT_POLAR_RADIUS_M = (2.0, 10.0)    # polar: 목표까지 직선 거리 (m)
+ROBOT_WAYPOINT_POLAR_SPEED_M_S = (1.0, 2.0)   # polar: 속도 (m/s)
 ROBOT_WAYPOINT_ARRIVAL_M = 1.0       # 이 안이면 도착, 정지
 ROBOT_DECISION_MAX_S_WAYPOINT = 20.0  # 2 s 의 배수
 ROBOT_DECISION_ON_EVENTS_WAYPOINT = True

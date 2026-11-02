@@ -27,6 +27,7 @@ POLICY_KEYS = (
     "EGO_MAP_SIZE", "DOWNSAMPLE_MAP_SIZE", "MAP_H", "MAP_W", "ACTION_SCALE",
     "ROBOT_ACTION_MODE", "ROBOT_WAYPOINT_RANGE_M", "ROBOT_WAYPOINT_SPEED_MAX",
     "ROBOT_WAYPOINT_ARRIVAL_M", "ROBOT_DECISION_MAX_S_WAYPOINT", "ROBOT_DECISION_ON_EVENTS_WAYPOINT",
+    "ROBOT_WAYPOINT_PARAM", "ROBOT_WAYPOINT_POLAR_RADIUS_M", "ROBOT_WAYPOINT_POLAR_SPEED_M_S",
 )
 
 RV3_POLICY = {
@@ -67,6 +68,8 @@ def policy_settings(ckpt: Dict[str, Any]) -> Dict[str, Any]:
     # checkpoints from before ROBOT_ACTION_MODE existed are velocity policies,
     # whatever configs/ says today
     out.setdefault("ROBOT_ACTION_MODE", "velocity")
+    # and waypoint checkpoints from before ROBOT_WAYPOINT_PARAM are cartesian
+    out.setdefault("ROBOT_WAYPOINT_PARAM", "cartesian")
     return out
 
 

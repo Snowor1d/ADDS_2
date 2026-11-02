@@ -46,6 +46,16 @@ class ConfigTest(unittest.TestCase):
                 d.pop("_comment", None)
                 reference_config(d)
 
+    def test_pending_cap_is_throughput_only(self):
+        """MAX_PENDING_UPDATES only paces the workers: not in the fingerprint."""
+        a = reference_config()
+        self.assertEqual(a.MAX_PENDING_UPDATES, 2000)
+        self.assertEqual(a.fingerprint(), reference_config({"MAX_PENDING_UPDATES": None}).fingerprint())
+        self.assertEqual(a.fingerprint(), reference_config({"MAX_PENDING_UPDATES": 50}).fingerprint())
+        for bad in (0, -5, True, "x"):
+            with self.assertRaises(ConfigError):
+                reference_config({"MAX_PENDING_UPDATES": bad})
+
     def test_rv3_parity_preset_is_self_contained(self):
         """It reproduces RV3 whatever configs/ is set to for the next run."""
         d = json.load(open(os.path.join(ROOT, "presets", "rv3_parity.json")))

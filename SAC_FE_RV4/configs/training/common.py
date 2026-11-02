@@ -36,7 +36,8 @@ LR_CRITIC = None             # None 이면 LR
 # 다시 만든다(learn/replay.py): 1M 에 약 4 GB.
 BUFFER_SIZE = 1_000_000
 # 프레임 링 크기 = BUFFER_SIZE x 이 값 (+65536). None = auto: velocity 1.1,
-# waypoint min(FRAME_STACK, 결정 최대 길이/2 s) = 4. waypoint transition 은 2 s 마다
+# waypoint cartesian min(FRAME_STACK, 결정 최대 길이/2 s) = 4, waypoint polar 1.5
+# (결정이 짧아 평균 1.2개, 실측). waypoint transition 은 2 s 마다
 # 프레임 1개(최대 FRAME_STACK 개)를 가져온다(평균 14 s 결정에서 3.4개, 실측).
 # 프레임 1개 약 3.1 kB (거리 채널이 있으면 3.75 kB). 링이 부족하면 가장 오래된
 # transition 이 무효가 되어 표본에서 빠질 뿐이다. waypoint 는 BUFFER_SIZE 250k
@@ -44,7 +45,7 @@ BUFFER_SIZE = 1_000_000
 REPLAY_FRAMES_PER_TRANSITION = None
 BATCH_SIZE = 128
 START_BATCH_TIMES = 1
-START_UPDATE_EPISODE = 500   # 이 에피소드 수 이후부터 업데이트 시작
+START_UPDATE_EPISODE = 1000   # 이 에피소드 수 이후부터 업데이트 시작
 DEVICE = "cuda"
 GAMMA_START = 0.99           # 결정(2 s)당 할인율. 에피소드에 따라 START -> END
 GAMMA_END = 0.99             # 로 GAMMA_SCHEDULE_STEP 에피소드 동안 선형 변화 (RV3)
@@ -64,7 +65,7 @@ START_EPSILON = 1
 SCHEDULER_TYPE = "l"         # "l" 선형 | "e" 지수
 DECAY_VALUE = 0
 LINEARLY_DECAY_STEP = 3000   # START_DECAY_STEP 부터 이 에피소드 수에 걸쳐 1 -> 0
-START_DECAY_STEP = 500
+START_DECAY_STEP = 1000
 EXPLORATION_TYPE = 0
 LONG_EPSILON_MIN = 0
 START_LONG_EPSILON = 0
@@ -241,7 +242,7 @@ REWARD_SCALE_INVARIANT = False
 # =====================================================================
 N_ENVS_WARMUP = 10           # START_UPDATE_EPISODE 전 (업데이트 없음)
 N_ENVS = 4                   # 업데이트 시작 후
-UPDATES_PER_TRANSITION = 4   # transition 하나당 gradient update 수
+UPDATES_PER_TRANSITION = 1   # transition 하나당 gradient update 수
 POLICY_BROADCAST_INTERVAL = 10   # 에피소드마다 워커에 정책 전송
 # 워커가 transition 을 몇 개씩 묶어 보낼지 (IPC 오버헤드 절감)
 WORKER_SEND_CHUNK = 8
@@ -253,7 +254,7 @@ WORKER_SEND_CHUNK = 8
 # 돌린다. 학습 맵·테스트 맵과 겹치지 않는 시드로 생성된 레벨이다.
 PERIODIC_VALIDATION = True
 VALIDATION_SUITE = "val"
-VALIDATION_CYCLE_EPISODE = 500
+VALIDATION_CYCLE_EPISODE = 1000
 VALIDATION_WORKERS = 4
 VALIDATION_POLICY_MODE = "deterministic"   # "deterministic" | "stochastic"
 # best_validation.pth 선택 지표: 평균 100% 대피 시간(작을수록 좋음)
@@ -276,6 +277,17 @@ RESUME_REFILL_TRANSITIONS = 20000
 MAX_EPISODES = 0             # 0 = 제한 없음 (RV3: 9999999)
 # 메인 루프 한 바퀴에 최대 업데이트 수 (메시지 처리가 밀리지 않게)
 MAX_UPDATES_PER_LOOP = 64
+# 밀린 업데이트(transition 이 들어오며 쌓이고 업데이트마다 1 씩 줄어드는 수)가
+# 이 값을 넘으면 워커에 새 에피소드를 주지 않는다. 진행 중인 에피소드는 마저
+# 끝내고, 학습기가 따라잡으면 다시 준다. 워커가 학습기보다 빠를 때
+# UPDATES_PER_TRANSITION 이 실제로 지켜지게 하고, 에피소드 단위 스케줄(epsilon,
+# validation, 체크포인트)이 학습 진행보다 앞서가지 않게 한다.
+# 속도 모드에서는 워커->학습기 메시지 큐가 차서 워커가 저절로 학습기 속도에
+# 맞춰졌다(밀린 업데이트 중앙값 18). waypoint 모드는 transition 이 적어 큐가 차지
+# 않아, 이 상한이 없으면 워커가 쉬지 않고 돌아 UPT 4 가 실제로는 2.5 가 되고
+# 밀린 업데이트가 계속 늘었다(2026-11-01, 0.9 h 에 86k). 2000 은 cnn l 학습기로
+# 약 70 s 분량. None 이면 상한 없음. 처리량 설정이라 fingerprint 에 넣지 않는다.
+MAX_PENDING_UPDATES = 2000
 
 # =====================================================================
 # 로깅과 W&B
@@ -291,7 +303,7 @@ WANDB_MODE = "online"
 WANDB_PROJECT = "adds-sac-fe-rv4"
 WANDB_ENTITY = None                  # None = 계정 기본 entity
 WANDB_GROUP = None                   # None = EXPERIMENT_ID
-WANDB_RUN_NAME = "cnn_l_waypoint_Range30_MaxDec20"               
+WANDB_RUN_NAME = "cnn_l_polar_Range20_MinSpd1_MaxRadius10_MaxSWaypoint20"               
 WANDB_TAGS = ()
 WANDB_UPLOAD_CHECKPOINTS = "selected"   # "none" | "selected" (검증으로 고른 모델만)
 # 검증 때 정책 에피소드 1개를 영상으로 W&B 에 올릴지 (continuous_renderer)

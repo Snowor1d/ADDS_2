@@ -294,9 +294,9 @@ def d4_state(s, k: int):
 
 
 def d4_action(a, k: int):
-    """The first two numbers are a planar vector (a velocity, or a waypoint
-    offset) and turn with the map; any further ones (the waypoint speed) do
-    not."""
+    """The first two numbers are a planar vector (a velocity, a waypoint
+    offset or a waypoint direction) and turn with the map; any further ones
+    (the waypoint distance and speed) do not."""
     import torch
     dx, dy = a[..., 0], a[..., 1]
     if k & 4:

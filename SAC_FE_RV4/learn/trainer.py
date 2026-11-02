@@ -261,9 +261,14 @@ def main(argv: Optional[List[str]] = None):
     fpt = cfg.REPLAY_FRAMES_PER_TRANSITION
     if fpt is None:
         # a waypoint transition brings one frame per 2 s window it spans, up
-        # to FRAME_STACK (3.4 on average with 14 s decisions, measured)
-        fpt = 1.1 if cfg.ROBOT_ACTION_MODE == "velocity" else \
-            float(min(int(cfg.FRAME_STACK), cfg.decision_max_ticks()))
+        # to FRAME_STACK (cartesian: 3.4 on average with 14 s decisions;
+        # polar: 1.2 with a random policy, measured)
+        if cfg.ROBOT_ACTION_MODE == "velocity":
+            fpt = 1.1
+        elif cfg.ROBOT_WAYPOINT_PARAM == "polar":
+            fpt = 1.5
+        else:
+            fpt = float(min(int(cfg.FRAME_STACK), cfg.decision_max_ticks()))
     replay = FrameReplay(int(cfg.BUFFER_SIZE), int(cfg.EGO_MAP_SIZE), int(cfg.DOWNSAMPLE_MAP_SIZE),
                          int(cfg.FRAME_STACK), bool(cfg.OBS_STATIC_DISTANCE_CHANNEL), device=device,
                          action_dim=cfg.action_dim(), frames_per_transition=float(fpt))
@@ -271,7 +276,8 @@ def main(argv: Optional[List[str]] = None):
         + int(cfg.DOWNSAMPLE_MAP_SIZE) ** 2
     print(f"[main] replay: {int(cfg.BUFFER_SIZE)} transitions, {replay.fcap} frames "
           f"(~{replay.fcap * frame_bytes / 1e9:.1f} GB), action dim {cfg.action_dim()}, "
-          f"robot action mode {cfg.ROBOT_ACTION_MODE}", flush=True)
+          f"robot action mode {cfg.ROBOT_ACTION_MODE}; workers wait while more than "
+          f"{cfg.MAX_PENDING_UPDATES} updates are pending", flush=True)
     sampler = TaskSampler(cfg, seed=int(time.time()) % 100000)
     start_episode = 0
     epsilon0 = float(cfg.START_EPSILON)
@@ -324,6 +330,12 @@ def main(argv: Optional[List[str]] = None):
     cursors: Dict[tuple, object] = {}
     ep_task: Dict[tuple, object] = {}
     pending = 0.0
+    # Workers get no new episode while the learner is this far behind
+    # (MAX_PENDING_UPDATES); wait_s is the time spent that way.
+    max_pending = cfg.MAX_PENDING_UPDATES
+    max_pending = None if max_pending is None else float(max_pending)
+    wait_s = 0.0
+    t_loop = time.time()
     acc = TrainStatsAccumulator()
     n_trans = 0
     n_trans_since_resume = 0
@@ -524,8 +536,14 @@ def main(argv: Optional[List[str]] = None):
             if time.time() - last_supervise > 10:
                 pool.supervise(lost_worker)
                 last_supervise = time.time()
-            pool.fill(lambda: sampler.next_task(episode), depth,
-                      lambda t: tasks.__setitem__(t.task_id, t))
+            now = time.time()
+            throttled = max_pending is not None and pending > max_pending
+            if throttled:
+                wait_s += now - t_loop
+            t_loop = now
+            if not throttled:
+                pool.fill(lambda: sampler.next_task(episode), depth,
+                          lambda t: tasks.__setitem__(t.task_id, t))
             msgs = []
             try:
                 msgs.append(out_q.get(timeout=0.2))
@@ -580,9 +598,11 @@ def main(argv: Optional[List[str]] = None):
                         "train/updates_per_s": upd_perf / dt,
                         "train/transitions_per_s": trans_perf / dt,
                         "train/pending_updates": pending,
+                        "train/worker_wait_frac": min(1.0, wait_s / dt),
                         "train/workers": float(pool.size()),
                         "train/worker_restarts": float(pool.restarts)})
                     t_perf, upd_perf, trans_perf = time.time(), 0, 0
+                    wait_s = 0.0
             if not ready:
                 pending = min(pending, float(cfg.MAX_UPDATES_PER_LOOP))
             res = validation.poll()

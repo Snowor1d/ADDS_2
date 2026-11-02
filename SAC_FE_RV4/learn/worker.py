@@ -129,18 +129,17 @@ def worker_main(wid: int, task_q, out_q, param_q, epsilon_shared, seed: int):
             # FRAME_STACK), so the stack keeps the velocity mode's 2 s spacing.
             waypoint = cfg.ROBOT_ACTION_MODE == "waypoint"
             if waypoint:
-                from learn.waypoint import WaypointFollower
+                from learn.waypoint import WaypointFollower, random_action
                 follower = WaypointFollower(env, cfg)
                 gamma = float(cfg.GAMMA_START)
                 n_stack = int(cfg.FRAME_STACK)
-                A = cfg.action_dim()
                 deciding = True
                 dec_R, dec_ticks, dec_frames, dec_state = 0.0, 0, [], state
             for step in range(max_steps):
                 if step % D == 0 and (not waypoint or deciding):
                     if waypoint:
                         if np.random.rand() < eps:
-                            a_np = np.random.uniform(-2, 2, size=A)
+                            a_np = random_action(cfg)
                         else:
                             e_in, g_in = stack.network_input(ob.glob_static)
                             with torch.no_grad():

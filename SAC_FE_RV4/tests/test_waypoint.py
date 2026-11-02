@@ -24,6 +24,7 @@ def _cfg(**over):
 
 
 WP = dict(ROBOT_ACTION_MODE="waypoint")
+POLAR = dict(ROBOT_ACTION_MODE="waypoint", ROBOT_WAYPOINT_PARAM="polar")
 
 
 def _env(cfg, map_num=1504, crowd=5, seed=3):
@@ -174,6 +175,128 @@ class NetworkTest(unittest.TestCase):
             y = d4_action(x, k)
             self.assertAlmostEqual(float(y[0, 2]), -1.2)
             self.assertAlmostEqual(float(torch.linalg.norm(y[0, :2])), float(torch.linalg.norm(x[0, :2])), places=6)
+
+
+class PolarTest(unittest.TestCase):
+    def test_decode(self):
+        from learn.waypoint import decode
+        cfg = _cfg(**POLAR)
+        r_min, r_max = cfg.ROBOT_WAYPOINT_POLAR_RADIUS_M
+        s_min, s_max = cfg.ROBOT_WAYPOINT_POLAR_SPEED_M_S
+        tick, arr = cfg.ACTION_SCALE * cfg.AGENT_TIME_STEP, cfg.ROBOT_WAYPOINT_ARRIVAL_M
+        # only the direction's angle counts
+        dx, dy, sp = decode([0.3, 0.4, 2, 2], cfg)
+        self.assertAlmostEqual(math.atan2(dy, dx), math.atan2(0.4, 0.3))
+        self.assertAlmostEqual(math.hypot(dx, dy), r_max)
+        self.assertAlmostEqual(sp, s_max)
+        # the shortest hop outlasts one decision window at the chosen speed
+        for a3, speed in ((2, s_max), (-2, s_min)):
+            dx, dy, sp = decode([-1, 0, -2, a3], cfg)
+            self.assertAlmostEqual(sp, speed)
+            self.assertAlmostEqual(math.hypot(dx, dy), max(r_min, speed * tick + arr))
+            self.assertLess(dx, 0)
+        self.assertEqual(decode([0, 0, 1, 1], cfg)[:2], (0.0, 0.0))
+
+    def test_random_action(self):
+        from learn.waypoint import random_action
+        cfg = _cfg(**POLAR)
+        rng = np.random.default_rng(0)
+        a = np.array([random_action(cfg, rng) for _ in range(4000)])
+        self.assertEqual(a.shape[1], cfg.action_dim())
+        self.assertTrue(np.all(np.abs(a) <= 2.0 + 1e-12))
+        np.testing.assert_allclose(np.hypot(a[:, 0], a[:, 1]), 2.0)
+        # uniform in angle: as many near the axes as near the diagonals
+        th = np.mod(np.arctan2(a[:, 1], a[:, 0]), np.pi / 2)
+        near_axis = np.mean((th < np.pi / 8) | (th > 3 * np.pi / 8))
+        self.assertAlmostEqual(near_axis, 0.5, delta=0.05)
+        self.assertEqual(random_action(_cfg(**WP), rng).shape, (3,))
+
+    def test_follower_keeps_moving(self):
+        """Random polar hops on test maps with a crowd: decisions are short and
+        the robot (almost) never stands at a reached target."""
+        from learn.waypoint import WaypointFollower, random_action
+        cfg = _cfg(**POLAR)
+        D = int(cfg.ACTION_SCALE)
+        rng = np.random.default_rng(1)
+        ticks, idle, steps = [], 0, 0
+        for m in (1501, 1504, 1508):
+            env = _env(cfg, map_num=m, crowd=30)
+            fol = WaypointFollower(env, cfg)
+            for _ in range(12):
+                fol.set(random_action(cfg, rng))
+                for step in range(D * fol.max_ticks):
+                    c = fol.command()
+                    idle += c == (0.0, 0.0)
+                    steps += 1
+                    env.robot.receive_action(list(c))
+                    env.step()
+                    if step % D == D - 1 and fol.end_of_tick(False):
+                        break
+                ticks.append(fol.ticks)
+        self.assertLess(np.mean(ticks), 2.0)
+        self.assertLess(idle / steps, 0.1)
+
+    def test_networks_and_episode(self):
+        from learn.rollout import run_episode
+        from learn.sac import SACLearner
+        cfg = _cfg(NET_SIZE="s", **POLAR)
+        self.assertEqual(cfg.action_dim(), 4)
+        learner = SACLearner(cfg, "cpu")
+        B, C = 4, cfg.obs_channels()
+        e = torch.rand(B, C, cfg.EGO_MAP_SIZE, cfg.EGO_MAP_SIZE)
+        g = torch.rand(B, C, cfg.DOWNSAMPLE_MAP_SIZE, cfg.DOWNSAMPLE_MAP_SIZE)
+        st = torch.rand(B, 5)
+        a, _ = learner.actor.sample(e, g, learner._sa(st))
+        self.assertEqual(tuple(a.shape), (B, 4))
+        batch = {"ego": e, "glob": g, "state": st, "action": a.detach(), "reward": torch.rand(B),
+                 "discount": torch.full((B,), 0.9), "done": torch.zeros(B),
+                 "ego2": e, "glob2": g, "state2": st}
+        self.assertTrue(math.isfinite(learner.update(batch)["train/q_loss"]))
+
+        class RandomPolar:
+            needs_obs = True
+            action_mode = "waypoint"
+            decision_interval = int(cfg.ACTION_SCALE)
+
+            def reset(self, env, ob):
+                self.rng = np.random.default_rng(2)
+
+            def act(self, env, ob, stack, state5):
+                return self.rng.uniform(-2, 2, 4)
+
+        res = run_episode(_env(cfg, crowd=30), RandomPolar(), cfg, max_steps=400)
+        self.assertGreater(res["robot_path_m"], 0.8 * 400 * cfg.ROBOT_TIME_STEP)   # >= 0.8 m/s
+
+    def test_config(self):
+        from configs import ConfigError
+        from learn.policy_io import policy_settings
+        cart, pol = _cfg(**WP), _cfg(**POLAR)
+        self.assertNotEqual(cart.fingerprint(), pol.fingerprint())
+        # each parameterisation ignores the other's settings
+        self.assertEqual(_cfg(ROBOT_WAYPOINT_POLAR_RADIUS_M=(3.0, 9.0), **WP).fingerprint(), cart.fingerprint())
+        self.assertEqual(_cfg(ROBOT_WAYPOINT_RANGE_M=12.0, **POLAR).fingerprint(), pol.fingerprint())
+        self.assertNotEqual(_cfg(ROBOT_WAYPOINT_POLAR_RADIUS_M=(3.0, 9.0), **POLAR).fingerprint(), pol.fingerprint())
+        self.assertEqual(_cfg(ROBOT_WAYPOINT_PARAM="polar").fingerprint(), _cfg().fingerprint())
+        for bad in (dict(ROBOT_WAYPOINT_POLAR_RADIUS_M=(0.0, 8.0)), dict(ROBOT_WAYPOINT_POLAR_RADIUS_M=(8.0, 2.0)),
+                    dict(ROBOT_WAYPOINT_POLAR_SPEED_M_S=(1.0, 2.5)), dict(ROBOT_WAYPOINT_POLAR_SPEED_M_S=(-0.5, 2.0)),
+                    dict(ROBOT_WAYPOINT_PARAM="spherical")):
+            with self.assertRaises(ConfigError):
+                _cfg(**{**POLAR, **bad})
+        # a speed range from 0 is allowed: standing is then a 2 s decision
+        from learn.waypoint import WaypointFollower
+        cfg0 = _cfg(ROBOT_WAYPOINT_POLAR_SPEED_M_S=(0.0, 2.0), **POLAR)
+        env = _env(cfg0)
+        fol = WaypointFollower(env, cfg0)
+        fol.set([1.0, 0.0, 2.0, -2.0])                  # 10 m east at 0 m/s
+        self.assertEqual(fol.command(), (0.0, 0.0))
+        self.assertTrue(fol.end_of_tick(False))
+        # JSON lists become tuples
+        self.assertEqual(_cfg(ROBOT_WAYPOINT_POLAR_RADIUS_M=[2, 6], **POLAR).ROBOT_WAYPOINT_POLAR_RADIUS_M, (2, 6))
+        # waypoint checkpoints from before the setting are cartesian
+        ck = {"format": "rv4", "config": {"ROBOT_ACTION_MODE": "waypoint"}}
+        self.assertEqual(policy_settings(ck)["ROBOT_WAYPOINT_PARAM"], "cartesian")
+        ck["config"]["ROBOT_WAYPOINT_PARAM"] = "polar"
+        self.assertEqual(policy_settings(ck)["ROBOT_WAYPOINT_PARAM"], "polar")
 
 
 class UedScoreTest(unittest.TestCase):

@@ -13,6 +13,9 @@ from configs import resolve_config
 REFERENCE = {
     # actions and observation
     "ROBOT_ACTION_MODE": "velocity",
+    "ROBOT_WAYPOINT_PARAM": "cartesian",
+    "ROBOT_WAYPOINT_POLAR_RADIUS_M": (2.0, 8.0),
+    "ROBOT_WAYPOINT_POLAR_SPEED_M_S": (1.0, 2.0),
     "OBS_STATIC_DISTANCE_CHANNEL": False,
     "OBS_FOLLOWER_PIXEL": None,
     "OBS_EGO_MODE": "normalized",

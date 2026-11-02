@@ -52,7 +52,7 @@ _NOT_FINGERPRINTED = {
     "WANDB_RUN_NAME", "WANDB_TAGS", "WANDB_UPLOAD_CHECKPOINTS",
     "LOG_TRAIN_EVERY_UPDATES", "LOG_TXT_COMPAT", "TENSORBOARD", "PORT_NUM",
     "ENABLE_TIMER", "EVAL_WORKERS", "VALIDATION_WORKERS", "VALIDATION_VIDEO",
-    "N_ENVS", "N_ENVS_WARMUP", "DEVICE", "EXPERIMENT_ID", "LOG_DIR",
+    "N_ENVS", "N_ENVS_WARMUP", "DEVICE", "EXPERIMENT_ID", "LOG_DIR", "MAX_PENDING_UPDATES",
     "RESUME_MODE", "KEEP_LAST_CHECKPOINTS", "CHECKPOINT_EVERY_EPISODES",
     "SAVE_REPLAY", "SHOW_CONTROLLED_CROWD",
 }
@@ -66,12 +66,17 @@ _FINGERPRINT_DEFAULTS = {
     "REWARD_B_2": 0,
     "ROBOT_ACTION_MODE": "velocity",
     "REPLAY_FRAMES_PER_TRANSITION": None,
+    "ROBOT_WAYPOINT_PARAM": "cartesian",
 }
 # Settings that only mean something in ROBOT_ACTION_MODE = "waypoint": left
 # out of the fingerprint in "velocity" mode whatever their value, so velocity
-# runs keep their fingerprints.
+# runs keep their fingerprints. Likewise the settings of one
+# ROBOT_WAYPOINT_PARAM are left out under the other.
 _WAYPOINT_ONLY = ("ROBOT_WAYPOINT_RANGE_M", "ROBOT_WAYPOINT_SPEED_MAX", "ROBOT_WAYPOINT_ARRIVAL_M",
-                  "ROBOT_DECISION_MAX_S_WAYPOINT", "ROBOT_DECISION_ON_EVENTS_WAYPOINT")
+                  "ROBOT_DECISION_MAX_S_WAYPOINT", "ROBOT_DECISION_ON_EVENTS_WAYPOINT",
+                  "ROBOT_WAYPOINT_PARAM", "ROBOT_WAYPOINT_POLAR_RADIUS_M", "ROBOT_WAYPOINT_POLAR_SPEED_M_S")
+_CARTESIAN_ONLY = ("ROBOT_WAYPOINT_RANGE_M", "ROBOT_WAYPOINT_SPEED_MAX")
+_POLAR_ONLY = ("ROBOT_WAYPOINT_POLAR_RADIUS_M", "ROBOT_WAYPOINT_POLAR_SPEED_M_S")
 
 # Settings renamed after runs had started: the fingerprint hashes them under
 # the old name, and overrides (presets, --set, RV4_OVERRIDES) may still use it.
@@ -91,6 +96,7 @@ _VALID = {
     "REWARD_COLLISION_MODE": ("last_step", "sum"),
     "DANGER_DISTANCE": ("euclidean", "geodesic"),
     "ROBOT_ACTION_MODE": ("velocity", "waypoint"),
+    "ROBOT_WAYPOINT_PARAM": ("cartesian", "polar"),
     "RESUME_MODE": ("latest", "fresh"),
     "WANDB_MODE": ("online", "offline", "disabled"),
     "WANDB_UPLOAD_CHECKPOINTS": ("none", "selected"),
@@ -279,9 +285,11 @@ class Config:
 
     def fingerprint(self) -> str:
         velocity = self._values.get("ROBOT_ACTION_MODE", "velocity") == "velocity"
+        polar = self._values.get("ROBOT_WAYPOINT_PARAM", "cartesian") == "polar"
+        unused = set(_WAYPOINT_ONLY) if velocity else set(_CARTESIAN_ONLY if polar else _POLAR_ONLY)
         data = {_RENAMED.get(k, k): v for k, v in self._values.items() if k not in _NOT_FINGERPRINTED
                 and not (k in _FINGERPRINT_DEFAULTS and v == _FINGERPRINT_DEFAULTS[k])
-                and not (velocity and k in _WAYPOINT_ONLY)}
+                and k not in unused}
         blob = json.dumps(data, sort_keys=True, default=str).encode()
         return hashlib.sha256(blob).hexdigest()[:12]
 
@@ -293,8 +301,11 @@ class Config:
         return float(self.LR_CRITIC if self.LR_CRITIC is not None else self.LR)
 
     def action_dim(self) -> int:
-        """2 (velocity) or 3 (waypoint: target offset x, y and speed)."""
-        return 3 if self.ROBOT_ACTION_MODE == "waypoint" else 2
+        """2 (velocity), 3 (cartesian waypoint: target offset x, y and speed)
+        or 4 (polar waypoint: direction x, y, distance and speed)."""
+        if self.ROBOT_ACTION_MODE != "waypoint":
+            return 2
+        return 4 if self.ROBOT_WAYPOINT_PARAM == "polar" else 3
 
     def decision_max_ticks(self) -> int:
         """Longest decision in ACTION_SCALE windows (1 in velocity mode)."""
@@ -379,13 +390,24 @@ def _validate(v: Dict[str, Any]) -> None:
             errs.append(f"ROBOT_DECISION_MAX_S_WAYPOINT must be a positive multiple of {tick_s:g} s "
                         "(decisions end on the ACTION_SCALE clock)")
         if v["NET_ENCODER"] == "legacy_rv3":
-            errs.append("ROBOT_ACTION_MODE='waypoint' needs a 3-number action; legacy_rv3 has 2")
+            errs.append("ROBOT_ACTION_MODE='waypoint' needs a 3- or 4-number action; legacy_rv3 has 2")
         if float(v["GAMMA_START"]) != float(v["GAMMA_END"]):
             errs.append("ROBOT_ACTION_MODE='waypoint' needs a constant discount (GAMMA_START == GAMMA_END): "
                         "workers discount the 2 s rewards inside a decision with it")
         for k in ("ROBOT_WAYPOINT_RANGE_M", "ROBOT_WAYPOINT_SPEED_MAX", "ROBOT_WAYPOINT_ARRIVAL_M"):
             if not float(v[k]) > 0:
                 errs.append(f"{k} must be > 0")
+        r = v["ROBOT_WAYPOINT_POLAR_RADIUS_M"]
+        if not (isinstance(r, tuple) and len(r) == 2 and 0 < float(r[0]) <= float(r[1])):
+            errs.append("ROBOT_WAYPOINT_POLAR_RADIUS_M must be (min, max) with 0 < min <= max")
+        # a minimum of 0 lets the robot stand (a 2 s wait, as in cartesian)
+        sp = v["ROBOT_WAYPOINT_POLAR_SPEED_M_S"]
+        if not (isinstance(sp, tuple) and len(sp) == 2 and 0 <= float(sp[0]) <= float(sp[1]) <= 2.0):
+            errs.append("ROBOT_WAYPOINT_POLAR_SPEED_M_S must be (min, max) with 0 <= min <= max <= 2 m/s "
+                        "(the robot's speed limit)")
+    mp = v.get("MAX_PENDING_UPDATES")
+    if mp is not None and not (isinstance(mp, (int, float)) and not isinstance(mp, bool) and mp >= 1):
+        errs.append("MAX_PENDING_UPDATES must be None (no cap) or >= 1")
     b2 = v.get("REWARD_B_2")
     if not (b2 == "auto" or (isinstance(b2, (int, float)) and not isinstance(b2, bool) and b2 >= 0)):
         errs.append("REWARD_B_2 must be 0 (off), a K > 0 or 'auto'")

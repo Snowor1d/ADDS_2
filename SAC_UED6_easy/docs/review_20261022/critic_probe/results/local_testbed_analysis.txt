@@ -1,0 +1,87 @@
+probe states: 30; reliability >= 0.5: 6
+state                              group       reps   rel  ceil
+s_dotonbori_100_0_t80              train_100     10  0.42  0.65
+s_dotonbori_100_1_t80              train_100     10 -0.45  0.00
+s_dotonbori_100_2_t80              train_100     10  0.86  0.93
+s_hongdae_100_0_t80                train_100     10  0.85  0.92
+s_hongdae_100_1_t80                train_100     10  0.14  0.37
+s_hongdae_100_2_t80                train_100     10 -0.07  0.00
+s0_t320                            train_200      3   nan   nan
+s0_t80                             train_200      3   nan   nan
+s1_t320                            train_200      3   nan   nan
+s1_t80                             train_200      3   nan   nan
+s2_t320                            train_200     10  0.82  0.91
+s2_t80                             train_200      3   nan   nan
+s3_t320                            train_200     10  0.86  0.93
+s3_t80                             train_200     10  0.48  0.69
+s4_t320                            train_200      3   nan   nan
+s4_t80                             train_200      3   nan   nan
+s5_t320                            train_200      3   nan   nan
+s5_t80                             train_200     10 -0.43  0.00
+s6_t320                            train_200      3   nan   nan
+s6_t80                             train_200     10  0.41  0.64
+s7_t320                            train_200     10  0.70  0.84
+s7_t80                             train_200      3   nan   nan
+s8_t320                            train_200      3   nan   nan
+s8_t80                             train_200      3   nan   nan
+s_gracia_200_0_t320                unseen_200    10 -1.97  0.00
+s_gracia_200_0_t80                 unseen_200    10 -0.39  0.00
+s_kreuzberg_200_0_t320             unseen_200    10  0.25  0.50
+s_kreuzberg_200_0_t80              unseen_200    10  0.57  0.76
+s_trastevere_200_0_t320            unseen_200    10 -0.32  0.00
+s_trastevere_200_0_t80             unseen_200    10 -2.17  0.00
+
+== values averaged over updates >= 6000 (checkpoint: its own values)
+
+-- reliable states: mean corr (ceiling) / mean regret, per group
+   train_100   n= 2 ceil 0.92 | checkpoint +0.07/1.86 local20 -0.35/1.32 local40 -0.21/1.05 global +0.03/0.34 global_full +0.05/0.34 local20_s1 -0.34/1.05 local40_s1 +0.06/1.05 global_s1 +0.13/0.88
+   train_200   n= 3 ceil 0.89 | checkpoint -0.16/1.46 local20 +0.02/1.11 local40 -0.04/0.85 global +0.01/1.11 global_full +0.06/1.00 local20_s1 -0.03/0.93 local40_s1 +0.37/0.21 global_s1 -0.06/0.94
+   unseen_200  n= 1 ceil 0.76 | checkpoint -0.54/2.39 local20 +0.46/0.43 local40 +0.22/0.43 global -0.10/0.00 global_full +0.03/0.00 local20_s1 +0.54/0.43 local40_s1 +0.53/0.43 global_s1 +0.49/0.43
+   ALL         n= 6 ceil 0.88 | checkpoint -0.15/1.75 local20 -0.03/1.06 local40 -0.05/0.85 global -0.00/0.67 global_full +0.05/0.61 local20_s1 -0.04/0.89 local40_s1 +0.29/0.53 global_s1 +0.09/0.84
+
+-- all states: mean corr (ceiling) / mean regret, per group
+   train_100   n= 6 ceil 0.48 | checkpoint -0.02/1.07 local20 -0.20/0.66 local40 -0.31/1.30 global +0.01/0.48 global_full -0.10/0.82 local20_s1 -0.34/1.21 local40_s1 -0.08/0.80 global_s1 -0.04/1.19
+   train_200   n=18 ceil 0.67 | checkpoint -0.20/1.40 local20 +0.03/1.12 local40 -0.07/0.91 global -0.17/1.01 global_full -0.16/1.21 local20_s1 +0.11/0.85 local40_s1 +0.00/1.01 global_s1 -0.09/1.10
+   unseen_200  n= 6 ceil 0.21 | checkpoint +0.06/0.97 local20 -0.23/1.06 local40 -0.22/1.59 global +0.08/0.79 global_full +0.13/1.07 local20_s1 -0.24/1.68 local40_s1 -0.28/1.62 global_s1 -0.23/1.05
+   ALL         n=30 ceil 0.45 | checkpoint -0.11/1.25 local20 -0.07/1.02 local40 -0.15/1.12 global -0.08/0.86 global_full -0.09/1.11 local20_s1 -0.05/1.08 local40_s1 -0.07/1.09 global_s1 -0.11/1.11
+
+-- local20 minus global, corr, mean over 2 seed pair(s), +- se over states
+   train_100   reliable n= 2 -0.43 +- 0.61  (local20 better in 1/2)
+   train_100   all      n= 6 -0.25 +- 0.22  (local20 better in 3/6)
+   train_200   reliable n= 3 +0.02 +- 0.19  (local20 better in 2/3)
+   train_200   all      n=18 +0.20 +- 0.13  (local20 better in 11/18)
+   unseen_200  all      n= 6 -0.16 +- 0.13  (local20 better in 1/6)
+   ALL         reliable n= 6 -0.08 +- 0.22  (local20 better in 4/6)
+   ALL         all      n=30 +0.04 +- 0.10  (local20 better in 15/30)
+
+== pair accuracy (significant pairs, values averaged over updates >= 6000)
+   train_100    4 states  24 pairs | checkpoint 0.58 [0.20, 0.89] local20 0.38 [0.14, 0.70] local40 0.33 [0.00, 0.83] global 0.42 [0.09, 0.69] global_full 0.54 [0.27, 0.69] local20_s1 0.29 [0.00, 0.52] local40_s1 0.29 [0.00, 0.41] global_s1 0.58 [0.00, 0.67]
+   train_200    5 states  38 pairs | checkpoint 0.34 [0.15, 0.47] local20 0.39 [0.23, 0.45] local40 0.37 [0.21, 0.53] global 0.47 [0.30, 0.57] global_full 0.53 [0.32, 0.71] local20_s1 0.53 [0.30, 0.74] local40_s1 0.68 [0.27, 0.92] global_s1 0.50 [0.17, 0.70]
+   unseen_200   2 states   4 pairs | checkpoint 0.25 [0.00, 1.00] local20 0.75 [0.00, 1.00] local40 0.75 [0.00, 1.00] global 0.50 [0.33, 1.00] global_full 0.50 [0.33, 1.00] local20_s1 0.75 [0.00, 1.00] local40_s1 0.75 [0.00, 1.00] global_s1 0.75 [0.00, 1.00]
+   ALL         11 states  66 pairs | checkpoint 0.42 [0.21, 0.62] local20 0.41 [0.27, 0.55] local40 0.38 [0.17, 0.61] global 0.45 [0.29, 0.58] global_full 0.53 [0.40, 0.65] local20_s1 0.45 [0.28, 0.62] local40_s1 0.55 [0.30, 0.78] global_s1 0.55 [0.34, 0.68]
+
+== per update: mean corr on reliable states
+   update checkpoint   local20   local40    global global_full local20_s1 local40_s1 global_s1
+       -1     -0.15                                                                      
+        0               -0.12     -0.12     -0.12     -0.12     -0.25     -0.25     -0.25
+     1000               -0.11     -0.11     -0.02     +0.06     -0.13     +0.13     +0.11
+     2000               -0.20     -0.01     -0.06     -0.00     -0.18     +0.15     +0.06
+     3000               -0.12     -0.08     +0.01     +0.03     -0.18     +0.04     +0.10
+     4000               -0.07     -0.06     -0.02     +0.03     -0.04     +0.07     +0.09
+     5000               -0.08     -0.07     +0.01     +0.05     -0.12     +0.17     +0.06
+     6000               -0.11     -0.04     +0.02     +0.02     -0.07     +0.19     +0.08
+     7000               -0.08     -0.09     -0.09     +0.07     -0.12     +0.06     +0.07
+     8000               -0.08     -0.02     -0.05     +0.06     -0.06     +0.14     +0.11
+     9000               +0.00     -0.09     +0.01     +0.04     -0.03     +0.17     +0.08
+    10000               +0.05     +0.02     +0.03     +0.08     +0.03     +0.30     +0.13
+    11000               +0.03     -0.09     -0.08     +0.03     +0.14     +0.22     +0.09
+    12000               +0.02     +0.04     +0.05     +0.08     +0.17     +0.29     +0.07
+-- local40 minus global, corr, mean over 2 seed pair(s), +- se over states
+   train_100   reliable n= 2 -0.15 +- 0.59  (local40 better in 1/2)
+   train_100   all      n= 6 -0.18 +- 0.23  (local40 better in 2/6)
+   train_200   reliable n= 3 +0.19 +- 0.06  (local40 better in 3/3)
+   train_200   all      n=18 +0.10 +- 0.08  (local40 better in 12/18)
+   unseen_200  all      n= 6 -0.18 +- 0.12  (local40 better in 2/6)
+   ALL         reliable n= 6 +0.07 +- 0.17  (local40 better in 5/6)
+   ALL         all      n=30 -0.01 +- 0.07  (local40 better in 16/30)
+

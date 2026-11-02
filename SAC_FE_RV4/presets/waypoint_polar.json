@@ -1,0 +1,5 @@
+{
+  "_comment": "Polar waypoint actions (learn/waypoint.py, the 2026-04 SAC_MARL_waypoint design on RV4's 2 s decision clock): a direction, a hop of 2-8 m and a speed of 1-2 m/s, so the robot always moves. A hop is at least speed x 2 s + 1 m, and a decision ends at the 2 s boundary before the robot would stop at its target: 1.2 windows per decision on average (random policy, test maps), so transitions per episode are close to velocity mode's and BUFFER_SIZE / UPDATES_PER_TRANSITION can stay as for velocity. Add LOG_DIR / WANDB_RUN_NAME of your own.",
+  "ROBOT_ACTION_MODE": "waypoint",
+  "ROBOT_WAYPOINT_PARAM": "polar"
+}

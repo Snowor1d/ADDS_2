@@ -1,9 +1,16 @@
 """Waypoint actions (ROBOT_ACTION_MODE = "waypoint").
 
-The action is three numbers in [-2, 2]: a target offset per axis
-(+-ROBOT_WAYPOINT_RANGE_M, from where the robot stands when it decides) and a
-speed ([0, 1] of ROBOT_WAYPOINT_SPEED_MAX). A target inside an obstacle or
-outside the map is moved to the nearest walkable point. Every simulation step
+ROBOT_WAYPOINT_PARAM picks how the action, numbers in [-2, 2], becomes a
+target, always relative to where the robot stands when it decides:
+    "cartesian"  three numbers: a target offset per axis
+                 (+-ROBOT_WAYPOINT_RANGE_M) and a speed ([0, 1] of
+                 ROBOT_WAYPOINT_SPEED_MAX).
+    "polar"      four numbers: a direction (dx, dy; only its angle is used), a
+                 distance (ROBOT_WAYPOINT_POLAR_RADIUS_M) and a speed
+                 (ROBOT_WAYPOINT_POLAR_SPEED_M_S), as in the 2026-04 MARL
+                 waypoint code: the robot always moves, in short hops.
+A target inside an obstacle or outside the map is moved to the nearest
+walkable point. Every simulation step
 the follower commands a velocity toward the target along the navmesh with the
 shuttle baselines' Navigator (straight when the body-clear line is free,
 otherwise toward the farthest visible point of the triangle route), slowing so
@@ -15,9 +22,15 @@ A decision is held until an ACTION_SCALE boundary (2 s) at which
     - ROBOT_DECISION_MAX_S_WAYPOINT has passed, or
     - with ROBOT_DECISION_ON_EVENTS_WAYPOINT: the robot has arrived, or moved
       less than half of what it could have in the last 2 s (blocked by a wall
-      or the crowd), or
+      or the crowd), or (polar) it would stop at the target within the next
+      2 s (straight-line gap < speed x 2 s + arrival radius), so it never
+      stands at a reached target waiting for the clock. The straight line is
+      never longer than the walk, so such a decision can end early, never
+      late. For the same reason a polar hop is at least speed x 2 s + arrival
+      radius long (decode),
     - the commanded speed is (almost) zero: standing still is a 2 s decision,
-      so the policy can wait without committing for long,
+      so the policy can wait without committing for long (polar only when
+      its speed range starts at or near 0),
 or the episode ends.
 """
 
@@ -31,12 +44,45 @@ import numpy as np
 STAND_M = 0.5        # a decision that would move less than this in 2 s is a wait
 
 
+def _tick_s(cfg) -> float:
+    return int(cfg.ACTION_SCALE) * float(cfg.AGENT_TIME_STEP)
+
+
+def _span(u: float, lo_hi) -> float:
+    """[-2, 2] -> [lo, hi]."""
+    lo, hi = float(lo_hi[0]), float(lo_hi[1])
+    return lo + (u + 2.0) / 4.0 * (hi - lo)
+
+
 def decode(action, cfg) -> Tuple[float, float, float]:
-    """(dx m, dy m, speed m/s) of a 3-number action."""
+    """(dx m, dy m, speed m/s) of a waypoint action."""
+    if cfg.ROBOT_WAYPOINT_PARAM == "polar":
+        a = np.clip(np.asarray(action, dtype=np.float64)[:4], -2.0, 2.0)
+        speed = _span(a[3], cfg.ROBOT_WAYPOINT_POLAR_SPEED_M_S)
+        # A hop is at least what the robot walks in one decision window plus
+        # the arrival radius, so it never reaches the target and stands until
+        # the next 2 s boundary; the distance number spans the rest.
+        r_min, r_max = (float(x) for x in cfg.ROBOT_WAYPOINT_POLAR_RADIUS_M)
+        lo = max(r_min, speed * _tick_s(cfg) + float(cfg.ROBOT_WAYPOINT_ARRIVAL_M))
+        norm = math.hypot(a[0], a[1])
+        dist = _span(a[2], (lo, max(lo, r_max))) if norm > 1e-9 else 0.0
+        ux, uy = (a[0] / norm, a[1] / norm) if norm > 1e-9 else (0.0, 0.0)
+        return ux * dist, uy * dist, speed
     a = np.clip(np.asarray(action, dtype=np.float64)[:3], -2.0, 2.0)
     r = float(cfg.ROBOT_WAYPOINT_RANGE_M)
     speed = (a[2] + 2.0) / 4.0 * float(cfg.ROBOT_WAYPOINT_SPEED_MAX)
     return a[0] / 2.0 * r, a[1] / 2.0 * r, speed
+
+
+def random_action(cfg, rng=np.random) -> np.ndarray:
+    """A uniformly random waypoint action (the epsilon-greedy draw). Polar:
+    the direction is drawn uniformly in angle (uniform (dx, dy) on the square
+    would favour the diagonals two to one)."""
+    if cfg.ROBOT_WAYPOINT_PARAM == "polar":
+        th = rng.uniform(-math.pi, math.pi)
+        return np.array([2.0 * math.cos(th), 2.0 * math.sin(th),
+                         rng.uniform(-2, 2), rng.uniform(-2, 2)], dtype=np.float64)
+    return rng.uniform(-2, 2, size=3)
 
 
 class WaypointFollower:
@@ -56,6 +102,7 @@ class WaypointFollower:
         self.tick_s = int(cfg.ACTION_SCALE) * float(cfg.AGENT_TIME_STEP)
         self.arrival = float(cfg.ROBOT_WAYPOINT_ARRIVAL_M)
         self.on_events = bool(cfg.ROBOT_DECISION_ON_EVENTS_WAYPOINT)
+        self.polar = cfg.ROBOT_WAYPOINT_PARAM == "polar"
         self.max_ticks = int(cfg.decision_max_ticks())
         # Where a target may be: where the robot's body can actually stand.
         # The simulator's outer frame is at 0 and at W-1 / H-1 (not W / H), and
@@ -138,6 +185,8 @@ class WaypointFollower:
             return True
         if self.on_events:
             if self.arrived():
+                return True
+            if self.polar and self.gap() < self.speed * self.tick_s + self.arrival:
                 return True
             if could >= STAND_M and moved < 0.5 * could:
                 return True

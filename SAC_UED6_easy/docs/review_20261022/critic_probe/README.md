@@ -90,3 +90,18 @@ python3 analyze_spatial.py results/spatial_eval_all.jsonl --late 6000
 - `true_adv_v2.py`는 이제 `SITE:SIZE:K`(임의 crop의 probe 수준)와 `--overrides`를 받는다. 최종 zero-shot 지역은 거부한다.
 - `testbed_spatial.py --check`: 로봇별 target 경로가 `learn/sac`과 같은지, spatial critic의 로봇 하나 경로와 전체 경로가 같은지 확인한다.
 - 원자료: `results/gen/`(새 probe), `results/spatial_eval_all.jsonl`, `results/spatial_eval_all_analysis.txt`, `results/spatial_eval_agreement.txt`. replay와 저장된 critic은 크기 때문에 저장소 밖에 있다.
+
+## 5. 영향권 return target (`testbed_local.py`, 2026-10-30)
+
+결과는 `../critic_diagnosis.md` 10·11장.
+
+```bash
+python3 analyze_locality.py                                               # 10장: 거리별 신호 대 잡음비
+python3 collect_replay.py $CK <dir> --episodes 400 --person-returns --overrides "$OVR"
+python3 testbed_local.py --ckpt $CK --replay-dir <dir> --out $PWD/results/local_testbed.jsonl \
+    --variants local20:0,local40:0,global:0,global_full:0,local20:1,local40:1,global:1 \
+    --updates 12000 --overrides "$OVR"
+python3 analyze_spatial.py results/local_testbed.jsonl --late 6000 --pair local20,global
+```
+
+`person_book.py`가 run_episode의 on_step에서 팀 보상을 사람별로 나눈다(매 step 실제 팀 보상과 대조). 그리고 로봇 결정마다 영향권(20·40 m)과 전체의 return을 계산한다.
